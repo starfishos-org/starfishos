@@ -1,0 +1,18 @@
+#!/usr/bin/expect 
+
+# test mode "IPMI" or "QEMU"
+set test_mode "IPMI"
+# set test_mode "QEMU"
+
+set basedir "/home/<basedir>/treesls"
+set aedir "$basedir/artificial_evaluation"
+set logbasedir "$aedir/logs/$test_mode"
+set appdir "$aedir/applications"
+set kconfig "$basedir/kernel/sls_config.cmake"
+
+# Set the ANSI escape sequence for colors
+set white_color "\033\[37m"
+set red_color "\033\[31m"
+
+set ipmi_ip "192.168.12.93" 
+set ckptlogtimes 1000

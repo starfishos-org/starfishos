@@ -1,0 +1,162 @@
+# SOSP 2023 Artifact Submission
+
+We thank the artifact evaluators who have volunteered to do one of the toughest jobs out there!
+
+## Requirements
+
+Hardware
+- Intel® Optane™ Persistent Memory (or you can use our Qemu mode for simulation)
+
+Software
+- docker: we build the OS within a given docker
+- ipmitool: for interacting with the real machine (with kernel loaded)
+- expect & python3: for scripts
+
+## Building TreeSLS OS
+
+> Currently, we provide the already-built kernel images, so you can skip this part.
+
+Use `./defconfig x86_64` and `./quick-build.sh` to build everything at first.
+
+### Kernel Parameters
+
+Different tests require different flags in `kernel/sls_config.cmake`. But we will give a `setup.sh` script in each test to **automatically** set these parameters and build the kernel!
+
+The meaning of each flag is given below:
+
+1. Basic configuration
+    - SLS_RESTORE: restore from the last checkpoint if set; else start with an empty OS.
+    - SLS_EXT_SYNC: enable external synchrony.
+    - SLS_HYBRID_MEM: enable `hybrid method` to checkpoint memory pages; else fall back to `CoW method` during runtime.
+
+2. Report details
+    - SLS_REPORT_CKPT: report checkpoint information
+    - SLS_REPORT_RESTORE: report restore information
+    - SLS_REPORT_HYBRID: report information of hybrid method
+
+3. Special tests
+    - SLS_SPECIAL_OMIT_PF: omit triggering page fault related to checkpoint
+    - SLS_SPECIAL_OMIT_MEMCPY: omit to copy page-faulted pages related to checkpoint
+    - SLS_SPECIAL_OMIT_BENCHMARK: omit tracking benchmarks
+
+### User App Parameters
+
+Also, you can selectively choose whether to build each application by setting the `ON` flag in `user/config.cmake`. 
+
+```cmake
+chcore_config(CHCORE_DEMOS_REDIS BOOL ON "Build redis?")
+chcore_config(CHCORE_DEMOS_MEMCACHED BOOL ON "Build memcached?")
+chcore_config(CHCORE_DEMOS_MEMCACHETEST BOOL ON "Build memcache test?")
+chcore_config(CHCORE_DEMOS_SQLITE BOOL ON "Build SQLite3?")
+chcore_config(CHCORE_DEMOS_LEVELDB BOOL ON "Build LevelDB?")
+chcore_config(CHCORE_DEMOS_YCSB BOOL ON "Build YCSB-C?")
+chcore_config(CHCORE_DEMOS_PHOENIX BOOL ON "Build Phoenix?")
+chcore_config(CHCORE_DEMOS_ROCKSDB BOOL ON "Build RocksDB?")
+```
+
+## Knowledge Before Testing!
+
+We will give scripts of each test (`*.sh` files) in **subdirs** in `artificial_evaluation`.
+
+### Test Mode
+
+You can use `QEMU` or `IPMI` mode. Switch the mode by setting mode in `artificial_evaluation/config.exp` and `artificial_evaluation/config.sh` (*you should modify both*). We **recommend** you use the `IPMI` mode since QEMU's simulation of NVM is quite different from the real cases.
+
+### More information about using the IPMI mode!
+
+To run with the `IPMI` mode, you should:
+
+1. Build the os image and load the `./build/chcore.iso` file to the iDRAC platform.
+
+    ![2-load-treesls](./load-treesls.png)
+
+2. Boot the os with a grub entry.
+
+    ![1-boot-treesls](./boot-treesls.png)
+
+3. Wait a minute and interact with the os by ipmitool.
+
+
+## Evaluating the Artifact
+
+In most cases, the workflow of running each test is:
+- **Currently not required**: use `setup*.sh` to set kernel flags and build the image.
+- load the image (provided in `images` dir) and boot it.
+- use `test*.sh` to run the test and get the data in `artificial_evaluation/logs`
+- use `table*.sh` or `fig*.sh` to parsing the data and generate results in `artificial_evaluation/<subdir>/result`
+
+**NOTE**: *We recommend you to run all tests with `artificial_evaluation/test_base_all.sh` together and run tests with other required setups separately!*
+
+### 0. Functionality
+
+We use QEMU mode To test the functionality (we set), that is, whether our programs can restart with the same working flow as the time it crashes.
+
+You should:
+
+1. use `start.exp` to start the program, we test the ping-pong program by default, we can test whatever you like by replacing `send -- "test_crash_counter.bin & \r"` in the script.
+2. during the running of the program, you can use 'CTRL-A + X' to stop the QEMU (crash the program).
+3. now you can use `restore.exp` to restart from the latest checkpoint and check the output.
+
+
+### 1. Checkpoint/Restore Details (Table 2 & 3, Figure 9)
+
+This test reports the checkpoint/restore details as well as other configurations like app size and object count.
+
+#### 1.1 ckpt details
+
+0. load `images/treesls-ckpt.iso` 
+1. use `test_ckpt_details.sh` to run each benchmark with checkpoint log reported.
+2. run `fig9.sh`.
+
+#### 1.1 restore details
+
+0. load `images/treesls-restore.iso` 
+1. use `test_restore_details.sh` to run each benchmark with the restore log reported.
+2. run `table3.sh`
+
+#### 1.2 object count as well as size
+
+0. use `images/treesls-mem-size.iso` (no need to load, size calculated in QEMU mode)
+1. use `test_ckpt_size.exp` to calculate the memory size 
+2. run `table2.sh`
+
+### 2. Hybrid memory checkpoint method (Table 4 & Figure 10)
+
+Information in Table 4 is together tested with Test 1 (results are generated by `1-ckpt-restore-details/test-ckpt-details`). You can just run `table4.sh` to get the `table4.csv` file.
+
+Figure 10 requires 4 different setups:
+1. `+ckpt`: load `images/treesls-plusckpt.iso` and run `test_plusckpt.sh`.
+2. `+pf`: load `images/treesls-pluspf.iso` and run `test_pluspf.sh`.
+3. `+memcpy`: load `images/treesls-plusmemcpy.iso` and run `test_plusmemcpy.sh`.
+4. `base and hybrid`: base can be tested with any setup (as no checkpoint here), we put it with hybrid setup. Load `images/treesls-base.iso` and run `test_base_and_hybrid.sh`. (recommended to run with artificial_evaluation/test_base_all.sh).
+
+After all, run `fig10.sh`.
+
+### 4. External Synchrony Support (Figure 12)
+
+1. load `images/treesls-base.iso` and run `test_base.sh`. (recommended to run with artificial_evaluation/test_base_all.sh)
+2. load `images/treesls-ext.iso` and run `test_ext_sync.sh`.
+
+After all, run `fig12.sh`.
+
+> Note: The following tests (4, 5, 6) can both run with the base image. We recommend you run with artificial_evaluation/test_base_all.sh together!
+
+### 4. Memcached (Figure 11)
+
+1. load `images/treesls-base.iso` and run `test_memcached.sh`
+2. run `fig11.sh`
+
+### 5. Redis-YCSB (Figure 13)
+
+1. load `images/treesls-base.iso` and run `test_memcached.sh`
+2. run linux tests 
+    - run on the same machine with scripts in `linux-redis-ycsb` dir, please build the redis-server with musl-libc.
+    - run `./linux-redis-ycsb/test_ycsb.sh`
+    - copy the logs to `artificial_evaluation/logs/IPMI<orQEMU>/ycsb`
+3. run `fig13.sh`
+
+### 6. RocksDB-Prefix_dist (Figure 14)
+
+1. load `images/treesls-base.iso` and run `test_rocksdb.sh`
+2. run Rocksdb test provided by Aurora (https://github.com/rcslab/aurora-bench/tree/master), scripts are given in `aurora-rocksdb/test_rockdb.sh`
+3. run `fig14.sh`

@@ -1,0 +1,18 @@
+#!/usr/bin/expect  
+spawn rm /tmp/nvm-file-mok
+spawn ./build/simulate.sh
+
+# send -- "shutdown.bin \r"
+# expect "Welcome to ChCore shell!"
+send -- "idle.bin &\r"
+expect "SYS_rt_sigprocmask is not implemented"
+send -- "redis-server --save \"\" -h 127.0.0.1 &\r"
+expect "poll fd server is not lwip"
+# send -- "get_free_mem_size.bin -1 \r"
+# send -- "get_free_mem_size.bin 5000000 &\r"
+# send -- "checkpoint.bin -i %5 -l 3 &\r"
+# expect "Launching /checkpoint.bin"
+send -- "redis-benchmark -t set -n 100000 -d 1024 \r"
+expect "requests per second"
+
+interact

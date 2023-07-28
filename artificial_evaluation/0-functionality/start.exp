@@ -1,0 +1,18 @@
+#!/usr/bin/expect  
+
+source ../config.exp
+
+set timeout 60
+spawn rm [exec sh -c {echo "/tmp/nvm-file-$USER"}]
+
+spawn $basedir/build/simulate.sh
+expect "Welcome to ChCore shell!"
+
+# You can run whatever you like here! The following is some recommadation
+send -- "test_crash_counter.bin & \r"
+send -- "checkpoint.bin -i %1 & \r"
+
+# Set the ANSI escape sequence for red color
+send_user "$red_color \n Use CTRLA + X whenever you like to stop the program and restore! $white_color \n"
+
+interact

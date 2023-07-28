@@ -1,0 +1,43 @@
+#!/usr/bin/expect -f
+source ../config.exp
+source tool.exp
+
+set logdir $logbasedir/ckpt-size
+
+set timeout 1200
+
+# redisSet redisGet memcached kmeans word_count leveldb sqlite
+set workloads {default redisSet memcached kmeans word_count sqlite} 
+
+spawn mkdir -p $logdir
+
+foreach workload $workloads {
+    foreach flag {raw ckpt} {
+        foreach i {1 2 3} {
+            # launch chcore
+            spawn rm [exec sh -c {echo "/tmp/nvm-file-$USER"}]
+            spawn ../../build/simulate.sh
+            expect "Welcome to ChCore shell!"
+            
+            # open the log file
+            log_file "$logdir/${workload}_${flag}_${i}.log"
+
+            # get free mem
+            puts "before run ${workload}"
+            send -- "get_free_mem_size.bin -i %1000 &\r"
+            expect "free mem size = "
+            sleep 1
+            
+            # run workload
+            run_test $workload $flag
+            
+            # close the log file
+            sleep 1
+            log_file
+
+            # terminate qemu
+            send "\01"  
+            send "x"
+        }
+    }
+}

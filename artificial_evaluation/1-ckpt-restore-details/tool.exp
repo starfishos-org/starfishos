@@ -1,0 +1,52 @@
+proc run_test {workload flag} {
+    set thread 8
+    if {$flag == "ckpt"} {
+        send -- "checkpoint.bin -i %10 -l 0 -a 14 &\r"
+        expect "Launching /checkpoint.bin"
+        puts "${workload}"
+    }
+    switch $workload {
+        "kmeans" {
+            send -- "kmeans.bin -p 500000 &\r"
+            expect "KMeans: MapReduce Completed"
+        }
+        "word_count" {
+            send -- "word_count.bin word_50MB.txt &\r"
+            expect "Wordcount: MapReduce Completed"
+        }
+        "redisSet" {
+            puts "redis set test"
+            send -- "redis-server --save \"\" -h 127.0.0.1 &\r"
+            expect "poll fd server is not lwip"
+            send -- "redis-benchmark -t set -n 1000000 -d 1024 --threads $thread -r 10000 &\r"
+            expect "requests per second"
+        }
+        "redisGet" {
+            send -- "redis-server --save \"\" -h 127.0.0.1 &\r"
+            expect "poll fd server is not lwip"
+            send -- "redis-benchmark -t get -n 1000000 -d 1024 --threads $thread -r 10000 &\r"
+            expect "requests per second"
+        }
+        "memcached" {
+            send -- "memcached -l 127.0.0.1 -p 123 & \r"
+            expect "poll fd server is not lwip"
+            send -- "memcachetest -h 127.0.0.1:123 -M 1024 -F -t $thread -i 1000000 &\r"
+            expect "Launching /memcachetest"
+
+            # expect "Total gets:"
+            expect "Total sets:"
+        }
+        "sqlite" {
+            send -- "test-sqlite3.bin tmpfs &\r"
+            expect "sqlite_test done"
+        }
+        "leveldb" {
+            send -- "leveldb-dbbench &\r"
+            expect "snappyuncomp"
+            expect "Min"
+        }
+        default {
+            puts "error workload"
+        }
+    }
+}
