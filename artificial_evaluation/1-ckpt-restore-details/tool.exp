@@ -29,7 +29,7 @@ proc run_test {workload flag} {
         }
         "memcached" {
             send -- "memcached -l 127.0.0.1 -p 123 & \r"
-            expect "poll fd server is not lwip"
+            expect "Launching /memcached"
             send -- "memcachetest -h 127.0.0.1:123 -M 1024 -F -t $thread -i 1000000 &\r"
             expect "Launching /memcachetest"
 
@@ -41,9 +41,9 @@ proc run_test {workload flag} {
             expect "sqlite_test done"
         }
         "leveldb" {
-            send -- "leveldb-dbbench &\r"
-            expect "snappyuncomp"
-            expect "Min"
+            send -- "leveldb-dbbench --benchmarks=fillbatch --num=1000000 &\r"
+            expect "P95:"
+            expect "Max:"
         }
         default {
             puts "error workload"

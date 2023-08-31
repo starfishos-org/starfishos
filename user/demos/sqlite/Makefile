@@ -1,0 +1,9 @@
+target=test-sqlite3.bin
+
+CFLAGS=-D SQLITE_THREADSAFE=0 -D SQLITE_OMIT_LOAD_EXTENSION -D SQLITE_OMIT_WAL -D SQLITE_OMIT_RANDOMNESS -D SQLITE_OMIT_AUTHORIZATION -D SQLITE_OMIT_DEPRECATED
+
+$(target): main.c sqlite3.c
+	$(CC) -o $@ $^ $(CFLAGS)
+
+clean:
+	rm -rf *.o $(target) 

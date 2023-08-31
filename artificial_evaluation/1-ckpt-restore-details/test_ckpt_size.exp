@@ -6,8 +6,8 @@ set logdir $logbasedir/ckpt-size
 
 set timeout 1200
 
-# redisSet redisGet memcached kmeans word_count leveldb sqlite
-set workloads {default redisSet memcached kmeans word_count sqlite} 
+# redis memcached kmeans word_count leveldb sqlite
+set workloads {redis memcached kmeans word_count sqlite} 
 
 spawn mkdir -p $logdir
 

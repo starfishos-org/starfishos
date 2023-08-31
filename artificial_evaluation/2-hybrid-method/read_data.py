@@ -58,7 +58,8 @@ for workload in workloads:
             
             # Parse the log file and extract the required metrics
             time = parse_exe_time(workload, lines)
-            data['raw'][workload][prefix].append(time)
+            if time > 0:
+                data['raw'][workload][prefix].append(time)
 
 for prefix in prefixes:
     for workload in workloads:

@@ -53,7 +53,7 @@ def parse(label, path):
                     if "Throughput" not in result[label]:
                         result[label]["Throughput"] = thp
                     else:
-                        result[label]["Throughput"] = (result[label]["Throughput"] + avg)/2
+                        result[label]["Throughput"] = (result[label]["Throughput"] + thp)/2
             if found == False:
                 print("[Error] {} did not execute or pre-emptively shut down, please re-run fig14.sh".format(path))
                 os.unlink(path)
@@ -64,4 +64,6 @@ for f in fs:
     parse(f, path)
 
 df = pd.DataFrame.from_dict(result)
+print(df)
+df = df.transpose()
 df.to_csv("./result/rocksdb.csv")

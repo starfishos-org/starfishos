@@ -1,0 +1,634 @@
+#!/usr/bin/env python3
+#
+# 预设的环境变量:
+#
+# CHPM_TARGET_ARCH    目标编译架构
+# CHPM_TARGET_PREFIX  目标安装位置
+#
+# CHPM_RECIPE_FILE    recipe 文件路径 (ports/<package>/recipe.json)
+# CHPM_RECIPE_DIR     recipe 文件目录路径 (ports/<package>)
+#
+# CHPM_PKG_NAME       正在安装的包名
+# CHPM_PKG_VERSION    正在安装的包版本
+#
+# CHPM_BUILD_DIR      临时构建目录 (.chpm/build/<package>)
+#
+
+import os
+import sys
+import json
+import shutil
+import subprocess
+import zipfile
+
+from os import path
+from pprint import pprint
+from functools import partial
+from dataclasses import dataclass, field
+from argparse import ArgumentParser, Namespace
+from typing import List, Set, Dict, Optional, Any, Callable
+
+
+print_dbg = partial(print, file=sys.stdout)
+print_info = partial(print, file=sys.stdout)
+print_err = partial(print, file=sys.stderr)
+
+
+CHCORE_DIR = os.getcwd()
+CHPM_DIR = path.join(CHCORE_DIR, ".chpm")
+PORTS_DIR = path.join(CHPM_DIR, "ports")
+PORTS_REPO = "git@ipads.se.sjtu.edu.cn:ipads-os/chcore-ports.git"
+BUILD_DIR = path.join(CHPM_DIR, "build")
+DOWNLOADS_DIR = path.join(CHPM_DIR, "downloads")
+DEFAULT_INSTALL_DIR = path.join(CHPM_DIR, "install")
+PKGINFO_DIR_NAME = "chpm-pkginfo"
+
+
+@dataclass
+class File:
+    url: str
+    name: str
+    extract_dir: str
+    # sha256: Optional[str] = None # TODO
+
+
+@dataclass
+class RecipeHead:
+    name: str
+    version: str
+    description: str
+
+
+def read_recipe_head(package_name: str) -> Optional[RecipeHead]:
+    recipe_file = path.join(PORTS_DIR, package_name, "recipe.json")
+    if not path.isfile(recipe_file):
+        return None
+
+    with open(recipe_file, "r", encoding="utf-8") as f:
+        recipe_json = json.load(f)
+
+    return RecipeHead(
+        name=recipe_json["name"],
+        version=recipe_json["version"],
+        description=recipe_json["description"],
+    )
+
+
+@dataclass
+class Recipe:
+    file: str
+    target_arch: str
+    name: str
+    version: str
+    description: str
+    supported_archs: Set[str] = field(default_factory=set)
+    dependencies: List["Recipe"] = field(default_factory=list)
+    source_files: List[File] = field(default_factory=list)
+    prebuilt_files: List[File] = field(default_factory=list)
+    docker_builder: Optional[str] = None
+    working_dir: str = "."
+    build: List[str] = field(default_factory=list)
+    install: List[str] = field(default_factory=list)
+    install_prebuilt: List[str] = field(default_factory=list)
+
+
+def read_recipe(package_name: str, arch: str) -> Recipe:
+    recipe_file = path.join(PORTS_DIR, package_name, "recipe.json")
+    if not path.isfile(recipe_file):
+        print_err(f"Package `{package_name}` not found")
+        exit(1)
+
+    with open(recipe_file, "r", encoding="utf-8") as f:
+        recipe_json = json.load(f)
+
+    recipe = Recipe(
+        file=recipe_file,
+        target_arch=arch,
+        name=recipe_json["name"],
+        version=recipe_json["version"],
+        description=recipe_json["description"],
+    )
+
+    if "supported_archs" in recipe_json:
+        recipe.supported_archs = set(recipe_json["supported_archs"])
+
+    def get_arch_aware_list(
+        recipe_json: Dict[str, Any], key: str, arch: str
+    ) -> List[Any]:
+        val = recipe_json.get(key)
+        if not val or not isinstance(val, (list, dict)):
+            return []
+        if isinstance(val, dict):
+            return val.get(arch, [])
+        return val
+
+    dependencies = get_arch_aware_list(recipe_json, "dependencies", arch)
+    for dep in dependencies:
+        recipe.dependencies.append(read_recipe(dep, arch))
+
+    def json_to_file(file_json: Dict[str, Any]) -> File:
+        return File(
+            url=file_json["url"],
+            name=file_json["name"],
+            extract_dir=file_json["extract_dir"],
+        )
+
+    source_files = get_arch_aware_list(recipe_json, "source_files", arch)
+    for file in source_files:
+        recipe.source_files.append(json_to_file(file))
+    prebuilt_files = get_arch_aware_list(recipe_json, "prebuilt_files", arch)
+    for file in prebuilt_files:
+        recipe.prebuilt_files.append(json_to_file(file))
+
+    recipe.docker_builder = recipe_json.get("docker_builder")
+    recipe.working_dir = recipe_json.get("working_dir") or "$CHPM_BUILD_DIR"
+    recipe.build = get_arch_aware_list(recipe_json, "build", arch)
+    recipe.install = get_arch_aware_list(recipe_json, "install", arch)
+    recipe.install_prebuilt = get_arch_aware_list(recipe_json, "install_prebuilt", arch)
+    return recipe
+
+
+def check_recipe_installable(recipe: Recipe):
+    unsupported_packages = set()
+
+    def _intersect_supported_archs(r: Recipe, arch: str):
+        if r.supported_archs and arch not in r.supported_archs:
+            unsupported_packages.add(r.name)
+        for dep in r.dependencies:
+            _intersect_supported_archs(dep, arch)
+
+    _intersect_supported_archs(recipe, recipe.target_arch)
+    if unsupported_packages:
+        pkgs = ", ".join([f"`{x}`" for x in sorted(list(unsupported_packages))])
+        be = "is" if len(unsupported_packages) == 1 else "are"
+        print_err(
+            f"Package {pkgs} {be} not supported to install on `{recipe.target_arch}`"
+        )
+        exit(1)
+
+
+@dataclass
+class PkgInfo:
+    name: str
+    version: str
+    description: str
+    dependencies: List["str"]
+    is_dependency: bool
+    # installed_files: List[str] # TODO
+
+
+def read_pkginfo(recipe: Recipe, prefix: str) -> Optional[PkgInfo]:
+    pkginfo_file = path.join(prefix, PKGINFO_DIR_NAME, f"{recipe.name}.json")
+    if not path.exists(pkginfo_file):
+        return None
+
+    with open(pkginfo_file, "r", encoding="utf-8") as f:
+        pkginfo_json = json.load(f)
+    return PkgInfo(**pkginfo_json)
+
+
+def read_all_pkginfos(prefix: str) -> List[PkgInfo]:
+    pkginfo_dir = path.join(prefix, PKGINFO_DIR_NAME)
+    if not path.exists(pkginfo_dir):
+        return []
+
+    pkginfos = []
+    for file in os.listdir(pkginfo_dir):
+        with open(path.join(pkginfo_dir, file), "r", encoding="utf-8") as f:
+            pkginfo_json = json.load(f)
+            pkginfos.append(PkgInfo(**pkginfo_json))
+    return pkginfos
+
+
+def write_pkginfo(recipe: Recipe, is_dependency: bool, prefix: str):
+    pkginfo_dir = path.join(prefix, PKGINFO_DIR_NAME)
+    pkginfo_file = path.join(pkginfo_dir, f"{recipe.name}.json")
+    os.makedirs(pkginfo_dir, exist_ok=True)
+    deps = [d.name for d in recipe.dependencies]
+    pkginfo = PkgInfo(
+        name=recipe.name,
+        version=recipe.version,
+        description=recipe.description,
+        dependencies=deps,
+        is_dependency=is_dependency,
+    )
+    with open(pkginfo_file, "w", encoding="utf-8") as f:
+        json.dump(pkginfo.__dict__, f, indent=4)
+
+
+def download_file(file: File, downloads_dir: str) -> Optional[str]:
+    local_path = path.join(downloads_dir, file.name)
+    print_dbg("local_path", local_path)
+    if path.exists(local_path):
+        print_dbg(f"File `{local_path}` already exists")
+    else:
+        if subprocess.call(["curl", "-L", "-o", local_path, "--fail", file.url]) != 0:
+            if path.isfile(local_path):
+                os.remove(local_path)
+            return None
+    return local_path
+
+
+def extract_file(file: File, local_file: str, build_dir: str) -> Optional[str]:
+    extract_dir = path.join(build_dir, file.extract_dir)
+    print_dbg("extract_dir:", extract_dir)
+    if path.exists(extract_dir):
+        print_dbg(f"Directory `{extract_dir}` already exists")
+        return extract_dir
+
+    tmp_extract_dir = path.join(build_dir, file.extract_dir + "_tmp")
+    print_dbg("tmp_extract_dir:", tmp_extract_dir)
+    os.mkdir(tmp_extract_dir)
+
+    class ZipFileWithPermissions(zipfile.ZipFile):
+        def _extract_member(self, member, targetpath, pwd):
+            if not isinstance(member, zipfile.ZipInfo):
+                member = self.getinfo(member)
+
+            super_extract_member = getattr(super(), "_extract_member")
+            targetpath = super_extract_member(member, targetpath, pwd)
+
+            attr = member.external_attr >> 16
+            if attr != 0:
+                os.chmod(targetpath, attr)
+            return targetpath
+
+    def unpack_zip(filename: str, extract_dir: str):
+        with ZipFileWithPermissions(filename) as zip:
+            zip.extractall(extract_dir)
+
+    shutil.unregister_unpack_format("zip")
+    shutil.register_unpack_format("zip", [".zip"], unpack_zip)
+    try:
+        shutil.unpack_archive(local_file, tmp_extract_dir)
+    except Exception:
+        shutil.rmtree(tmp_extract_dir)
+        return None
+
+    # strip the only subdirectory if any
+    subdirs = os.listdir(tmp_extract_dir)
+    if len(subdirs) == 1 and subdirs[0] == file.extract_dir:
+        shutil.move(path.join(tmp_extract_dir, subdirs[0]), extract_dir)
+        shutil.rmtree(tmp_extract_dir)
+    else:
+        shutil.move(tmp_extract_dir, extract_dir)
+    return extract_dir
+
+
+def download_and_extract_files(
+    files: List[File], downloads_dir: str, build_dir: str
+) -> bool:
+    for file in files:
+        print_info(f"Downloading {file.name} from {file.url}...")
+        local_file = download_file(file, downloads_dir)
+        if not local_file:
+            print_err("Failed to download", file.name, "from", file.url)
+            return False
+        print_info(f"Extracting {file.name} to {file.extract_dir}...")
+        extract_dir = extract_file(file, local_file, build_dir)
+        if not extract_dir:
+            print_err(
+                "Failed to extract",
+                file.name,
+                "to",
+                file.extract_dir,
+            )
+            return False
+    return True
+
+
+def eval_env_vars(s: str) -> str:
+    return subprocess.check_output(["bash", "-c", f'echo -n "{s}"']).decode()
+
+
+def try_install_recipe_from_prebuilt(
+    recipe: Recipe,
+    downloads_dir: str,
+    build_dir: str,
+    cmd_prefix: List[str],
+    working_dir: str,
+):
+    if not download_and_extract_files(recipe.prebuilt_files, downloads_dir, build_dir):
+        return False
+
+    print_info("Installing from prebuilt files...")
+    for install_cmd in recipe.install_prebuilt:
+        cmd = cmd_prefix + ["bash", "-c", f"cd {working_dir} && " + install_cmd]
+        print_dbg("cmd:", cmd)
+        ret = subprocess.call(cmd)
+        if ret != 0:
+            print_err("Failed to run install prebuilt command")
+            return False
+
+    return True
+
+
+def try_install_recipe_from_source(
+    recipe: Recipe,
+    downloads_dir: str,
+    build_dir: str,
+    cmd_prefix: List[str],
+    working_dir: str,
+) -> bool:
+    if not download_and_extract_files(recipe.source_files, downloads_dir, build_dir):
+        return False
+
+    print_info("Installing from source files...")
+
+    print_info("Running build commands...")
+    for build_cmd in recipe.build:
+        cmd = cmd_prefix + ["bash", "-c", f"cd {working_dir} && " + build_cmd]
+        print_dbg("cmd:", cmd)
+        ret = subprocess.call(cmd)
+        if ret != 0:
+            print_err("Failed to run build command")
+            return False
+
+    print_info("Running install commands...")
+    for install_cmd in recipe.install:
+        cmd = cmd_prefix + ["bash", "-c", f"cd {working_dir} && " + install_cmd]
+        print_dbg("cmd:", cmd)
+        ret = subprocess.call(cmd)
+        if ret != 0:
+            print_err("Failed to run install command")
+            return False
+
+    return True
+
+
+def try_install_recipe(recipe: Recipe, downloads_dir: str, build_dir: str) -> bool:
+    os.environ["CHPM_RECIPE_FILE"] = recipe.file
+    os.environ["CHPM_RECIPE_DIR"] = path.dirname(recipe.file)
+    os.environ["CHPM_PKG_NAME"] = recipe.name
+    os.environ["CHPM_PKG_VERSION"] = recipe.version
+    os.environ["CHPM_BUILD_DIR"] = build_dir
+
+    for file in recipe.source_files + recipe.prebuilt_files:
+        file.url = eval_env_vars(file.url)
+        file.name = eval_env_vars(file.name)
+        file.extract_dir = eval_env_vars(file.extract_dir)
+    recipe.working_dir = eval_env_vars(recipe.working_dir)
+
+    cmd_prefix = []
+    if recipe.docker_builder:
+        # For packages that should be built in docker container,
+        # we prepare a prefix for every build command and install
+        # command.
+        cmd_prefix.extend(
+            [
+                "docker",
+                "run",
+                "-ti",
+                "--rm",
+                "-u",
+                f"{os.getuid()}:{os.getgid()}",
+                "-v",
+                f"{CHCORE_DIR}:{CHCORE_DIR}",
+            ]
+        )
+        for (env, val) in os.environ.items():
+            if env.startswith("CHPM_"):
+                cmd_prefix.extend(["-e", f"{env}={val}"])
+        cmd_prefix.append(recipe.docker_builder)
+
+    working_dir = recipe.working_dir
+    print_dbg("working_dir:", recipe.working_dir)
+
+    if recipe.install_prebuilt:
+        return try_install_recipe_from_prebuilt(
+            recipe, downloads_dir, build_dir, cmd_prefix, working_dir
+        )
+    return try_install_recipe_from_source(
+        recipe, downloads_dir, build_dir, cmd_prefix, working_dir
+    )
+
+
+def install_recipe(
+    recipe: Recipe, prefix: str, is_dependency: bool = False, dev_mode: bool = False
+):
+    if read_pkginfo(recipe, prefix):
+        print_info(f"`{recipe.name}` is already installed")
+        return
+
+    for dep in recipe.dependencies:
+        install_recipe(dep, prefix, is_dependency=True)
+
+    print_info(f"Installing `{recipe.name}`...")
+
+    downloads_dir = path.join(DOWNLOADS_DIR, recipe.target_arch, recipe.name)
+    os.makedirs(downloads_dir, exist_ok=True)
+    print_dbg("downloads_dir:", downloads_dir)
+
+    build_dir = path.join(BUILD_DIR, recipe.name)
+    if not dev_mode and path.isdir(build_dir):
+        shutil.rmtree(build_dir)
+    os.makedirs(build_dir, exist_ok=dev_mode)
+    print_dbg("build_dir:", build_dir)
+
+    ok = try_install_recipe(recipe, downloads_dir, build_dir)
+    if not dev_mode:
+        shutil.rmtree(build_dir)
+
+    if ok:
+        write_pkginfo(recipe, is_dependency, prefix)
+        print_info(f"Successfully installed `{recipe.name}`")
+    else:
+        print_err(f"Failed to install `{recipe.name}`")
+        exit(1)
+
+
+subcommands = {}
+
+
+def subcommand(name: str):
+    def deco(func: Callable) -> Callable:
+        subcommands[name] = func
+        return func
+
+    return deco
+
+
+@subcommand("init")
+def subcommand_init(args: Namespace):
+    if path.exists(CHPM_DIR):
+        if args.force:
+            shutil.rmtree(CHPM_DIR)
+        else:
+            print_err(
+                "`.chpm` directory already exists, "
+                "add `--force` option to force re-initialization"
+            )
+            exit(1)
+
+    print_info("Initializing `.chpm` directory...")
+    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    print_info(f"Cloning `ports` repo ({PORTS_REPO})...")
+    ret = subprocess.call(["git", "clone", "--depth=1", PORTS_REPO, PORTS_DIR])
+    if ret != 0:
+        print_err(f"Failed to clone `ports` repo")
+        exit(1)
+
+    print_info(f"Successfully initialized")
+
+
+@subcommand("update")
+def subcommand_update(args: Namespace):
+    print_info("Updating `ports` repo...")
+    ret = subprocess.call(["git", "-C", PORTS_DIR, "pull", "origin", "master"])
+    if ret != 0:
+        print_err(f"Failed to update `ports` repo")
+        exit(1)
+
+    print_info(f"Successfully updated")
+
+
+@subcommand("install")
+def subcommand_install(args: Namespace):
+    # subcommand_update(args)
+    print()  # for a new line
+    print_info(f"Installing packages into `{args.prefix}`...\n")
+
+    arch = args.arch
+    prefix = path.abspath(args.prefix)
+    os.environ["CHPM_TARGET_ARCH"] = arch
+    os.environ["CHPM_TARGET_PREFIX"] = prefix
+
+    for package_name in args.packages:
+        recipe = read_recipe(package_name, arch)
+        print_dbg("recipe:", recipe)
+        check_recipe_installable(recipe)
+        install_recipe(recipe, args.prefix, dev_mode=args.dev_mode)
+
+
+@subcommand("list")
+def subcommand_list(args: Namespace):
+    print_info(f"Listing packages installed into `{args.prefix}`...\n")
+
+    prefix = path.abspath(args.prefix)
+    pkginfos = read_all_pkginfos(prefix)
+    if pkginfos:
+        print_info("Installed packages:\n")
+        for pkginfo in pkginfos:
+            print_info(f"{pkginfo.name}={pkginfo.version}")
+    else:
+        print_info("No packages installed\n")
+
+
+@subcommand("config")
+def subcommand_config(args: Namespace):
+    pass
+
+
+@subcommand("search")
+def subcommand_search(args: Namespace):
+    subcommand_update(args)
+    print()  # for a new line
+
+    keyword = args.keyword
+    print_dbg("search keyword:", keyword)
+
+    ports = os.listdir(PORTS_DIR)
+    result = []
+    for port in ports:
+        print_dbg("port:", port)
+        if keyword in port:
+            result.append(port)
+    print_dbg("search result:", result)
+
+    if result:
+        print_info("Search result:\n")
+    for pkg in result:
+        recipe_head = read_recipe_head(pkg)
+        assert recipe_head
+        print_info(
+            f"{recipe_head.name} ({recipe_head.version}):\n\t{recipe_head.description}"
+        )
+
+
+def create_argparser() -> ArgumentParser:
+    parser = ArgumentParser(description="The ChCore Package Manager.")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        default=False,
+        help="Verbose mode",
+    )
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    parser_init = subparsers.add_parser("init", help="initialize `.chpm` directory")
+    parser_init.add_argument(
+        "-f",
+        "--force",
+        dest="force",
+        action="store_true",
+        default=False,
+        help="remove existing `.chpm` dir",
+    )
+
+    subparsers.add_parser("update", help="update `ports` repo")
+
+    parser_install = subparsers.add_parser("install", help="install package")
+    parser_install.add_argument(
+        "-p",
+        "--prefix",
+        dest="prefix",
+        default=DEFAULT_INSTALL_DIR,
+        help="prefix of install destination",
+    )
+    parser_install.add_argument(
+        "-a", "--arch", dest="arch", required=True, help="target architecture"
+    )
+    parser_install.add_argument(
+        "-d",
+        "--dev-mode",
+        dest="dev_mode",
+        action="store_true",
+        default=False,
+        help="enable development mode (temporary build directory won't be deleted)",
+    )
+    parser_install.add_argument("packages", nargs="+", help="packages to install")
+
+    parser_list = subparsers.add_parser("list", help="list installed package")
+    parser_list.add_argument(
+        "-p",
+        "--prefix",
+        dest="prefix",
+        default=DEFAULT_INSTALL_DIR,
+        help="prefix of install destination",
+    )
+
+    parser_config = subparsers.add_parser("config", help="change config")
+
+    parser_search = subparsers.add_parser("search", help="search for packages")
+    parser_search.add_argument("keyword", help="search keyword")
+
+    # TODO: other subcommand
+
+    return parser
+
+
+def main():
+    parser = create_argparser()
+    args = parser.parse_args()
+    if not args.subcommand:
+        parser.print_help()
+        exit(1)
+
+    global print_dbg
+    if not args.verbose:
+        print_dbg = lambda *a, **kw: None
+
+    print_dbg("Command args:", args)
+
+    if not path.exists(CHPM_DIR) and args.subcommand != "init":
+        print_err("Please run `./chpm init` first")
+        exit(1)
+
+    subcommands[args.subcommand](args)
+
+
+if __name__ == "__main__":
+    main()

@@ -14,5 +14,7 @@ set kconfig "$basedir/kernel/sls_config.cmake"
 set white_color "\033\[37m"
 set red_color "\033\[31m"
 
-set ipmi_ip "192.168.12.93" 
-set ckptlogtimes 1000
+set ipmi_ip "192.168.12.73" 
+set ckptlogtimes 5000
+set username "root"
+set passwd "ipadscalvin"

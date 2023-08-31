@@ -8,18 +8,18 @@ mkdir -p $logdir
 
 for run in ${loop[@]}
 do
-    # baseline 
-    mkdir -p $logdir/chcore-base
-    $appdir/rocksdb.exp raw 2>&1 | tee $logdir/chcore-base/$run.out
-    sleep 10
-
-    # baseline with WAL
-    # mkdir -p $logdir/chcore-base-wal
-    # $appdir/rocksdb.exp wal 2>&1 | tee $logdir/chcore-base-wal/$run.out
-    # sleep 10
-
-    # with ckpt
-    mkdir -p $logdir/chcore-ckpt
-    $appdir/rocksdb.exp ckpt 1 0 2>&1 | tee $logdir/chcore-ckpt/$run.out
-    sleep 10
+    for run in ${loop[@]}
+    do
+        baseline
+        mkdir -p $logdir/$thread/chcore-base
+        $appdir/rocksdb.exp raw $thread 2>&1 | tee $logdir/$thread/chcore-base/$run.out
+        sleep 10
+    done
+    for run in ${loop[@]}
+    do
+        # with ckpt
+        mkdir -p $logdir/chcore-ckpt
+        $appdir/rocksdb.exp ckpt $thread 1 0 2>&1 | tee $logdir/$thread/chcore-ckpt/$run.out
+        sleep 10
+    done
 done

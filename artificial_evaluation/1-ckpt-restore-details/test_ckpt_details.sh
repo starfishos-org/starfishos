@@ -6,9 +6,9 @@ logdir=$logbasedir/ckpt-breakdown
 loop=(0)
 mkdir -p $logdir
 
-# for workload in default memcached redis sqlite leveldb kmeans word_count pca
+for workload in default memcached redis sqlite leveldb kmeans word_count pca
 # run a subset of workload
-for workload in pca
+# for workload in kmeans
 do
     for run in ${loop[@]}
     do

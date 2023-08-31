@@ -1,0 +1,7 @@
+add_subdirectory(sys-libs)
+if(CHCORE_LIBRARY_DEVICE)
+    add_subdirectory(dev_sdk)
+endif()
+if(CHCORE_LIBRARY_GRAPHIC)
+    add_subdirectory(graphic)
+endif()

@@ -49,7 +49,9 @@ for prefix in prefixes:
         if length != 0:
             data['cal'][prefix][metric] = sum(data['raw'][prefix][metric])/length
 
-    # Convert the dictionary to a DataFrame
-    df = pd.DataFrame.from_dict(data['cal'])
-    # Save the DataFrame as a CSV file
-    df.to_csv('./result/ext-sync-{}.csv'.format(mode))
+# Convert the dictionary to a DataFrame
+df = pd.DataFrame.from_dict(data['cal'])
+# Save the DataFrame as a CSV file
+df.to_csv('./result/ext-sync-{}.csv'.format(mode))
+print("results of mode", mode, "is:")
+print(df)

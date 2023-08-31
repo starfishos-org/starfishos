@@ -1,0 +1,38 @@
+#pragma once
+#include <chcore/type.h>
+
+enum GPIO_REQ {
+	SET_MODE,
+	SET_PULL_MODE,
+	SET_PIN_LEVEL,
+};
+
+enum GPIO_PIN_MODE {
+	INPUT,
+	OUTPUT,
+	INPUT_PULL_UP,
+	INPUT_PULL_DOWN,
+	ALTERNATE_FUN0,
+	ALTERNATE_FUN1,
+	ALTERNATE_FUN2,
+	ALTERNATE_FUN3,
+	ALTERNATE_FUN4,
+	ALTERNATE_FUN5,
+};
+
+enum GPIO_PIN_PULL_MODE {
+	PULL_MODE_OFF,
+	PULL_MODE_DOWN,
+	PULL_MODE_UP,
+};
+
+enum GPIO_PIN_LEVEL {
+	LOW_LEVEL,
+	HIGH_LEVEL,
+};
+
+struct gpio_request {
+	u32 req;
+	u32 npin;
+	u32 opt;
+};

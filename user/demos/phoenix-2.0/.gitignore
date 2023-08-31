@@ -1,0 +1,11 @@
+*
+!*.c
+!*.h
+!/bin/
+!Makefile
+!/src/Makefile
+!/test/Makefile
+!Defines.mk
+!README
+!TUNING_NOTES
+!.gitignore

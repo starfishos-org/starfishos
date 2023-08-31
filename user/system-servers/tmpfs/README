@@ -1,0 +1,5 @@
+# A temporary in memory fs
+
+
+The implementation is young, simple and naive, and we have moved it to user
+space.

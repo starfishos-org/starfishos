@@ -1,0 +1,11 @@
+target_sources(${kernel_target} PRIVATE main.c)
+
+add_subdirectory(boot)
+
+add_subdirectory(backtrace)
+add_subdirectory(drivers)
+add_subdirectory(irq)
+add_subdirectory(machine)
+add_subdirectory(mm)
+add_subdirectory(sched)
+add_subdirectory(sync)

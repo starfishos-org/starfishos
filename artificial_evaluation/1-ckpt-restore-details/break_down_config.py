@@ -10,9 +10,10 @@ IRQ = 8
 PMO = 9
 VMSPACE = 10
 ALLOC = 11
-TYPE_NR = 12
+MIGREATE_WAIT = 12
+TYPE_NR = 13
 
-labels = ['Global', 'IPI', 'Hybrid Copy', 'Cap Tree', 'Cap Group', 'Thread', 'Connection', 'Notification', 'IRQ', 'PMO', 'VMSpace', 'Alloc']
+labels = ['Global', 'IPI', 'Hybrid Copy', 'Cap Tree', 'Cap Group', 'Thread', 'Connection', 'Notification', 'IRQ', 'PMO', 'VMSpace', 'WAIT MIGREATE', 'Alloc']
 # colors = ['grey', '#BCCCA3', '#0072BD', '#8682BD', '#D96A73', '#FABC55', 'grey', '#BCCCA3', '#0072BD', '#8682BD', '#D96A73', '#FABC55']
 hatches = ['', '|||', '\\\\\\', '///', '++', '\\/\\/\\/', '', '|||', '\\\\\\', '///', '++', '\\/\\/\\/']
 
@@ -26,6 +27,7 @@ workload_dict = {
     'KMeans':'kmeans',
     'Redis': 'redis',
     'Memcached': 'memcached',
+    # 'PCA': 'pca',
 }
 
 extra_workload_dict = {

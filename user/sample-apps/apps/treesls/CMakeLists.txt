@@ -1,0 +1,22 @@
+# TreeSLS
+# whole system tests
+add_executable(shutdown.bin shutdown.c)
+add_executable(idle.bin idle.c)
+
+# checkpoint
+add_executable(checkpoint.bin checkpoint.c)
+
+# adjust config
+add_executable(set_poll_loop_time.bin set_poll_loop_time.c)
+add_executable(set_dyn_hybrid_config.bin set_dyn_hybrid_config.c)
+
+# performance test
+add_executable(obj_ckpt_time.bin obj_ckpt_time.c)
+# performance test: related apps
+add_executable(simple_kvs.bin simple_kvs.c)
+add_executable(mem_kvs.bin mem_kvs.c)
+add_executable(ipc_kvs.bin ipc_kvs.c)
+add_executable(fib.bin fib.c)
+add_executable(ustress.bin ustress.c)
+add_executable(get_free_mem_size.bin get_free_mem_size.c)
+add_executable(test_heap.bin test_heap.c)

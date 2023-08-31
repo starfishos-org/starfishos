@@ -5,7 +5,7 @@ We thank the artifact evaluators who have volunteered to do one of the toughest 
 ## Requirements
 
 Hardware
-- Intel® Optane™ Persistent Memory (or you can use our Qemu mode for simulation)
+- Intel® Optane™ Persistent Memory (or you can use Qemu mode for simulation)
 
 Software
 - docker: we build the OS within a given docker
@@ -14,9 +14,9 @@ Software
 
 ## Building TreeSLS OS
 
-> Currently, we provide the already-built kernel images, so you can skip this part.
+<!-- > Currently, we provide the already-built kernel images, so you can skip this part. -->
 
-Use `./defconfig x86_64` and `./quick-build.sh` to build everything at first.
+Use `./quick-build.sh` to build everything at first.
 
 ### Kernel Parameters
 
@@ -56,23 +56,50 @@ chcore_config(CHCORE_DEMOS_ROCKSDB BOOL ON "Build RocksDB?")
 
 ## Knowledge Before Testing!
 
-We will give scripts of each test (`*.sh` files) in **subdirs** in `artificial_evaluation`.
+Please replace `basedir` in `artificial_evaluation/config.exp` and `artificial_evaluation/config.sh`. (*you should modify both*)
+
+We will give scripts of each test (`*.sh` files) in **subdirs** in `artificial_evaluation/`.
 
 ### Test Mode
 
 You can use `QEMU` or `IPMI` mode. Switch the mode by setting mode in `artificial_evaluation/config.exp` and `artificial_evaluation/config.sh` (*you should modify both*). We **recommend** you use the `IPMI` mode since QEMU's simulation of NVM is quite different from the real cases.
 
+<!-- ### Run QEMU mode 
+
+To run with the QEMU mode, you can use `./qemu.exp` to -->
+<!-- If you like to use other images, please replace that in `./qemu.exp`.  -->
+
 ### More information about using the IPMI mode!
 
 To run with the `IPMI` mode, you should:
 
-1. Build the os image and load the `./build/chcore.iso` file to the iDRAC platform.
+1. Build the os image (currently, no building) and load the `build/treesls.iso` file (or the provided `images/treesls-*.iso`) to the iDRAC platform.
 
     ![2-load-treesls](./load-treesls.png)
 
-2. Boot the os with a grub entry.
+2. Boot the os with a grub entry:
+    ```
+    menuentry 'treesls' {
+        insmod (hd0,gpt1)/efi/boot/x86_64-efi/multiboot2.mod
+        multiboot2 (cd0)/boot/kernel.img
+        boot
+    }
+    ```
 
-    ![1-boot-treesls](./boot-treesls.png)
+    or manually use:
+
+    ```
+    grub
+    > insmod (hd0,gpt1)/efi/boot/x86_64-efi/multiboot2.mod
+    > multiboot2 (cd0)/boot/kernel.img
+    > boot
+    ```
+    To install the `multiboot2.mod`, you should:
+    ```
+    sudo apt/yum install grub-efi
+    sudo cp -r /usr/lib/grub/x86_64-efi /boot/efi/EFI/BOOT/
+    ```
+    <!-- ![1-boot-treesls](./boot-treesls.png) -->
 
 3. Wait a minute and interact with the os by ipmitool.
 
@@ -80,16 +107,26 @@ To run with the `IPMI` mode, you should:
 ## Evaluating the Artifact
 
 In most cases, the workflow of running each test is:
-- **Currently not required**: use `setup*.sh` to set kernel flags and build the image.
-- load the image (provided in `images` dir) and boot it.
-- use `test*.sh` to run the test and get the data in `artificial_evaluation/logs`
-- use `table*.sh` or `fig*.sh` to parsing the data and generate results in `artificial_evaluation/<subdir>/result`
+1. Load
+    - If you directly use the provided images: 
+        - in IPMI mode: load `images/treesls*.iso`, the special iso name is listed in each test.
+        - in QEMU mode: use `images/treesls*.iso` to replace `build/treesls.iso`.
+    - If you want to build the image:
+        - use `setup*.sh` in each subdir to set kernel flags and build the image.
+        - in IPMI mode: load the `build/treesls.iso` image to boot it.
+        - in QEMU mode: do nothing
+2. Run: use `test*.sh` to run the test and the logs are stored in `artificial_evaluation/logs/<mode>/`
+3. Parse the logs: use `table*.sh` or `fig*.sh` to parsing the data and generate results (*.jpg or *.csv) in `artificial_evaluation/<subdir>/result/`
 
-**NOTE**: *We recommend you to run all tests with `artificial_evaluation/test_base_all.sh` together and run tests with other required setups separately!*
+There are some problems that might occur during the testing:
+1. Building image failed: currently, we build with `./chbuild build`, if any conflict occurs, you can build with `./quick-build.sh` or `./chbuild clean` first.
+2. IPMI connection failed: currently, BMC sometimes close unexpectedly, and our retry scripts sometimes still can not handle everything well, so a manual re-test is needed.
+
+**NOTE**: *We recommend you run all tests with `artificial_evaluation/test_base_all.sh` together and run tests with other required setups separately!*
 
 ### 0. Functionality
 
-We use QEMU mode To test the functionality (we set), that is, whether our programs can restart with the same working flow as the time it crashes.
+We use QEMU mode to test the functionality, that is, whether our programs can restart with the same working flow as the time it crashes.
 
 You should:
 
@@ -104,59 +141,70 @@ This test reports the checkpoint/restore details as well as other configurations
 
 #### 1.1 ckpt details
 
-0. load `images/treesls-ckpt.iso` 
-1. use `test_ckpt_details.sh` to run each benchmark with checkpoint log reported.
-2. run `fig9.sh`.
+0. run `./setup_ckpt_details.sh` and load `build/treesls.iso` (or load `images/treesls-ckpt.iso`)
+1. use `./test_ckpt_details.sh` to run each benchmark with the checkpoint log reported
+2. run `./fig9.sh` and `./table4.sh`
 
-#### 1.1 restore details
+#### 1.2 restore details
 
-0. load `images/treesls-restore.iso` 
-1. use `test_restore_details.sh` to run each benchmark with the restore log reported.
-2. run `table3.sh`
+0. run `./setup_restore_details.sh` and load (or load `images/treesls-restore.iso`)
+1. use `./test_restore_details.sh` to run each benchmark with the restore log reported
+2. run `./table3.sh`
 
-#### 1.2 object count as well as size
+#### 1.3 object count as well as size
 
-0. use `images/treesls-mem-size.iso` (no need to load, size calculated in QEMU mode)
-1. use `test_ckpt_size.exp` to calculate the memory size 
-2. run `table2.sh`
+0. run `./setup_ckpt_size_details.sh` or `cp images/treesls-mem-size.iso build/treesls.iso` (no need to load, size calculated in QEMU mode)
+1. use `./test_ckpt_size.exp` to calculate the memory size 
+2. run `./table2.sh`
 
 ### 2. Hybrid memory checkpoint method (Table 4 & Figure 10)
 
-Information in Table 4 is together tested with Test 1 (results are generated by `1-ckpt-restore-details/test-ckpt-details`). You can just run `table4.sh` to get the `table4.csv` file.
+Information in Table 4 is together tested with Test 1 (results are generated by `1-ckpt-restore-details/test-ckpt-details.sh`). You can just run `table4.sh` to get the result.
 
 Figure 10 requires 4 different setups:
-1. `+ckpt`: load `images/treesls-plusckpt.iso` and run `test_plusckpt.sh`.
-2. `+pf`: load `images/treesls-pluspf.iso` and run `test_pluspf.sh`.
-3. `+memcpy`: load `images/treesls-plusmemcpy.iso` and run `test_plusmemcpy.sh`.
-4. `base and hybrid`: base can be tested with any setup (as no checkpoint here), we put it with hybrid setup. Load `images/treesls-base.iso` and run `test_base_and_hybrid.sh`. (recommended to run with artificial_evaluation/test_base_all.sh).
+1. `+ckpt`: 
+    - build with `./setup_plusckpt.sh` or use `images/treesls-plusckpt.iso`
+    - run `./test_plusckpt.sh`
+2. `+pf`: 
+    - build with `./setup_pluspf.sh` or use `images/treesls-pluspf.iso`
+    - run `./test_pluspf.sh`
+3. `+memcpy`: 
+    - build with `./setup_plusmemcpy.sh` or use `images/treesls-plusmemcpy.iso`
+    - run `./test_plusmemcpy.sh`
+4. `base and hybrid`: base can be tested with any setup (as no checkpoint here), we put it with hybrid setup. 
+    - build with `./setup_base_and_hybrid.sh` or use `images/treesls-plusmemcpy.iso`images/treesls-base.iso` 
+    - run `./test_base_and_hybrid.sh`. (recommended to run this together with other tests based on the same image by `artificial_evaluation/test_base_all.sh`).
 
-After all, run `fig10.sh`.
+After all, run `fig10.sh`
 
-### 4. External Synchrony Support (Figure 12)
+### 3. External Synchrony Support (Figure 12)
 
-1. load `images/treesls-base.iso` and run `test_base.sh`. (recommended to run with artificial_evaluation/test_base_all.sh)
-2. load `images/treesls-ext.iso` and run `test_ext_sync.sh`.
+1. build with `./setup_base.sh` (or use `images/treesls-base.iso`) and run `./test_base.sh`. (recommended to run by artificial_evaluation/test_base_all.sh)
+2. build with `./setup_ext_sync.sh` (or use  `images/treesls-ext.iso`) and run `./test_ext_sync.sh`.
 
-After all, run `fig12.sh`.
+After all, run `./fig12.sh`.
 
-> Note: The following tests (4, 5, 6) can both run with the base image. We recommend you run with artificial_evaluation/test_base_all.sh together!
+> Note: The following tests (4, 5, 6) can both run with the base image (use `./setup.sh` in any subdir or use `images/treesls-base.iso`). We recommend you run with artificial_evaluation/test_base_all.sh together!
 
 ### 4. Memcached (Figure 11)
 
-1. load `images/treesls-base.iso` and run `test_memcached.sh`
-2. run `fig11.sh`
+1. run `./test_memcached.sh`
+2. run `./fig11.sh`
 
 ### 5. Redis-YCSB (Figure 13)
 
-1. load `images/treesls-base.iso` and run `test_memcached.sh`
+1. run treesls tests: enter `5-redis-ycsb` and run `./test_ycsb.sh`
 2. run linux tests 
-    - run on the same machine with scripts in `linux-redis-ycsb` dir, please build the redis-server with musl-libc.
-    - run `./linux-redis-ycsb/test_ycsb.sh`
-    - copy the logs to `artificial_evaluation/logs/IPMI<orQEMU>/ycsb`
-3. run `fig13.sh`
+    - run on the same machine where treesls is loaded to
+    - enter `5-linux-redis-ycsb`
+    - update the git submodule and use `./setup.sh` to prepare everything
+    - run `./test_ycsb.sh`
+    - copy the subdirs in `5-linux-redis-ycsb/logs/` to `artificial_evaluation/logs/<mode>/ycsb/`
+3. run `./fig13.sh`
 
 ### 6. RocksDB-Prefix_dist (Figure 14)
 
-1. load `images/treesls-base.iso` and run `test_rocksdb.sh`
-2. run Rocksdb test provided by Aurora (https://github.com/rcslab/aurora-bench/tree/master), scripts are given in `aurora-rocksdb/test_rockdb.sh`
-3. run `fig14.sh`
+1. and run `./test_rocksdb.sh`
+2. run Rocksdb test provided by Aurora (https://github.com/rcslab/aurora-bench/tree/master), scripts are given in `6-aurora-rocksdb/test_rockdb.sh`
+3. copy logs of Aurora (by default, in `/aurora-data/`) to `artificial_evaluation/logs/<mode>/rocksdb/`
+3. run `./fig14.sh`

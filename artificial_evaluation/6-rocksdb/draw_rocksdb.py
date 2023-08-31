@@ -11,7 +11,6 @@ csv_file=sys.argv[1]
 
 # Create a DataFrame from the CSV file
 df = pd.read_csv(csv_file, index_col=0)
-# df = df.transpose()
 print(df)
 
 # Create the bar chart
@@ -36,13 +35,13 @@ def draw_fig(col, name):
     if col == 'Throughput':
         y = y/1000
         # plt.xticks([0.25, 2], ["TreeSLS", "Aurora"])
-        plt.bar(x, y, color=colors, edgecolor='black')
+        plt.bar(x, y, color=colors, edgecolor='black', label=df.index)
         plt.ylabel("Throughput (Kops/s)")
     else:
-        plt.bar(x, y, color=colors, edgecolor='black')
+        plt.bar(x, y, color=colors, edgecolor='black', label=df.index)
         plt.ylabel("Latency (ms)")
 
-
+    plt.legend(fontsize=11, frameon=False, ncol=1)
     # plt.xticks(rotation=30)
     # display the chartsa
     plt.grid(True, axis='y', linestyle=':')
@@ -75,4 +74,4 @@ if __name__ == "__main__":
     draw_fig('Throughput', 'a')
     draw_fig('P50', 'b')
     draw_fig('P99', 'c')
-    draw_legend('P99')
+    # draw_legend('P99')

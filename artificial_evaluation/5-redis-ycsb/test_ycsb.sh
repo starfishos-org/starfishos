@@ -10,7 +10,7 @@ mkdir -p $logdir
 mkdir -p $logdir/chcore-baseline
 mkdir -p $logdir/chcore-ckpt1ms
 
-for workload in a b c g
+for workload in h
 do
     for thread in ${threads[@]}
     do
