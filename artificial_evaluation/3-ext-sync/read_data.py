@@ -41,7 +41,7 @@ for prefix in prefixes:
                 data['raw'][prefix]['P50'].append(float(l.split()[2]))
             if "requests per second" in l:
                 data['raw'][prefix]['Throughput'].append(float(l.split()[0]))
-print(data)
+# print(data)
 
 for prefix in prefixes:
     for metric in metrics:
@@ -49,9 +49,8 @@ for prefix in prefixes:
         if length != 0:
             data['cal'][prefix][metric] = sum(data['raw'][prefix][metric])/length
 
-# Convert the dictionary to a DataFrame
-df = pd.DataFrame.from_dict(data['cal'])
-# Save the DataFrame as a CSV file
-df.to_csv('./result/ext-sync-{}.csv'.format(mode))
-print("results of mode", mode, "is:")
-print(df)
+    # Convert the dictionary to a DataFrame
+    df = pd.DataFrame.from_dict(data['cal'])
+    # Save the DataFrame as a CSV file
+    df.to_csv('./result/ext-sync-{}.csv'.format(mode))
+    print(df)

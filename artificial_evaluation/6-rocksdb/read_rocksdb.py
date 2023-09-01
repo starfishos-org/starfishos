@@ -4,7 +4,6 @@ import pandas as pd
 import os, sys
 
 ROOT_DIR=sys.argv[1]
-# ROOT_DIR='../logs/treesls/rocksdb/'
 
 fs = []
 items = os.listdir(ROOT_DIR)
@@ -16,6 +15,7 @@ for item in items:
 result = {}
 
 def parse(label, path):
+    print(label, path)
     files = [f for f in os.listdir(path)]
     for file in files:
         filepath = os.path.join(path, file)
@@ -56,7 +56,7 @@ def parse(label, path):
                         result[label]["Throughput"] = (result[label]["Throughput"] + thp)/2
             if found == False:
                 print("[Error] {} did not execute or pre-emptively shut down, please re-run fig14.sh".format(path))
-                os.unlink(path)
+                exit(0)
 
     
 for f in fs:
@@ -64,6 +64,5 @@ for f in fs:
     parse(f, path)
 
 df = pd.DataFrame.from_dict(result)
-print(df)
-df = df.transpose()
 df.to_csv("./result/rocksdb.csv")
+print(df)

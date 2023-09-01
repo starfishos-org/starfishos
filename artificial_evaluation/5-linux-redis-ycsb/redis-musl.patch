@@ -1,0 +1,13 @@
+diff --git a/src/config.h b/src/config.h
+index e807b9330..92914b6bf 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -35,7 +35,7 @@
+ #endif
+ 
+ #ifdef __linux__
+-#include <linux/version.h>
++//#include <linux/version.h>
+ #include <features.h>
+ #endif
+ 

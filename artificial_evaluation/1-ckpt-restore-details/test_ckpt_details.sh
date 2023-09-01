@@ -8,7 +8,7 @@ mkdir -p $logdir
 
 for workload in default memcached redis sqlite leveldb kmeans word_count pca
 # run a subset of workload
-# for workload in kmeans
+# for workload in pca
 do
     for run in ${loop[@]}
     do

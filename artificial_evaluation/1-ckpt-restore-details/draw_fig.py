@@ -64,20 +64,19 @@ plt.ylabel("Checkpoint Time (μs)", fontsize=22)
 plt.tight_layout()
 
 if str(arg2) == "a":
-    my_palette = sns.color_palette("RdGy", 5)
+    my_palette = sns.color_palette("RdGy",4)
     colors = [my_palette[i] for i in range(len(my_palette))]
 
     y = np.array(allTimes).T/1000.0
 
     y[OBJ] = sum(y[CAP_GROUP:VMSPACE+1])
-    # draw = [IPI, SYS, OBJ, MIGREATE_WAIT]
     draw = [IPI, SYS, OBJ]
     draw_count = 0
     bottom = [0] * len(workloads)
 
     width = 0.25
     for i in draw:
-        plt.bar(x - width/2, y[i], width, bottom=bottom, color=colors[draw_count], label=labels[i], edgecolor='black')
+        plt.bar(x - width/2, y[i], width, bottom = bottom, color=colors[draw_count], label=labels[i], edgecolor='black')
         draw_count += 1
         bottom += y[i]
 

@@ -4,7 +4,7 @@
 test_mode="IPMI"
 # test_mode="QEMU"
 
-basedir="/home/<basedir>/treesls"
+basedir="/home/xxx/treesls"
 aedir="$basedir/artificial_evaluation"
 logbasedir="$aedir/logs/$test_mode"
 appdir="$aedir/applications"

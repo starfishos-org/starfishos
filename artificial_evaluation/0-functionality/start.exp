@@ -3,6 +3,7 @@
 source ../config.exp
 
 set timeout 60
+# spawn cp $basedir/images/treesls-func.iso $basedir/build/treesls.iso
 spawn rm [exec sh -c {echo "/tmp/nvm-file-$USER"}]
 
 spawn $basedir/build/simulate.sh

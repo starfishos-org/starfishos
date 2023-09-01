@@ -19,8 +19,7 @@ IRQ = 8
 PMO = 9
 VMSPACE = 10
 ALLOC = 11
-MIGREATE_WAIT = 12
-TYPE_NR = 13
+TYPE_NR = 12
 
 PFCOUNT = 0
 DIRTY_PAGE = 1
@@ -32,18 +31,6 @@ labels = ['System Vars', 'IPI', 'Reset Page Table', 'K-V Store', 'Kernel Malloc'
 # colors = ['orange', 'c', 'red', 'green', 'yellow', 'brown']
 colors = ['grey', '#BCCCA3', '#0072BD', '#8682BD', '#D96A73', '#FABC55']
 hatches = ['', '|||', '\\\\\\', '///', '++', '\\/\\/\\/']
-
-def calculate_median(data):
-    sorted_data = sorted(data)
-    n = len(sorted_data)
-    if n == 0:
-        return 0
-    if n % 2 == 0:
-        median = (sorted_data[n//2 - 1] + sorted_data[n//2]) / 2
-    else:
-        median = sorted_data[n//2]
-    # median = sorted_data[n*9//10]
-    return median
 
 def parseFile(infile):
     with open(infile, 'r') as f:
@@ -80,7 +67,6 @@ def find(lines, str):
             res = int(line.replace('\r', '').replace('\n', '').split()[-1])
             # print("find", str, res)
             return res
-    # return 0
     print('Error: cannot find str "%s" in current group:\n' % str)
     for line in lines:
         print(line, end='')
@@ -131,7 +117,7 @@ IGNORE_CNT = 1
 MAX_CNT = 100 * 1000
 def getTimeCount(groups):
     # traverse each group to get times
-    times = [[] for _ in range(TYPE_NR)]
+    times = [0] * TYPE_NR
     first_times = [0] * TYPE_NR
     totalExtra = np.zeros(EXTRA_TYPE_NR, dtype=np.float32)
     totalCounts = np.zeros((7, 2), dtype=np.float32)
@@ -154,24 +140,23 @@ def getTimeCount(groups):
                 exit(0)
         else:
             try:
-                times[IPI].append(find(group, "ipi time"))
-                times[ALLOC].append(find(group, "get second latest obj"))
-                times[OBJ].append(find(group, "ckpt object"))
+                times[IPI] += find(group, "ipi time")
+                times[ALLOC] += find(group, "get second latest obj")
+                times[OBJ] += find(group, "ckpt object")
                 # times[KVS] += find(group, "kvs get time")
                 # times[KVS] += find(group, "kvs put time") + find(group, "kvs get time")
-                times[SYS].append(find(group, "recycle cost") + find(group, "fmap cost"))
+                times[SYS] += find(group, "recycle cost") + find(group, "fmap cost")
                 # times[MEMCPY] += find(group, "memcpy time")
-                times[CAP_GROUP].append(find(group, "object count 0"))
-                times[THREAD].append(find(group, "object count 1"))
-                times[CONNECTION].append(find(group, "object count 2"))
-                times[NOTIFICATION].append(find(group, "object count 3"))
-                times[IRQ].append(find(group, "object count 4"))
-                times[PMO].append(find(group, "object count 5"))
-                times[VMSPACE].append(find(group, "object count 6"))
+                times[CAP_GROUP] += find(group, "object count 0")
+                times[THREAD] += find(group, "object count 1")
+                times[CONNECTION] += find(group, "object count 2")
+                times[NOTIFICATION] += find(group, "object count 3")
+                times[IRQ] += find(group, "object count 4")
+                times[PMO] += find(group, "object count 5")
+                times[VMSPACE] += find(group, "object count 6")
                 # times[PTE_POLL] += find(group, "pte pool time")
                 # times[THRACK_ACCESS] += find(group, "track access time")
-                times[MIGREATE].append(findMaxMigrateTime(group))
-                # times[MIGREATE_WAIT].append(find(group, "wait for migrate finish time"))
+                times[MIGREATE] += findMaxMigrateTime(group)
                 extra = findExtraInfo(group)
                 totalExtra += np.array(extra)
                 counts = findCounts(group)
@@ -182,14 +167,11 @@ def getTimeCount(groups):
                 length = length - 1
                 continue
     # print(len(groups), np.array(times, dtype=np.float32))
-    # times = np.array(times, dtype=np.float32) / length
-    _times = [0] * TYPE_NR
-    for i in range(TYPE_NR):
-        _times[i] = calculate_median(times[i])
+    times = np.array(times, dtype=np.float32) / length
     first_times = np.array(first_times, dtype=np.float32) / IGNORE_CNT
     totalCounts /= (length - 1)
     totalExtra /= (length - 1)
-    return _times, totalCounts, first_times, totalExtra
+    return times, totalCounts, first_times, totalExtra
 
 
 # traverse each era
@@ -261,20 +243,12 @@ if __name__ == '__main__':
         df = df.rename(columns=c)
         print("Table3 (Incr):")
         print(df)
-        for column_name, column_data in df.items():
-            ma = round(df.max()[column_name]/1000, 2)
-            mi = round(df.min()[column_name]/1000, 2)
-            print(column_name, "\tMin:", mi, "\tMax:", ma)
         df.to_csv("./result/table3-incur-colum.csv")
 
         df = pd.DataFrame.from_dict(full_res).transpose()
         df = df.rename(columns=c)
         print("Table3 (Full):")
         print(df)
-        for column_name, column_data in df.items():
-            ma = round(df.max()[column_name]/1000, 2)
-            mi = round(df.min()[column_name]/1000, 2)
-            print(column_name, "\tMin:", mi, "\tMax:", ma)
         df.to_csv("./result/table3-full-colum.csv")
 
     elif arg2 == 'extra':
@@ -292,7 +266,11 @@ if __name__ == '__main__':
             # DIRTY_PAGE = 1
             # TOT_CACHED_PAGE = 2
         df = pd.DataFrame.from_dict(extra).transpose()
+        df['Ratio of page faults eliminated'] = df[DIRTY_PAGE] / (df[DIRTY_PAGE] + df[PFCOUNT])
+        df['Dirty rate in cached pages'] = df[DIRTY_PAGE] / df[TOT_CACHED_PAGE]
         df = df.rename(columns={0: '# of runtime page faults', 1: '# of dirty cached pages', 2: '# of cached pages'})
+        df = df.transpose()
+
         print("Table4:")
         print(df)
         df.to_csv("./result/table4.csv")
@@ -317,5 +295,10 @@ if __name__ == '__main__':
         df = pd.DataFrame.from_dict(count_res).transpose()
         df = df.rename(columns=c)
         print("Table2 (Object Count):")
+        print(df)
+
+        # Subtract each row from the first row (Default row)
+        df = df.subtract(df.iloc[0])
+        print("Table2 (Object Count) After subtract:")
         print(df)
         df.to_csv("./result/table2-counts.csv")

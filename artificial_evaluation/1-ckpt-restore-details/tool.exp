@@ -11,25 +11,19 @@ proc run_test {workload flag} {
             expect "KMeans: MapReduce Completed"
         }
         "word_count" {
-            send -- "word_count.bin word_50MB.txt &\r"
+            send -- "word_count.bin word_100MB.txt &\r"
             expect "Wordcount: MapReduce Completed"
         }
-        "redisSet" {
+        "redis" {
             puts "redis set test"
             send -- "redis-server --save \"\" -h 127.0.0.1 &\r"
             expect "poll fd server is not lwip"
-            send -- "redis-benchmark -t set -n 1000000 -d 1024 --threads $thread -r 10000 &\r"
-            expect "requests per second"
-        }
-        "redisGet" {
-            send -- "redis-server --save \"\" -h 127.0.0.1 &\r"
-            expect "poll fd server is not lwip"
-            send -- "redis-benchmark -t get -n 1000000 -d 1024 --threads $thread -r 10000 &\r"
+            send -- "redis-benchmark -t set -n 1000000 -d 1024 --threads $thread &\r"
             expect "requests per second"
         }
         "memcached" {
             send -- "memcached -l 127.0.0.1 -p 123 & \r"
-            expect "Launching /memcached"
+            expect "poll fd server is not lwip"
             send -- "memcachetest -h 127.0.0.1:123 -M 1024 -F -t $thread -i 1000000 &\r"
             expect "Launching /memcachetest"
 
@@ -41,12 +35,12 @@ proc run_test {workload flag} {
             expect "sqlite_test done"
         }
         "leveldb" {
-            send -- "leveldb-dbbench --benchmarks=fillbatch --num=1000000 &\r"
-            expect "P95:"
-            expect "Max:"
+            send -- "leveldb-dbbench &\r"
+            expect "snappyuncomp"
+            expect "Min"
         }
         default {
-            puts "error workload"
+            # puts "error workload"
         }
     }
 }

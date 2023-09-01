@@ -2,13 +2,13 @@
 
 source ../config.sh
 
-logdir=$logbasedir/hybrid-mem/
+logdir=$logbasedir/hybrid-mem
 loop=(0)
 mode=$1
 
 mkdir -p $logdir
 
-for workload in kmeans pca redis memcached
+for workload in redis pca kmeans memcached
 do
     mkdir -p $logdir/$workload
     for run in ${loop[@]}

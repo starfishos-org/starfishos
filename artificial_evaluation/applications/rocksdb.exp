@@ -11,14 +11,14 @@ if {$test_mode == "QEMU"} {
     expect "Welcome to ChCore shell!"
 } elseif {$test_mode == "IPMI"}  {
     while {1} {
-        spawn ipmitool -H $ipmi_ip -U root -P calvin -I lanplus sol activate
+        spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
         expect {
             "SOL Session operational" {
                 puts "ipmi connected"
                 break
             }
             "SOL payload already active on another session" {
-                spawn ipmitool -H $ipmi_ip -U root -P $passwd -I lanplus sol deactivate
+                spawn spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
                 continue
             }
             timeout {
@@ -33,6 +33,7 @@ if {$test_mode == "QEMU"} {
         send -- "shutdown.bin \r"
         expect {
             "Welcome to ChCore shell!" { break }
+            "No such binary" { continue }
             timeout {
                 puts "shutdown fail"
                 continue
@@ -43,7 +44,7 @@ if {$test_mode == "QEMU"} {
     puts "Currently, we only support IPMI and QEMU mode!"
 }
 
-set timeout 3000
+set timeout 1200
 
 # Test 1
 if {$mode == "raw"} {
@@ -52,17 +53,18 @@ if {$mode == "raw"} {
 
 # Test 2
 if {$mode == "ckpt"} {
-    set freq [lindex $argv 1]
-    set log [lindex $argv 2]
+    set freq [lindex $argv 2]
+    set log [lindex $argv 3]
     
     puts "test prefix_dist with $freq ms checkpoint"
     send -- "checkpoint.bin -i %$freq -l $log -a 14 &\r"
     expect "Launching /checkpoint.bin"
-    sleep 10
+    sleep 5
 }
 
 set ROCKSDB_NUM 1000000
 set ROCKSDB_DUR 30
+set thread [lindex $argv 1]
 
 set timeout 60
 while 1 {
@@ -83,16 +85,6 @@ while 1 {
     }
 }
 set timeout 1200
-
-if {$mode == "ckpt-log"} {
-    set freq [lindex $argv 2]
-    set log [lindex $argv 3]
-    
-    puts "test prefix_dist with $freq ms checkpoint"
-    send -- "checkpoint.bin -i %$freq -l $log -a 14 &\r"
-    expect "Launching /checkpoint.bin"
-    sleep 10
-}
 
 expect "Initializing RocksDB Options"
 expect "mixgraph"

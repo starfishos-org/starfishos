@@ -3,21 +3,20 @@
 source ../config.sh
 
 logdir=$logbasedir/memcached
-mkdir $logdir
+mkdir -p $logdir
 
-loop=(20 21 22)
+loop=(0)
 intervals=(0 1 5 10 50)
 
 for freq in ${intervals[@]}
 do
     for run in ${loop[@]}
     do
-        f=$logdir/ckpt$freq.t8.$run.log
+        f=t8.$run.log
         if [ $freq == 0 ]; then
-            $appdir/memcached.exp raw 2>&1 | tee $f
+            $appdir/memcached.exp raw 2>&1 | tee $logdir/ckpt0.$f
         else
-            $appdir/memcached.exp ckpt $freq 0 2>&1 | tee $f
+            $appdir/memcached.exp ckpt $freq 0 2>&1 | tee $logdir/ckpt$freq.$f
         fi
-        sleep 10
     done
 done

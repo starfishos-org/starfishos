@@ -4,23 +4,22 @@ source tool.exp
 
 set logdir $logbasedir/ckpt-size
 
-set timeout 1200
+set timeout 180
 
-# redis memcached kmeans word_count leveldb sqlite
-set workloads {redis memcached kmeans word_count sqlite} 
-
+# set workloads {memcached redis sqlite leveldb kmeans word_count} 
+set workloads {memcached redis sqlite leveldb kmeans word_count} 
 spawn mkdir -p $logdir
 
 foreach workload $workloads {
     foreach flag {raw ckpt} {
-        foreach i {1 2 3} {
+        foreach i {0} {
             # launch chcore
             spawn rm [exec sh -c {echo "/tmp/nvm-file-$USER"}]
-            spawn ../../build/simulate.sh
+            spawn $basedir/build/simulate.sh
             expect "Welcome to ChCore shell!"
             
             # open the log file
-            log_file "$logdir/${workload}_${flag}_${i}.log"
+            log_file "$logdir/${workload}.${flag}.${i}.log"
 
             # get free mem
             puts "before run ${workload}"

@@ -11,14 +11,14 @@ if {$test_mode == "QEMU"} {
     expect "Welcome to ChCore shell!"
 } elseif {$test_mode == "IPMI"}  {
     while {1} {
-        spawn ipmitool -H $ipmi_ip -U root -P calvin -I lanplus sol activate
+        spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
         expect {
             "SOL Session operational" {
                 puts "ipmi connected"
                 break
             }
             "SOL payload already active on another session" {
-                spawn ipmitool -H $ipmi_ip -U root -P $passwd -I lanplus sol deactivate
+                spawn spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
                 continue
             }
             timeout {
@@ -33,6 +33,7 @@ if {$test_mode == "QEMU"} {
         send -- "shutdown.bin \r"
         expect {
             "Welcome to ChCore shell!" { break }
+            "No such binary" { continue }
             timeout {
                 puts "shutdown fail"
                 continue
@@ -43,7 +44,7 @@ if {$test_mode == "QEMU"} {
     puts "Currently, we only support IPMI and QEMU mode!"
 }
 
-set timeout 1200
+set timeout 300
 
 if {$mode == "raw"} {
     puts "do nothing"

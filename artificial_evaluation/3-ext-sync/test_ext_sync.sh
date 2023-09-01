@@ -8,9 +8,9 @@ mkdir -p $logdir
 loop=(0)
 intervals=(1 5 10)
 
-for run in ${loop[@]}
+for freq in ${intervals[@]}
 do
-    for freq in ${intervals[@]}
+    for run in ${loop[@]}
     do
         $appdir/redis.exp ckpt set 32 $freq 0 2>&1 | tee $logdir/ckpt$freq.pip32.$run.log
         sleep 10

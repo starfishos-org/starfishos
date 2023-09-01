@@ -18,7 +18,7 @@ result = {}
 
 for d in search_dirs:
     d = ROOT_DIR + '/' + d
-    print(d)
+    # print(d)
     files = [f for f in os.listdir(d) if re.match(filename_pattern, f)]
     for f in files:
         filepath = os.path.join(d, f)
@@ -57,3 +57,4 @@ for threads, labels in result.items():
     # print(wls)
     # df.insert(0, threads, wls)
     df.to_csv("./result/ycsb.csv".format(threads))
+    print(df)

@@ -81,7 +81,7 @@ for prefix in prefixes:
                 data['SETraw'][prefix]['P50'].append(p50)
                 data['SETraw'][prefix]['P95'].append(p95)
                 data['SETraw'][prefix]['P99'].append(p99)
-print(data)
+# print(data)
 
 for i in workloads:
     for prefix in prefixes:
@@ -92,3 +92,4 @@ for i in workloads:
     df = pd.DataFrame.from_dict(data[i])
     # Save the DataFrame as a CSV file
     df.to_csv('./result/memcached-{}.csv'.format(i))
+    print(df)

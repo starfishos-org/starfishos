@@ -13,5 +13,5 @@ sed -i "/SLS_SPECIAL_OMIT_MEMCPY/c\set(SLS_SPECIAL_OMIT_MEMCPY OFF)" $kconfig
 sed -i "/SLS_SPECIAL_OMIT_BENCHMARK/c\set(SLS_SPECIAL_OMIT_BENCHMARK ON)" $kconfig
 
 cd $basedir
-# ./chbuild clean
+# ./quick-build.sh
 ./chbuild build

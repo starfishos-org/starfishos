@@ -12,9 +12,11 @@ csv_file1 = sys.argv[1]
 df1 = pd.read_csv(csv_file1, index_col=0)
 df1 = df1.transpose()
 
-csv_file2 = sys.argv[1]
+csv_file2 = sys.argv[2]
 df2 = pd.read_csv(csv_file2, index_col=0)
 df2 = df2.transpose()
+print(df1)
+print(df2)
 
 freq_set = [1, 5, 10]
 
