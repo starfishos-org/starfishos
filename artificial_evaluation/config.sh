@@ -1,8 +1,8 @@
 #!/usr/bin/bash
 
 # test mode "IPMI" or "QEMU"
-test_mode="IPMI"
-# test_mode="QEMU"
+# test_mode="IPMI"
+test_mode="QEMU"
 
 basedir="/home/xxx/treesls"
 aedir="$basedir/artificial_evaluation"

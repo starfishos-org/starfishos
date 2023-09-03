@@ -1,8 +1,8 @@
 #!/usr/bin/expect 
 
 # test mode "IPMI" or "QEMU"
-set test_mode "IPMI"
-# set test_mode "QEMU"
+# set test_mode "IPMI"
+set test_mode "QEMU"
 
 set basedir "/home/xxx/treesls"
 set aedir "$basedir/artificial_evaluation"

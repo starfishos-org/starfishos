@@ -86,7 +86,6 @@ while 1 {
 }
 set timeout 1200
 
-expect "Initializing RocksDB Options"
 expect "mixgraph"
 expect "Microseconds per read:"
 expect "100.000%"
