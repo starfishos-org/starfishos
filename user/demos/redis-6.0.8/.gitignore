@@ -21,6 +21,7 @@ SHORT_TERM_TODO
 release.h
 src/transfer.sh
 src/configs
+src/redis-test
 redis.ds
 src/redis.conf
 src/nodes.conf

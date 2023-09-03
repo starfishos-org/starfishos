@@ -26,7 +26,7 @@ or use
 ./chbuild build
 ``` 
 
-## Run in QEMU
+### Run in QEMU
 
 ```shell
 ./qemu.exp # with a clean NVM backend
@@ -35,8 +35,20 @@ or use
 or
 
 ```shell
-./build/simulate.sh
+./build/simulate.sh # with the old NVM backend
 ```
+
+### Docker
+
+By default, we provide a pre-built Docker image, you can simply use the build command and it will be automatically downloaded. 
+
+If you want to build this image from scratch, you can use the following command to build from the provided dockerfile.
+
+```shell
+docker build -t <image_name> .
+```
+
+To use the newly built container, you can modify the Docker image name in the `chbuild` file (specifically, line 218 in the `_docker_run()` function) to the image you have built.
 
 ## Artificial Evaluation
 
@@ -64,6 +76,10 @@ Please refer to [artificial_eval.md](./artificial_eval.md)
     |- system-servers       userspace system servers
     |- config.cmake         user applications flags
 ```
+
+### TreeSLS's Implementation
+
+Please refer to [TreeSLS.md](./docs/TreeSLS.md)
 
 ## LICENSE
 

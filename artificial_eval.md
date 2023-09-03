@@ -6,11 +6,15 @@ We thank the artifact evaluators who have volunteered to do one of the toughest 
 
 Hardware
 - Intel® Optane™ Persistent Memory (or you can use Qemu mode for simulation)
+- CPU Core >= 20
 
 Software
 - docker: we build the OS within a given docker
+- qemu-system-x86: use qemu mode to boot the OS
 - ipmitool: for interacting with the real machine (with kernel loaded)
-- expect & python3: for scripts
+- expect: for interacting with the real machine
+- python3: for parsing and drawing
+    - requirements: matplotlib, pandas, numpy, seaborn
 
 ## Building TreeSLS OS
 
@@ -208,3 +212,25 @@ After all, run `./fig12.sh`.
 2. run Rocksdb test provided by Aurora (https://github.com/rcslab/aurora-bench/tree/master), scripts are given in `6-aurora-rocksdb/test_rockdb.sh`
 3. copy logs of Aurora (by default, in `/aurora-data/`) to `artificial_evaluation/logs/<mode>/rocksdb/`
 3. run `./fig14.sh`
+
+## Common Q&A
+Q. Changing the CPU number
+
+A. Currenly we hard code the CPU number. To change it, you can:
+- Open the file `kernel/arch/x86_64/boot/CMakeLists.txt`. Change line 36 `-smp XXX` with a new value.
+- Open the file `/kernel/include/arch/x86_64/plat/intel/machine.h`. Change line 4 `#define PLAT_CPU_NUM XXX` to half the value used above. For example, if using `-smp 20`, change it to `#define PLAT_CPU_NUM 10`. (we use half of the cores to use a single NUMA on the server).
+
+Q. QEMU bug:
+
+```
+[INFO] General Protection Fault
+[INFO] Faulting Address: 0x0
+[INFO] Current thread 0
+[INFO] Trap from 0xffffffffc011338b EC 0 Trap No. 13
+[INFO] DS 0x0, CS 0x10, RSP 0xffffffffc0109030, SS 0x18
+[INFO] rax: 0x706b0, rdx: 0x80010031, rdi: 0xffffffffca14aa80
+[INFO] rcx: 0x65
+```
+
+A. We have also encountered this bug on Ubuntu 22.04. The issue stems from QEMU having problems with emulating the CPU's PCID feature support on this particular version, thus leading to a General Protection Fault bug.
+You can try running it on a machine with a different operating system installed. We have successfully boot it on some machines with Debian and Fedora.

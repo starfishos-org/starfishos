@@ -49,18 +49,6 @@ add_custom_command(
     DEPENDS)
 endif()
 
-# libevent is already installed in docker images
-if(CHCORE_DEMOS_LIBEVENT)
-add_custom_target(
-    libevent ALL
-    WORKING_DIRECTORY ${build_demos_dir}/libevent
-    COMMAND ./autogen.sh
-    COMMAND ./configure --disable-openssl --disable-debug-mode --disable-samples -prefix=/usr/libevent
-    COMMAND CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -s &> /dev/null
-    COMMAND make install
-)
-endif()
-
 if(CHCORE_DEMOS_MEMCACHED)
 add_custom_target(
     memcached ALL

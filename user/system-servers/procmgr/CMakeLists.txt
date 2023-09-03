@@ -1,4 +1,4 @@
-chcore_enable_clang_tidy()
+# chcore_enable_clang_tidy()
 add_executable(procmgr.srv proc_node.c procmgr.c recycle.c shell_msg_handler.c
                            srvmgr.c)
 target_link_options(procmgr.srv PRIVATE -static)
