@@ -213,6 +213,21 @@ After all, run `./fig12.sh`.
 3. copy logs of Aurora (by default, in `/aurora-data/`) to `artificial_evaluation/logs/<mode>/rocksdb/`
 3. run `./fig14.sh`
 
+## Estimated Resources
+
+Space are consumed within the microkernel.
+
+| Test                                  | Estimated Time         | Details |
+| -------------------------------------- | ---------------------- | ---------- |
+| 1/test_ckpt_details.sh                 | ~24 min   | ~3 min per workload, 8 workloads      |           |            |
+| 1/test_ckpt_size.sh                    | ~18 min   | ~3 min per workload, 6 workloads        |          |            |
+| 1/test_restore_details.sh            |    ~21 min    | ~3 min per workload, 7 workloads     |                                    
+| 2/test_*.sh                            | ~1 hour (~12 min * 5 configurations)      |  ~3 minutes per workload, 4 workloads, 5 configurations |        |
+| 3/test_base.sh + test_ext_syn.sh       | ~9 min (ext-sync) + 12 min (base)        | ~3 min per workload, 3 configurations (ext-sync) + 4 configurations (base) |         |
+| 4/test_memcached.sh     | ~15 min          | ~3 min per test, 5 configurations        |            |
+| 5/test_ycsb.sh          | ~32 min              | ~4 min per test, 4 * 2 configurations        | 
+| 6/test_rocksdb.sh          | ~6 min              | ~3 min per test, 2 configurations        | 
+
 ## Common Q&A
 Q. Changing the CPU number
 

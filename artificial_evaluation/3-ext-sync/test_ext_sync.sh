@@ -8,6 +8,7 @@ mkdir -p $logdir
 loop=(0)
 intervals=(1 5 10)
 
+# Test redis set benchmark with different checkpoint interval
 for freq in ${intervals[@]}
 do
     for run in ${loop[@]}

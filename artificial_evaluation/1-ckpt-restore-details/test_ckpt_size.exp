@@ -6,10 +6,10 @@ set logdir $logbasedir/ckpt-size
 
 set timeout 180
 
-# set workloads {memcached redis sqlite leveldb kmeans word_count} 
 set workloads {memcached redis sqlite leveldb kmeans word_count} 
 spawn mkdir -p $logdir
 
+# Test memory usage of each workload
 foreach workload $workloads {
     foreach flag {raw ckpt} {
         foreach i {0} {

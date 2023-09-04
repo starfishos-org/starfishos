@@ -8,6 +8,8 @@ mode=$1
 
 mkdir -p $logdir
 
+# Test each workloads with ckpt mode
+# ckpt mode will continuously doing checkpoint
 for workload in redis pca kmeans memcached
 do
     mkdir -p $logdir/$workload

@@ -2,7 +2,7 @@
 
 source ../config.exp
 
-set timeout 20
+set timeout 120
 set mode [lindex $argv 0]
 
 if {$test_mode == "QEMU"} {
@@ -15,28 +15,23 @@ if {$test_mode == "QEMU"} {
         expect {
             "SOL Session operational" {
                 puts "ipmi connected"
-                break
+                send -- "shutdown.bin \r"
+                expect {
+                    "Welcome to ChCore shell!" { break }
+                    "No such binary" { continue }
+                    timeout { 
+                        spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol deactivate
+                        continue 
+                    }
+                }
             }
             "SOL payload already active on another session" {
-                spawn spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
+                spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol deactivate
                 continue
             }
             timeout {
                 puts "ipmitool failed"
                 exit
-            }
-        }
-    }
-
-    set timeout 60
-    while {1} {
-        send -- "shutdown.bin \r"
-        expect {
-            "Welcome to ChCore shell!" { break }
-            "No such binary" { continue }
-            timeout {
-                puts "shutdown fail"
-                continue
             }
         }
     }
@@ -46,40 +41,41 @@ if {$test_mode == "QEMU"} {
 
 set timeout 1200
 
-# Test 1
+# raw mode: just running default application
 if {$mode == "raw"} {
     puts "test raw word count"
 }
 
-# Test 2
+# ckpt mode: taking checkpoint while running 
 if {$mode == "ckpt"} {
     set freq [lindex $argv 1]
     set log [lindex $argv 2]
     puts "test word count with 1ms checkpoint"
 
-    send -- "checkpoint.bin -i %$freq -l $log -a 14 -t 2000 &\r"
+    send -- "checkpoint.bin -i %$freq -l $log -a 9 -t 2000 &\r"
     expect "Launching /checkpoint.bin"
     sleep 5
 }
 
+# Launch word_count
 send -- "word_count.bin word_100MB.txt &\r"
 
-# Test 3
+# ckpt-log mode: taking $ckptlogtimes times of checkpoint with log
 if {$mode == "ckpt-log"} {
     set freq [lindex $argv 1]
     set log [lindex $argv 2]
 
-    send -- "checkpoint.bin -i %$freq -l $log -a 14 -t $ckptlogtimes &\r"
+    send -- "checkpoint.bin -i %$freq -l $log -a 9 -t $ckptlogtimes &\r"
     expect "Launching /checkpoint.bin"
     expect "Checkpoint finished"
 }
 
-# Test 4
+# restore mode: take a checkpoint and call shutdown to restore
 if {$mode == "restore-log" || $mode == "restore-test"} {
     set freq [lindex $argv 1]
     set log [lindex $argv 2]
 
-    send -- "checkpoint.bin -i %$freq -l $log -a 14 -t 4 &\r"
+    send -- "checkpoint.bin -i %$freq -l $log -a 9 -t 4 &\r"
     expect "Checkpoint finished"
     send -- "shutdown.bin 0 & \r"
     expect "restore from ckpt"

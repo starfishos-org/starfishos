@@ -7,6 +7,7 @@ threads=(1)
 
 mkdir -p $logdir
 
+# Test rocksdb benchmark with and without taking checkpoint
 for thread in ${threads[@]}
 do
     for run in ${loop[@]}
@@ -15,11 +16,6 @@ do
         mkdir -p $logdir/$thread/chcore-base
         $appdir/rocksdb.exp raw $thread 2>&1 | tee $logdir/$thread/chcore-base/$run.out
         sleep 10
-
-        # baseline with WAL
-        # mkdir -p $logdir/chcore-base-wal
-        # $appdir/rocksdb.exp wal 2>&1 | tee $logdir/chcore-base-wal/$run.out
-        # sleep 10
 
         # with ckpt
         mkdir -p $logdir/$thread/chcore-ckpt

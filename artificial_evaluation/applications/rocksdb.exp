@@ -2,7 +2,7 @@
 
 source ../config.exp
 
-set timeout 20
+set timeout 120
 set mode [lindex $argv 0]
 
 if {$test_mode == "QEMU"} {
@@ -15,28 +15,23 @@ if {$test_mode == "QEMU"} {
         expect {
             "SOL Session operational" {
                 puts "ipmi connected"
-                break
+                send -- "shutdown.bin \r"
+                expect {
+                    "Welcome to ChCore shell!" { break }
+                    "No such binary" { continue }
+                    timeout { 
+                        spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol deactivate
+                        continue 
+                    }
+                }
             }
             "SOL payload already active on another session" {
-                spawn spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol activate
+                spawn ipmitool -H $ipmi_ip -U $username -P $passwd -I lanplus sol deactivate
                 continue
             }
             timeout {
                 puts "ipmitool failed"
                 exit
-            }
-        }
-    }
-
-    set timeout 60
-    while {1} {
-        send -- "shutdown.bin \r"
-        expect {
-            "Welcome to ChCore shell!" { break }
-            "No such binary" { continue }
-            timeout {
-                puts "shutdown fail"
-                continue
             }
         }
     }
@@ -46,24 +41,23 @@ if {$test_mode == "QEMU"} {
 
 set timeout 1200
 
-# Test 1
+# raw mode: just running default application
 if {$mode == "raw"} {
     puts "test raw prefix_dist"
 }
 
-# Test 2
+# ckpt mode: taking checkpoint while running 
 if {$mode == "ckpt"} {
     set freq [lindex $argv 2]
     set log [lindex $argv 3]
     
     puts "test prefix_dist with $freq ms checkpoint"
-    send -- "checkpoint.bin -i %$freq -l $log -a 14 &\r"
+    send -- "checkpoint.bin -i %$freq -l $log -a 9 &\r"
     expect "Launching /checkpoint.bin"
     sleep 5
 }
 
-set ROCKSDB_NUM 1000000
-set ROCKSDB_DUR 30
+# Launch rocksdb with benchmarks=fillbatch,mixgraph
 set thread [lindex $argv 1]
 
 set timeout 60
@@ -80,12 +74,11 @@ while 1 {
         --threads=$thread &\r"
     expect "Launching /rocksdb-dbbench"
     expect {
-        "DB path:" { break }
+        "Microseconds per seek" { break }
         timeout { continue }
     }
 }
 set timeout 1200
 
-expect "mixgraph"
-expect "Microseconds per read:"
+expect "Microseconds per read"
 expect "100.000%"

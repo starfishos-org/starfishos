@@ -15,7 +15,14 @@ set white_color "\033\[37m"
 set red_color "\033\[31m"
 
 # loop time for ckpt log
-set ckptlogtimes 1000
+set ckptlogtimes 500
+set leveldb_num 10000
+set redis_num 10000
+set memcached_num 10000
+set kmeans_num 5000
+set pca_num 1000
+set ROCKSDB_NUM 1000
+set ROCKSDB_DUR 10
 
 # ipmi ip, username and passwd
 set ipmi_ip "192.168.12.60" 
