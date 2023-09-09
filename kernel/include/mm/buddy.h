@@ -205,3 +205,10 @@ static inline u64 compound_head_offset(struct page *page, struct page *head)
         BUG_ON(dis % sizeof(struct page));
         return dis / sizeof(struct page);
 }
+
+/* TreeSlS */
+static inline void init_page_info(struct page *page, struct pmobject *pmo, u64 index) {
+        page->index = index;
+        page->pmo = pmo;
+        page->page_pair = 0;
+}

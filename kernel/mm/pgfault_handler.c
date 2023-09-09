@@ -40,42 +40,6 @@ extern void pagecpy_nt(void *dst, const void *src);
 
 #if PGFAULT_POLICY == ONDEMAND
 
-int pa_checksum(const char *page) {
-	int i, sum = 0;
-	for (i = 0; i < PAGE_SIZE; ++i)
-		sum += page[i];
-	return sum;
-}
-
-int pas_checksum(const char *page, int size) {
-	int i, sum = 0;
-	for (i = 0; i < size; ++i)
-		sum += page[i];
-	return sum;
-}
-
-static int size_to_page_order(unsigned long size)
-{
-	unsigned long order;
-	unsigned long pg_num;
-	unsigned long tmp;
-
-	order = 0;
-	pg_num = ROUND_UP(size, BUDDY_PAGE_SIZE) / BUDDY_PAGE_SIZE;
-	tmp = pg_num;
-
-	while (tmp > 1) {
-		tmp >>= 1;
-		order += 1;
-	}
-
-	if (pg_num > (1 << order))
-		order += 1;
-
-	return (int)order;
-}
-
-extern u64 tmp;
 
 /* add_pte_patch_to_pool: when trigger write, track pages's pte and page struct
  */
@@ -117,7 +81,7 @@ u64 patch_page_num = 0;
 extern u64 pf_count;
 extern u64 pf_tot_time;
 #endif
-int map_page_in_pgtbl(struct vmspace *vmspace, vaddr_t va, paddr_t pa,
+int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa,
 	vmr_prop_t flags, pte_t **out_pte);
 int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present, int write)
 {
@@ -145,35 +109,11 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 	lock(&vmspace->vmspace_lock);
 	vmr = find_vmr_for_va(vmspace, fault_addr);
 	if (vmr == NULL) {
-		kinfo("[dbg] PF: P %d W %d\n", present, write);
 		kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n",
 		      fault_addr);
-		kinfo("process: %p\n", current_cap_group);
-		print_thread(current_thread);
-		kinfo("faulting IP: 0x%lx, SP: 0x%lx\n",
-		      arch_get_thread_next_ip(current_thread),
-		      arch_get_thread_stack(current_thread));
-		extern u64 tmp;
-		kinfo("fault_ins_addr: 0x%lx\n",tmp);
-		kprint_vmr(vmspace);
 		// TODO: kill the process
 		kwarn("TODO: kill such faulting process.\n");
 		return -ENOMAPPING;
-	}
-	if (present && !(vmspace->flags & VM_FLAG_PRESERVE) && !(vmr->perm & VMR_COW)) {
-			printk("perm %u, pmo_flags %u, write %u, pmo_type %u\n",
-					vmr->perm,
-					vmspace->flags & VM_FLAG_PRESERVE,
-					write,
-					vmr->pmo->type);
-			/* The PTE is valid, it's a permission error */
-            kinfo("General Protection Fault\n");
-		if (write) {
-			kinfo("Cannot write at %p.\n", fault_addr);
-		} else {
-			kinfo("Cannot read at %p.\n", fault_addr);
-		}
-		while(1);
 	}
 	
 	pmo = vmr->pmo;
@@ -184,8 +124,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 	case PMO_RING_BUFFER_RADIX:
 	case PMO_ANONYM:
 	case PMO_SHM: {
-
-		BUG_ON(pmo->type == PMO_RING_BUFFER && present);
 
 		vmr_prop_t perm;
 
@@ -223,7 +161,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 		fault_addr = ROUND_DOWN(fault_addr, PAGE_SIZE);
 
 		pa = get_page_from_pmo(pmo, index);
-		// printk("[debug] %s: paddr=%llx\n", __func__, pa);
 
 		/* PMO_FILE fault means user fault */
 		if (pmo->type == PMO_FILE && !pa) {
@@ -275,73 +212,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 			#ifdef PMO_CHECKSUM
 				page->ckpt_version_number = get_current_ckpt_version() + 1;
 			#endif
-				// int ckpt_ret = 
 				#ifndef OMIT_BENCHMARK
 				ckpt_nvm_page(pmo, new_va, index);
 				#endif
 				add_pte_patch_to_pool(vmspace, (pte_t *)pte, page);
-				// if(ckpt_ret) {
-				// 	track_access(page);
-				// }
 			}
 #endif
-		}
-		else if (vmr->perm & VMR_COW) {
-			/* write to a COWed page */
-			perm &= (~VMR_COW);
-			if (pmo->type == PMO_FILE) {
-				perm |= VMR_EXEC;
-			}
-			// BUG_ON(write == 0);
-			struct page *p_page;
-			if (pmo->type == PMO_DATA) {
-				p_page = virt_to_page((void*)phys_to_virt(pmo->start));
-				size_t size = pmo->size;
-				lock(&p_page->lock);
-				if (p_page->ref_cnt > 1) {
-					void *new_page = get_pages(size_to_page_order(size));
-					BUG_ON(new_page == 0);
-					memcpy(new_page, (void*)phys_to_virt(pmo->start), size);
-					p_page->ref_cnt--;
-					pmo->start = virt_to_phys(new_page);
-				}
-				unlock(&p_page->lock);
-				lock(&vmspace->pgtbl_lock);
-				map_range_in_pgtbl(vmspace->pgtbl, vmr->start, pmo->start,
-						size, perm, (u64 **)&pte);		
-				unlock(&vmspace->pgtbl_lock);
-			}
-			else {
-				BUG_ON(/*pmo->type == PMO_FILE ||*/ pmo->type == PMO_SHM);
-				if (!write) {
-					perm |= VMR_COW;
-					lock(&vmspace->pgtbl_lock);
-					map_range_in_pgtbl(vmspace, fault_addr, pa,
-						PAGE_SIZE, perm, (u64 **)&pte);		
-					unlock(&vmspace->pgtbl_lock);
-				} else {
-					p_page = virt_to_page((void*)phys_to_virt(pa));
-					lock(&p_page->lock);
-					if (p_page->ref_cnt > 1) {
-						void *new_page = get_pages(0);
-						BUG_ON(new_page == 0);
-						memcpy(new_page, (void*)phys_to_virt(pa), PAGE_SIZE);
-						p_page->ref_cnt--;
-						/* new pa */
-						pa = virt_to_phys(new_page);
-						commit_page_to_pmo(pmo, index, pa);
-					} else {
-						BUG_ON(p_page->ref_cnt != 1);
-					}
-					unlock(&p_page->lock);
-					lock(&vmspace->pgtbl_lock);
-					map_range_in_pgtbl(vmspace, fault_addr, pa,
-							PAGE_SIZE, perm, (u64 **)&pte);		
-					unlock(&vmspace->pgtbl_lock);
-				}				
-			}
-		}
-		else {
+		} else {
 			/*
 			 * pa != 0: the faulting address has be committed a
 			 * physical page.
@@ -363,9 +240,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 			 * needs to add the mapping in the page table.
 			 * Repeated mapping operations are harmless.
 			 */
-
-			if (pmo->type == PMO_FILE) {
-				perm |= VMR_EXEC;
+			/* For PMO_FILE, we simply set all the perm now. */
+			if (pmo->type == PMO_FILE) {	
+				perm = VMR_READ | VMR_WRITE | VMR_EXEC;
 			}
 #ifndef OMIT_PF
 			if ((vmspace->flags & VM_FLAG_PRESERVE) && !write && !is_external_sync_pmo(pmo)) {
@@ -373,11 +250,77 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 				perm &= ~VMR_WRITE;
 			}
 #endif
+			/* handle COW */
+			if (!is_shared_pmo(pmo)) {
+				if (use_continuous_pages(pmo)) {
+					page = virt_to_page((void*)phys_to_virt(pmo->start));
+					lock(&page->lock);
+					if (page->ref_cnt > 1) {
+						void *new_va = kmalloc(pmo->size);
+						if (new_va == NULL) {
+							ret = -ENOMEM;
+							unlock(&page->lock);
+							break;
+						}
+						
+						memcpy(new_va, (void*)phys_to_virt(pmo->start), pmo->size);
+						pmo->start = virt_to_phys(new_va);
+						/* new pa */
+						pa = pmo->start + index * PAGE_SIZE;
+
+						lock(&vmspace->pgtbl_lock);
+						if ((vmspace->flags & VM_FLAG_PRESERVE)) {
+							map_range_in_pgtbl(vmspace->pgtbl, vmr->start, pmo->start,
+								pmo->size, perm & (~VMR_WRITE));	
+						} else { 
+							map_range_in_pgtbl(vmspace->pgtbl, vmr->start, pmo->start,
+								pmo->size, perm);	
+						}
+						unlock(&vmspace->pgtbl_lock);
+					
+						flush_tlbs(vmspace, vmr->start, vmr->size);
+						atomic_fetch_sub_64(&page->ref_cnt, 1);
+					}
+					unlock(&page->lock);
+				} else {
+					int cow = false; 
+					page = virt_to_page((void*)phys_to_virt(pa));
+					lock(&page->lock);
+					if (page->ref_cnt > 1) {
+						void *new_va = get_pages(0);
+						if (new_va == NULL) {
+							ret = -ENOMEM;
+							unlock(&page->lock);
+							break;
+						}
+
+						pagecpy_nt(new_va, (void*)phys_to_virt(pa));
+						/* new pa */
+						pa = virt_to_phys(new_va);
+
+						lock(&vmspace->pgtbl_lock);
+						map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa,
+								perm, &pte);
+						unlock(&vmspace->pgtbl_lock);
+
+						flush_tlbs(vmspace, fault_addr, PAGE_SIZE);
+						atomic_fetch_sub_64(&page->ref_cnt, 1);
+						cow = true;
+					}
+					unlock(&page->lock);
+					if (cow) {
+						commit_page_to_pmo(pmo, index, pa);
+						goto skip_add_mapping;
+					}
+				}
+			}
+			
 			/* Add mapping in the page table */
 			pte_t *pte = NULL;
 			lock(&vmspace->pgtbl_lock);
 			map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 			unlock(&vmspace->pgtbl_lock);
+skip_add_mapping:
 
 			/* do not persist pages belong to external sync pmo */
 			if (is_external_sync_pmo(pmo))
@@ -388,13 +331,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 			if (need_omit(vmspace)) {
 				break;
 			}
-#endif
-			page = virt_to_page((void*)phys_to_virt(pa));		
+#endif		
 			if (write && (vmspace->flags & VM_FLAG_PRESERVE)) {
+				page = virt_to_page((void*)phys_to_virt(pa));
 				BUG_ON(unlikely(!page));
 				if (unlikely(get_page_type(page) != NVM_PAGE)) {
-					BUG("page(%p) is not NVM page, type=%d, flag=%d, pte=0x%llx, pmo_type=%d, %llx\n", 
-						page, get_page_type(page), page->flags, pte, pmo->type, pmo->dram_cache.array);
+					/* Dram page will be marked as unwritable after fork */
+					break;
 				}
 #ifndef OMIT_MEMCPY
 				/* copy page to ckpt_page */

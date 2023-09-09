@@ -79,10 +79,6 @@ static int set_pte_flags(pte_t *entry, vmr_prop_t flags, int kind)
 	else
 		entry->pteval &= (~PAGE_PCD);
 		/* equals: entry->pte_4K.cache_disable = 0; */
-
-	if (flags & VMR_COW)
-		entry->pteval &= (~PAGE_RW);
-		/* equals: entry->pte_4K.writeable = 0; */
 		
 	// TODO: set memory type
 	return 0;
@@ -96,7 +92,6 @@ int set_pte_write_flag(pte_t *entry, bool flag)
 	else
 		entry->pteval &= (~PAGE_RW);
 		/* equals: entry->pte_4K.writeable = 0; */
-	// kinfo("set write %lx\n",entry);
 	return 0;
 }
 
@@ -395,7 +390,7 @@ void free_page_table(void *pgtbl)
 #endif
 
 int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa,
-		       size_t len, vmr_prop_t flags, u64 **out_pte)
+		       size_t len, vmr_prop_t flags)
 {
 	s64 total_page_cnt;
 	ptp_t *l0_ptp, *l1_ptp, *l2_ptp, *l3_ptp;
@@ -404,7 +399,6 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa,
 	/* the index of pte in the last level page table */
 	int pte_index;
 	int i;
-	bool set_pte = false;
 
 	/* root page table page must exist */
 	BUG_ON(pgtbl == NULL);
@@ -446,11 +440,6 @@ int map_range_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa,
 
 			set_pte_flags(&new_pte_val, flags, USER_PTE);
 			l3_ptp->ent[i].pteval = new_pte_val.pteval;
-			
-			if (!set_pte) {
-				*out_pte = (u64 *)&l3_ptp->ent[i];
-				set_pte = true;
-			}
 
 			va += PAGE_SIZE;
 			pa += PAGE_SIZE;
@@ -818,7 +807,6 @@ int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl)
 	/* L0 page table / pml4 */
 	src_l0_ptp = (ptp_t *)remove_pcid(src_pgtbl);
 	dst_l0_ptp = (ptp_t *)remove_pcid(dst_pgtbl);
-	kinfo("before pgcp %lx\n", dst_l0_ptp);
 	ret = __pgtbl_deep_copy(src_l0_ptp,dst_l0_ptp,0);
 	return ret;
 }

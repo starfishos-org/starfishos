@@ -39,7 +39,6 @@ static inline vaddr_t get_fault_addr()
  */
 
 extern  int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry);
-u64 tmp = 0;
 /* Handle Page Fault Here */
 void do_page_fault(u64 errorcode, u64 fault_ins_addr)
 {
@@ -48,7 +47,6 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
 	paddr_t pte_pa;
 	pte_t *pte;
 
-	tmp = fault_ins_addr;
 	/*
 	 * errorcode
 	 *

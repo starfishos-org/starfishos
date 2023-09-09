@@ -331,6 +331,9 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 	case FS_REQ_TEST_PERF:
 		ret = fs_wrapper_count(ipc_msg, fr);
 		break;
+	case FS_CHILD_FINISH_FORK:
+		ret = fs_finish_fork(ipc_msg, fr->fork.childBadge, fr->fork.parentBagde);
+		break;
 	default:
 		printf("[Error] Strange FS Server request number %d\n", fr->req);
 		ret = -EINVAL;

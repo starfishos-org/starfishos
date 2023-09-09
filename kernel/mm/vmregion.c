@@ -197,7 +197,6 @@ static int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
 	vaddr_t va;
 	vmr_prop_t perm;
 	int ret;
-	pte_t *pte;
 
 	pm_size = vmr->pmo->size;
 	pa = vmr->pmo->start;
@@ -208,7 +207,7 @@ static int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
 		perm &= ~(VMR_WRITE);
 #endif	
 	lock(&vmspace->pgtbl_lock);
-	ret = map_range_in_pgtbl(vmspace->pgtbl, va, pa, pm_size, perm, (u64 **)&pte);
+	ret = map_range_in_pgtbl(vmspace->pgtbl, va, pa, pm_size, perm);
 	unlock(&vmspace->pgtbl_lock);
 
 	return ret;
@@ -735,13 +734,6 @@ void vmspace_deinit(void *ptr)
 }
 #endif
 
-/* TreeSLS */
-void page_refcnt_add(vaddr_t va, paddr_t pa) 
-{
-	struct page *p_page;
-	p_page = virt_to_page((void*)phys_to_virt(pa));
-	atomic_fetch_add_64(&p_page->ref_cnt, 1);	
-}
 
 /*
  * This function clones a vmspace. The new vmspace has the same layout and
@@ -757,6 +749,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 	struct pmobject *new_pmo;
 	int r;
 	int cap;
+	bool is_cow;
 
 	lock(&src_vmspace->vmspace_lock);
 	lock(&src_vmspace->pgtbl_lock);
@@ -770,20 +763,12 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 			r = -ENOMEM;
 			goto out_fail;
 		}
-		r = pmo_clone(new_pmo, vmr->pmo);
-		if(new_pmo->type == PMO_DATA || new_pmo->type == PMO_DATA_NOCACHE) {
-			struct page *p_page;
-			p_page = virt_to_page((void*)phys_to_virt(new_pmo->start));
-			atomic_fetch_add_64(&p_page->ref_cnt, 1);
-		}
-		else if(new_pmo->radix != NULL /*&& new_pmo->type != PMO_FILE*/ && new_pmo->type != PMO_SHM ){
-			radix_traverse(new_pmo->radix,page_refcnt_add);
-		}
-		
+		r = pmo_clone(new_pmo, vmr->pmo, &is_cow);
 		if (r < 0) {
 			r = -ENOMEM;
 			goto out_fail;
 		}
+
 		cap = cap_alloc(dst_cap_group, new_pmo, 0);
 		if (cap < 0) {
 			r = cap;
@@ -796,40 +781,30 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 			kwarn("%s fails\n", __func__);
 			goto out_fail;
 		}
-		new_vmr->vmspace = (void *)dst_vmspace;
-		/* FIXME(FN): COWed page should first point to origin virt_vmr? */
 		new_vmr->start = vmr->start;
 		new_vmr->size = vmr->size;
-		if(/*new_pmo->type != PMO_FILE && */new_pmo->type != PMO_SHM)	
-			new_vmr->perm = vmr->perm | VMR_COW;
-		else 
-			new_vmr->perm = vmr->perm;
+		new_vmr->perm = vmr->perm;
 		new_vmr->pmo = new_pmo;
+		pmo_add_reverse_node(new_pmo, new_vmr);
+		
 		add_vmr_to_vmspace(dst_vmspace, new_vmr);
 
 		/*
-		 * For PMO_DATA & PMO_DATA_NOCACHE & PMO_DEVICE, we directly
+		 * For PMO based on continous physical pages, we directly
 		 * map it in the page table. For PMO based on radix tree, it
 		 * will be automatically mapped when the page fault occurs.
 		 */
-		if ((new_pmo->type == PMO_DATA) || (new_pmo->type == PMO_DATA_NOCACHE)
-		     || (new_pmo->type == PMO_DEVICE)) 
+		if (use_continuous_pages(new_pmo)) 
 			fill_page_table(dst_vmspace, new_vmr);
 
 		if (vmr == src_vmspace->heap_vmr)
 			dst_vmspace->heap_vmr = new_vmr;	
-	}
-	
-	for_each_in_list_safe(vmr, tmp, list_node, &(src_vmspace->vmr_list))
-	{
-		// if(vmr->pmo->type == PMO_DATA || vmr->pmo->type == PMO_DATA_NOCACHE) {
-		if (/*vmr->pmo->type != PMO_FILE &&*/ vmr->pmo->type != PMO_SHM){
+
+		if (is_cow && (vmr->perm & VMR_WRITE)) {
 			extern int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len, bool flag);
-			if(vmr->perm & VMR_WRITE) {
-				set_write_in_pgtbl(src_vmspace,vmr->start,vmr->size,false);
-			}
-			/* Copy On Write */
-			vmr->perm |= VMR_COW; 
+			if (use_continuous_pages(new_pmo)) 
+				set_write_in_pgtbl(dst_vmspace, new_vmr->start, new_vmr->size, false);
+			set_write_in_pgtbl(src_vmspace, vmr->start, vmr->size, false);
 		}
 	}
 

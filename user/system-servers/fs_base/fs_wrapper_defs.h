@@ -126,6 +126,7 @@ int fs_wrapper_fallocate(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_fcntl(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_mount(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_umount(ipc_msg_t *ipc_msg, struct fs_request *fr);
+int fs_finish_fork(ipc_msg_t *ipc_msg, u64 child_badge, u64 parent_badge);
 
 void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge);
 

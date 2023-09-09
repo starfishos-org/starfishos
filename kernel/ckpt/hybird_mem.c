@@ -135,7 +135,7 @@ move_runtime_nvm_page_from_backup(struct pmobject *pmo, u64 index)
     new_va = page_pair->pages[1].va;
     page_pair->pages[1].version_number = 0;
 
-    if (use_continuous_pages(pmo->type)) {
+    if (use_continuous_pages(pmo)) {
         BUG_ON(new_va != phys_to_virt(pmo->start + index * PAGE_SIZE));
     }
 
@@ -198,7 +198,7 @@ static int migrate_page(struct page *old_page, bool to_dram)
         if (to_dram) {          
             commit_dram_cached_page(pmo, index, (paddr_t)new_pa);
         } else {
-            if (use_radix(pmo->type)) {
+            if (use_radix(pmo)) {
                 commit_page_to_pmo(pmo, index, (paddr_t)new_pa);
             } else {
                 clear_dram_cached_page(pmo, index);

@@ -196,6 +196,7 @@ static void handle_fork(ipc_msg_t *ipc_msg, u64 client_badge)
 	struct proc_node *client_proc;
 	struct proc_node *child = NULL;
 	struct proc_request *pr;
+	char *name;
 
 	/* Get client_proc */
 	client_proc = get_proc_node(client_badge);
@@ -207,18 +208,13 @@ static void handle_fork(ipc_msg_t *ipc_msg, u64 client_badge)
 	 * to complete the missing info.
 	 * 
 	 */
-	child = new_proc_node(client_proc, NULL);
-	if (client_proc->name) {
-		child->name = malloc(strlen(client_proc->name));
-		strcpy(child->name, client_proc->name);
-	}
-
+	name = malloc(strlen(client_proc->name));
+	strcpy(name, client_proc->name);
+	child = new_proc_node(client_proc, name);
 	pr = (struct proc_request *)ipc_get_msg_data(ipc_msg);
 	pr->pid = child->pid;
 	pr->pcid = child->pcid;
 
-	// printf("In procmgr %s, pid: %d, badge: %08x, %d\n",
-	//	   __func__, pr->pid, child->badge, __LINE__);
 	ipc_return(ipc_msg, child->badge);
 }
 

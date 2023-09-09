@@ -21,9 +21,9 @@ struct clone_cap_group_args {
 	u64 parent_badge;
 };
 
+extern int chcore_pid;
 int chcore_do_fork()
 {
-	// printf("chcore do fork\n");
 	pid_t pid;
 	int ret;
 	ipc_msg_t *ipc_msg;
@@ -41,7 +41,6 @@ int chcore_do_fork()
 
 	/* Get child badge and child pid */
 	child_badge = ipc_call(procmgr_ipc_struct, ipc_msg);
-	// printf("child badge=%lx\n",child_badge);
 	pid = ((struct proc_request *)ipc_get_msg_data(ipc_msg))->pid;
 	pcid = ((struct proc_request *)ipc_get_msg_data(ipc_msg))->pcid;
 	ipc_destroy_msg(ipc_msg);
@@ -52,35 +51,31 @@ int chcore_do_fork()
 	args.lwip_server_cap = lwip_server_cap;
 	args.procmgr_server_cap = procmgr_server_cap;
 	if ((ret = usys_clone_cap_group((u64)&args)) < 0) {
-		// fork 失败
-		// printf("fork failed\n");
+		// fork failed
 		return ret;
 	} else if (ret > 0) {
-		// 父进程
+		// parent
 		return pid;
 	} else {
-		// 子进程
-		/* 重新初始化 stdio */
+		// child
+		/* reinitialize stdio */
 		chcore_reinitialize_stdio();
-		/* 重新初始化与 system server 的链接 */
-		// printf("reconnect system servers\n");
+		/* set pid */
+		chcore_pid = pid;
+		/* reconnect system server */
 		reconnect_to_system_servers(args.fs_server_cap,
 					    args.lwip_server_cap,
 					    args.procmgr_server_cap);
-		// printf("icb->conn_cap=%lx\n",procmgr_ipc_struct->conn_cap);
 		ipc_msg = ipc_create_msg(procmgr_ipc_struct,
 				 sizeof(struct proc_request), 2);
 		pr.req = PROC_CHILD_FINISH_FORK;
 		memcpy(ipc_get_msg_data(ipc_msg), &pr, sizeof(struct proc_request));
 		ipc_set_msg_cap(ipc_msg, 0, SELF_CAP);
 		ipc_set_msg_cap(ipc_msg, 1, args.child_mt_cap);
-		// printf("child ipc call\n");
-		// printf("icb->conn_cap=%lx\n",procmgr_ipc_struct->conn_cap);
 		ipc_call(procmgr_ipc_struct, ipc_msg);
-		// printf("child ipc call done\n");
 		ipc_destroy_msg(ipc_msg);
 		{
-			/* 重新初始化 libc metadata */
+			/* reinitialize libc metadata */
 			pthread_t self = __pthread_self();
 			self->robust_list.off = 0;
 			self->robust_list.pending = 0;
@@ -93,10 +88,7 @@ int chcore_do_fork()
 		fsmr.req = FSM_CHILD_FINISH_FORK;
 		fsmr.parentBagde = args.parent_badge;
 		memcpy(ipc_get_msg_data(ipc_msg), &fsmr, sizeof(struct fsm_request));
-		// printf("child ipc call\n");
-		// printf("icb->conn_cap=%lx\n",procmgr_ipc_struct->conn_cap);
 		ipc_call(fsm_ipc_struct, ipc_msg);
-		// printf("child ipc call done\n");
 		ipc_destroy_msg(ipc_msg);
 
 		return 0;

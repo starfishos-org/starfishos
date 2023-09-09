@@ -923,3 +923,52 @@ int fs_wrapper_umount(ipc_msg_t *ipc_msg, struct fs_request *fr)
 {
 	return server_ops.umount(ipc_msg, fr);
 }
+
+int fs_finish_fork(ipc_msg_t *ipc_msg, u64 child_badge, u64 parent_badge) 
+{
+	struct fmap_area_mapping *area_iter;
+	struct server_entry_node *private_iter;
+	int ret;
+
+	/* Check if client_badge already involved */
+	for_each_in_list(private_iter, struct server_entry_node, node, &server_entry_mapping) {
+		if (private_iter->client_badge == parent_badge) {
+			/* New server_entry_node */
+			struct server_entry_node *n = (struct server_entry_node *)malloc(sizeof(*n));
+			n->client_badge = child_badge;
+			int i;
+			/* Insert node to server_entry_mapping */
+			for (i = 0; i < MAX_SERVER_ENTRY_PER_CLIENT; i++) {
+				int fid;
+				if((fid = private_iter->fd_to_fid[i]) != -1) {
+					pthread_mutex_lock(&server_entrys[fid]->lock);
+					server_entrys[fid]->refcnt++;
+					n->fd_to_fid[i] = fid;
+					pthread_mutex_unlock(&server_entrys[fid]->lock);
+				}
+			}
+			list_append(&n->node, &server_entry_mapping);
+			break;
+		}
+	}
+
+	for_each_in_list (area_iter,
+			  struct fmap_area_mapping,
+			  node,
+			  &fmap_area_mappings) {
+		if (area_iter->client_badge == parent_badge) {
+			pthread_rwlock_rdlock(&area_iter->vnode->rwlock);
+			ret = fmap_area_insert(child_badge,area_iter->client_va_start,
+				area_iter->length,area_iter->vnode,area_iter->file_offset,area_iter->flags);
+			if (ret < 0) {
+				pthread_rwlock_unlock(&area_iter->vnode->rwlock);
+				goto out_fail;
+			}
+			// area_iter->vnode->refcnt += 1;
+			pthread_rwlock_unlock(&area_iter->vnode->rwlock);
+		}
+	}
+	return 0;
+out_fail:
+	return ret;
+}

@@ -16,6 +16,7 @@
 
 static int pmo_init(struct pmobject *pmo, pmo_type_t type,
                     size_t len, paddr_t paddr);
+extern int radix_deep_copy_with_hybird_mem(struct radix *src,struct radix *dst);
 
 int sys_create_device_pmo(u64 paddr, u64 size)
 {
@@ -270,54 +271,115 @@ out_fail:
 	return r;
 }
 
-/* For fork */
-int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo)
+/* TreeSLS */
+void page_refcnt_add(vaddr_t va, paddr_t pa) 
 {
-	int r;
+	struct page *p_page;
+	p_page = virt_to_page((void*)phys_to_virt(pa));
+	atomic_fetch_add_64(&p_page->ref_cnt, 1);	
+}
+
+/* For fork */
+int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
+{
+	int r = 0, i;
+	int page_num;
+	u64 *array;
+	struct page *page;
 	
 	if (src_pmo == NULL || dst_pmo == NULL) {
 		return -EINVAL;
 	}
+
+	*is_cow = true;
+	
 	dst_pmo->size = src_pmo->size;
 	dst_pmo->type = src_pmo->type;
-	if (dst_pmo->size == 0) {
-		return 0;
-	}
+	init_list_head(&dst_pmo->reverse_list);
+	lock_init(&dst_pmo->reverse_list_lock);
 
 	switch (src_pmo->type) {
 	case PMO_DATA:
 	case PMO_DATA_NOCACHE: {
-		/*
-		 * For PMO_DATA, just copy!
-		 */
+		lock_init(&(dst_pmo->dram_cache.lock));
 
-		/* Copy on write */
-		dst_pmo->start = src_pmo->start;
+		if(src_pmo->dram_cache.array != NULL) {
+			/* Just copy */
+			*is_cow = false;
+			void *new_va = kmalloc(dst_pmo->size);
+			if(new_va == NULL) {
+				return -ENOMEM;
+			}
+			dst_pmo->start = (paddr_t)virt_to_phys(new_va);
+			page = virt_to_page(new_va);
+			init_page_info(page, dst_pmo, 0);
+			
+			array = src_pmo->dram_cache.array;
+			page_num = DIV_ROUND_UP(src_pmo->size, PAGE_SIZE);
+			for(i = 0; i < page_num; i++) {
+				u64 src_pa, dst_pa = dst_pmo->start + i * PAGE_SIZE;
+				if(array[i] != 0) {	
+					src_pa = array[i];
+				}else {
+					src_pa = src_pmo->start + i * PAGE_SIZE;
+				}
+				memcpy((void*)phys_to_virt(dst_pa), (void*)phys_to_virt(src_pa), PAGE_SIZE);
+			}
+		} else {
+			/* Copy on write */
+			dst_pmo->start = src_pmo->start;
+			page = virt_to_page((void*)phys_to_virt(src_pmo->start));
+			atomic_fetch_add_64(&page->ref_cnt, 1);
+		}
 		break;
 	}
-	case PMO_FILE: { /* PMO backed by a file. It also uses the radix. */
+	case PMO_FILE: { 
+#ifdef CHCORE_ENABLE_FMAP
+		/* PMO backed by a file. It also uses the radix. */
 		dst_pmo->private = src_pmo->private;
-		if (src_pmo->radix == NULL)
-			break;
+#else
+		kwarn("fmap is not implemented, we should not use PMO_FILE\n");
+		r = -EINVAL;
+		break;
+#endif
 	}
-	case PMO_ANONYM:
-	case PMO_SHM: {
+	case PMO_ANONYM: {
 		/*
-		 * For radix tree based PMO, copy data in each existing 
-		 * physical page and rebuild the radix tree. The new radix
-		 * tree should have the same structure.
+		 * For radix tree based PMO, rebuild the radix tree. 
+		 * The new radix tree should have the same structure.
+		 */
+		dst_pmo->radix = new_radix();
+		init_radix(dst_pmo->radix);
+
+		r = radix_deep_copy_with_hybird_mem(src_pmo->radix,
+							dst_pmo->radix);
+		if (r) {
+			kinfo("radix_deep_copy_with_hybird_mem failed: %d\n", r);
+			break;
+		}
+		break;
+	}
+	case PMO_SHM: 
+	case PMO_RING_BUFFER_RADIX: {
+		/*
+		 * For radix tree based PMO, rebuild the radix tree. 
+		 * The new radix tree should have the same structure.
 		 */
 		dst_pmo->radix = new_radix();
 		init_radix(dst_pmo->radix);
 		r = radix_deep_copy(src_pmo->radix,
 							dst_pmo->radix,
-							src_pmo->type == PMO_SHM ? 1 : 0);
+							false);
 		if (r) {
 			kinfo("radix_deep_copy failed: %d\n", r);
-			return r;
+			break;
 		}
+
+		radix_traverse(dst_pmo->radix, page_refcnt_add);
+
 		break;
 	}
+	case PMO_RING_BUFFER:
 	case PMO_DEVICE: {
 		/* Device memory should be the same. */
 		dst_pmo->start = src_pmo->start;
@@ -334,7 +396,11 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo)
 		break;
 	}
 	}
-	return 0;
+
+	if (is_shared_pmo(src_pmo)) 
+		*is_cow = false;
+
+	return r;
 }
 
 /*
@@ -632,9 +698,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len, paddr_t p
 		lock_init(&(pmo->dram_cache.lock));
 		/* init first page's PMO info */
 		struct page *page = virt_to_page(new_va);
-		page->pmo = pmo;
-		page->index = 0;
-		page->page_pair = 0;
+		init_page_info(page, pmo, 0);
 		break;
 	}
 	case PMO_FILE: {
@@ -703,7 +767,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len, paddr_t p
 
 void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa)
 {
-	if (use_continuous_pages(pmo->type)) {
+	if (use_continuous_pages(pmo)) {
 		/* alloc dram cached array is NULL */
 		lock(&(pmo->dram_cache.lock));
 		if (!pmo->dram_cache.array) {
@@ -713,21 +777,19 @@ void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa)
 		unlock(&(pmo->dram_cache.lock));
 		BUG_ON(index >= DIV_ROUND_UP(pmo->size, PAGE_SIZE));
 		pmo->dram_cache.array[index] = pa;
-	} else if (use_radix(pmo->type)) {
+	} else if (use_radix(pmo)) {
 		BUG_ON(radix_add(pmo->radix, index, (void *)pa));
 	} else {
 		BUG("Unsupport pmo type\n");
 	}
 
 	struct page *page = virt_to_page((void *)phys_to_virt(pa));
-	page->pmo = pmo;
-	page->index = index;
-	page->page_pair = 0;
+	init_page_info(page, pmo, index);
 }
 
 void clear_dram_cached_page(struct pmobject *pmo, u64 index)
 {
-	BUG_ON(!use_continuous_pages(pmo->type));
+	BUG_ON(!use_continuous_pages(pmo));
 	BUG_ON(index >= DIV_ROUND_UP(pmo->size, PAGE_SIZE));
 	BUG_ON(!pmo->dram_cache.array);
     if (pmo->dram_cache.array[index] == 0)
@@ -739,14 +801,12 @@ void clear_dram_cached_page(struct pmobject *pmo, u64 index)
 void commit_page_to_pmo(struct pmobject *pmo, u64 index, paddr_t pa)
 {
 	/* commit nvm/dram page to radix pmo */
-	BUG_ON(!use_radix(pmo->type));
+	BUG_ON(!use_radix(pmo));
 	/* The radix interfaces are thread-safe */
 	BUG_ON(radix_add(pmo->radix, index, (void *)pa));
 
 	struct page *page = virt_to_page((void *)phys_to_virt(pa));
-	page->pmo = pmo;
-	page->index = index;
-	page->page_pair = 0;
+	init_page_info(page, pmo, index);
 }
 
 /* Return 0 (NULL) when not found */
@@ -754,10 +814,10 @@ paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index)
 {
 	paddr_t pa = 0;
 
-	if (use_radix(pmo->type)) {
+	if (use_radix(pmo)) {
 		/* The radix interfaces are thread-safe */
 		pa = (paddr_t)radix_get(pmo->radix, index);
-	} else if (use_continuous_pages(pmo->type)) {
+	} else if (use_continuous_pages(pmo)) {
 		if (pmo->dram_cache.array)
 			pa = pmo->dram_cache.array[index];
 		/* pa is not dram cached */
@@ -1074,15 +1134,17 @@ u64 sys_get_free_mem_size(void)
 	return get_free_mem_size();
 }
 
-inline bool use_radix(int type)
+inline bool use_radix(struct pmobject *pmo)
 {
+	u64 type = pmo->type;
 	if (type == PMO_ANONYM || type == PMO_FILE || type == PMO_SHM || type == PMO_RING_BUFFER_RADIX)
 		return true;
 	return false;
 }
 
-inline bool use_continuous_pages(int type)
+inline bool use_continuous_pages(struct pmobject *pmo)
 {
+	u64 type = pmo->type;
 	if(type == PMO_DATA || type == PMO_DATA_NOCACHE || type == PMO_DEVICE 
 		|| type == PMO_RING_BUFFER)
 		return true;
@@ -1092,6 +1154,13 @@ inline bool use_continuous_pages(int type)
 inline bool is_external_sync_pmo(struct pmobject *pmo)
 {
 	if (pmo->type == PMO_RING_BUFFER || pmo->type == PMO_RING_BUFFER_RADIX || pmo->type == PMO_DEVICE)
+		return true;
+	return false;
+}
+
+inline bool is_shared_pmo(struct pmobject *pmo)
+{
+	if (pmo->type == PMO_SHM || is_external_sync_pmo(pmo)) 
 		return true;
 	return false;
 }

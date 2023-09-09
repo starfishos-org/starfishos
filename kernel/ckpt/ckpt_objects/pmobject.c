@@ -15,7 +15,7 @@ unsigned long mem_checksum(unsigned char *start, int size)
 }
 
 u64 pmo_checksum(struct pmobject *pmo) {
-    if (use_continuous_pages(pmo->type)) {
+    if (use_continuous_pages(pmo)) {
         if (pmo->dram_cache.array == NULL) {
             return (u64)mem_checksum((unsigned char *)phys_to_virt(pmo->start), pmo->size);
         } else {
@@ -31,7 +31,7 @@ u64 pmo_checksum(struct pmobject *pmo) {
             return checksum;
         }
     }
-    else if (use_radix(pmo->type))
+    else if (use_radix(pmo))
         return (u64)radix_checksum(pmo->radix);
     else 
         return 0;
@@ -368,9 +368,7 @@ static int __radix_pmo_restore(struct pmobject *pmo, struct radix_node *page_nod
                     page_node->values[i] = (void*)virt_to_phys((void*)va);
 
                     struct page *page = virt_to_page((void*)va);
-
-                    page->pmo = pmo;
-                    page->index = prefix | i;
+                    init_page_info(page, pmo, prefix | i);
                 }
             }
         }
@@ -572,7 +570,7 @@ int init_ckpt_page_radix(struct ckpt_pmobject* ckpt_pmo, struct pmobject *pmo)
     ckpt_page_radix = ckpt_pmo->radix;
 
     /* copy all pages in pmo to ckpt page in ckpt pmo*/
-    if(use_radix(pmo->type)) {
+    if(use_radix(pmo)) {
         // lock(&pmo_radix->radix_lock);
         // lock(&ckpt_page_radix->radix_lock);
         r = __init_ckpt_page_radix(pmo_radix->root,
@@ -597,7 +595,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
 
     current_ckpt_version = get_current_ckpt_version();
 
-    if (use_continuous_pages(pmo->type) || use_radix(pmo->type)) {
+    if (use_continuous_pages(pmo) || use_radix(pmo)) {
         if (unlikely(!ckpt_pmo->radix)) {
             /* If the radix tree is not created, try to reuse the
              * previous version of the radix tree */
@@ -622,7 +620,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
     }
     /* check ckpt_pmo (for debug) */
 #ifdef PMO_CHECKSUM
-    if (use_radix(pmo->type)) {
+    if (use_radix(pmo)) {
         if (!ckpt_pmo->radix_backup) {
             ckpt_pmo->radix_backup = new_radix();
             init_radix(ckpt_pmo->radix_backup);
@@ -632,7 +630,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
         ckpt_pmo->checksum = pmo_checksum(pmo);
     }
     
-    if (use_radix(pmo->type)) {
+    if (use_radix(pmo)) {
         u64 ckpt_checksum = ckpt_pmo_checksum(ckpt_pmo);
         if (ckpt_checksum != ckpt_pmo->checksum) {
             printk("type:%d, verison:%d, %lx pmo_ckpt erratic: %lx, %lx\n",
@@ -673,7 +671,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj, struct
     vaddr_t pmo_start_va;
     struct page *sp;
 
-    if (use_continuous_pages(pmo->type)) {
+    if (use_continuous_pages(pmo)) {
         continuous_pmo_restore(pmo, ckpt_pmo->radix);
         pmo->dram_cache.array = NULL;
         lock_init(&pmo->dram_cache.lock);
@@ -694,7 +692,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj, struct
                    pmo, pmo->type, pmo_checksum(pmo), ckpt_pmo->checksum);
         }
 #endif
-    } else if (use_radix(pmo->type)) {
+    } else if (use_radix(pmo)) {
         /* restore radix tree */
         lock_init(&pmo->radix->radix_lock);
         r = radix_pmo_restore(pmo, ckpt_pmo);
@@ -710,4 +708,99 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj, struct
     eval_restore_obj_time[TYPE_PMO] += stop();
 #endif	
     return r; 
+}
+
+
+static int __radix_deep_copy_with_hybird_mem(struct radix_node *src, struct radix_node *dst, int node_level)
+{
+	int err;
+	int i;
+	struct radix_node *new;
+	if (node_level == RADIX_LEVELS - 1) {
+		for (i = 0; i < RADIX_NODE_SIZE; i++) {
+			if (!src->values[i]) {
+				if (dst->values[i]) {
+					void *pa = dst->values[i];
+					dst->values[i] = NULL;
+					kfree((void *)phys_to_virt(pa));
+				}
+				continue;
+			}
+
+			if (dst->values[i]) {
+				pagecpy((void *)phys_to_virt(dst->values[i]),
+						(void *)phys_to_virt(src->values[i]));
+			} else {
+				void *src_pa = src->values[i];
+				void *src_va = (void*)phys_to_virt(src_pa);
+				struct page *page = virt_to_page(src_va);
+				if(get_page_type(page) == NVM_PAGE) {
+                    lock(&page->lock);
+                    if(page->track_info) {
+                        if (page->track_info->active) {
+                            delete_from_active_list(page->track_info);
+                        }
+                    }
+                    atomic_fetch_add_64(&page->ref_cnt,1);
+                    unlock(&page->lock);
+                    dst->values[i] = src_pa;
+                }else {
+                    void *newpage = get_pages(0);
+					BUG_ON(!newpage);
+					pagecpy(newpage,
+							(void *)phys_to_virt(src->values[i]));
+					dst->values[i] =
+							(void *)virt_to_phys(newpage);
+                }
+			}
+		}
+		return 0;
+	}
+
+	for (i = 0; i < RADIX_NODE_SIZE; i++) {
+		if (src->children[i]) {
+			new = kzalloc(sizeof(struct radix_node));
+			if (IS_ERR(new)) {
+				return -ENOMEM;
+			}
+			dst->children[i] = new;
+			err = __radix_deep_copy_with_hybird_mem(src->children[i],
+									dst->children[i],
+									node_level + 1);
+			if (err) {
+				return err;
+			}
+		}
+	}
+
+    return 0;
+}
+
+
+int radix_deep_copy_with_hybird_mem(struct radix *src,struct radix *dst)
+{
+    int r;
+    struct radix_node *new;
+    BUG_ON(!(src && dst));
+    r = 0;
+
+    /* don't need to lock dst */
+    lock(&src->radix_lock);
+    
+    if (!src->root) {
+        goto out;
+    }
+
+    if (!dst->root) {
+        new = kzalloc(sizeof(struct radix_node));
+        if (IS_ERR(new)) {
+            r = -ENOMEM;
+        }
+        dst->root = new;
+    }
+
+    r = __radix_deep_copy_with_hybird_mem(src->root, dst->root, 0);
+out:
+    unlock(&src->radix_lock);
+    return r;
 }

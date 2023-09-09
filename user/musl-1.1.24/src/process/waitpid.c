@@ -6,7 +6,7 @@
 
 pid_t waitpid(pid_t pid, int *status, int options)
 {
-	assert(0);
+	// assert(0);
 	return chcore_waitpid(pid, status, options, 0);
 	return syscall_cp(SYS_wait4, pid, status, options, 0);
 }

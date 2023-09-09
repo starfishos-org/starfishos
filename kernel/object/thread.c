@@ -291,12 +291,7 @@ static int create_thread(struct cap_group *cap_group,
 		goto out_obj_put;
 	}
 
-	/* Set redis-server to CPU2 and redis-benchmark to CPU3 */
-	if(tls == 2 || tls == 3) {
-		ret = thread_init(thread, cap_group, stack, pc, prio, type, tls);
-	} else {
-		ret = thread_init(thread, cap_group, stack, pc, prio, type, NO_AFF);
-	}	
+	ret = thread_init(thread, cap_group, stack, pc, prio, type, NO_AFF);
 	if (ret != 0)
 		goto out_free_obj;
 

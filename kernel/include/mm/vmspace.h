@@ -213,11 +213,12 @@ void pmo_set_preserved(struct pmobject *pmo);
 
 /* Fork */
 int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace, struct cap_group *dst_cap_group);
-int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo);
+int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow);
 
-bool use_radix(int type);
-bool use_continuous_pages(int type);
+bool use_radix(struct pmobject *pmo);
+bool use_continuous_pages(struct pmobject *pmo);
 bool is_external_sync_pmo(struct pmobject *pmo);
+bool is_shared_pmo(struct pmobject *pmo);
 
 /* init patch pool */
 void *create_patch_pool(void);

@@ -263,6 +263,23 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 			ret = fsm_sync_page_cache();
 			break;
 		}
+		case FSM_CHILD_FINISH_FORK: {
+			ipc_msg_t *finish_ipc_msg;
+			ipc_struct_t *ipc_struct;
+			struct fs_request *fr_ptr;
+			struct mount_point_info_node* iter;
+			for_each_in_list(iter, struct mount_point_info_node, node, &mount_point_infos) {
+				ipc_struct = iter->_fs_ipc_struct;
+				finish_ipc_msg = ipc_create_msg(ipc_struct, sizeof(struct fs_request), 0);
+				fr_ptr = (struct fs_request *)ipc_get_msg_data(finish_ipc_msg);
+				fr_ptr->req = FS_CHILD_FINISH_FORK;
+				fr_ptr->fork.parentBagde = fsm_req->parentBagde;
+				fr_ptr->fork.childBadge = client_badge;
+				ret = ipc_call(ipc_struct, finish_ipc_msg);
+				ipc_destroy_msg(finish_ipc_msg);
+			}
+			break;
+		}
 		default:
 			error("%s: %d Not impelemented yet\n", __func__,
 			      ((int *)(ipc_get_msg_data(ipc_msg)))[0]);

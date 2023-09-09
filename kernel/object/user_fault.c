@@ -27,7 +27,7 @@ struct list_head fmap_fault_pool_list;
 
 typedef u64 pte_t;
 void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte, struct page *page);
-int map_page_in_pgtbl(struct vmspace *vmspace, vaddr_t va, paddr_t pa,
+int map_page_in_pgtbl(void* pgtbl, vaddr_t va, paddr_t pa,
 	vmr_prop_t flags, pte_t **out_pte);
 int track_access(struct page *page);
 
