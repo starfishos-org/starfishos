@@ -6,6 +6,10 @@ add_executable(idle.bin idle.c)
 # checkpoint
 add_executable(checkpoint.bin checkpoint.c)
 
+# test applications
+add_executable(test_crash_hello.bin test_crash_hello.c)
+add_executable(test_crash_counter.bin test_crash_counter.c)
+
 # adjust config
 add_executable(set_poll_loop_time.bin set_poll_loop_time.c)
 add_executable(set_dyn_hybrid_config.bin set_dyn_hybrid_config.c)
