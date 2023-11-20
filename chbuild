@@ -30,139 +30,139 @@ BOLD='\033[1m'
 NONE='\033[0m'
 
 _echo_info() {
-    echo -e "${BOLD}$@${NONE}"
+	echo -e "${BOLD}$@${NONE}"
 }
 
 _echo_succ() {
-    echo -e "${GREEN}${BOLD}$@${NONE}"
+	echo -e "${GREEN}${BOLD}$@${NONE}"
 }
 
 _echo_warn() {
-    echo -e "${ORANGE}${BOLD}$@${NONE}"
+	echo -e "${ORANGE}${BOLD}$@${NONE}"
 }
 
 _echo_err() {
-    echo -e "${RED}${BOLD}$@${NONE}"
+	echo -e "${RED}${BOLD}$@${NONE}"
 }
 
 defconfig() {
-    if [ -d $cmake_build_dir ]; then
-        _echo_err "There exists a build directory, please run \`$clean_command\` first"
-        exit 1
-    fi
+	if [ -d $cmake_build_dir ]; then
+		_echo_err "There exists a build directory, please run \`$clean_command\` first"
+		exit 1
+	fi
 
-    if [ -z "$1" ]; then
-        plat="raspi3"
-    else
-        plat="$1"
-    fi
+	if [ -z "$1" ]; then
+		plat="raspi3"
+	else
+		plat="$1"
+	fi
 
-    _echo_info "Generating default config file for \`$plat\` platform..."
-    cp $defconfig_dir/${plat}.config $config_file
-    _config_default
-    _sync_config_with_cache
-    _echo_succ "Default config written to \`$config_file\` file."
+	_echo_info "Generating default config file for \`$plat\` platform..."
+	cp $defconfig_dir/${plat}.config $config_file
+	_config_default
+	_sync_config_with_cache
+	_echo_succ "Default config written to \`$config_file\` file."
 }
 
 _check_config_file() {
-    if [ ! -f $config_file ]; then
-        _echo_err "There is no \`.config\` file, please run \`$defconfig_command\` first"
-        exit 1
-    fi
+	if [ ! -f $config_file ]; then
+		_echo_err "There is no \`.config\` file, please run \`$defconfig_command\` first"
+		exit 1
+	fi
 }
 
 _config_default() {
-    _echo_info "Configuring CMake..."
-    cmake -B $cmake_build_dir -C $cmake_init_cache_default
+	_echo_info "Configuring CMake..."
+	cmake -B $cmake_build_dir -C $cmake_init_cache_default
 }
 
 _config_ask() {
-    _echo_info "Configuring CMake..."
-    cmake -B $cmake_build_dir -C $cmake_init_cache_ask
+	_echo_info "Configuring CMake..."
+	cmake -B $cmake_build_dir -C $cmake_init_cache_ask
 }
 
 _sync_config_with_cache() {
-    cmake -N -B $cmake_build_dir -C $cmake_init_cache_dump >/dev/null
+	cmake -N -B $cmake_build_dir -C $cmake_init_cache_dump >/dev/null
 }
 
 config() {
-    _check_config_file
-    _config_ask
-    _sync_config_with_cache
-    _echo_succ "Config syned to \`$config_file\` file."
+	_check_config_file
+	_config_ask
+	_sync_config_with_cache
+	_echo_succ "Config syned to \`$config_file\` file."
 }
 
 menuconfig() {
-    _check_config_file
-    _config_default
+	_check_config_file
+	_config_default
 
-    echo
-    _echo_warn "Note: In the menu config view, press C to save, Q to quit."
-    read -p "Now press Enter to continue..."
+	echo
+	_echo_warn "Note: In the menu config view, press C to save, Q to quit."
+	read -p "Now press Enter to continue..."
 
-    ccmake -B $cmake_build_dir
-    _sync_config_with_cache
-    _echo_succ "Config saved to \`$config_file\` file."
+	ccmake -B $cmake_build_dir
+	_sync_config_with_cache
+	_echo_succ "Config saved to \`$config_file\` file."
 }
 
 build() {
-    _check_config_file
-    _config_ask
-    _sync_config_with_cache
-    _echo_succ "Config syned to \`$config_file\` file."
+	_check_config_file
+	_config_ask
+	_sync_config_with_cache
+	_echo_succ "Config syned to \`$config_file\` file."
 
-    if [ -z "$1" ]; then
-        build_target="all"
-    else
-        build_target="$1"
-    fi
+	if [ -z "$1" ]; then
+		build_target="all"
+	else
+		build_target="$1"
+	fi
 
-    _echo_info "Building..."
-    cmake --build $cmake_build_dir --target $build_target --parallel $(nproc)
+	_echo_info "Building..."
+	cmake --build $cmake_build_dir --target $build_target --parallel $(nproc)
 
-    if [ -z "$1" ]; then
-        _echo_succ "Succeeded to build all targets"
-    else
-        _echo_succ "Succeeded to build \`$build_target\`"
-    fi
+	if [ -z "$1" ]; then
+		_echo_succ "Succeeded to build all targets"
+	else
+		_echo_succ "Succeeded to build \`$build_target\`"
+	fi
 }
 
 clean() {
-    _echo_info "Cleaning..."
+	_echo_info "Cleaning..."
 
-    if [ -z "$1" ]; then
-        if [ -f $cmake_cache_file ]; then
-            rm -rf $cmake_build_dir
-            _config_default
-            cmake --build $cmake_build_dir --target clean-all
-            rm -rf $cmake_build_dir
-            _echo_succ "Succeeded to clean all targets"
-        elif [ -d $cmake_build_dir ]; then
-            rm -rf $cmake_build_dir $cmake_user_build_dir $cmake_kernel_build_dir $cmake_libc_build_dirs
-            _echo_warn "Succeeded to clean all targets, but some object files may be left"
-        else
-            _echo_info "Nothing to clean"
-        fi
-    else
-        if [ -f $cmake_cache_file ]; then
-            cmake --build $cmake_build_dir --target $1-clean
-            _echo_succ "Succeeded to clean \`$1\`"
-        else
-            _echo_err "Cannot clean \`$1\`, please try \`$self clean\` to clean all"
-        fi
-    fi
+	if [ -z "$1" ]; then
+		if [ -f $cmake_cache_file ]; then
+			rm -rf $cmake_build_dir
+			_config_default
+			cmake --build $cmake_build_dir --target clean-all
+			rm -rf $cmake_build_dir
+			_echo_succ "Succeeded to clean all targets"
+		elif [ -d $cmake_build_dir ]; then
+			rm -rf $cmake_build_dir $cmake_user_build_dir $cmake_kernel_build_dir $cmake_libc_build_dirs
+			_echo_warn "Succeeded to clean all targets, but some object files may be left"
+		else
+			_echo_info "Nothing to clean"
+		fi
+	else
+		if [ -f $cmake_cache_file ]; then
+			cmake --build $cmake_build_dir --target $1-clean
+			_echo_succ "Succeeded to clean \`$1\`"
+		else
+			_echo_err "Cannot clean \`$1\`, please try \`$self clean\` to clean all"
+		fi
+	fi
 }
 
 distclean() {
-    clean
-    _echo_info "Removing config file..."
-    rm -rf $config_file
+	clean
+	_echo_info "Removing config file..."
+	rm -rf $config_file
 
-    _echo_succ "Succeeded to distclean"
+	_echo_succ "Succeeded to distclean"
 }
 
 _print_help() {
-    echo -e "\
+	echo -e "\
 ${BOLD}USAGE:${NONE}
 
     ${BOLD}$self [options] [command]${NONE}
@@ -190,75 +190,75 @@ ${BOLD}COMMANDS:${NONE}
 }
 
 _update_submodules() {
-    if [ -d $cmake_build_dir/local ]; then
-        rm -rf $cmake_build_dir/local
-    fi
+	if [ -d $cmake_build_dir/local ]; then
+		rm -rf $cmake_build_dir/local
+	fi
 
-    _echo_info "Configuring CMake in local environment..."
-    cmake -B $cmake_build_dir/local -C $cmake_init_cache_abort
+	_echo_info "Configuring CMake in local environment..."
+	cmake -B $cmake_build_dir/local -C $cmake_init_cache_abort
 
-    _echo_info "Updating Git submodules..."
-    cmake --build $cmake_build_dir/local --target update-submodules
+	_echo_info "Updating Git submodules..."
+	cmake --build $cmake_build_dir/local --target update-submodules
 
-    rm -rf $cmake_build_dir/local
+	rm -rf $cmake_build_dir/local
 
-    _echo_succ "Succeeded to update submodules"
+	_echo_succ "Succeeded to update submodules"
 }
 
 _docker_run() {
-    if [ -f /.dockerenv ]; then
-        # we are already in docker container
-        $@
-    else
-        test -t 1 && use_tty="-t"
-        docker run -i $use_tty --rm \
-            -u $(id -u ${USER}):$(id -g ${USER}) \
-            -v $(pwd):/chos -w /chos \
-            promisivia/treesls_chcore_builder:v2.2 \
-            $self $@
-    fi
+	if [ -f /.dockerenv ]; then
+		# we are already in docker container
+		$@
+	else
+		test -t 1 && use_tty="-t"
+		docker run -i $use_tty --rm \
+			-u $(id -u ${USER}):$(id -g ${USER}) \
+			-v $(pwd):/$(pwd) -w $(pwd) \
+			promisivia/treesls_chcore_builder:v2.2 \
+			$self $@
+	fi
 }
 
 _main() {
-    run_in_docker=true
-    while [ $# -gt 0 ]; do
-        case $1 in
-        help | --help | -h)
-            _print_help
-            exit
-            ;;
-        --local | -l)
-            run_in_docker=false
-            ;;
-        -*)
-            _echo_err "$self: invalid option \`$1\`\n"
-            break
-            ;;
-        update-submodules)
-            # need Git SSH key authentication, so must run in local env
-            _update_submodules
-            exit
-            ;;
-        *)
-            if [[ "$1" == "_"* || $(type -t "$1") != function ]]; then
-                _echo_err "$self: invalid command \`$1\`\n"
-                break
-            fi
+	run_in_docker=true
+	while [ $# -gt 0 ]; do
+		case $1 in
+		help | --help | -h)
+			_print_help
+			exit
+			;;
+		--local | -l)
+			run_in_docker=false
+			;;
+		-*)
+			_echo_err "$self: invalid option \`$1\`\n"
+			break
+			;;
+		update-submodules)
+			# need Git SSH key authentication, so must run in local env
+			_update_submodules
+			exit
+			;;
+		*)
+			if [[ "$1" == "_"* || $(type -t "$1") != function ]]; then
+				_echo_err "$self: invalid command \`$1\`\n"
+				break
+			fi
 
-            if [[ $run_in_docker == true ]]; then
-                _docker_run $@
-            else
-                $@
-            fi
-            exit
-            ;;
-        esac
-        shift
-    done
+			if [[ $run_in_docker == true ]]; then
+				_docker_run $@
+			else
+				$@
+			fi
+			exit
+			;;
+		esac
+		shift
+	done
 
-    # no command is run
-    _print_help
-    exit 1
+	# no command is run
+	_print_help
+	exit 1
 }
 
 _main $@

@@ -12,13 +12,14 @@
 #include <mm/vmspace.h>
 #include <mm/kmalloc.h>
 #include <mm/mm.h>
+#include <mm/buddy.h>
 #include <object/object.h>
 #include <object/user_fault.h>
 #include <lib/ring_buffer.h>
+#ifdef CHCORE_SLS
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
-
-#include <mm/buddy.h>
+#endif
 
 extern int trans_uva_to_kva(u64 user_va, u64 *kernel_va);
 
@@ -26,17 +27,16 @@ struct lock fmap_fault_pool_list_lock;
 struct list_head fmap_fault_pool_list;
 
 typedef u64 pte_t;
-void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte, struct page *page);
-int map_page_in_pgtbl(void* pgtbl, vaddr_t va, paddr_t pa,
-	vmr_prop_t flags, pte_t **out_pte);
+void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte,
+                           struct page *page);
+int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags,
+                      pte_t **out_pte);
 int track_access(struct page *page);
 
 static int inited = 0;
 
-
-
 static void user_fault_init(void)
-{        
+{
         int inited = 0;
 
         if (__sync_bool_compare_and_swap(&inited, 0, 1)) {
@@ -75,9 +75,9 @@ static struct fault_pending_thread *get_current_pending_thread(u64 client_badge,
         struct fmap_fault_pool *pool;
 
         pool = get_current_fault_pool();
-        if (!pool) 
+        if (!pool)
                 return NULL;
-                
+
         for_each_in_list (
                 pt, struct fault_pending_thread, node, &pool->pending_threads) {
                 if (pt->fault_badge == client_badge
@@ -94,7 +94,8 @@ int sys_user_fault_register(int notific_cap, vaddr_t msg_buffer)
         int ret;
         struct notification *notific;
         struct ring_buffer *msg_buffer_kva;
-        /* *msg_buffer_kva points to the virtual address of a ring buffer struct, so no need to initialize */
+        /* *msg_buffer_kva points to the virtual address of a ring buffer
+         * struct, so no need to initialize */
         u64 badge;
         struct fmap_fault_pool *pool_iter;
 
@@ -147,17 +148,17 @@ int sys_user_fault_register(int notific_cap, vaddr_t msg_buffer)
 int get_pa_from_handler_vmr(struct vmregion *vmr, vaddr_t va, paddr_t *pa)
 {
         u64 offset;
-	u64 index;
+        u64 index;
         struct pmobject *pmo = vmr->pmo;
         switch (pmo->type) {
         case PMO_ANONYM:
-	case PMO_DATA: {
+        case PMO_DATA: {
                 offset = ROUND_DOWN(va, PAGE_SIZE) - vmr->start;
                 index = offset / PAGE_SIZE;
                 *pa = get_page_from_pmo(pmo, index);
                 break;
         }
-        default:{
+        default: {
                 printk("pmo->type = %d\n", pmo->type);
                 return -EINVAL;
         }
@@ -202,29 +203,29 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
                 handler_vmspace = obj_get(
                         current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
                 lock(&handler_vmspace->pgtbl_lock);
-                extern int query_in_pgtbl(
-                        void *, vaddr_t, paddr_t *, void **);
+                extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
                 ret = query_in_pgtbl(
                         handler_vmspace->pgtbl, remap_va, &pa, NULL);
                 if (ret) {
                         lock(&handler_vmspace->vmspace_lock);
-                        handler_vmr = find_vmr_for_va(handler_vmspace, remap_va);
-                        ret = get_pa_from_handler_vmr(handler_vmr, remap_va, &pa);
+                        handler_vmr =
+                                find_vmr_for_va(handler_vmspace, remap_va);
+                        ret = get_pa_from_handler_vmr(
+                                handler_vmr, remap_va, &pa);
                         unlock(&handler_vmspace->vmspace_lock);
-                        if(ret) {
+                        if (ret) {
                                 /* remap_va is not mapped in handler_vmspace */
                                 unlock(&handler_vmspace->pgtbl_lock);
                                 obj_put(handler_vmspace);
                                 return -EINVAL;
-                        }       
+                        }
                 }
                 unlock(&handler_vmspace->pgtbl_lock);
                 obj_put(handler_vmspace);
         }
 
-        fault_vmspace = obj_get(thread_to_wake->cap_group,
-                        VMSPACE_OBJ_ID,
-                        TYPE_VMSPACE);
+        fault_vmspace = obj_get(
+                thread_to_wake->cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
         lock(&fault_vmspace->vmspace_lock);
         /* Decide whether copy the physical page or share */
         if (!copy) {
@@ -246,10 +247,10 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
                 offset = fault_va - vmr->start;
                 index = offset / PAGE_SIZE;
                 commit_page_to_pmo(pmo, index, new_pa);
-                
+
                 if (offset + PAGE_SIZE > pmo->size) {
                         pmo->size = offset + PAGE_SIZE;
-                }   
+                }
         }
         /* Fill fault pa with target page's pa */
         lock(&fault_vmspace->pgtbl_lock);
@@ -260,19 +261,21 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
         BUG_ON(ret);
         unlock(&fault_vmspace->pgtbl_lock);
 
+#ifdef CHCORE_SLS
         /* Add pte patch */
         if (fault_vmspace->flags & VM_FLAG_PRESERVE) {
-            /*  vmspace lock is not get */
-            struct page *page = virt_to_page((void *)phys_to_virt(new_pa));
-        //     int ckpt_ret = 
-        #ifndef OMIT_BENCHMARK
-            ckpt_nvm_page(pmo, (void *)phys_to_virt(new_pa), index);
-        #endif
-            add_pte_patch_to_pool(fault_vmspace, pte, page);
-        //     if(ckpt_ret) {
-        //         track_access(page);
-        //     }
+                /*  vmspace lock is not get */
+                struct page *page = virt_to_page((void *)phys_to_virt(new_pa));
+//     int ckpt_ret =
+#ifndef OMIT_BENCHMARK
+                ckpt_nvm_page(pmo, (void *)phys_to_virt(new_pa), index);
+#endif
+                add_pte_patch_to_pool(fault_vmspace, pte, page);
+                //     if(ckpt_ret) {
+                //         track_access(page);
+                //     }
         }
+#endif
         unlock(&fault_vmspace->vmspace_lock);
         obj_put(fault_vmspace);
 
@@ -344,17 +347,16 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
         unlock(&fault_pool->lock);
         eret_to_thread(switch_context());
 }
-
-
+#ifdef CHCORE_SLS
 int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
 {
-        struct ckpt_fmap_fault_pool *ckpt_pool_iter, *ckpt_pool_iter_tmp; 
-        struct ckpt_fault_pending_thread *ckpt_pt, *ckpt_pt_tmp;  
-        if(ckpt_fmap_fault_pool_list->next)   
+        struct ckpt_fmap_fault_pool *ckpt_pool_iter, *ckpt_pool_iter_tmp;
+        struct ckpt_fault_pending_thread *ckpt_pt, *ckpt_pt_tmp;
+        if (ckpt_fmap_fault_pool_list->next)
                 for_each_in_list_safe (ckpt_pool_iter,
-                                ckpt_pool_iter_tmp,
-                                node,
-                                ckpt_fmap_fault_pool_list) {
+                                       ckpt_pool_iter_tmp,
+                                       node,
+                                       ckpt_fmap_fault_pool_list) {
                         for_each_in_list_safe (
                                 ckpt_pt,
                                 ckpt_pt_tmp,
@@ -365,55 +367,68 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
                         kfree(ckpt_pool_iter->msg_buffer_kva);
                         kfree(ckpt_pool_iter);
                 }
-        init_list_head(ckpt_fmap_fault_pool_list); 
+        init_list_head(ckpt_fmap_fault_pool_list);
         struct fmap_fault_pool *pool_iter;
-        extern struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc);
+        extern struct ckpt_obj_root *ckpt_obj_root_get(struct object * obj,
+                                                       int alloc);
         for_each_in_list (pool_iter,
                           struct fmap_fault_pool,
                           node,
                           &fmap_fault_pool_list) {
                 struct fault_pending_thread *pt;
-                
+
                 ckpt_pool_iter = kmalloc(sizeof(struct ckpt_fmap_fault_pool));
                 init_list_head(&ckpt_pool_iter->ckpt_fault_pending_thread_list);
 
-                for_each_in_list (
-                        pt, struct fault_pending_thread, node, &pool_iter->pending_threads) {                        
-                        ckpt_pt = kmalloc(sizeof(struct ckpt_fault_pending_thread));
-                        
+                for_each_in_list (pt,
+                                  struct fault_pending_thread,
+                                  node,
+                                  &pool_iter->pending_threads) {
+                        ckpt_pt = kmalloc(
+                                sizeof(struct ckpt_fault_pending_thread));
+
                         ckpt_pt->fault_badge = pt->fault_badge;
                         ckpt_pt->fault_va = pt->fault_va;
-                        ckpt_pt->ckpt_thread_obj_root = ckpt_obj_root_get(container_of(pt->thread,struct object, opaque),false);
-                        list_add(&ckpt_pt->node,&ckpt_pool_iter->ckpt_fault_pending_thread_list);
+                        ckpt_pt->ckpt_thread_obj_root = ckpt_obj_root_get(
+                                container_of(pt->thread, struct object, opaque),
+                                false);
+                        list_add(
+                                &ckpt_pt->node,
+                                &ckpt_pool_iter->ckpt_fault_pending_thread_list);
                 }
 
-                ckpt_pool_iter->msg_buffer_kva = 
-                                ckpt_ring_buffer(pool_iter->msg_buffer_kva);
-                        
+                ckpt_pool_iter->msg_buffer_kva =
+                        ckpt_ring_buffer(pool_iter->msg_buffer_kva);
+
                 ckpt_pool_iter->cap_group_badge = pool_iter->cap_group_badge;
-                ckpt_pool_iter->ckpt_notifc_obj_root = ckpt_obj_root_get(container_of(pool_iter->notific,struct object, opaque),false);
+                ckpt_pool_iter->ckpt_notifc_obj_root = ckpt_obj_root_get(
+                        container_of(pool_iter->notific, struct object, opaque),
+                        false);
                 ckpt_pool_iter->fmap_fault_pool = (vaddr_t)pool_iter;
                 list_add(&ckpt_pool_iter->node, ckpt_fmap_fault_pool_list);
         }
         return 0;
 }
 
-int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,struct kvs* obj_map)
+int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,
+                            struct kvs *obj_map)
 {
         /* TODO: recycle old fmap fault pool*/
         user_fault_init();
-        
+
         struct ckpt_fmap_fault_pool *ckpt_pool_iter;
-	extern struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root);
+        extern struct object *restore_obj_get(struct ckpt_obj_root
+                                              * ckpt_obj_root);
         for_each_in_list (ckpt_pool_iter,
                           struct ckpt_fmap_fault_pool,
                           node,
                           ckpt_fmap_fault_pool_list) {
                 struct fmap_fault_pool *pool_iter;
                 struct ckpt_fault_pending_thread *ckpt_pt;
-                
-                pool_iter = (struct fmap_fault_pool *)ckpt_pool_iter->fmap_fault_pool;
-                
+
+                pool_iter = (struct fmap_fault_pool *)
+                                    ckpt_pool_iter->fmap_fault_pool;
+
                 /* TODO: recycle old pending_threads */
                 init_list_head(&pool_iter->pending_threads);
                 lock_init(&pool_iter->lock);
@@ -429,16 +444,19 @@ int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,struct k
                         pt->fault_badge = ckpt_pt->fault_badge;
                         pt->fault_va = ckpt_pt->fault_va;
                         pt->thread = (struct thread *)restore_obj_get(
-                                ckpt_pt->ckpt_thread_obj_root)->opaque;
+                                             ckpt_pt->ckpt_thread_obj_root)
+                                             ->opaque;
                         list_add(&pt->node, &pool_iter->pending_threads);
                 }
 
-                struct ring_buffer * tmp_buffer = restore_ring_buffer(
-                                    ckpt_pool_iter->msg_buffer_kva);
+                struct ring_buffer *tmp_buffer =
+                        restore_ring_buffer(ckpt_pool_iter->msg_buffer_kva);
                 BUG_ON(tmp_buffer != pool_iter->msg_buffer_kva);
                 pool_iter->cap_group_badge = ckpt_pool_iter->cap_group_badge;
-                pool_iter->notific = (struct notification *)restore_obj_get(
-                                ckpt_pool_iter->ckpt_notifc_obj_root)->opaque;
+                pool_iter->notific =
+                        (struct notification *)restore_obj_get(
+                                ckpt_pool_iter->ckpt_notifc_obj_root)
+                                ->opaque;
                 BUG_ON(!pool_iter->notific);
                 list_add(&pool_iter->node, &fmap_fault_pool_list);
                 kdebug("list add badge=%lx,pool->pending_thread=%lx,pool=%lx\n",
@@ -449,5 +467,5 @@ int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,struct k
 
         return 0;
 }
-
+#endif /* CHCORE_SLS */
 #endif

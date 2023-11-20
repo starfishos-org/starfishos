@@ -5,6 +5,7 @@
 
 #include "madt.h"
 #include "nfit.h"
+#include "cedt.h"
 
 static struct rsdp_t *rsdp;
 static struct xsdp_t *xsdp;
@@ -12,6 +13,7 @@ static struct xsdt_t *xsdt;
 static struct rsdt_t *rsdt;
 static struct madt_t *madt;
 static struct nfit_t *nfit;
+static struct cedt_t *cedt;
 
 static int do_checksum(char *start, u64 len)
 {
@@ -98,11 +100,21 @@ void parse_acpi_info(void *info)
 	/* parse MADT */
 	parse_madt(madt);
 
+  /* find and parse NFIT */
 	nfit = (struct nfit_t *)find_table_by_sig("NFIT");
-	if (!nfit)
-		BUG("NFIT not found\n");
-	nfit = (struct nfit_t *)phys_to_virt(nfit);
+	if (!nfit) {
+		kinfo("NFIT not found\n");
+  } else {
+    nfit = (struct nfit_t *)phys_to_virt(nfit);
+	  parse_nfit(nfit);    
+  }
 
-	/* parse NFIT */
-	parse_nfit(nfit);
+  /* find and parse CEDT */
+  cedt = (struct cedt_t *)find_table_by_sig("CEDT");
+	if (!cedt) {
+		kinfo("CEDT not found\n");
+  } else {
+    cedt = (struct cedt_t *)phys_to_virt(cedt);
+	  parse_cedt(cedt); 
+  }
 }

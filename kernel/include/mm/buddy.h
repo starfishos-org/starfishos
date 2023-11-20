@@ -19,10 +19,10 @@ extern int nvmmem_map_num;
 // #define PG_CACHED       (1 << 2)        /* page is reserved */
 // #define PG_PATCHED      (1 << 3)        /* page has patch */
 enum pageflags {
-        PG_allocated = 0,       /* page is allocated */
+        PG_allocated = 0, /* page is allocated */
         // PG_active,              /* page is in active list */
-        PG_cached,              /* page is moved from NVM to DRAM */
-        PG_patched,             /* page has patch */
+        PG_cached, /* page is moved from NVM to DRAM */
+        PG_patched, /* page has patch */
         PG_flagnum,
 };
 
@@ -48,20 +48,26 @@ struct page {
         /* The physical memory pool this page belongs to */
         struct phys_mem_pool *pool;
         /* The lock for page */
-	struct lock lock;
-	/* Reference count for ChCore fork */
-	int ref_cnt;
+        struct lock lock;
+        /* Reference count for ChCore fork */
+        int ref_cnt;
+#ifdef CHCORE_SLS
 #ifdef PMO_CHECKSUM
         u64 ckpt_version_number;
 #endif
+#ifdef RMAP_ENABLED
         /* PMO page belongs to and index in PMO */
         struct pmobject *pmo;
         u64 index;
-        u64 page_pair;
         /* The head of page in a contious page list */
         u64 compound_head;
+#endif
+        u64 page_pair;
+#ifdef HYBRID_MEM
         /* Page track info */
         struct page_track_info *track_info;
+#endif
+#endif
 };
 
 struct free_list {
@@ -69,17 +75,10 @@ struct free_list {
         unsigned long nr_free;
 };
 
-enum log_commit_type {
-        LOG_INIT = 0,
-        LOG_DONE = 1,
-        LOG_COMMIT = 2
-};
+enum log_commit_type { LOG_INIT = 0, LOG_DONE = 1, LOG_COMMIT = 2 };
 typedef u8 log_commit_type_t;
 
-enum log_type {
-        ADD_PAGES = 0,
-        REMOVE_PAGES = 1
-};
+enum log_type { ADD_PAGES = 0, REMOVE_PAGES = 1 };
 typedef u8 log_type_t;
 
 struct log_entry {
@@ -97,8 +96,8 @@ struct log_entry {
  * 2^(BUDDY_MAX_ORDER - 1) * 4K.
  * Given BUDDY_MAX_ORDER is 14, the max allocated chunk is 32M.
  */
-#define BUDDY_PAGE_SIZE     (0x1000)
-#define BUDDY_MAX_ORDER     (18UL)
+#define BUDDY_PAGE_SIZE (0x1000)
+#define BUDDY_MAX_ORDER (18UL)
 
 /* One page size is 4K, so the order is 12. */
 #define BUDDY_PAGE_SIZE_ORDER (12)
@@ -132,9 +131,10 @@ struct phys_mem_pool {
 
         /* Type of mem pool */
         page_type_t type;
-
+#ifdef CHCORE_SLS
         /* Logs of the latest log */
         struct log_entry latest_log;
+#endif
 };
 
 /* Disjoint physical memory can be represented by several phys_mem_pools. */
@@ -150,42 +150,47 @@ struct page *buddy_get_pages(struct phys_mem_pool *, int order);
 void buddy_free_pages(struct phys_mem_pool *, struct page *page);
 
 void *page_to_virt(struct page *page);
-struct page *virt_to_page(void* ptr);
+struct page *virt_to_page(void *ptr);
 unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *);
 
 /* get page type by virt addr of page */
 page_type_t get_page_type(struct page *page);
 
+#ifdef CHCORE_SLS
 /* latest log related  */
 void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page,
                         u32 dedicated_order, u32 cur_order);
 void commit_latest_log(struct phys_mem_pool *);
 void apply_latest_log(struct phys_mem_pool *);
+#endif /* CHCORE_SLS */
 
 /* set/clear flags of page */
-static inline void page_set_flag(struct page *page, u32 flag) {
+static inline void page_set_flag(struct page *page, u32 flag)
+{
         BUG_ON(flag >= PG_flagnum);
         page->flags |= (1 << flag);
 }
 
-static inline void page_clear_flag(struct page *page, u32 flag) {
+static inline void page_clear_flag(struct page *page, u32 flag)
+{
         BUG_ON(flag >= PG_flagnum);
         page->flags &= ~(1 << flag);
 }
 
-static inline u32 page_check_flag(struct page *page, u32 flag) {
+static inline u32 page_check_flag(struct page *page, u32 flag)
+{
         BUG_ON(flag >= PG_flagnum);
         return (page->flags & (1 << flag));
 }
 
-
+#ifdef RMAP_ENABLED
 static inline struct page *compound_head(struct page *page)
 {
-	u64 head = page->compound_head;
+        u64 head = page->compound_head;
 
-	if (unlikely(head & 1))
-		return (struct page *)(head - 1);
-	return page;
+        if (unlikely(head & 1))
+                return (struct page *)(head - 1);
+        return page;
 }
 
 static inline void set_compound_head(struct page *page, struct page *head)
@@ -196,7 +201,7 @@ static inline void set_compound_head(struct page *page, struct page *head)
 
 static inline void clear_compound_head(struct page *page)
 {
-	page->compound_head = 0;
+        page->compound_head = 0;
 }
 
 static inline u64 compound_head_offset(struct page *page, struct page *head)
@@ -205,10 +210,16 @@ static inline u64 compound_head_offset(struct page *page, struct page *head)
         BUG_ON(dis % sizeof(struct page));
         return dis / sizeof(struct page);
 }
+#endif
 
 /* TreeSlS */
-static inline void init_page_info(struct page *page, struct pmobject *pmo, u64 index) {
+#ifdef CHCORE_SLS
+static inline void init_page_info(struct page *page, struct pmobject *pmo,
+                                  u64 index)
+{
         page->index = index;
         page->pmo = pmo;
         page->page_pair = 0;
 }
+#endif
+

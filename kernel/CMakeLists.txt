@@ -25,12 +25,12 @@ list(APPEND _c_compile_options)
 
 # Arch-specific compile settings
 if(CHCORE_ARCH STREQUAL "x86_64")
-    list(APPEND _compile_options -mno-sse -mfsgsbase)
+  list(APPEND _compile_options -mno-sse -mfsgsbase)
 endif()
 
 # This is only for `fbinfer` stage in CI script
 if(FBINFER)
-    list(APPEND _compile_definitions FBINFER)
+  list(APPEND _compile_definitions FBINFER)
 endif()
 
 # Set compile settings to target
@@ -66,7 +66,9 @@ target_include_directories(
 # Add source code directories
 add_subdirectory(arch/${CHCORE_ARCH})
 add_subdirectory(arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
-add_subdirectory(ckpt)
+if(CHCORE_SLS)
+  add_subdirectory(ckpt)
+endif()
 add_subdirectory(ipc)
 add_subdirectory(irq)
 add_subdirectory(lib)
@@ -77,63 +79,68 @@ add_subdirectory(syscall)
 
 # Kernel testing
 if(CHCORE_KERNEL_TEST)
-    add_subdirectory(tests)
+  add_subdirectory(tests)
 endif()
 
 macro(_kernel_incbin _binary_name _binary_path)
-    set(binary_name ${_binary_name})
-    set(binary_path ${_binary_path})
-    configure_file(incbin.tpl.S incbin_${_binary_name}.S)
-    unset(binary_name)
-    unset(binary_path)
-    target_sources(${kernel_target} PRIVATE incbin_${_binary_name}.S)
+  set(binary_name ${_binary_name})
+  set(binary_path ${_binary_path})
+  configure_file(incbin.tpl.S incbin_${_binary_name}.S)
+  unset(binary_name)
+  unset(binary_path)
+  target_sources(${kernel_target} PRIVATE incbin_${_binary_name}.S)
 endmacro()
 
-# SLS Basic Configruations
-include(sls_config.cmake)
-# enable restore from latest checkpoint
-if("${SLS_RESTORE}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE RESTORE_ENABLED)
-endif()
-# enable external sync
-if("${SLS_EXT_SYNC}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE EXT_SYNC_ENABLED)
-endif()
-# enable hybrid memory copy methods; else will use default cow
-if("${SLS_HYBRID_MEM}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE HYBRID_MEM)
-target_compile_definitions(${kernel_target} PRIVATE PARALLEL_LOOP)
-endif()
-# memory allocator
-target_compile_definitions(${kernel_target} PRIVATE USE_NVM)
+# enabel DRAM allocator
 target_compile_definitions(${kernel_target} PRIVATE USE_DRAM)
 
-# SLS Report Details
-if("${SLS_REPORT_CKPT}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE REPORT)
-endif()
-if("${SLS_REPORT_RESTORE}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE RESTORE_REPORT)
-endif()
-if("${SLS_REPORT_HYBRID}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE REPORT_RUNTIME)
-target_compile_definitions(${kernel_target} PRIVATE REPORT_HYBRID_MEM)
-# target_compile_definitions(${kernel_target} PRIVATE REPORT_HYBRID_MEM_DEBUG)
-endif()
+# SLS Basic Configruations
+if(CHCORE_SLS)
+  include(sls_config.cmake)
+  # enable restore from latest checkpoint
+  if("${SLS_RESTORE}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE RESTORE_ENABLED)
+  endif()
+  # enable external sync
+  if("${SLS_EXT_SYNC}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE EXT_SYNC_ENABLED)
+  endif()
+  # enable hybrid memory copy methods; else will use default cow
+  if("${SLS_HYBRID_MEM}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE TRACK_REVERSE_ENABLED)
+    target_compile_definitions(${kernel_target} PRIVATE HYBRID_MEM)
+    target_compile_definitions(${kernel_target} PRIVATE PARALLEL_LOOP)
+  endif()
 
-# for tests of only-checkpoint, +pf, +memcpy
-if("${SLS_SPECIAL_OMIT_PF}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE OMIT_PF)
-endif()
+  # memory allocator
+  target_compile_definitions(${kernel_target} PRIVATE USE_NVM)
 
-if("${SLS_SPECIAL_OMIT_MEMCPY}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE OMIT_MEMCPY)
-endif()
+  # SLS Report Details
+  if("${SLS_REPORT_CKPT}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE REPORT)
+  endif()
+  if("${SLS_REPORT_RESTORE}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE RESTORE_REPORT)
+  endif()
+  if("${SLS_REPORT_HYBRID}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE REPORT_RUNTIME)
+    target_compile_definitions(${kernel_target} PRIVATE REPORT_HYBRID_MEM)
+    # target_compile_definitions(${kernel_target} PRIVATE REPORT_HYBRID_MEM_DEBUG)
+  endif()
 
-if("${SLS_SPECIAL_OMIT_BENCHMARK}" STREQUAL "ON")
-target_compile_definitions(${kernel_target} PRIVATE OMIT_BENCHMARK)
-endif()
+  # for tests of only-checkpoint, +pf, +memcpy
+  if("${SLS_SPECIAL_OMIT_PF}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE OMIT_PF)
+  endif()
 
+  if("${SLS_SPECIAL_OMIT_MEMCPY}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE OMIT_MEMCPY)
+  endif()
+
+  if("${SLS_SPECIAL_OMIT_BENCHMARK}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE OMIT_BENCHMARK)
+  endif()
+endif()
 # correctness check
 # target_compile_definitions(${kernel_target} PRIVATE PMO_CHECKSUM)
 

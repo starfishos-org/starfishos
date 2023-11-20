@@ -1,7 +1,7 @@
 # SLS Basic Configruations
-set(SLS_RESTORE ON)
+set(SLS_RESTORE OFF)
 set(SLS_EXT_SYNC OFF)
-set(SLS_HYBRID_MEM ON)
+set(SLS_HYBRID_MEM OFF)
 
 # SLS Report Details
 set(SLS_REPORT_CKPT OFF)

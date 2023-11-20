@@ -18,19 +18,21 @@ static struct page *get_buddy_chunk(struct phys_mem_pool *pool,
          * Calculate the address of the buddy chunk according to the address
          * relationship between buddies.
          */
-        buddy_chunk_addr = chunk_addr ^ (1UL << (order + BUDDY_PAGE_SIZE_ORDER));
+        buddy_chunk_addr = chunk_addr
+                           ^ (1UL << (order + BUDDY_PAGE_SIZE_ORDER));
 
         /* Check whether the buddy_chunk_addr belongs to pool. */
-        if ((buddy_chunk_addr < pool->pool_start_addr) ||
-            ((buddy_chunk_addr + (1 << order) * BUDDY_PAGE_SIZE) >
-             (pool->pool_start_addr + pool->pool_mem_size))) {
+        if ((buddy_chunk_addr < pool->pool_start_addr)
+            || ((buddy_chunk_addr + (1 << order) * BUDDY_PAGE_SIZE)
+                > (pool->pool_start_addr + pool->pool_mem_size))) {
                 return NULL;
         }
 
         return virt_to_page((void *)buddy_chunk_addr);
 }
 
-/* The most recursion level of split_chunk is decided by the macro of BUDDY_MAX_ORDER. */
+/* The most recursion level of split_chunk is decided by the macro of
+ * BUDDY_MAX_ORDER. */
 static struct page *split_chunk(struct phys_mem_pool *pool, int order,
                                 struct page *chunk)
 {
@@ -67,7 +69,8 @@ static struct page *split_chunk(struct phys_mem_pool *pool, int order,
         return split_chunk(pool, order, chunk);
 }
 
-/* The most recursion level of merge_chunk is decided by the macro of BUDDY_MAX_ORDER. */
+/* The most recursion level of merge_chunk is decided by the macro of
+ * BUDDY_MAX_ORDER. */
 static struct page *merge_chunk(struct phys_mem_pool *pool, struct page *chunk)
 {
         struct page *buddy_chunk;
@@ -88,7 +91,8 @@ static struct page *merge_chunk(struct phys_mem_pool *pool, struct page *chunk)
         if (page_check_flag(buddy_chunk, PG_allocated))
                 return chunk;
 
-        /* The buddy_chunk is not free as a whole, no further merge is required. */
+        /* The buddy_chunk is not free as a whole, no further merge is required.
+         */
         if (buddy_chunk->order != chunk->order)
                 return chunk;
 
@@ -108,7 +112,8 @@ static struct page *merge_chunk(struct phys_mem_pool *pool, struct page *chunk)
 
 /*
  * The layout of a phys_mem_pool:
- * | page_metadata are (an array of struct page) | alignment pad | usable memory |
+ * | page_metadata are (an array of struct page) | alignment pad | usable memory
+ * |
  *
  * The usable memory: [pool_start_addr, pool_start_addr + pool_mem_size).
  */
@@ -136,7 +141,7 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
         }
 
         /* Clear the page_metadata area. */
-        memset((char*)start_page, 0, page_num * sizeof(struct page));
+        memset((char *)start_page, 0, page_num * sizeof(struct page));
 
         /* Init the page_metadata area. */
         for (page_idx = 0; page_idx < page_num; ++page_idx) {
@@ -144,9 +149,13 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
                 page_set_flag(page, PG_allocated);
                 page->order = 0;
                 page->pool = pool;
+#ifdef RMAP_ENABLED
                 page->pmo = NULL;
                 page->index = 0;
+#endif
+#ifdef CHCORE_SLS
                 page->page_pair = 0;
+#endif
         }
 
         /* Put each physical memory page into the free lists. */
@@ -176,10 +185,10 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
                 if (!list_empty(free_list)) {
                         /* Get a free memory chunck from the free list */
                         page = list_entry(free_list->next, struct page, node);
-                        prepare_latest_log(pool,
-                                           ADD_PAGES,
-                                           (u64)page,
-                                           order, cur_order);
+#ifdef CHCORE_SLS
+                        prepare_latest_log(
+                                pool, ADD_PAGES, (u64)page, order, cur_order);
+#endif
                         list_del(&page->node);
                         pool->free_lists[cur_order].nr_free -= 1;
                         break;
@@ -198,14 +207,18 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
         page = split_chunk(pool, order, page);
 
         /* Set information of pages followed by head */
-	for (int i = 0; i < (1 << order); i++) {
-		struct page *p = page + i;
+        for (int i = 0; i < (1 << order); i++) {
+                struct page *p = page + i;
+#ifdef RMAP_ENABLED
                 set_compound_head(p, page);
+#endif
                 page_set_flag(p, PG_allocated);
         }
 
 out:
+#ifdef CHCORE_SLS
         commit_latest_log(pool);
+#endif
         unlock(&pool->buddy_lock);
         return page;
 }
@@ -220,28 +233,30 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
 
         lock(&pool->buddy_lock);
 
-        prepare_latest_log(pool,
-                           REMOVE_PAGES,
-                           (u64)page,
-                           page->order,
-                           0);
-
+#ifdef CHCORE_SLS
+        prepare_latest_log(pool, REMOVE_PAGES, (u64)page, page->order, 0);
+#endif
         for (i = 0; i < (1 << page->order); i++) {
                 p = page + i;
                 BUG_ON(!page_check_flag(p, PG_allocated));
                 /* Clear all flags of page */
                 p->flags = 0;
+#ifdef CHCORE_SLS
+#ifdef RMAP_ENABLED
                 /* Clear information of pages followed by head */
                 clear_compound_head(p);
                 /* clear pmo and index */
                 p->pmo = NULL;
                 p->index = 0;
+#endif
                 p->page_pair = 0;
+#endif
         }
+#if defined(CHCORE_SLS) && defined(HYBRID_MEM)
         /* Mark @page's track info as NULL and remove from active list */
         if (page->track_info)
                 destory_track_info(page);
-
+#endif
         /* Merge the freed chunk. */
         page = merge_chunk(pool, page);
 
@@ -251,7 +266,9 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
         list_add(&page->node, free_list);
         pool->free_lists[order].nr_free += 1;
 
+#ifdef SLS_ENABLED
         commit_latest_log(pool);
+#endif
         unlock(&pool->buddy_lock);
 }
 
@@ -263,8 +280,8 @@ void *page_to_virt(struct page *page)
         BUG_ON(pool == NULL);
 
         /* page_idx * BUDDY_PAGE_SIZE + start_addr */
-        addr = (page - pool->page_metadata) * BUDDY_PAGE_SIZE +
-                pool->pool_start_addr;
+        addr = (page - pool->page_metadata) * BUDDY_PAGE_SIZE
+               + pool->pool_start_addr;
         return (void *)addr;
 }
 
@@ -277,8 +294,9 @@ struct page *virt_to_page(void *ptr)
 
         /* Find the corresponding physical memory pool. */
         for (i = 0; i < physmem_map_num; ++i) {
-                if (addr >= global_mem[i]->pool_start_addr && 
-                    addr < global_mem[i]->pool_start_addr + global_mem[i]->pool_mem_size) {
+                if (addr >= global_mem[i]->pool_start_addr
+                    && addr < global_mem[i]->pool_start_addr
+                                       + global_mem[i]->pool_mem_size) {
                         pool = global_mem[i];
                         break;
                 }
@@ -286,20 +304,22 @@ struct page *virt_to_page(void *ptr)
 #if defined USE_DRAM && defined USE_NVM
         if (pool == NULL /* not find NVM memory polls */) {
                 for (i = 0; i < physmem_map_num; ++i) {
-                        if (addr >= global_dram_mem[i]->pool_start_addr && 
-                                addr < global_dram_mem[i]->pool_start_addr + global_dram_mem[i]->pool_mem_size) {
+                        if (addr >= global_dram_mem[i]->pool_start_addr
+                            && addr < global_dram_mem[i]->pool_start_addr
+                                               + global_dram_mem[i]
+                                                         ->pool_mem_size) {
                                 pool = global_dram_mem[i];
                                 break;
                         }
-                }	
+                }
         }
 #endif
         if (pool == NULL) {
                 BUG("pool=NULL for va=%llx\n", addr);
         }
 
-        page = pool->page_metadata +
-                (((vaddr_t)addr - pool->pool_start_addr) / BUDDY_PAGE_SIZE);
+        page = pool->page_metadata
+               + (((vaddr_t)addr - pool->pool_start_addr) / BUDDY_PAGE_SIZE);
         return page;
 }
 
@@ -330,12 +350,15 @@ unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *pool)
 
                 /* debug : print info about current order */
                 kdebug("buddy memory chunk order: %d, size: 0x%lx, num: %d\n",
-                                order, current_order_size, list->nr_free);
+                       order,
+                       current_order_size,
+                       list->nr_free);
         }
         return total_size;
 }
 
-void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page, 
+#ifdef CHCORE_SLS
+void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page,
                         u32 dedicated_order, u32 cur_order)
 {
         struct log_entry *log = &(pool->latest_log);
@@ -358,12 +381,13 @@ void recover_nr_free(struct free_list *free_list)
 {
         struct page *iter;
         free_list->nr_free = 0;
-        for_each_in_list(iter, struct page, node, &(free_list->free_list)) {
+        for_each_in_list (iter, struct page, node, &(free_list->free_list)) {
                 free_list->nr_free += 1;
-        }       
+        }
 }
 
-static struct page *merge_chunk2(struct phys_mem_pool *pool, struct page *chunk, u32 target_order)
+static struct page *merge_chunk2(struct phys_mem_pool *pool, struct page *chunk,
+                                 u32 target_order)
 {
         struct page *buddy_chunk;
         struct free_list *free_list;
@@ -384,13 +408,16 @@ static struct page *merge_chunk2(struct phys_mem_pool *pool, struct page *chunk,
 
         /* Remove the buddy_chunk from its current free list. */
         /* Handle a partly executed list_add() */
-        for_each_in_list(iter_forward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list (
+                iter_forward, struct page, node, &(free_list->free_list)) {
                 if (iter_forward == buddy_chunk) {
                         break;
                 }
         }
 
-        for_each_in_list_backward(iter_backward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list_backward(
+                iter_backward, struct page, node, &(free_list->free_list))
+        {
                 if (iter_backward == buddy_chunk) {
                         break;
                 }
@@ -436,21 +463,25 @@ static struct page *merge_chunk3(struct phys_mem_pool *pool, struct page *chunk)
         if (page_check_flag(buddy_chunk, PG_allocated))
                 return chunk;
 
-        /* The buddy_chunk is not free as a whole, no further merge is required. */
+        /* The buddy_chunk is not free as a whole, no further merge is required.
+         */
         if (buddy_chunk->order < chunk->order)
                 return chunk;
-        
+
         free_list = &(pool->free_lists[chunk->order]);
 
         /* Remove the buddy_chunk from its current free list. */
         /* handle a partly executed list_del() */
-        for_each_in_list(iter_forward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list (
+                iter_forward, struct page, node, &(free_list->free_list)) {
                 if (iter_forward == buddy_chunk) {
                         break;
                 }
         }
 
-        for_each_in_list_backward(iter_backward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list_backward(
+                iter_backward, struct page, node, &(free_list->free_list))
+        {
                 if (iter_backward == buddy_chunk) {
                         break;
                 }
@@ -459,7 +490,7 @@ static struct page *merge_chunk3(struct phys_mem_pool *pool, struct page *chunk)
         if (iter_forward == buddy_chunk || iter_backward == buddy_chunk) {
                 list_del(&buddy_chunk->node);
         }
-        
+
         /* Recover nr_free */
         recover_nr_free(free_list);
 
@@ -474,7 +505,7 @@ static struct page *merge_chunk3(struct phys_mem_pool *pool, struct page *chunk)
         return merge_chunk3(pool, chunk);
 }
 
-void undo_get_pages(struct phys_mem_pool *pool, struct log_entry* log)
+void undo_get_pages(struct phys_mem_pool *pool, struct log_entry *log)
 {
         struct free_list *free_list = &(pool->free_lists[log->cur_order]);
         struct page *page = (struct page *)log->page;
@@ -494,7 +525,8 @@ void undo_get_pages(struct phys_mem_pool *pool, struct log_entry* log)
         /* add page to free list */
         if (free_list->free_list.next == &(page->node)) {
                 /* page is still in free list, do nothing */
-                /* case: failed just between prepare_log and list_del(&page->node); */
+                /* case: failed just between prepare_log and
+                 * list_del(&page->node); */
         } else {
                 /* handle a partly list_del */
                 free_list->free_list.prev->next = &(free_list->free_list);
@@ -504,10 +536,10 @@ void undo_get_pages(struct phys_mem_pool *pool, struct log_entry* log)
 
         /* recover nr_free */
         recover_nr_free(free_list);
-        BUG_ON(free_list->nr_free != log->list_cur_num);        
+        BUG_ON(free_list->nr_free != log->list_cur_num);
 }
 
-void redo_free_pages(struct phys_mem_pool *pool, struct log_entry* log)
+void redo_free_pages(struct phys_mem_pool *pool, struct log_entry *log)
 {
         int order, i;
         struct free_list *free_list;
@@ -537,27 +569,29 @@ void redo_free_pages(struct phys_mem_pool *pool, struct log_entry* log)
         /* Merge the freed chunk. */
         page = merge_chunk3(pool, page);
 
-        
         order = page->order;
         free_list = &(pool->free_lists[order]);
-        
+
         /* handle a partly exectued list_add() */
-        for_each_in_list(iter_forward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list (
+                iter_forward, struct page, node, &(free_list->free_list)) {
                 if (iter_forward == page) {
                         break;
                 }
         }
 
-        for_each_in_list_backward(iter_backward, struct page, node, &(free_list->free_list)) {
+        for_each_in_list_backward(
+                iter_backward, struct page, node, &(free_list->free_list))
+        {
                 if (iter_backward == page) {
                         break;
                 }
         }
 
-        if(iter_forward == page || iter_backward == page) {
+        if (iter_forward == page || iter_backward == page) {
                 list_del(&page->node);
         }
-        
+
         /* Put the merged chunk into the its corresponding free list. */
         list_add(&page->node, &(free_list->free_list));
 
@@ -591,3 +625,4 @@ void apply_latest_log(struct phys_mem_pool *pool)
                 break;
         }
 }
+#endif /* CHCORE_SLS */

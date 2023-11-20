@@ -14,9 +14,9 @@
 #define SYS_unmap_pmo         13
 #define SYS_write_pmo         14
 #define SYS_read_pmo          15
-#define SYS_map_with_pmo    16
-#define SYS_unmap_with_addr 17
-#define SYS_revoke_cap	    18
+#define SYS_map_with_pmo      16
+#define SYS_unmap_with_addr   17
+#define SYS_revoke_cap        18
 /* - batch */
 #define SYS_create_pmos 20
 #define SYS_map_pmos    21
@@ -91,25 +91,32 @@
 #define SYS_perf_end   231
 #define SYS_perf_null  232
 
-#define SYS_get_poll_remote 233
-#define SYS_set_poll_remote 234
+#define SYS_get_poll_remote                   233
+#define SYS_set_poll_remote                   234
 #define SYS_set_excepted_connected_client_num 235
-#define SYS_set_dyn_args                      236
+
+/* SHUTDOWN */
+#define SYS_shutdown 243
 
 /* Virtualization */
 #define SYS_virt_dispatch 240
+
+#ifdef CHCORE_SLS
 /* Checkpoint */
-#define SYS_whole_ckpt              241
-#define SYS_whole_restore           242
-#define SYS_shutdown                243
-#define SYS_whole_ckpt_for_test     244
+#define SYS_whole_ckpt                241
+#define SYS_whole_restore             242
+#define SYS_shutdown                  243
+#define SYS_whole_ckpt_for_test       244
 #define SYS_register_external_ringbuf 245
 
+#define SYS_set_dyn_args 236
+
 /* IPI */
-#define SYS_ipi_stop_all            246
-#define SYS_ipi_start_all           247   
-#define SYS_ipi_test_kernel         248
+#define SYS_ipi_stop_all    246
+#define SYS_ipi_start_all   247
+#define SYS_ipi_test_kernel 248
+#endif
 
 /* track pf */
-#define SYS_track_pf_begin       250
-#define SYS_track_pf_end         251
+#define SYS_track_pf_begin 250
+#define SYS_track_pf_end   251

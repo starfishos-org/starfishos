@@ -29,8 +29,8 @@ add_custom_target(
             || echo "No custom ramdisk found, skipping"
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
-    DEPENDS rocksdb)
-  # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
+    )
+# FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
 include(CommonTools)
 include(UserTools)
@@ -51,9 +51,9 @@ add_subdirectory(demos)
 
 set(_clean_targets)
 foreach(_target ${_targets})
-    if(${_target} MATCHES "-clean$")
-        list(APPEND _clean_targets ${_target})
-    endif()
+  if(${_target} MATCHES "-clean$")
+    list(APPEND _clean_targets ${_target})
+  endif()
 endforeach()
 message(STATUS ${_clean_targets})
 add_custom_target(custom-clean DEPENDS demos-clean ${_clean_targets})

@@ -10,27 +10,28 @@
  */
 void pmo_add_reverse_node(struct pmobject *pmo, struct vmregion *vmr)
 {
-	struct reverse_node *rnode, *tmp;
-	bool has_vmr = false;
+        struct reverse_node *rnode, *tmp;
+        bool has_vmr = false;
 
-    lock(&(pmo->reverse_list_lock));
-    
-    for_each_in_list(tmp, struct reverse_node, node, &(pmo->reverse_list)) {
-		if (tmp->vmr == vmr) {
-            /* Already tracked this vmregion */
-            has_vmr = true;
-            break;
+        lock(&(pmo->reverse_list_lock));
+
+        for_each_in_list (
+                tmp, struct reverse_node, node, &(pmo->reverse_list)) {
+                if (tmp->vmr == vmr) {
+                        /* Already tracked this vmregion */
+                        has_vmr = true;
+                        break;
+                }
         }
-    }
 
-    /* Track vmregion info */
-    if (!has_vmr) {
-        rnode = kmalloc(sizeof(*rnode));
-	    rnode->vmr = vmr;
-        list_add(&(rnode->node), &(pmo->reverse_list));
-    }
+        /* Track vmregion info */
+        if (!has_vmr) {
+                rnode = kmalloc(sizeof(*rnode));
+                rnode->vmr = vmr;
+                list_add(&(rnode->node), &(pmo->reverse_list));
+        }
 
-    unlock(&(pmo->reverse_list_lock));
+        unlock(&(pmo->reverse_list_lock));
 }
 
 /*
@@ -38,14 +39,14 @@ void pmo_add_reverse_node(struct pmobject *pmo, struct vmregion *vmr)
  */
 void pmo_remove_reverse_node(struct pmobject *pmo, struct vmregion *vmr)
 {
-	struct reverse_node *rnode, *tmp;
+        struct reverse_node *rnode, *tmp;
 
-    lock(&pmo->reverse_list_lock);
-    for_each_in_list_safe(rnode, tmp, node, &pmo->reverse_list) {
-		if (rnode->vmr == vmr) {
-            list_del(&(rnode->node));
-            kfree(rnode);
+        lock(&pmo->reverse_list_lock);
+        for_each_in_list_safe (rnode, tmp, node, &pmo->reverse_list) {
+                if (rnode->vmr == vmr) {
+                        list_del(&(rnode->node));
+                        kfree(rnode);
+                }
         }
-    }
-    unlock(&pmo->reverse_list_lock);
+        unlock(&pmo->reverse_list_lock);
 }
