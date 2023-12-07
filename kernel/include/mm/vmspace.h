@@ -107,28 +107,25 @@ struct vmspace {
 
         /* For the virtual address of mmap */
         vaddr_t user_current_mmap_addr;
-
+#ifdef CHCORE_SLS
         /* Track all modified pages('s pte) */
         void *pte_patch_pool;
-
+#endif
         u64 flags;
 };
 
 typedef u64 pmo_type_t;
-#define PMO_ANONYM       0 /* lazy allocation */
-#define PMO_DATA         1 /* immediate allocation */
-#define PMO_FILE         2 /* file backed */
-#define PMO_SHM          3 /* shared memory */
-#define PMO_USER_PAGER   4 /* support user pager */
-#define PMO_DEVICE       5 /* memory mapped device registers */
-#define PMO_DATA_NOCACHE 6 /* non-cacheable immediate allocation */
-// #ifdef CHCORE_SLS
+#define PMO_ANONYM            0 /* lazy allocation */
+#define PMO_DATA              1 /* immediate allocation */
+#define PMO_FILE              2 /* file backed */
+#define PMO_SHM               3 /* shared memory */
+#define PMO_USER_PAGER        4 /* support user pager */
+#define PMO_DEVICE            5 /* memory mapped device registers */
+#define PMO_DATA_NOCACHE      6 /* non-cacheable immediate allocation */
 #define PMO_RING_BUFFER       7 /* pages that need to sync with external */
 #define PMO_RING_BUFFER_RADIX 8 /* same as PMO_RING_BUFFER; for test*/
+#define PMO_CROSS_SHM         9 /* shared memory accross machine */
 #define PMO_FORBID            10 /* Forbidden area: avoid overflow */
-// #else
-// #define PMO_FORBID 7 /* Forbidden area: avoid overflow */
-// #endif /* CHCORE_SLS */
 
 #ifdef CHCORE_SLS
 struct page_patch {
@@ -139,6 +136,13 @@ struct page_patch {
 };
 
 enum page_patch_type { PPATCH_NEW, PPATCH_MODIFY };
+
+#ifdef OMIT_BENCHMARK
+extern struct vmspace *redis_benchmark_vmspace;
+extern struct vmspace *memcachetest_vmspace;
+extern struct vmspace *ycsb_vmspace;
+#endif
+
 #endif /* CHCORE_SLS */
 
 struct pmobject {
@@ -168,12 +172,6 @@ struct pmobject {
         struct lock reverse_list_lock;
 #endif /* RMAP_ENABLED */
 };
-
-#ifdef OMIT_BENCHMARK
-extern struct vmspace *redis_benchmark_vmspace;
-extern struct vmspace *memcachetest_vmspace;
-extern struct vmspace *ycsb_vmspace;
-#endif
 
 /* explore for ckpt/restore */
 struct vmregion *alloc_vmregion(void);
@@ -209,10 +207,6 @@ void adjust_heap_vmr(struct vmspace *vmspace, unsigned long len);
 
 void kprint_vmr(struct vmspace *vmspace);
 
-/* TreeSLS: pmo patch */
-void pmo_set_preserved(struct pmobject *pmo);
-// int pmo_patch_undo(struct pmobject *pmo, struct page_patch *patch);
-
 /* Fork */
 int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
                   struct cap_group *dst_cap_group);
@@ -223,5 +217,10 @@ bool use_continuous_pages(struct pmobject *pmo);
 bool is_external_sync_pmo(struct pmobject *pmo);
 bool is_shared_pmo(struct pmobject *pmo);
 
+#ifdef CHCORE_SLS
+/* TreeSLS: pmo patch */
+void pmo_set_preserved(struct pmobject *pmo);
+
 /* init patch pool */
 void *create_patch_pool(void);
+#endif

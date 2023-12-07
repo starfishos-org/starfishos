@@ -2,37 +2,51 @@
 #include <common/types.h>
 #include <mm/nvm.h>
 
-#include "nfit.h"
+#include "acpi.h"
 
 extern struct nvm_region nvm_region_head[8];
 extern int nvm_region_num;
 
-void parse_nfit(struct nfit_t *nfit)
+void parse_nfit(struct acpi_table_nfit *table)
 {
-	struct nfit_entry_header *nfit_hdr;
-	struct acpi_nfit_spa *spa;
+        u32 table_len;
+        struct acpi_nfit_header *entry;
 
-	// get nfit struct header
-	nfit_hdr = (struct nfit_entry_header *)((u64)nfit +
-				sizeof(struct acpi_sdt_header) + sizeof(u32));
+        // get cedt struct header
+        entry = (struct acpi_nfit_header *)GET_TABLE_ENTRY(table);
+        table_len = table->header.length;
 
-	while (1) {
-		if (!nfit_hdr || nfit_hdr->type >= ACPI_NFIT_TYPE_RESERVED || nfit_hdr->type < 0)
-			break;
+        while ((char *)entry + entry->length <= (char *)table + table_len) {
+                kdebug("[NFIT INFO] entry->entry_type=%d, entry->entry_len=%d\n",
+                       entry->type,
+                       entry->length);
+                if (entry->length == 0)
+                        break;
 
-		if (nfit_hdr->type == ACPI_NFIT_TYPE_SAP) {
-			spa = (struct acpi_nfit_spa *)nfit_hdr;
+                switch (entry->type) {
+                case ACPI_NFIT_TYPE_SYSTEM_ADDRESS: {
+                        struct acpi_nfit_system_address *sys_addr =
+                                (struct acpi_nfit_system_address *)entry;
+                        kinfo("[NFIT INFO] [NVM] address: 0x%llx, size: %llx, prox_domain=%d\n",
+                              sys_addr->address,
+                              sys_addr->length,
+                              sys_addr->proximity_domain);
 
-			kinfo("[ACPI] NVM REGION[%d]: phys_addr_base: %lx, addr_len: %lx.\n",
-				nvm_region_num, spa->phys_addr_base, spa->addr_len);
-            
-            // TODO: store this info where?
-			nvm_region_head[nvm_region_num].base = spa->phys_addr_base;
-			nvm_region_head[nvm_region_num].length = spa->addr_len;
+                        // TODO: store this info where?
+                        nvm_region_head[nvm_region_num].base =
+                                sys_addr->address;
+                        nvm_region_head[nvm_region_num].length =
+                                sys_addr->length;
 
-			nvm_region_num++;
-			break; 
-		}
-		nfit_hdr += nfit_hdr->length;
-	}
+                        nvm_region_num++;
+                        break;
+                }
+                default:
+                        kwarn("Type%d SRAT device is currently not supported\n",
+                              entry->type);
+                }
+
+                entry = (struct acpi_nfit_header *)((char *)entry
+                                                    + entry->length);
+        }
 }

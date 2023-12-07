@@ -30,6 +30,7 @@ enum page_type {
         DRAM_PAGE = 0,
         DRAM_CACHED_PAGE,
         NVM_PAGE,
+        CXL_MEM_PAGE, /* page allocated from CXL Fixed Memory Window */
         INVALID_PAGE,
 };
 
@@ -222,4 +223,3 @@ static inline void init_page_info(struct page *page, struct pmobject *pmo,
         page->page_pair = 0;
 }
 #endif
-

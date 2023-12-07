@@ -7,6 +7,8 @@
 #include <arch/machine/smp.h>
 #include <arch/machine/machine.h>
 #include <arch/drivers/multiboot2.h>
+#include <drivers/pci.h>
+#include <drivers/cxl.h>
 #include <io/uart.h>
 #include <irq/irq.h>
 #include <irq/timer.h>
@@ -59,6 +61,14 @@ void main(u64 mbmagic, paddr_t mbaddr)
 
         mm_init((void *)get_mb2_mmap(), false);
         kinfo("[ChCore] mm init finished\n");
+
+        /* Configure drivers info */
+        arch_pci_mmcfg_init();
+        pci_setup_devices();
+        kinfo("[ChCore] pci devices setup finished\n");
+
+        cxl_setup_devices();
+        kinfo("[ChCore] cxl devices setup finished\n");
 
         /* Configure CPU features: setting per_core registers */
         arch_cpu_init();

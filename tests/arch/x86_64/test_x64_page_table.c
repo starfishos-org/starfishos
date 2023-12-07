@@ -6,8 +6,6 @@
 #undef PAGE_SHIFT
 #undef PAGE_SIZE
 
-#include <arch/mmu.h>
-
 #undef phys_to_virt
 #undef virt_to_phys
 #define phys_to_virt(x) ((u64)x)

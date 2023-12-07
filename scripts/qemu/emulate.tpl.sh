@@ -14,8 +14,11 @@ port=$(shuf -i 30000-40000 -n 1)
 #		break
 #	fi
 #done
+
 echo $port >$basedir/gdb-port
 
+cxl_backend_file="/tmp/cxltest0.raw"
+
 $basedir/../scripts/qemu/qemu_wrapper.sh \
-    @qemu@ -gdb tcp::$port @qemu_options@ | tee exec_log
-    # @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log
+	@qemu@ -gdb tcp::$port @qemu_options@ | tee exec_log
+# @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log

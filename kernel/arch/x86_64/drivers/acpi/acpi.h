@@ -1,48 +1,37 @@
 #pragma once
 #include <common/types.h>
 
-/*
- * ACPI System Description Table (SDT) layout:
- * https://uefi.org/specs/ACPI/6.4/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html
- */
+#include "actbl3.h"
 
-struct acpi_sdt_header { // 36 bytes size
-	char signature[4];
-	u32 length;
-	u8 revision;
-	u8 checksum;
-	char oem_id[6];
-	char oem_table_id[8];
-	u32 oem_revision;
-	u32 creator_id;
-	u32 creator_revision;
-} __attribute__((packed));
+#define GET_TABLE_ENTRY(table) (void *)((u64)table + sizeof(*table))
 
-struct rsdt_t {
-	struct acpi_sdt_header h;
-	u32 others[];
-}__attribute__((packed));
+#define ACPI_PARSE_TABLE(table, sig)                                         \
+        struct acpi_table_##table *t =                                       \
+                (struct acpi_table_##table *)find_table_by_sig(sig);         \
+        if (!t) {                                                            \
+                kinfo("[ACPI] [%s] table not found\n", sig);                 \
+        } else {                                                             \
+                parse_##table((struct acpi_table_##table *)phys_to_virt(t)); \
+        }
 
-struct xsdt_t {
-	struct acpi_sdt_header h;
-	u64 others[];
-}__attribute__((packed));
-
-struct rsdp_t {
-	u8 signature[8];
-	u8 checksum;
-	u8 oemid[6];
-	u8 revision;
-	u32 rsdt_addr;
-} __attribute__((packed));
-
-struct xsdp_t {
-	struct rsdp_t first_part;
-
-	u32 length;
-	u64 xsdt_addr;
-	u8 extended_checksum;
-	u8 reserved[3];
-} __attribute__((packed));
+#define ACPI_BUILD_PARSE_TABLE(table, sig)                                     \
+        static inline void acpi_parse_##table()                                \
+        {                                                                      \
+                struct acpi_table_##table *t =                                 \
+                        (struct acpi_table_##table *)find_table_by_sig(sig);   \
+                if (!t) {                                                      \
+                        kinfo("[ACPI] [%s] table not found\n", sig);           \
+                } else {                                                       \
+                        parse_##table(                                         \
+                                (struct acpi_table_##table *)phys_to_virt(t)); \
+                }                                                              \
+        }
 
 void parse_acpi_info(void *info);
+void acpi_parse_pci_info();
+
+void parse_madt(struct acpi_table_madt *);
+void parse_cedt(struct acpi_table_cedt *);
+void parse_srat(struct acpi_table_srat *);
+void parse_nfit(struct acpi_table_nfit *);
+void parse_mcfg(struct acpi_table_mcfg *);

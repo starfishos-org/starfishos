@@ -10,11 +10,13 @@
 #define SLAB_MAX_ORDER (11)
 
 /* The size of one slab is 2M. */
-#define SIZE_OF_ONE_SLAB (2*1024*1024)
+#define SIZE_OF_ONE_SLAB (2 * 1024 * 1024)
 
-/* slab_header resides in the beginning of each slab (i.e., occupies the first slot). */
+/* slab_header resides in the beginning of each slab (i.e., occupies the first
+ * slot). */
 struct slab_header {
-        /* The list of free slots, which can be converted to struct slab_slot_list. */
+        /* The list of free slots, which can be converted to struct
+         * slab_slot_list. */
         void *free_list_head;
         /* Partial slab list. */
         struct list_head node;
@@ -44,7 +46,11 @@ unsigned long get_free_mem_size_from_slab(void);
 void init_dram_slab(void);
 void *alloc_in_dram_slab(unsigned long);
 void free_in_dram_slab(void *addr);
-unsigned long dram_get_free_mem_size_from_slab(void);
+
+/* CXL slabs */
+void init_cxl_slab(void);
+void *alloc_in_cxl_slab(unsigned long);
+void free_in_cxl_slab(void *addr);
 
 #if TRACK_THREAD_MM == ON
 u64 size_to_slab_order(u64 size);

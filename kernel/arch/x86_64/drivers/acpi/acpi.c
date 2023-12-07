@@ -1,120 +1,125 @@
+#include "actbl.h"
+#include "common/types.h"
 #include <arch/drivers/multiboot2.h>
 #include <arch/mmu.h>
 #include <common/vars.h>
 #include <common/util.h>
 
-#include "madt.h"
-#include "nfit.h"
-#include "cedt.h"
+#include "acpi.h"
 
-static struct rsdp_t *rsdp;
-static struct xsdp_t *xsdp;
-static struct xsdt_t *xsdt;
-static struct rsdt_t *rsdt;
-static struct madt_t *madt;
-static struct nfit_t *nfit;
-static struct cedt_t *cedt;
+static struct acpi_table_rsdp *rsdp;
+static struct acpi_table_xsdt *xsdt;
+static struct acpi_table_rsdt *rsdt;
 
 static int do_checksum(char *start, u64 len)
 {
-	u64 i;
-	char sum;
+        u64 i;
+        char sum;
 
-	sum = 0;
+        sum = 0;
 
-	for (i = 0; i < len; i++)
-		sum += start[i];
+        for (i = 0; i < len; i++)
+                sum += start[i];
 
-	return sum == 0;
+        return sum == 0;
 }
 
 static void *find_table_by_sig(char *sig)
 {
-	int entries, i;
-	struct acpi_sdt_header *h;
+        int entries, i;
+        struct acpi_table_header *h;
 
-	/* Determine which SDT is being used */
-	if (xsdt)
-		entries = (xsdt->h.length - sizeof(xsdt->h)) / 8;
-	else
-		entries = (rsdt->h.length - sizeof(rsdt->h)) / 4;
+        /* Determine which SDT is being used */
+        if (xsdt)
+                entries = (xsdt->header.length - sizeof(xsdt->header))
+                          / ACPI_XSDT_ENTRY_SIZE;
+        else
+                entries = (rsdt->header.length - sizeof(rsdt->header))
+                          / ACPI_RSDT_ENTRY_SIZE;
 
-	for (i = 0; i < entries; i++) {
-		if (xsdt) /* Use higher 32 bits */
-			h = (struct acpi_sdt_header *)(u64)(xsdt->others[i]);
-		else
-			h = (struct acpi_sdt_header *)(u64)(rsdt->others[i]);
+        for (i = 0; i < entries; i++) {
+                if (xsdt) /* Use higher 32 bits */
+                        h = (struct acpi_table_header
+                                     *)(xsdt->table_offset_entry[i]);
+                else
+                        h = (struct acpi_table_header
+                                     *)(u64)(rsdt->table_offset_entry[i]);
 
-		/* Table name only consists of 4 characters */
-		if (!strncmp(h->signature, sig, 4)) {
-			/* validate checksum */
-			if (!do_checksum((char *)h, h->length))
-				continue;
-			return (void *)h;
-		}
-	}
+                /* Table name only consists of 4 characters */
+                if (!strncmp(h->signature, sig, 4)) {
+                        /* validate checksum */
+                        if (!do_checksum((char *)h, h->length))
+                                continue;
+                        return (void *)h;
+                }
+        }
 
-	/* Table not found */
-	return NULL;
+        /* Table not found */
+        return NULL;
 }
+
+#ifdef USE_CXL_MEM
+ACPI_BUILD_PARSE_TABLE(cedt, ACPI_SIG_CEDT)
+#endif
+ACPI_BUILD_PARSE_TABLE(madt, ACPI_SIG_MADT)
+ACPI_BUILD_PARSE_TABLE(nfit, ACPI_SIG_NFIT)
+ACPI_BUILD_PARSE_TABLE(srat, ACPI_SIG_SRAT)
+ACPI_BUILD_PARSE_TABLE(mcfg, ACPI_SIG_MCFG)
 
 /* Currently, this function only parses MADT */
 void parse_acpi_info(void *info)
 {
-	struct acpi_sdt_header *h;
+        struct acpi_table_header *h;
 
-	xsdp = (struct xsdp_t *)info;
-	rsdp = (struct rsdp_t *)info;
+        rsdp = (struct acpi_table_rsdp *)info;
+        if (rsdp->revision == 0) {
+                /* ACPI version = 1.0, use rsdp and rsdt */
+                /* validate RSDP */
+                if (!do_checksum((char *)rsdp, sizeof(struct acpi_rsdp_common)))
+                        BUG("RSDP checksum invalid\n");
 
-	/* validate RSDP */
-	if (!do_checksum((char *)rsdp, sizeof(*rsdp)))
-		BUG("RSDP checksum invalid\n");
+                kinfo("[ACPI INFO] ACPI version 1.0, use COMMON RSDP and RSDT\n");
+                h = (struct acpi_table_header *)phys_to_virt(
+                        (void *)(u64)rsdp->rsdt_physical_address);
+                rsdt = (struct acpi_table_rsdt *)h;
+        } else if (rsdp->revision == 2) {
+                /* ACPI version >= 2.0, use extented rsdp and xsdt */
 
-	if (rsdp->revision == 0) {
-		/* ACPI version = 1.0, use rsdp and rsdt */
-		kinfo("[ACPI INFO] ACPI version 1.0, use rsdp and rsdt\n");
-		h = (struct acpi_sdt_header *)(u64)phys_to_virt(rsdp->rsdt_addr);
-		rsdt = (struct rsdt_t *)h;
-	} else {
-		/* ACPI version >= 2.0, use xsdp and xsdt */
-		kinfo("[ACPI INFO] ACPI version >= 2.0, use xsdp and xsdt\n");
+                /* validate RSDP */
+                if (!do_checksum((char *)rsdp, sizeof(struct acpi_table_rsdp)))
+                        BUG("RSDP checksum invalid\n");
 
-		/* validate XSDP */
-		if (!do_checksum((char *)xsdp, xsdp->length))
-			BUG("XSDP checksum invalid\n");
+                kinfo("[ACPI INFO] ACPI version >= 2.0, use extented RSDP and XSDT\n");
+                h = (struct acpi_table_header *)phys_to_virt(
+                        rsdp->xsdt_physical_address);
+                xsdt = (struct acpi_table_xsdt *)h;
+        } else {
+                BUG("[ACPI] Unsupport RSDP revision\n");
+        }
 
-		h = (struct acpi_sdt_header *)phys_to_virt(xsdp->xsdt_addr);
-		xsdt = (struct xsdt_t *)h;
-	}
+        /* validate SDT */
+        if (!do_checksum((char *)h, h->length))
+                BUG("SDT checksum invalid\n");
 
-	/* validate SDT */
-	if (!do_checksum((char *)h, h->length))
-		BUG("SDT checksum invalid\n");
+#ifdef USE_CXL_MEM
+        /* parse CEDT */
+        acpi_parse_cedt();
+#endif
+        /* find and parse MADT */
+        acpi_parse_madt();
 
-	/* find MADT using its signature "APIC" */
-	madt = (struct madt_t *)find_table_by_sig("APIC");
-	if (!madt)
-		BUG("MADT not found\n");
-	madt = (struct madt_t *)phys_to_virt(madt);
+        /* find and parse NFIT */
+        acpi_parse_nfit();
 
-	/* parse MADT */
-	parse_madt(madt);
+        /* find and parse SRAT */
+        acpi_parse_srat();
+}
 
-  /* find and parse NFIT */
-	nfit = (struct nfit_t *)find_table_by_sig("NFIT");
-	if (!nfit) {
-		kinfo("NFIT not found\n");
-  } else {
-    nfit = (struct nfit_t *)phys_to_virt(nfit);
-	  parse_nfit(nfit);    
-  }
+void acpi_parse_pci_info()
+{
+        /* XSDT or RSDT should be parsed */
+        BUG_ON(!xsdt && !rsdt);
 
-  /* find and parse CEDT */
-  cedt = (struct cedt_t *)find_table_by_sig("CEDT");
-	if (!cedt) {
-		kinfo("CEDT not found\n");
-  } else {
-    cedt = (struct cedt_t *)phys_to_virt(cedt);
-	  parse_cedt(cedt); 
-  }
+        /* find and parse MCFG */
+        acpi_parse_mcfg();
 }

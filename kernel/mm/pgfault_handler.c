@@ -22,8 +22,10 @@
 #include <arch/sync.h>
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
+#ifdef CHCORE_SLS
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/ckpt.h>
+#endif
 
 /* Policy on-demand: only mapping the faulting address */
 #define ONDEMAND 0
@@ -38,6 +40,7 @@
 
 #if PGFAULT_POLICY == ONDEMAND
 
+#ifdef CHCORE_SLS
 /* add_pte_patch_to_pool: when trigger write, track pages's pte and page struct
  */
 void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte,
@@ -79,6 +82,8 @@ u64 patch_page_num = 0;
 extern u64 pf_count;
 extern u64 pf_tot_time;
 #endif
+#endif /* CHCORE_SLS */
+
 int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags,
                       pte_t **out_pte);
 int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
@@ -122,9 +127,14 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         switch (pmo->type) {
         case PMO_DATA:
         case PMO_FILE:
+#ifdef CHCORE_SLS
         case PMO_RING_BUFFER:
         case PMO_RING_BUFFER_RADIX:
+#endif
         case PMO_ANONYM:
+#ifdef USE_CXL_MEM
+        case PMO_CROSS_SHM:
+#endif
         case PMO_SHM: {
                 vmr_prop_t perm;
 

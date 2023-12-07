@@ -128,6 +128,9 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         case PMO_RING_BUFFER_RADIX:
 #endif /* CHCORE_SLS */
         case PMO_SHM:
+#ifdef USE_CXL_MEM
+        case PMO_CROSS_SHM:
+#endif
         case PMO_FILE: {
                 /*
                  * Boundary check.

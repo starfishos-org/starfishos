@@ -8,14 +8,25 @@
 #include <arch/mmu.h>
 #include <arch/drivers/multiboot2.h>
 
-extern struct nvm_region nvm_region_head[8];
-extern int nvm_region_num;
+#ifdef DSM_ENABLED
+#include <dsm/dsm.h>
+#endif
 
 extern paddr_t physmem_map[N_PHYS_MEM_POOLS][2];
 extern int physmem_map_num;
 
+#ifdef USE_NVM
+extern struct nvm_region nvm_region_head[8];
+extern int nvm_region_num;
+
 extern paddr_t nvmmem_map[N_PHYS_MEM_POOLS][2];
 extern int nvmmem_map_num;
+#endif /* USE_NVM */
+
+#ifdef USE_CXL_MEM
+extern paddr_t cxlmem_map[N_PHYS_MEM_POOLS][2];
+extern int cxlmem_map_num;
+#endif /* USE_NVM */
 
 /* vaddr: kernel image end */
 extern char img_end[];
@@ -154,6 +165,15 @@ void parse_mem_map(void *info)
 
         physmem_map[0][1] = mmap->addr + mmap->len;
 
+#if 0
+        for (int idx = 0; idx < dsm_visible_memdev_num; idx++) {
+                p_end = dsm_visible_memdevs[idx].start
+                        + dsm_visible_memdevs[idx].size;
+                if (p_end > max_paddr)
+                        max_paddr = p_end;
+        }
+        kdebug("max paddr=0x%llx\n", max_paddr);
+#endif
         refill_kernel_page_table(max_paddr);
 
         kinfo("Use dram memory: 0x%lx - 0x%lx\n",
@@ -161,6 +181,7 @@ void parse_mem_map(void *info)
               physmem_map[0][1]);
 }
 
+#ifdef USE_NVM
 void parse_nvm_map(void *info)
 {
         struct multiboot_tag_mmap *tag;
@@ -236,24 +257,71 @@ void parse_nvm_map(void *info)
               nvmmem_map[0][0],
               nvmmem_map[0][1]);
 }
+#endif /* USE_NVM */
 
-void parse_cxl_mem_devices(struct cxl_mem_dev *devs, int dev_num)
+#ifdef USE_CXL_MEM
+static void parse_cxl_mem_device(struct cxl_mem_dev *devs, int dev_num)
 {
         // fill kernel page table for cxl mem devices
-        u64 max_paddr = 0, dev_end = 0;
+        struct cxl_mem_dev *dev;
+        u64 max_paddr = 0, dev_start = 0, dev_end = 0;
         int idx = 0;
 
         if (dev_num == 0)
                 return;
 
         for (idx = 0; idx < dev_num; idx++) {
-                dev_end = get_cxl_mem_dev_end(devs + idx);
+                dev = &(devs[idx]);
+                dev_start = cxl_get_memdev_start(dev);
+                dev_end = cxl_get_memdev_end(dev);
+
+                cxlmem_map[cxlmem_map_num][0] = dev_start;
+                cxlmem_map[cxlmem_map_num][1] = dev_end;
+
+                dsm_add_visible_memdev(dev->start, dev->size, 1);
+
                 if (dev_end > max_paddr)
                         max_paddr = dev_end;
+
+                kinfo("Use CXL Fixed Memory Window: 0x%lx - 0x%lx\n",
+                      cxlmem_map[cxlmem_map_num][0],
+                      cxlmem_map[cxlmem_map_num][1]);
+
+                cxlmem_map_num++;
         }
 
         if (max_paddr >= MAX_KERNEL_PG_PADDR)
                 BUG("[CXL] CXL memdev base exceed paddr limitation\n");
 
+        kinfo("[CXL] max paddr: %llx, paddr limit: %llx\n",
+              max_paddr,
+              MAX_KERNEL_PG_PADDR);
+
         refill_kernel_page_table(max_paddr);
 }
+
+void parse_cxlmem_map()
+{
+        parse_cxl_mem_device(cxl_mem_devs, cxl_mem_dev_num);
+        // set owner
+
+        // enable hdm decoder
+        struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
+        kinfo("cxl parse chbs: base=%llx\n", ctx->base);
+
+        extern void cxl_probe_component_regs(void *);
+        cxl_probe_component_regs((void *)phys_to_virt(ctx->base));
+
+#if 1 /* test the visibility of CXL device write */
+        vaddr_t start = phys_to_virt(cxl_mem_devs[0].start);
+        kinfo("[CXL] start=%llx\n", start);
+        if (*(u64 *)start == 0) {
+                kinfo("[CXL] start = 0; init it...\n");
+                *(u64 *)start = 1;
+        } else {
+                kinfo("[CXL] start != 0; already inited\n");
+        }
+        BUG_ON(1);
+#endif
+}
+#endif

@@ -265,11 +265,7 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
         int ret;
 
         /* Check whether the pmo type is supported */
-        BUG_ON((pmo->type != PMO_DATA) && (pmo->type != PMO_DATA_NOCACHE)
-               && (pmo->type != PMO_ANONYM) && (pmo->type != PMO_DEVICE)
-               && (pmo->type != PMO_SHM) && (pmo->type != PMO_FORBID)
-               && (pmo->type != PMO_FILE) && (pmo->type != PMO_RING_BUFFER)
-               && (pmo->type != PMO_RING_BUFFER_RADIX));
+        BUG_ON((pmo->type < PMO_DATA) || pmo->type >= PMO_FORBID);
 
         /* Align a vmr to PAGE_SIZE */
         va = ROUND_DOWN(va, PAGE_SIZE);
@@ -685,6 +681,7 @@ fail_out:
         return -EINVAL;
 }
 
+#ifdef CHCORE_SLS
 void *create_patch_pool()
 {
         struct pte_patch_pool *pool;
@@ -693,6 +690,7 @@ void *create_patch_pool()
         pool->next = NULL;
         return (void *)pool;
 }
+#endif
 
 extern void arch_vmspace_init(struct vmspace *);
 
@@ -726,9 +724,10 @@ int vmspace_init(struct vmspace *vmspace)
         /* Set the mmap area: this variable is protected by the vmspace_lock */
         vmspace->user_current_mmap_addr = MMAP_START;
 
+#ifdef CHCORE_SLS
         /* Init pte_patch_pool */
         vmspace->pte_patch_pool = NULL;
-
+#endif
         return 0;
 }
 

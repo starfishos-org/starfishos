@@ -374,6 +374,9 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
                 }
                 break;
         }
+#ifdef USE_CXL_MEM
+        case PMO_CROSS_SHM:
+#endif
         case PMO_SHM:
         case PMO_RING_BUFFER_RADIX: {
                 /*
@@ -757,6 +760,9 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
         }
         case PMO_ANONYM:
         case PMO_SHM:
+#ifdef USE_CXL_MEM
+        case PMO_CROSS_SHM:
+#endif
         case PMO_RING_BUFFER_RADIX: {
                 /*
                  * For PMO_ANONYM (e.g., stack and heap) or PMO_SHM,
@@ -1192,7 +1198,14 @@ inline bool is_external_sync_pmo(struct pmobject *pmo)
 
 inline bool is_shared_pmo(struct pmobject *pmo)
 {
-        if (pmo->type == PMO_SHM || is_external_sync_pmo(pmo))
+        if (pmo->type == PMO_SHM
+#ifdef USE_CXL_MEM
+            || pmo->type == PMO_CROSS_SHM
+#endif
+#ifdef CHCORE_SLS
+            || is_external_sync_pmo(pmo)
+#endif
+        )
                 return true;
         return false;
 }

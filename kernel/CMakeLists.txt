@@ -63,9 +63,17 @@ target_include_directories(${kernel_target} PRIVATE include/arch/${CHCORE_ARCH})
 target_include_directories(
     ${kernel_target} PRIVATE include/arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
 
+
+# enable DSM configuration
+target_compile_definitions(${kernel_target} PRIVATE DSM_ENABLED)
+
 # Add source code directories
 add_subdirectory(arch/${CHCORE_ARCH})
 add_subdirectory(arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
+# TODO: need to define DSM)_EBABLED as a similar var as the CHCORE_KERNEL_TEST
+#if(DSM_ENABLED)
+add_subdirectory(dsm)
+#endif()
 if(CHCORE_SLS)
   add_subdirectory(ckpt)
 endif()
@@ -76,6 +84,7 @@ add_subdirectory(mm)
 add_subdirectory(object)
 add_subdirectory(sched)
 add_subdirectory(syscall)
+add_subdirectory(drivers)
 
 # Kernel testing
 if(CHCORE_KERNEL_TEST)
@@ -93,6 +102,9 @@ endmacro()
 
 # enabel DRAM allocator
 target_compile_definitions(${kernel_target} PRIVATE USE_DRAM)
+
+# enabel CXL mem allocator
+target_compile_definitions(${kernel_target} PRIVATE USE_CXL_MEM)
 
 # SLS Basic Configruations
 if(CHCORE_SLS)
