@@ -187,9 +187,15 @@ int pci_write_config_byte(const struct pci_dev *dev, int where, u8 val)
 }
 int pci_write_config_word(const struct pci_dev *dev, int where, u16 val)
 {
-        return 0;
+        struct pci_bus *bus = dev->bus;
+        BUG_ON(!bus);
+        return pci_mmcfg_write(
+                bus->domain, bus->number, dev->devfn, where, 2, (u32)val);
 }
 int pci_write_config_dword(const struct pci_dev *dev, int where, u32 val)
 {
-        return 0;
+        struct pci_bus *bus = dev->bus;
+        BUG_ON(!bus);
+        return pci_mmcfg_write(
+                bus->domain, bus->number, dev->devfn, where, 4, (u32)val);
 }

@@ -1,10 +1,16 @@
 #pragma once
 
-#include "common/kprint.h"
 #include <common/types.h>
 #include <common/list.h>
+#include <drivers/resource.h>
+#include <drivers/pci-regs.h>
 
-#include "pci-regs.h"
+typedef u32 pci_bus_addr_t;
+
+struct pci_bus_region {
+        pci_bus_addr_t start;
+        pci_bus_addr_t end;
+};
 
 struct pci_bus {
         struct list_head node; /* Node in list of buses */
@@ -68,6 +74,47 @@ int raw_pci_read(unsigned int domain, unsigned int bus, unsigned int devfn,
 int raw_pci_write(unsigned int domain, unsigned int bus, unsigned int devfn,
                   int reg, int len, u32 val);
 
+/* For PCI devices, the region numbers are assigned this way: */
+enum {
+        /* #0-5: standard PCI resources */
+        PCI_STD_RESOURCES,
+        PCI_STD_RESOURCE_END = PCI_STD_RESOURCES + PCI_STD_NUM_BARS - 1,
+
+        /* #6: expansion ROM resource */
+        PCI_ROM_RESOURCE,
+
+/* Device-specific resources */
+#ifdef CONFIG_PCI_IOV
+        PCI_IOV_RESOURCES,
+        PCI_IOV_RESOURCE_END = PCI_IOV_RESOURCES + PCI_SRIOV_NUM_BARS - 1,
+#endif
+
+/* PCI-to-PCI (P2P) bridge windows */
+#define PCI_BRIDGE_IO_WINDOW       (PCI_BRIDGE_RESOURCES + 0)
+#define PCI_BRIDGE_MEM_WINDOW      (PCI_BRIDGE_RESOURCES + 1)
+#define PCI_BRIDGE_PREF_MEM_WINDOW (PCI_BRIDGE_RESOURCES + 2)
+
+/* CardBus bridge windows */
+#define PCI_CB_BRIDGE_IO_0_WINDOW  (PCI_BRIDGE_RESOURCES + 0)
+#define PCI_CB_BRIDGE_IO_1_WINDOW  (PCI_BRIDGE_RESOURCES + 1)
+#define PCI_CB_BRIDGE_MEM_0_WINDOW (PCI_BRIDGE_RESOURCES + 2)
+#define PCI_CB_BRIDGE_MEM_1_WINDOW (PCI_BRIDGE_RESOURCES + 3)
+
+/* Total number of bridge resources for P2P and CardBus */
+#define PCI_BRIDGE_RESOURCE_NUM 4
+
+        /* Resources assigned to buses behind the bridge */
+        PCI_BRIDGE_RESOURCES,
+        PCI_BRIDGE_RESOURCE_END =
+                PCI_BRIDGE_RESOURCES + PCI_BRIDGE_RESOURCE_NUM - 1,
+
+        /* Total resources associated with a PCI device */
+        PCI_NUM_RESOURCES,
+
+        /* Preserve this for compatibility */
+        DEVICE_COUNT_RESOURCE = PCI_NUM_RESOURCES,
+};
+
 /* The pci_dev structure describes PCI devices */
 struct pci_dev {
         struct list_head bus_list; /* Node in per-bus list */
@@ -116,6 +163,7 @@ struct pci_dev {
         pci_power_t current_state; /* Current operating state. In ACPI,
                                       this is D0-D3, D0 being fully
                                       functional, and D3 being off. */
+#endif
         u8 pm_cap; /* PM capability offset */
         unsigned int imm_ready : 1; /* Supports Immediate Readiness */
         unsigned int pme_support : 5; /* Bitmask of states from which PME#
@@ -148,13 +196,12 @@ struct pci_dev {
 #endif
         unsigned int pasid_no_tlp : 1; /* PASID works without TLP Prefix */
         unsigned int eetlp_prefix_path : 1; /* End-to-End TLP Prefix */
-
+#if 0
         pci_channel_state_t error_state; /* Current connectivity state */
         struct device dev; /* Generic device interface */
 #endif
         int cfg_size; /* Size of config space */
 
-#if 0 
         /*
          * Instead of touching interrupt line and base address registers
          * directly, use the values stored here. They might be different!
@@ -166,6 +213,7 @@ struct pci_dev {
         struct resource driver_exclusive_resource; /* driver exclusive resource
                                                       ranges */
 
+#if 0 
         bool match_driver; /* Skip attaching driver */
 
         unsigned int transparent : 1; /* Subtractive decode bridge */
@@ -300,10 +348,7 @@ struct pci_dev {
 
 struct pci_mmcfg_region {
         struct list_head list;
-        struct resource {
-                u64 start;
-                u64 end;
-        } res;
+        struct resource res;
         u64 address;
         char *virt;
         u16 segment;
@@ -327,6 +372,30 @@ int pci_write_config_dword(const struct pci_dev *dev, int where, u32 val);
 /* Parse memory configuration in ACPI table */
 void arch_pci_mmcfg_init();
 
+static inline resource_size_t resource_size(const struct resource *res)
+{
+        return res->end - res->start + 1;
+}
+/*
+ * These helpers provide future and backwards compatibility
+ * for accessing popular PCI BAR info
+ */
+#define pci_resource_n(dev, bar)     (&(dev)->resource[(bar)])
+#define pci_resource_start(dev, bar) (pci_resource_n(dev, bar)->start)
+#define pci_resource_end(dev, bar)   (pci_resource_n(dev, bar)->end)
+#define pci_resource_flags(dev, bar) (pci_resource_n(dev, bar)->flags)
+#define pci_resource_len(dev, bar)                             \
+        (pci_resource_end((dev), (bar)) ?                      \
+                 resource_size(pci_resource_n((dev), (bar))) : \
+                 0)
+
+enum pci_bar_type {
+        pci_bar_unknown, /* Standard PCI BAR probe */
+        pci_bar_io, /* An I/O port BAR */
+        pci_bar_mem32, /* A 32-bit memory BAR */
+        pci_bar_mem64, /* A 64-bit memory BAR */
+};
+
 /* Probe devices from a region */
 void arch_pci_probe_devices();
 
@@ -335,5 +404,5 @@ void pci_buses_traverse_all(pci_bus_traverse_fn func);
 u16 pci_find_dvsec_capability(struct pci_dev *dev, u16 vendor, u16 dvsec);
 
 /* Init pcie devices */
+int pci_setup_device(struct pci_dev *dev);
 void pci_setup_devices();
-void pci_device_report();

@@ -22,7 +22,7 @@ typedef signed char s8;
 #endif
 
 typedef char bool;
-#define true (1)
+#define true  (1)
 #define false (0)
 typedef u64 paddr_t;
 typedef u64 vaddr_t;
@@ -33,5 +33,7 @@ typedef u64 atomic_cnt;
  * Different platform may have different cacheline size
  * and may have some features like prefetch.
  */
-#define CACHELINE_SZ 64
+#define CACHELINE_SZ         64
 #define pad_to_cache_line(n) (ROUND_UP(n, CACHELINE_SZ) - (n))
+
+typedef paddr_t resource_size_t;

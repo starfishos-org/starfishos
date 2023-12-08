@@ -18,11 +18,11 @@ static void add_pci_bus(struct pci_bus *new_bus)
 {
         if (!pci_root_bus) {
                 pci_root_bus = new_bus;
-                init_list_head(&pci_root_bus->children);
         } else {
                 list_add(&new_bus->node, &pci_root_bus->children);
                 new_bus->parent = pci_root_bus;
         }
+        init_list_head(&pci_root_bus->children);
 }
 
 void pci_devices_traverse(struct pci_bus *bus, pci_bus_traverse_fn func)
@@ -106,6 +106,7 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
                                 dev->devfn = devfn;
                                 dev->bus = bus;
                                 list_add(&dev->bus_list, &bus->devices);
+                                pci_setup_device(dev);
                         }
                 }
         }

@@ -309,8 +309,8 @@ void parse_cxlmem_map()
         struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
         kinfo("cxl parse chbs: base=%llx\n", ctx->base);
 
-        extern void cxl_probe_component_regs(void *);
-        cxl_probe_component_regs((void *)phys_to_virt(ctx->base));
+        // extern void cxl_probe_component_regs(void *);
+        // cxl_probe_component_regs((void *)phys_to_virt(ctx->base));
 
 #if 1 /* test the visibility of CXL device write */
         vaddr_t start = phys_to_virt(cxl_mem_devs[0].start);

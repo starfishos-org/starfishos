@@ -23,7 +23,9 @@ build_mmio_read(readb, "b", unsigned char, "=q",
                 : "memory") build_mmio_read(readw, "w", unsigned short, "=r",
                                             : "memory")
         build_mmio_read(readl, "l", unsigned int, "=r",
-                        : "memory")
+                        : "memory") build_mmio_read(readq, "q", unsigned long,
+                                                    "=r",
+                                                    : "memory")
 
                 build_mmio_write(writeb, "b", unsigned char, "q",
                                  : "memory")

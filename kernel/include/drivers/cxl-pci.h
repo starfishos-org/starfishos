@@ -1,6 +1,6 @@
 #pragma once
 
-#include <common/bitfield.h>
+#include <common/bitops.h>
 
 #define CXL_MEMORY_PROGIF 0x10
 
@@ -51,3 +51,19 @@
 #define CXL_DVSEC_REG_LOCATOR_BIR_MASK           GENMASK(2, 0)
 #define CXL_DVSEC_REG_LOCATOR_BLOCK_ID_MASK      GENMASK(15, 8)
 #define CXL_DVSEC_REG_LOCATOR_BLOCK_OFF_LOW_MASK GENMASK(31, 16)
+
+/*
+ * NOTE: Currently all the functions which are enabled for CXL require their
+ * vectors to be in the first 16.  Use this as the default max.
+ */
+#define CXL_PCI_DEFAULT_MAX_VECTORS 16
+
+/* Register Block Identifier (RBI) */
+enum cxl_regloc_type {
+        CXL_REGLOC_RBI_EMPTY = 0,
+        CXL_REGLOC_RBI_COMPONENT,
+        CXL_REGLOC_RBI_VIRT,
+        CXL_REGLOC_RBI_MEMDEV,
+        CXL_REGLOC_RBI_PMU,
+        CXL_REGLOC_RBI_TYPES
+};
