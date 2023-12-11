@@ -11,6 +11,11 @@ extern int physmem_map_num;
 extern paddr_t nvmmem_map[][2];
 extern int nvmmem_map_num;
 
+#ifdef USE_CXL_MEM
+extern paddr_t cxlmem_map[][2];
+extern int cxlmem_map_num;
+#endif
+
 /* All the following symbols are only used locally in the mm module. */
 
 /* page flags field */
@@ -141,6 +146,10 @@ struct phys_mem_pool {
 /* Disjoint physical memory can be represented by several phys_mem_pools. */
 extern struct phys_mem_pool *global_mem[];
 extern struct phys_mem_pool *global_dram_mem[];
+
+#ifdef USE_CXL_MEM
+extern struct phys_mem_pool *global_cxl_mem[];
+#endif
 
 /* All interfaces are kernel/mm module internal interfaces. */
 

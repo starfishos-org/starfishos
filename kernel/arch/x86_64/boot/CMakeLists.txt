@@ -39,6 +39,7 @@ if(0)
 
   # "--trace events=\$basedir/../qemu-trace-events.txt
 endif()
+
 chcore_generate_emulate_sh(
     "/opt/qemu-jic23/bin/qemu-system-x86_64"
     "--enable-kvm -M q35,cxl=on -m 4G,slots=2,maxmem=64G \
@@ -47,7 +48,7 @@ chcore_generate_emulate_sh(
     -device cxl-rp,port=0,bus=cxl.1,id=root_port13,chassis=0,slot=0 \
     -device cxl-type3,bus=root_port13,volatile-memdev=vmem0,id=cxl-vmem0 \
     -M cxl-fmw.0.targets.0=cxl.1,cxl-fmw.0.size=256M \
-    -cpu host -smp 20 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
+    -cpu host -smp 10 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
   )
 
 if(0)

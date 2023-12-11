@@ -265,7 +265,7 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
         int ret;
 
         /* Check whether the pmo type is supported */
-        BUG_ON((pmo->type < PMO_DATA) || pmo->type >= PMO_FORBID);
+        BUG_ON((pmo->type < PMO_ANONYM) || pmo->type >= PMO_FORBID);
 
         /* Align a vmr to PAGE_SIZE */
         va = ROUND_DOWN(va, PAGE_SIZE);

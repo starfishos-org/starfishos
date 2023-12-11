@@ -39,8 +39,9 @@
 #endif
 
 #define CR4_TSD 2 /* time stamp disable */
-#define CR4_PSE 4 /* page size extensions; enable 4M-page with 32-bit paging \
-                   */
+#define CR4_PSE                                                      \
+        4 /* page size extensions; enable 4M-page with 32-bit paging \
+           */
 #define CR4_PAE \
         5 /* physical address extension. must be set before entering IA-32e*/
 /*
@@ -181,7 +182,7 @@ void set_turbo_boost(void)
         /* disable CPU turbo boost */
 
         hi = hi | TURBO_DISABLE_MASK;
-        kdebug("Intel Turbo Boost is DISABLED.\n");
+        kinfo("Intel Turbo Boost is DISABLED.\n");
 #endif
         asm volatile("wrmsr" ::"c"(0x1a0), "a"(lo), "d"(hi));
 }

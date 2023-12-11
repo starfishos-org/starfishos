@@ -278,7 +278,7 @@ static void parse_cxl_mem_device(struct cxl_mem_dev *devs, int dev_num)
                 cxlmem_map[cxlmem_map_num][0] = dev_start;
                 cxlmem_map[cxlmem_map_num][1] = dev_end;
 
-                dsm_add_visible_memdev(dev->start, dev->size, 1);
+                // dsm_add_visible_memdev(dev->start, dev->size, 1);
 
                 if (dev_end > max_paddr)
                         max_paddr = dev_end;
@@ -303,7 +303,6 @@ static void parse_cxl_mem_device(struct cxl_mem_dev *devs, int dev_num)
 void parse_cxlmem_map()
 {
         parse_cxl_mem_device(cxl_mem_devs, cxl_mem_dev_num);
-        // set owner
 
         // enable hdm decoder
         struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
@@ -312,7 +311,7 @@ void parse_cxlmem_map()
         struct cxl_component_reg_map map;
         cxl_probe_component_regs(NULL, (void *)phys_to_virt(ctx->base), &map);
 
-#if 1 /* test the visibility of CXL device write */
+#if 0 /* test the visibility of CXL device write */
         vaddr_t start = phys_to_virt(cxl_mem_devs[0].start);
         kinfo("[CXL] start=%llx\n", start);
         if (*(u64 *)start == 0) {

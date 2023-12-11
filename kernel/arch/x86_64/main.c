@@ -71,9 +71,11 @@ void main(u64 mbmagic, paddr_t mbaddr)
         kinfo("[ChCore] cxl setup finished\n");
 
         ext_mm_init();
+        kinfo("[ChCore] external mm init finished\n");
 
         /* Configure CPU features: setting per_core registers */
         arch_cpu_init();
+        kinfo("[ChCore] arch cpu init finished\n");
 
         /* Init big kernel lock */
         ret = lock_init(&big_kernel_lock);

@@ -301,6 +301,16 @@ struct page *virt_to_page(void *ptr)
                         break;
                 }
         }
+#ifdef USE_CXL_MEM
+        for (i = 0; i < cxlmem_map_num; ++i) {
+                if (addr >= global_cxl_mem[i]->pool_start_addr
+                    && addr < global_cxl_mem[i]->pool_start_addr
+                                       + global_cxl_mem[i]->pool_mem_size) {
+                        pool = global_cxl_mem[i];
+                        break;
+                }
+        }
+#endif
 #if defined USE_DRAM && defined USE_NVM
         if (pool == NULL /* not find NVM memory polls */) {
                 for (i = 0; i < physmem_map_num; ++i) {

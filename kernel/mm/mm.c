@@ -30,7 +30,7 @@ paddr_t cxlmem_map[N_PHYS_MEM_POOLS][2];
 int cxlmem_map_num;
 
 struct phys_mem_pool *global_cxl_mem[N_PHYS_MEM_POOLS];
-struct phys_mem_pool _global_cxl_mem[N_PHYS_MEM_POOLS];
+struct phys_mem_pool static_global_cxl_mem[N_PHYS_MEM_POOLS];
 #endif /* USE_CXL_MEM */
 
 struct phys_mem_pool *global_mem[N_PHYS_MEM_POOLS];
@@ -235,18 +235,18 @@ void ext_mm_init()
         parse_cxlmem_map();
 #endif
 
-#ifdef DSM_ENABLED
+#if 0
         /* init dsm_info */
-#if 1
+#if 0
         dsm_mem_dev_t *dev = dsm_add_memdev_of_current_machine(
-                (u64)physmem_map[0][0],
-                (size_t)physmem_map[0][1] - physmem_map[0][0],
+                (u64)cxlmem_map[0][0],
+                (size_t)cxlmem_map[0][1] - cxlmem_map[0][0],
                 0);
         BUG_ON(!dev);
         kdebug("dev=%p, dev->start=0x%lx\n", dev, dev->start);
-#else
-        dsm_devs_init((u64)physmem_map[0][0],
-                      (size_t)physmem_map[0][1] - physmem_map[0][0],
+// #else
+        dsm_devs_init((u64)cxlmem_map[0][0],
+                      (size_t)cxlmem_map[0][1] - cxlmem_map[0][0],
                       0);
 #endif
         dsm_memdev_metadata_t *meta = CUR_MACHINE_META;
@@ -266,7 +266,7 @@ void ext_mm_init()
                     meta->state,
                     meta->ownerid);
         }
-        physmem_map[0][0] += sizeof(dsm_memdev_metadata_t);
+        cxlmem_map[0][0] += sizeof(dsm_memdev_metadata_t);
         dsm_followers_init_metadata();
 #endif
 
@@ -274,7 +274,7 @@ void ext_mm_init()
         int cxlmem_map_idx = 0;
 
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_cxl_mem[i] = &_global_cxl_mem[i];
+                global_cxl_mem[i] = &static_global_cxl_mem[i];
         }
 
         /* Step-2: init the buddy allocators for each continuous range of the
@@ -283,11 +283,12 @@ void ext_mm_init()
              ++cxlmem_map_idx) {
                 free_mem_start = cxlmem_map[cxlmem_map_idx][0];
                 free_mem_end = cxlmem_map[cxlmem_map_idx][1];
+
+                init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
+                                            CXL_MEM_PAGE,
+                                            free_mem_start,
+                                            free_mem_end);
         }
-        init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
-                                    CXL_MEM_PAGE,
-                                    free_mem_start,
-                                    free_mem_end);
 #endif /* USE_CXL_MEM */
 }
 
