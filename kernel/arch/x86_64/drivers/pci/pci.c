@@ -22,7 +22,7 @@ static void add_pci_bus(struct pci_bus *new_bus)
                 list_add(&new_bus->node, &pci_root_bus->children);
                 new_bus->parent = pci_root_bus;
         }
-        init_list_head(&pci_root_bus->children);
+        init_list_head(&new_bus->children);
 }
 
 void pci_devices_traverse(struct pci_bus *bus, pci_bus_traverse_fn func)

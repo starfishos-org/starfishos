@@ -65,10 +65,12 @@ void main(u64 mbmagic, paddr_t mbaddr)
         /* Configure drivers info */
         arch_pci_mmcfg_init();
         pci_setup_devices();
-        kinfo("[ChCore] pci devices setup finished\n");
+        kinfo("[ChCore] pci setup finished\n");
 
         cxl_setup_devices();
-        kinfo("[ChCore] cxl devices setup finished\n");
+        kinfo("[ChCore] cxl setup finished\n");
+
+        ext_mm_init();
 
         /* Configure CPU features: setting per_core registers */
         arch_cpu_init();

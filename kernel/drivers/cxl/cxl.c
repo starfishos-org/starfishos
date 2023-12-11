@@ -224,9 +224,19 @@ static int cxl_pci_probe(struct pci_dev *pdev)
 
 void cxl_setup_dev(struct pci_dev *pdev)
 {
-        if (pdev->vendor == PCI_VENDOR_ID_INTEL && pdev->device == 0xd93) {
-                kinfo("[CXL] Find Type3 device\n");
-                cxl_pci_probe(pdev);
+        if (pdev->vendor == PCI_VENDOR_ID_INTEL) {
+                switch (pdev->device) {
+                case 0x7075:
+                        kinfo("[CXL] Find Root Port\n");
+                        cxl_pci_probe(pdev);
+                        break;
+                case 0xd93:
+                        kinfo("[CXL] Find Type3 device\n");
+                        cxl_pci_probe(pdev);
+                        break;
+                default:
+                        break;
+                }
         }
 }
 
