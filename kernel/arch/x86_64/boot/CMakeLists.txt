@@ -43,11 +43,11 @@ endif()
 chcore_generate_emulate_sh(
     "/opt/qemu-jic23/bin/qemu-system-x86_64"
     "--enable-kvm -M q35,cxl=on -m 4G,slots=2,maxmem=64G \
-    -object memory-backend-file,id=vmem0,share=on,mem-path=\$cxl_backend_file,size=4G \
+    -object memory-backend-file,id=vmem0,share=on,mem-path=\$cxl_backend_file,size=1G \
     -device pxb-cxl,bus_nr=12,bus=pcie.0,id=cxl.1,hdm_for_passthrough=true \
     -device cxl-rp,port=0,bus=cxl.1,id=root_port13,chassis=0,slot=0 \
     -device cxl-type3,bus=root_port13,volatile-memdev=vmem0,id=cxl-vmem0 \
-    -M cxl-fmw.0.targets.0=cxl.1,cxl-fmw.0.size=4G \
+    -M cxl-fmw.0.targets.0=cxl.1,cxl-fmw.0.size=1G \
     -cpu host -smp 10 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
   )
 

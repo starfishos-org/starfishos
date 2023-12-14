@@ -1,4 +1,4 @@
-#include "common/kprint.h"
+#include <arch/time.h>
 #include <drivers/pci.h>
 #include <drivers/cxl.h>
 #include <common/util.h>
@@ -60,7 +60,6 @@ static int cxld_await_commit(void *hdm, int id)
         u32 ctrl;
         int i;
 
-        // while (true) {
         for (i = 0; i < COMMIT_TIMEOUT_MS; i++) {
                 ctrl = readl(hdm + CXL_HDM_DECODER0_CTRL_OFFSET(id));
                 if (FIELD_GET(CXL_HDM_DECODER0_CTRL_COMMIT_ERROR, ctrl)) {
@@ -70,9 +69,7 @@ static int cxld_await_commit(void *hdm, int id)
                 }
                 if (FIELD_GET(CXL_HDM_DECODER0_CTRL_COMMITTED, ctrl))
                         return 0;
-
-                for (int loop = 0; loop < 1000000000; loop++)
-                        ;
+                delay_ms(COMMIT_TIMEOUT_MS);
         }
         return -1;
 }
@@ -130,23 +127,6 @@ static int cxl_decoder_commit(struct cxl_hdm *cxl_hdm, int id, u64 base,
         writel(upper_32_bits(0), sk_hi);
         writel(lower_32_bits(0), sk_lo);
 
-#if 0
-        writel(ctrl, hdm + CXL_HDM_DECODER0_CTRL_OFFSET(id));
-        up_read(&cxl_dpa_rwsem);
-        port->commit_end++;
-        rc = cxld_await_commit(hdm, cxld->id);
-err:
-        if (rc) {
-                dev_dbg(&port->dev,
-                        "%s: error %d committing decoder\n",
-                        dev_name(&cxld->dev),
-                        rc);
-                cxld->reset(cxld);
-                return rc;
-        }
-        cxld->flags |= CXL_DECODER_F_ENABLE;
-
-#endif
         ctrl |= CXL_HDM_DECODER0_CTRL_COMMIT;
         // ctrl &= ~CXL_HDM_DECODER0_CTRL_COMMITTED;
         writel(ctrl, hdm + CXL_HDM_DECODER0_CTRL_OFFSET(id));
@@ -227,6 +207,7 @@ void cxl_probe_component_regs(struct pci_dev *dev, void *base,
                         length = 0x20 * decoder_cnt + 0x10;
                         rmap = &map->hdm_decoder;
 
+                        /* TODO: ugly directly use hdm decode here */
                         parse_hdm_decoder_caps((void *)register_block,
                                                &cxl_hdm);
                         enable_hdm_decoder(register_block);

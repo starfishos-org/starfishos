@@ -306,7 +306,7 @@ void parse_cxlmem_map()
 
         // enable hdm decoder
         struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
-        kdebug("cxl parse chbs: base=%llx\n", ctx->base);
+        cxl_debug("cxl parse chbs: base=%llx\n", ctx->base);
 
         struct cxl_component_reg_map map;
         cxl_probe_component_regs(NULL, (void *)phys_to_virt(ctx->base), &map);

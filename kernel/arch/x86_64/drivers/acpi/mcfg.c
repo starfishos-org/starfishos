@@ -15,7 +15,7 @@ void parse_mcfg(struct acpi_table_mcfg *table)
         entry_len = sizeof(*entry);
 
         while ((char *)entry + entry_len <= (char *)table + table_len) {
-                kinfo("[MCFG INFO] address: 0x%llx, pci_seg: %llx, start_bus_n=%d, end_bus_n=%d\n",
+                kinfo("[ACPI] [MCFG INFO] address: 0x%llx, pci_seg: %llx, start_bus_n=%d, end_bus_n=%d\n",
                       entry->address,
                       entry->pci_segment,
                       entry->start_bus_number,
