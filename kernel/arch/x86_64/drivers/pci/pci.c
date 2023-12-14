@@ -82,7 +82,7 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
                 pci_get_devid_and_vendorid(
                         region, bus_n, 0, &dev_id, &vendor_id);
                 if (vendor_id != 0xffff) {
-                        bus = kzalloc(sizeof(*bus));
+                        bus = dram_kzalloc(sizeof(*bus));
                         bus->domain = region->segment;
                         bus->number = (char)bus_n;
                         init_list_head(&bus->devices);
@@ -95,11 +95,13 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
                                 region, bus_n, devfn, &dev_id, &vendor_id);
                         /* set up device */
                         if (vendor_id != 0xffff) {
-                                kinfo("[PCI] [NEW DEVICE] BUS: %d DEVID: %04x VENDORID: %04x \n",
-                                      bus_n,
-                                      dev_id,
-                                      vendor_id);
-                                struct pci_dev *dev = kzalloc(sizeof(*dev));
+                                pci_debug(
+                                        "[probe device] BUS: %d DEVID: %04x VENDORID: %04x \n",
+                                        bus_n,
+                                        dev_id,
+                                        vendor_id);
+                                struct pci_dev *dev =
+                                        dram_kzalloc(sizeof(*dev));
 
                                 dev->device = dev_id;
                                 dev->vendor = vendor_id;

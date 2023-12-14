@@ -113,7 +113,7 @@ static u8 pci_hdr_type(struct pci_dev *dev)
 
 int pci_cfg_space_size(struct pci_dev *dev)
 {
-        kwarn("%s: need to check if it is a PCIE device\n", __func__);
+        kwarn_once("%s: need to check if it is a PCIE device\n", __func__);
         return PCI_CFG_SPACE_EXP_SIZE;
 }
 
@@ -284,7 +284,7 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
 
         sz64 = pci_size(l64, sz64, mask64);
         if (!sz64) {
-                kinfo("reg 0x%x: invalid BAR (can't size)\n", pos);
+                pci_debug("reg 0x%x: invalid BAR (can't size)\n", pos);
                 goto fail;
         }
 
@@ -305,9 +305,10 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
                         res->flags |= IORESOURCE_UNSET;
                         res->start = 0;
                         res->end = sz64 - 1;
-                        kinfo("reg 0x%x: can't handle BAR above 4GB (bus address %#010llx)\n",
-                              pos,
-                              (unsigned long long)l64);
+                        pci_debug(
+                                "reg 0x%x: can't handle BAR above 4GB (bus address %#010llx)\n",
+                                pos,
+                                (unsigned long long)l64);
                         goto out;
                 }
         }
@@ -319,10 +320,10 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
         res->start = l64;
         res->end = l64 + sz64 - 1;
 
-        kinfo("resource flags: %x range: %lx - %lx\n",
-              res->flags,
-              res->start,
-              res->end);
+        pci_debug("resource flags: %x range: %lx - %lx\n",
+                  res->flags,
+                  res->start,
+                  res->end);
 
 #if 0
         /*
@@ -340,7 +341,7 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
                 res->flags |= IORESOURCE_UNSET;
                 res->start = 0;
                 res->end = region.end - region.start;
-                kinfo("reg 0x%x: initial BAR value %#010llx invalid\n",
+                pci_debug("reg 0x%x: initial BAR value %#010llx invalid\n",
                       pos,
                       (unsigned long long)region.start);
         }
@@ -400,11 +401,11 @@ int pci_setup_device(struct pci_dev *dev)
         /* Need to have dev->class ready */
         dev->cfg_size = pci_cfg_space_size(dev);
 
-        kinfo("[pci setup device] [%04x:%04x] type %02x class %08x\n",
-              dev->vendor,
-              dev->device,
-              dev->hdr_type,
-              dev->class);
+        pci_debug("[pci setup device] [%04x:%04x] type %02x class %08x\n",
+                  dev->vendor,
+                  dev->device,
+                  dev->hdr_type,
+                  dev->class);
 
         switch (dev->hdr_type) { /* header type */
         case PCI_HEADER_TYPE_NORMAL: /* standard header */
@@ -433,6 +434,6 @@ int pci_setup_device(struct pci_dev *dev)
 void pci_setup_devices()
 {
         /* loop mmcfg and setup valid device */
-        kinfo("%s: TODO\n", __func__);
+        pci_debug("%s: TODO\n", __func__);
         arch_pci_probe_devices();
 }

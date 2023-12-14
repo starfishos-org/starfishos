@@ -20,9 +20,9 @@ extern struct phys_mem_pool *global_dram_mem[];
 /* Declaration */
 void *get_dram_pages(int order)
 {
-#if !defined USE_NVM || !defined USE_DRAM
-        return get_pages(order);
-#endif
+// #if !defined USE_NVM || !defined USE_DRAM
+//         return get_pages(order);
+// #endif
 #if TRACK_THREAD_MM == ON
         if (current_thread)
                 current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
@@ -33,7 +33,8 @@ void *get_dram_pages(int order)
         /* Try to get continous physical memory pages from one physmem pool. */
         for (i = 0; i < physmem_map_num; ++i) {
                 page = buddy_get_pages(global_dram_mem[i], order);
-                if (page) break;
+                if (page)
+                        break;
         }
 
         if (unlikely(!page)) {
@@ -41,18 +42,18 @@ void *get_dram_pages(int order)
                 return NULL;
         }
 
-		/* Init page reference count */
-		page->ref_cnt = 1;
+        /* Init page reference count */
+        page->ref_cnt = 1;
 
         return page_to_virt(page);
 }
 
 void free_dram_pages(void *addr)
 {
-#if !defined USE_NVM || !defined USE_DRAM
-        kfree(addr);
-        return;
-#endif      
+        // #if !defined USE_NVM || !defined USE_DRAM
+        //         kfree(addr);
+        //         return;
+        // #endif
         struct page *page;
 
         page = virt_to_page(addr);
@@ -83,9 +84,9 @@ static int size_to_page_order(unsigned long size)
 /* Currently, BUG_ON no available memory. */
 void *dram_kmalloc(size_t size)
 {
-#if !defined USE_NVM || !defined USE_DRAM
-        return kmalloc(size);
-#endif
+        // #if !defined USE_NVM || !defined USE_DRAM
+        //         return kmalloc(size);
+        // #endif
         void *addr;
         int order;
 
@@ -94,8 +95,9 @@ void *dram_kmalloc(size_t size)
 
         if (size <= SLAB_MAX_SIZE) {
 #if TRACK_THREAD_MM == ON
-                        if (current_thread)
-                                        current_thread->mm_size += (1 << size_to_slab_order(size));
+                if (current_thread)
+                        current_thread->mm_size +=
+                                (1 << size_to_slab_order(size));
 #endif
                 addr = alloc_in_dram_slab(size);
         } else {
@@ -121,10 +123,10 @@ void *dram_kzalloc(size_t size)
 
 void dram_kfree(void *ptr)
 {
-#if !defined USE_NVM || !defined USE_DRAM
-        kfree(ptr);
-        return;
-#endif
+        // #if !defined USE_NVM || !defined USE_DRAM
+        //         kfree(ptr);
+        //         return;
+        // #endif
         struct page *page;
 
         if (unlikely(ptr == ZERO_SIZE_PTR))
@@ -133,20 +135,21 @@ void dram_kfree(void *ptr)
         page = virt_to_page(ptr);
         if (page && page->slab) {
 #if TRACK_THREAD_MM == ON
-				if (current_thread)
-						current_thread->mm_size -= 
-						(1 << ((struct slab_header *)(page->slab))->order);
+                if (current_thread)
+                        current_thread->mm_size -=
+                                (1
+                                 << ((struct slab_header *)(page->slab))->order);
 #endif
                 free_in_slab(ptr);
-		} else {
-                int old_refcnt = atomic_fetch_sub_64(&page->ref_cnt,1);
-				if (old_refcnt == 1) {
+        } else {
+                int old_refcnt = atomic_fetch_sub_64(&page->ref_cnt, 1);
+                if (old_refcnt == 1) {
 #if TRACK_THREAD_MM == ON
-						if (current_thread)
-								current_thread->mm_size -=
-								(BUDDY_PAGE_SIZE * (1 << page->order));
+                        if (current_thread)
+                                current_thread->mm_size -=
+                                        (BUDDY_PAGE_SIZE * (1 << page->order));
 #endif
-						buddy_free_pages(page->pool, page);
-				}
-		}
+                        buddy_free_pages(page->pool, page);
+                }
+        }
 }

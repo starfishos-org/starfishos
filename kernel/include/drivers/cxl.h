@@ -1,8 +1,22 @@
+#pragma once
+
 #include "common/list.h"
 #include "common/macro.h"
 #include "drivers/pci.h"
 #include <common/types.h>
 #include <arch/mm/page_table.h>
+
+// #define CXL_DEBUG
+
+#define CXL_PREFIX "[cxl]"
+
+#define cxl_info(fmt, ...)  printk(CXL_PREFIX " " fmt, ##__VA_ARGS__)
+#define cxl_error(fmt, ...) printk(CXL_PREFIX " " fmt, ##__VA_ARGS__)
+#ifdef CXL_DEBUG
+#define cxl_debug(fmt, ...) printk(CXL_PREFIX " " fmt, ##__VA_ARGS__)
+#else
+#define cxl_debug(fmt, ...)
+#endif
 
 struct cxl_reg_map {
         bool valid;

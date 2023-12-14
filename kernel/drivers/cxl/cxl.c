@@ -1,17 +1,18 @@
-#include "arch/mmu.h"
+#include <arch/mmu.h>
 #include <common/kprint.h>
 #include <mm/kmalloc.h>
 #include <drivers/cxl.h>
 #include <drivers/pci.h>
 #include <common/errno.h>
 #include <common/bitfield.h>
+#include <drivers/cxl.h>
 #include <drivers/cxl-pci.h>
 #include <drivers/pci-special.h>
 
 static struct cxl_memdev_state *cxl_memdev_state_create(struct pci_dev *pdev)
 {
-        struct cxl_memdev_state *mds = kzalloc(sizeof(*mds));
-        mds->cxlds = kzalloc(sizeof(*(mds->cxlds)));
+        struct cxl_memdev_state *mds = dram_kzalloc(sizeof(*mds));
+        mds->cxlds = dram_kzalloc(sizeof(*(mds->cxlds)));
         return mds;
 }
 
@@ -23,11 +24,11 @@ static bool cxl_decode_regblock(struct pci_dev *pdev, u32 reg_lo, u32 reg_hi,
                      | (reg_lo & CXL_DVSEC_REG_LOCATOR_BLOCK_OFF_LOW_MASK);
 
         if (offset > pci_resource_len(pdev, bar)) {
-                kwarn("BAR%d: %pr: too small (offset: %pa, type: %d)\n",
-                      bar,
-                      &pdev->resource[bar],
-                      &offset,
-                      map->reg_type);
+                cxl_error("BAR%d: %pr: too small (offset: %pa, type: %d)\n",
+                          bar,
+                          &pdev->resource[bar],
+                          &offset,
+                          map->reg_type);
                 return false;
         }
 
@@ -35,11 +36,12 @@ static bool cxl_decode_regblock(struct pci_dev *pdev, u32 reg_lo, u32 reg_hi,
         map->resource = pci_resource_start(pdev, bar) + offset;
         map->max_size = pci_resource_len(pdev, bar) - offset;
 
-        kinfo("[CXL] [REGBLK] bar: %d  map reg_type: %d, resource: %llx, size: %llx\n",
-              bar,
-              map->reg_type,
-              map->resource,
-              map->max_size);
+        cxl_debug(
+                "[CXL] [REGBLK] bar: %d  map reg_type: %d, resource: %llx, size: %llx\n",
+                bar,
+                map->reg_type,
+                map->resource,
+                map->max_size);
 
         return true;
 }
@@ -128,22 +130,20 @@ static int cxl_probe_regs(struct cxl_register_map *map)
         case CXL_REGLOC_RBI_COMPONENT:
                 comp_map = &map->component_map;
                 cxl_probe_component_regs(pdev, base, comp_map);
-                kinfo("[CXL] Set up component registers\n");
+                cxl_debug("[CXL] Set up component registers\n");
                 break;
         case CXL_REGLOC_RBI_MEMDEV:
                 dev_map = &map->device_map;
-                kinfo("[CXL] RBI_MEMDEV base: 0x%llx\n", base);
+                cxl_debug("[CXL] RBI_MEMDEV base: 0x%llx\n", base);
                 cxl_probe_device_regs(pdev, base, dev_map);
                 if (!dev_map->status.valid || !dev_map->mbox.valid
                     || !dev_map->memdev.valid) {
-                        kwarn("[CXL] registers not found: %s%s%s\n",
-                              !dev_map->status.valid ? "status " : "",
-                              !dev_map->mbox.valid ? "mbox " : "",
-                              !dev_map->memdev.valid ? "memdev " : "");
+                        cxl_error("[CXL] registers not found: %s%s%s\n",
+                                  !dev_map->status.valid ? "status " : "",
+                                  !dev_map->mbox.valid ? "mbox " : "",
+                                  !dev_map->memdev.valid ? "memdev " : "");
                         return -ENXIO;
                 }
-
-                kwarn("[CXL] Probing device registers...\n");
                 break;
         default:
                 break;
@@ -157,11 +157,12 @@ static int cxl_map_regblock(struct cxl_register_map *map)
         // map->base = ioremap(map->resource, map->max_size);
         map->base = (void *)phys_to_virt(map->resource);
         if (!map->base) {
-                kwarn("[CXL] Failed to map registers\n");
+                cxl_error("[CXL] Failed to map registers\n");
                 return -ENOMEM;
         }
 
-        kinfo("[CXL] Mapped CXL Memory Device resource %pa\n", &map->resource);
+        cxl_debug("[CXL] Mapped CXL Memory Device resource %pa\n",
+                  &map->resource);
         return 0;
 }
 
@@ -199,13 +200,13 @@ static int cxl_pci_probe(struct pci_dev *pdev)
 
         mds = cxl_memdev_state_create(pdev);
         if (!mds)
-                kwarn("[CXL] create cxl memdev state failed\n", __func__);
+                cxl_error("[CXL] create cxl memdev state failed\n", __func__);
         cxlds = mds->cxlds;
 
         cxlds->cxl_dvsec = pci_find_dvsec_capability(
                 pdev, PCI_DVSEC_VENDOR_ID_CXL, CXL_DVSEC_PCIE_DEVICE);
         if (!cxlds->cxl_dvsec) {
-                kwarn("[CXL] Device DVSEC not present\n");
+                cxl_error("[CXL] Device DVSEC not present\n");
         }
 
         rc = cxl_setup_regs(pdev, CXL_REGLOC_RBI_MEMDEV, &map);
@@ -217,7 +218,7 @@ static int cxl_pci_probe(struct pci_dev *pdev)
          */
         rc = cxl_setup_regs(pdev, CXL_REGLOC_RBI_COMPONENT, &map);
         if (rc)
-                kwarn("No component registers (%d)\n", rc);
+                cxl_error("No component registers (%d)\n", rc);
 
         return 0;
 }
@@ -227,11 +228,11 @@ void cxl_setup_dev(struct pci_dev *pdev)
         if (pdev->vendor == PCI_VENDOR_ID_INTEL) {
                 switch (pdev->device) {
                 case 0x7075:
-                        kinfo("[CXL] Find Root Port\n");
+                        cxl_info("[CXL] Find Root Port\n");
                         cxl_pci_probe(pdev);
                         break;
                 case 0xd93:
-                        kinfo("[CXL] Find Type3 device\n");
+                        cxl_info("[CXL] Find Type3 device\n");
                         cxl_pci_probe(pdev);
                         break;
                 default:

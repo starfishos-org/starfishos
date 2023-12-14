@@ -41,11 +41,12 @@ static void parse_hdm_decoder_caps(void *base, struct cxl_hdm *hdm)
                 hdm->interleave_mask |= GENMASK(11, 8);
         if (FIELD_GET(CXL_HDM_DECODER_INTERLEAVE_14_12, hdm_cap))
                 hdm->interleave_mask |= GENMASK(14, 12);
-        kinfo("[CXL] base: 0x%llx, decoder cnt: %d, target_count: %d, interleave_mask: %d\n",
-              hdm->hdm_base,
-              hdm->decoder_count,
-              hdm->target_count,
-              hdm->interleave_mask);
+        cxl_debug(
+                "[CXL] base: 0x%llx, decoder cnt: %d, target_count: %d, interleave_mask: %d\n",
+                hdm->hdm_base,
+                hdm->decoder_count,
+                hdm->target_count,
+                hdm->interleave_mask);
 }
 
 /*
@@ -111,10 +112,10 @@ static int cxl_decoder_commit(struct cxl_hdm *cxl_hdm, int id, u64 base,
         /* common decoder settings */
         u32 ctrl = readl(hdm + CXL_HDM_DECODER0_CTRL_OFFSET(id));
         ctrl |= CXL_HDM_DECODER0_CTRL_HOSTONLY;
-        kinfo("[CXL] hdm = 0x%llx, base = 0x%llx, size = 0x%llx\n",
-              hdm,
-              base,
-              size);
+        cxl_debug("[CXL] hdm = 0x%llx, base = 0x%llx, size = 0x%llx\n",
+                  hdm,
+                  base,
+                  size);
 
         writel(upper_32_bits(base),
                hdm + CXL_HDM_DECODER0_BASE_HIGH_OFFSET(id));
@@ -151,7 +152,7 @@ err:
         writel(ctrl, hdm + CXL_HDM_DECODER0_CTRL_OFFSET(id));
         int rc = cxld_await_commit(hdm, id);
         if (rc) {
-                BUG("[CXL] cxld_await_commit failed (r=%d)\n", rc);
+                cxl_error("[CXL] cxld_await_commit failed (r=%d)\n", rc);
         }
         return 0;
 }
@@ -182,12 +183,14 @@ void cxl_probe_component_regs(struct pci_dev *dev, void *base,
         cap_array = readl(base + CXL_CM_CAP_HDR_OFFSET);
 
         if (FIELD_GET(CXL_CM_CAP_HDR_ID_MASK, cap_array) != CM_CAP_HDR_CAP_ID) {
-                kdebug("[CXL] Couldn't locate the CXL.cache and CXL.mem capability array header.\n");
+                cxl_error(
+                        "[CXL] Couldn't locate the CXL.cache and CXL.mem capability array header.\n");
                 return;
         }
         if (FIELD_GET(CXL_CM_CAP_HDR_VERSION_MASK, cap_array)
             != CM_CAP_HDR_CAP_VERSION) {
-                kdebug("[CXL] Couldn't locate the CXL.cache and CXL.mem capability array header.\n");
+                cxl_error(
+                        "[CXL] Couldn't locate the CXL.cache and CXL.mem capability array header.\n");
                 return;
         }
 
@@ -207,17 +210,18 @@ void cxl_probe_component_regs(struct pci_dev *dev, void *base,
                 hdr = readl(register_block);
 
                 rmap = NULL;
-                kdebug("[CXL] base + cxp * 0x4=%llx, cap_id=%d, offset = %d\n",
-                       (u64)(base + cap * 0x4),
-                       cap_id,
-                       offset);
+                cxl_debug(
+                        "[CXL] base + cxp * 0x4=%llx, cap_id=%d, offset = %d\n",
+                        (u64)(base + cap * 0x4),
+                        cap_id,
+                        offset);
 
                 switch (cap_id) {
                 case CXL_CM_CAP_CAP_ID_HDM: {
                         int decoder_cnt;
 
-                        kinfo("[CXL] found HDM decoder capability (0x%x)\n",
-                              offset);
+                        cxl_debug("[CXL] found HDM decoder capability (0x%x)\n",
+                                  offset);
 
                         decoder_cnt = cxl_hdm_decoder_count(hdr);
                         length = 0x20 * decoder_cnt + 0x10;
@@ -233,12 +237,13 @@ void cxl_probe_component_regs(struct pci_dev *dev, void *base,
                         break;
                 }
                 case CXL_CM_CAP_CAP_ID_RAS:
-                        kinfo("[CXL] found RAS capability (0x%x)\n", offset);
+                        cxl_debug("[CXL] found RAS capability (0x%x)\n",
+                                  offset);
                         break;
                 default:
-                        kdebug("[CXL] Unknown CM cap ID: %d (0x%x)\n",
-                               cap_id,
-                               offset);
+                        cxl_debug("[CXL] Unknown CM cap ID: %d (0x%x)\n",
+                                  cap_id,
+                                  offset);
                         break;
                 }
 
@@ -287,32 +292,32 @@ void cxl_probe_device_regs(struct pci_dev *dev, void *base,
                 rmap = NULL;
                 switch (cap_id) {
                 case CXLDEV_CAP_CAP_ID_DEVICE_STATUS:
-                        kdebug("found Status capability (0x%x)\n", offset);
+                        cxl_debug("found Status capability (0x%x)\n", offset);
                         rmap = &map->status;
                         break;
                 case CXLDEV_CAP_CAP_ID_PRIMARY_MAILBOX:
-                        kdebug("found Mailbox capability (0x%x)\n", offset);
+                        cxl_debug("found Mailbox capability (0x%x)\n", offset);
                         rmap = &map->mbox;
                         break;
                 case CXLDEV_CAP_CAP_ID_SECONDARY_MAILBOX:
-                        kdebug("found Secondary Mailbox capability (0x%x)\n",
-                               offset);
+                        cxl_debug("found Secondary Mailbox capability (0x%x)\n",
+                                  offset);
                         break;
                 case CXLDEV_CAP_CAP_ID_MEMDEV:
-                        kdebug("found Memory Device capability (0x%x)\n",
-                               offset);
+                        cxl_debug("found Memory Device capability (0x%x)\n",
+                                  offset);
                         rmap = &map->memdev;
                         break;
                 default:
-                        if (cap_id >= 0x8000)
-                                kdebug("Vendor cap ID: %#x offset: %#x\n",
-                                       cap_id,
-                                       offset);
-                        else
-                                kdebug(dev,
-                                       "Unknown cap ID: %#x offset: %#x\n",
-                                       cap_id,
-                                       offset);
+                        if (cap_id >= 0x8000) {
+                                cxl_debug("Vendor cap ID: %#x offset: %#x\n",
+                                          cap_id,
+                                          offset);
+                        } else {
+                                cxl_error("Unknown cap ID: %#x offset: %#x\n",
+                                          cap_id,
+                                          offset);
+                        }
                         break;
                 }
 

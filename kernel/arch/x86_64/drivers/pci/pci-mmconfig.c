@@ -19,7 +19,7 @@ static struct pci_mmcfg_region *pci_mmconfig_alloc(int segment, int start,
         if (addr == 0)
                 return NULL;
 
-        new = (struct pci_mmcfg_region *)kzalloc(sizeof(*new));
+        new = (struct pci_mmcfg_region *)dram_kzalloc(sizeof(*new));
         if (!new)
                 return NULL;
 
@@ -54,13 +54,13 @@ struct pci_mmcfg_region *pci_mmconfig_add(int segment, int start, int end,
                 list_add(&new->list, &pci_mmcfg_list);
                 unlock(&pci_mmcfg_lock);
 
-                kinfo("MMCONFIG for domain %04x [bus %02x-%02x] at %pR "
-                      "(base %#lx)\n",
-                      segment,
-                      start,
-                      end,
-                      &new->res,
-                      (unsigned long)addr);
+                pci_debug("[mmcfg add] domain %04x [bus %02x-%02x] at %pR "
+                          "(base %#lx)\n",
+                          segment,
+                          start,
+                          end,
+                          &new->res,
+                          (unsigned long)addr);
         }
 
         return new;
@@ -101,12 +101,12 @@ static int pci_mmcfg_read(unsigned int seg, unsigned int bus,
         }
 
         addr = pci_dev_base(seg, bus, devfn);
-        kdebug("%s: bus=%04x devfn=%04x addr=0x%llx reg=%llx\n",
-               __func__,
-               bus,
-               devfn,
-               addr,
-               reg);
+        pci_debug("[mmcfg read] bus=%04x devfn=%04x addr=0x%llx reg=%llx\n",
+                  bus,
+                  devfn,
+                  addr,
+                  reg);
+
         if (!addr) {
                 goto err;
         }

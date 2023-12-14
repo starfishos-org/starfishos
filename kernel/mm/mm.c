@@ -34,9 +34,10 @@ struct phys_mem_pool static_global_cxl_mem[N_PHYS_MEM_POOLS];
 #endif /* USE_CXL_MEM */
 
 struct phys_mem_pool *global_mem[N_PHYS_MEM_POOLS];
-struct phys_mem_pool *global_dram_mem[N_PHYS_MEM_POOLS];
-
 struct phys_mem_pool static_global_mem[N_PHYS_MEM_POOLS];
+
+struct phys_mem_pool *global_dram_mem[N_PHYS_MEM_POOLS];
+struct phys_mem_pool static_global_dram_mem[N_PHYS_MEM_POOLS];
 
 #if defined(CHCORE_SLS) && !defined(USE_NVM)
 static struct nvm_metadata nvm_metadata_for_dram;
@@ -119,10 +120,10 @@ static void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
         unsigned long npages1 = 0;
         paddr_t free_page_start = 0;
 
-        kdebug("mem pool %d, free_mem_start: 0x%lx, free_mem_end: 0x%lx\n",
-               physmem_map_idx,
-               free_mem_start,
-               free_mem_end);
+        kinfo("mem pool type %d, free_mem_start: 0x%lx, free_mem_end: 0x%lx\n",
+              type,
+              free_mem_start,
+              free_mem_end);
 
         npages = (free_mem_end - free_mem_start)
                  / (PAGE_SIZE + sizeof(struct page));
@@ -196,7 +197,7 @@ skip_parse_info:
 #ifdef USE_DRAM
         /* Init dram pool */
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_mem[i] = &static_global_mem[i];
+                global_dram_mem[i] = &static_global_mem[i];
         }
 
         /* Step-2: init the buddy allocators for each continuous range of the
@@ -206,7 +207,8 @@ skip_parse_info:
                 free_mem_start = physmem_map[physmem_map_idx][0];
                 free_mem_end = physmem_map[physmem_map_idx][1];
                 /* use global memory pool */
-#ifdef USE_NVM /* Hybrid DRAM and NVM memory pool */
+#if defined(USE_NVM) || defined(USE_CXL_MEM)
+                /* Hybrid DRAM and NVM memory pool */
                 init_buddy_for_one_mem_pool(global_dram_mem[physmem_map_idx],
 #else
                 init_buddy_for_one_mem_pool(global_mem[physmem_map_idx],
@@ -217,7 +219,7 @@ skip_parse_info:
         }
 
         /* Step-3: init the slab allocator. */
-#ifdef USE_NVM /* Hybrid DRAM and NVM memory pool */
+#if defined(USE_NVM) || defined(USE_CXL_MEM)
         init_dram_slab();
 #else
         init_slab();
@@ -274,7 +276,7 @@ void ext_mm_init()
         int cxlmem_map_idx = 0;
 
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_cxl_mem[i] = &static_global_cxl_mem[i];
+                global_mem[i] = &static_global_mem[i];
         }
 
         /* Step-2: init the buddy allocators for each continuous range of the
@@ -284,11 +286,12 @@ void ext_mm_init()
                 free_mem_start = cxlmem_map[cxlmem_map_idx][0];
                 free_mem_end = cxlmem_map[cxlmem_map_idx][1];
 
-                init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
+                init_buddy_for_one_mem_pool(global_mem[cxlmem_map_idx],
                                             CXL_MEM_PAGE,
                                             free_mem_start,
                                             free_mem_end);
         }
+        init_slab();
 #endif /* USE_CXL_MEM */
 }
 

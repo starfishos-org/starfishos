@@ -5,6 +5,18 @@
 #include <drivers/resource.h>
 #include <drivers/pci-regs.h>
 
+// #define PCI_DEBUG
+
+#define PCI_PREFIX "[pci]"
+
+#define pci_info(fmt, ...)  printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
+#define pci_error(fmt, ...) printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
+#ifdef PCI_DEBUG
+#define pci_debug(fmt, ...) printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
+#else
+#define pci_debug(fmt, ...)
+#endif
+
 typedef u32 pci_bus_addr_t;
 
 struct pci_bus_region {

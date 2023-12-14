@@ -301,7 +301,7 @@ struct page *virt_to_page(void *ptr)
                         break;
                 }
         }
-#ifdef USE_CXL_MEM
+#if 0
         for (i = 0; i < cxlmem_map_num; ++i) {
                 if (addr >= global_cxl_mem[i]->pool_start_addr
                     && addr < global_cxl_mem[i]->pool_start_addr
@@ -311,7 +311,7 @@ struct page *virt_to_page(void *ptr)
                 }
         }
 #endif
-#if defined USE_DRAM && defined USE_NVM
+#ifdef USE_DRAM
         if (pool == NULL /* not find NVM memory polls */) {
                 for (i = 0; i < physmem_map_num; ++i) {
                         if (addr >= global_dram_mem[i]->pool_start_addr
