@@ -183,15 +183,14 @@ void x2apic_sipi(u32 hwid, u32 addr)
                 // Kick the target chip
                 wrmsr(X2APIC_ICR,
                       ((u64)(hwid) << 32) | ICR_TYPE_STARTUP | (addr >> 12));
-                kinfo("Boot addr 0x%lx send 0x%lx\n", addr, addr >> 12);
+                // kinfo("Boot addr 0x%lx send 0x%lx\n", addr, addr >> 12);
                 delay_ms(1);
 
-                kinfo("maxlvt=%d, send 0 to 0x%llx\n", maxlvt, IA32_X2APIC_ESR);
                 if (maxlvt > 3)
                         wrmsr(IA32_X2APIC_ESR, 0);
 
                 accept_status = (rdmsr(IA32_X2APIC_ESR) & 0xEF);
-                kinfo("Accpet_status %lx\n", accept_status);
+                // kinfo("Accpet_status %lx\n", accept_status);
                 BUG_ON(accept_status);
         }
 }

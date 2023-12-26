@@ -33,9 +33,10 @@ void parse_srat(struct acpi_table_srat *table)
                               mem_aff->base_address,
                               mem_aff->length,
                               mem_aff->proximity_domain);
-#ifdef DSM_ENABLED
+#if 0
+                        // #ifdef DSM_ENABLED
                         dsm_add_visible_memdev(
-                                mem_aff->base_address, mem_aff->length, 0);
+                                // mem_aff->base_address, mem_aff->length, 0);
 #endif
                         break;
                 }

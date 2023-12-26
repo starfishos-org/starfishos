@@ -311,7 +311,7 @@ struct page *virt_to_page(void *ptr)
                 }
         }
 #endif
-#ifdef USE_DRAM
+#if 1
         if (pool == NULL /* not find NVM memory polls */) {
                 for (i = 0; i < physmem_map_num; ++i) {
                         if (addr >= global_dram_mem[i]->pool_start_addr

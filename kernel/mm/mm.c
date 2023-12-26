@@ -197,7 +197,11 @@ skip_parse_info:
 #ifdef USE_DRAM
         /* Init dram pool */
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_dram_mem[i] = &static_global_mem[i];
+#if defined(USE_NVM) || defined(USE_CXL_MEM)
+                global_dram_mem[i] = &static_global_dram_mem[i];
+#else
+                global_mem[i] = &static_global_mem[i];
+#endif
         }
 
         /* Step-2: init the buddy allocators for each continuous range of the
@@ -218,11 +222,11 @@ skip_parse_info:
                                             free_mem_end);
         }
 
-        /* Step-3: init the slab allocator. */
+/* Step-3: init the slab allocator. */
 #if defined(USE_NVM) || defined(USE_CXL_MEM)
         init_dram_slab();
 #else
-        init_slab();
+        // init_slab();
 #endif /* USE_NVM */
 #endif /* USE_DRAM */
 }
@@ -279,8 +283,8 @@ void ext_mm_init()
                 global_mem[i] = &static_global_mem[i];
         }
 
-        /* Step-2: init the buddy allocators for each continuous range of the
-         * physmem. */
+        /* Step-2: init the buddy allocators for each continuous range
+         * of the physmem. */
         for (cxlmem_map_idx = 0; cxlmem_map_idx < cxlmem_map_num;
              ++cxlmem_map_idx) {
                 free_mem_start = cxlmem_map[cxlmem_map_idx][0];
@@ -291,6 +295,7 @@ void ext_mm_init()
                                             free_mem_start,
                                             free_mem_end);
         }
+
         init_slab();
 #endif /* USE_CXL_MEM */
 }

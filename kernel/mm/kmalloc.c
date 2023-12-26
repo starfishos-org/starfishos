@@ -34,7 +34,6 @@ void *get_pages(int order)
         /* Try to get continous physical memory pages from one physmem pool. */
         for (i = 0; i < map_num; ++i) {
                 page = buddy_get_pages(global_mem[i], order);
-                printk("get page: %llx\n", page);
                 if (page)
                         break;
         }
