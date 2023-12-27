@@ -32,20 +32,20 @@ static int slot_table_init(struct slot_table *slot_table, unsigned int size,
         size = DIV_ROUND_UP(size, BASE_OBJECT_NUM) * BASE_OBJECT_NUM;
         slot_table->slots_size = size;
         /* XXX: vmalloc is better? */
-        slot_table->slots = kzalloc(size * sizeof(*slot_table->slots));
+        slot_table->slots = kzalloc(size * sizeof(*slot_table->slots), __DEFAULT__);
         if (!slot_table->slots) {
                 r = -ENOMEM;
                 goto out_fail;
         }
 
         slot_table->slots_bmp =
-                kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long));
+                kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long), __DEFAULT__);
         if (!slot_table->slots_bmp) {
                 r = -ENOMEM;
                 goto out_free_slots;
         }
 
-        slot_table->full_slots_bmp = kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size))
+        slot_table->full_slots_bmp = dram_kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size))
                                              * sizeof(unsigned long));
         if (!slot_table->full_slots_bmp) {
                 r = -ENOMEM;

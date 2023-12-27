@@ -71,7 +71,7 @@ static void *alloc_slab_memory(unsigned long size)
 
         /* Allocate memory pages from the buddy system as a new slab. */
         order = size_to_order(size / BUDDY_PAGE_SIZE);
-        addr = get_pages(order);
+        addr = get_pages(order, __DEFAULT__);
 
         if (unlikely(addr == NULL)) {
                 kwarn("%s failed due to out of memory\n", __func__);

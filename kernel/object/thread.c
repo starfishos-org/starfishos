@@ -240,7 +240,7 @@ void create_root_thread(void)
         stack = ROOT_THREAD_STACK_BASE + ROOT_THREAD_STACK_SIZE;
 
         /* Allocate a physical for the main stack for prepare_env */
-        kva = (vaddr_t)get_pages(0);
+        kva = (vaddr_t)get_pages(0, __DEFAULT__);
         BUG_ON(kva == 0);
 
         commit_page_to_pmo(stack_pmo,

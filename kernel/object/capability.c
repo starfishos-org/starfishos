@@ -40,7 +40,7 @@ void *obj_alloc(u64 type, u64 size)
         struct object *object;
 
         total_size = sizeof(*object) + size;
-        object = kzalloc(total_size);
+        object = kzalloc(total_size, __DEFAULT__);
         if (!object)
                 return NULL;
 
@@ -96,7 +96,7 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
                 goto out_unlock_table;
         }
 
-        slot = kmalloc(sizeof(*slot));
+        slot = kmalloc(sizeof(*slot), __DEFAULT__);
         if (!slot) {
                 r = -ENOMEM;
                 goto out_free_slot_id;
@@ -276,7 +276,7 @@ int cap_copy(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,
                 goto out_unlock;
         }
 
-        dest_slot = kmalloc(sizeof(*dest_slot));
+        dest_slot = kmalloc(sizeof(*dest_slot), __DEFAULT__);
         if (!dest_slot) {
                 r = -ENOMEM;
                 goto out_free_slot_id;
@@ -419,8 +419,8 @@ int sys_transfer_caps(u64 dest_group_cap, u64 src_caps_buf, int nr_caps,
                 return -ECAPBILITY;
 
         size = sizeof(int) * nr_caps;
-        src_caps = kmalloc(size);
-        dst_caps = kmalloc(size);
+        src_caps = kmalloc(size, __DEFAULT__);
+        dst_caps = kmalloc(size, __DEFAULT__);
 
         /* get args from user buffer */
         copy_from_user((void *)src_caps, (void *)src_caps_buf, size);
@@ -510,7 +510,7 @@ int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id)
             == ~((unsigned long)0))
                 set_bit(slot_id / BITS_PER_LONG, slot_table->full_slots_bmp);
 
-        slot = kmalloc(sizeof(*slot));
+        slot = kmalloc(sizeof(*slot), __DEFAULT__);
         if (!slot) {
                 r = -ENOMEM;
                 goto out_free_slot_id;

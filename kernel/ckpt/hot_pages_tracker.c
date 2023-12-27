@@ -106,7 +106,7 @@ int track_access(struct page *page)
 	lock(&page->lock);
 	if (unlikely(page->track_info == NULL)) {
 		/* init track info */
-		page->track_info = dram_kzalloc(sizeof(*info));
+		page->track_info = kzalloc(sizeof(*info), __DEFAULT__);
 #ifdef DETAIL_REPORT
 		track_access_malloc_time +=
 				(plat_get_mono_time() - timer_start);

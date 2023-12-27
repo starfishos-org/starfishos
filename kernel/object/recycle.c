@@ -75,7 +75,7 @@ void notify_user_recycler(u64 proc_badge, int exitcode)
                 /* Save the msg in the list for now */
                 struct recycle_msg_node *msg;
 
-                msg = kmalloc(sizeof(*msg));
+                msg = kmalloc(sizeof(*msg), __DEFAULT__);
                 msg->msg.badge = proc_badge;
                 msg->msg.exitcode = exitcode;
                 list_add(&msg->node, &recycle_msg_head);
@@ -189,7 +189,7 @@ static void recycle_server_shadow_thread(struct ipc_connection *conn,
                  * to avoid kmalloc here.
                  */
                 server_thread->thread_ctx->sc =
-                        kmalloc(sizeof(*server_thread->thread_ctx->sc));
+                        kmalloc(sizeof(*server_thread->thread_ctx->sc), __DEFAULT__);
                 arch_set_thread_next_ip(server_thread,
                                         config->ipc_exit_routine_entry);
                 arch_set_thread_stack(server_thread, config->ipc_routine_stack);
@@ -548,7 +548,7 @@ int recycle_create_ckpt(struct ckpt_recycle_data *recycle_data)
 
         /* ckpt recycle_msg_array */
         struct recycle_msg_node **recycle_msg_array =
-                kmalloc(msg_list_size * sizeof(struct recycle_msg_node *));
+                kmalloc(msg_list_size * sizeof(struct recycle_msg_node *), __DEFAULT__);
         struct recycle_msg_node *msg;
         int i = 0;
         for_each_in_list (

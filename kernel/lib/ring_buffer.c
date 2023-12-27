@@ -65,7 +65,7 @@ struct ckpt_ring_buffer *ckpt_ring_buffer(struct ring_buffer *ring_buf)
         /* TODO(FN): after we use a single ckpt image, do not alloc every time */
         struct ckpt_ring_buffer *ckpt_ring_buf;
 
-        ckpt_ring_buf = kmalloc(sizeof(struct ckpt_ring_buffer) + ring_buf->buffer_size - sizeof(struct ring_buffer));
+        ckpt_ring_buf = kmalloc(sizeof(struct ckpt_ring_buffer) + ring_buf->buffer_size - sizeof(struct ring_buffer), __DEFAULT__);
 
         ckpt_ring_buf->buffer_size = ring_buf->buffer_size;
         ckpt_ring_buf->msg_size = ring_buf->msg_size;

@@ -20,7 +20,7 @@ static inline struct virtual_vmregion *alloc_virt_vmregion(struct vmregion *vmr)
 {
 	struct virtual_vmregion *virt_vmr;
 
-	virt_vmr = kmalloc(sizeof(*virt_vmr));
+	virt_vmr = kmalloc(sizeof(*virt_vmr), __DEFAULT__);
 	lock_init(&(virt_vmr->lock));
 	virt_vmr->vmr = vmr;
 
@@ -47,7 +47,7 @@ struct vmregion *alloc_vmregion(void)
 {
         struct vmregion *vmr;
 
-        vmr = kmalloc(sizeof(*vmr));
+        vmr = kmalloc(sizeof(*vmr), __DEFAULT__);
 
         return vmr;
 }
@@ -703,7 +703,7 @@ int vmspace_init(struct vmspace *vmspace)
 #if defined USE_NVM && defined USE_DRAM
         vmspace->pgtbl = get_dram_pages(0);
 #else
-        vmspace->pgtbl = get_pages(0);
+        vmspace->pgtbl = get_pages(0, __DEFAULT__);
 #endif
         BUG_ON(vmspace->pgtbl == NULL);
         memset((void *)vmspace->pgtbl, 0, PAGE_SIZE);

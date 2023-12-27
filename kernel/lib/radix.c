@@ -14,7 +14,7 @@ struct radix *new_radix(void)
 {
         struct radix *radix;
 
-        radix = kzalloc(sizeof(*radix));
+        radix = kzalloc(sizeof(*radix), __DEFAULT__);
         BUG_ON(!radix);
 
         return radix;
@@ -22,7 +22,7 @@ struct radix *new_radix(void)
 
 void init_radix(struct radix *radix)
 {
-        radix->root = kzalloc(sizeof(*radix->root));
+        radix->root = kzalloc(sizeof(*radix->root), __DEFAULT__);
         BUG_ON(!radix->root);
         radix->value_deleter = NULL;
 
@@ -37,7 +37,7 @@ void init_radix_w_deleter(struct radix *radix, void (*value_deleter)(void *))
 
 static struct radix_node *new_radix_node(void)
 {
-        struct radix_node *n = kzalloc(sizeof(struct radix_node));
+        struct radix_node *n = kzalloc(sizeof(struct radix_node), __DEFAULT__);
 
         if (!n) {
                 kwarn("run-out-memoroy: cannot allocate radix_new_node whose size is %ld\n",
@@ -252,7 +252,7 @@ static int __radix_deep_copy(struct radix_node *src, struct radix_node *dst,
                                         (void *)phys_to_virt(src->values[i]));
                         } else {
                                 if (phy_alloc) {
-                                        void *newpage = get_pages(0);
+                                        void *newpage = get_pages(0, __DEFAULT__);
                                         BUG_ON(!newpage);
                                         pagecpy(newpage,
                                                 (void *)phys_to_virt(

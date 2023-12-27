@@ -127,7 +127,7 @@ int sys_user_fault_register(int notific_cap, vaddr_t msg_buffer)
         }
 
         /* Create a fmap_fault_pool and add to list */
-        pool_iter = (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter));
+        pool_iter = (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter), __DEFAULT__);
         if (!pool_iter) {
                 unlock(&fmap_fault_pool_list_lock);
                 return -ENOMEM;
@@ -234,7 +234,7 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
                 new_pa = pa;
         } else {
                 // new_page = get_dram_pages(0);
-                new_page = get_pages(0);
+                new_page = get_pages(0, __DEFAULT__);
                 if (remap_va)
                         memcpy(new_page, (void *)phys_to_virt(pa), PAGE_SIZE);
                 else
@@ -303,7 +303,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
          * Record (fault_badge, fault_va) -> thread here.
          */
         pending_thread =
-                (struct fault_pending_thread *)kmalloc(sizeof(*pending_thread));
+                (struct fault_pending_thread *)kmalloc(sizeof(*pending_thread), __DEFAULT__);
         if (!pending_thread) {
                 /* TODO: handle no memory */
                 BUG_ON(1);
@@ -377,7 +377,7 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
                           &fmap_fault_pool_list) {
                 struct fault_pending_thread *pt;
 
-                ckpt_pool_iter = kmalloc(sizeof(struct ckpt_fmap_fault_pool));
+                ckpt_pool_iter = kmalloc(sizeof(struct ckpt_fmap_fault_pool), __DEFAULT__);
                 init_list_head(&ckpt_pool_iter->ckpt_fault_pending_thread_list);
 
                 for_each_in_list (pt,
@@ -439,7 +439,7 @@ int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,
                         &ckpt_pool_iter->ckpt_fault_pending_thread_list) {
                         struct fault_pending_thread *pt;
 
-                        pt = kmalloc(sizeof(struct fault_pending_thread));
+                        pt = kmalloc(sizeof(struct fault_pending_thread), __DEFAULT__);
 
                         pt->fault_badge = ckpt_pt->fault_badge;
                         pt->fault_va = ckpt_pt->fault_va;

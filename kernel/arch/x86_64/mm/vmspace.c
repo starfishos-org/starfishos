@@ -83,12 +83,12 @@ struct vmspace *create_idle_vmspace(void)
 {
 	struct vmspace *idle_vmspace;
 
-	idle_vmspace = kzalloc(sizeof(*idle_vmspace));
+	idle_vmspace = kzalloc(sizeof(*idle_vmspace), __DEFAULT__);
 	/* Cannot use the CHCORE_PGD directly because its addr < IMG_END */
 #if defined USE_NVM && defined USE_DRAM 
 	idle_vmspace->pgtbl = get_dram_pages(0);
 #else
-	idle_vmspace->pgtbl = get_pages(0);
+	idle_vmspace->pgtbl = get_pages(0, __DEFAULT__);
 #endif
 	BUG_ON(idle_vmspace->pgtbl == NULL);
 	memset(idle_vmspace->pgtbl, 0, PAGE_SIZE);

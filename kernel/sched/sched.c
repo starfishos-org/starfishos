@@ -454,7 +454,7 @@ static void init_idle_threads(void)
         struct vmspace *idle_vmspace;
 
         /* Create a fake idle cap group to store the name */
-        idle_cap_group = dram_kzalloc(sizeof(*idle_cap_group));
+        idle_cap_group = kzalloc(sizeof(*idle_cap_group), __DEFAULT__);
         idle_name_len = MIN(idle_name_len, MAX_GROUP_NAME_LEN);
         memcpy(idle_cap_group->cap_group_name, idle_name, idle_name_len);
         init_list_head(&idle_cap_group->thread_list);

@@ -38,7 +38,7 @@ struct xsave_area {
 
 void *alloc_fpu_state()
 {
-	return kzalloc(STATE_AREA_SIZE);
+	return kzalloc(STATE_AREA_SIZE, __DEFAULT__);
 }
 
 #if USE_INSTRUCTION == USE_XSAVEOPT
@@ -47,7 +47,7 @@ void arch_init_thread_fpu(struct thread_ctx *ctx)
 	struct xsave_area *area;
 
 	/* should be aligned to 64 */
-	ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE);
+	ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE, __DEFAULT__);
 	ctx->is_fpu_owner = -1;
 
 	area = (struct xsave_area *)ctx->fpu_state;
@@ -65,7 +65,7 @@ void arch_init_thread_fpu(struct thread_ctx *ctx)
 void arch_init_thread_fpu(struct thread_ctx *ctx)
 {
 	/* should be aligned to 64 */
-	ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE);
+	ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE, __DEFAULT__);
 	ctx->is_fpu_owner = -1;
 }
 #endif

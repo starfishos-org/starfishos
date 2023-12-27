@@ -84,7 +84,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 if (pa == 0) {
                         /* No physical page allocated to it before */
                         // void *new_va = get_dram_pages(0);
-                        void *new_va = get_pages(0);
+                        void *new_va = get_pages(0, __DEFAULT__);
                         BUG_ON(new_va == NULL);
                         pa = virt_to_phys(new_va);
                         BUG_ON(pa == 0);
@@ -144,6 +144,10 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 if (pmo->type == PMO_SHM || pmo->type == PMO_RING_BUFFER_RADIX)
                         BUG_ON(offset >= pmo->size);
 
+#ifdef USE_CXL_MEM
+ if (pmo->type == PMO_CROSS_SHM)
+                        BUG_ON(offset >= pmo->size);
+      #endif
                 /* Get the physical page for va according to the radix tree in
                  * the pmo */
                 pa = get_page_from_pmo(pmo, index);

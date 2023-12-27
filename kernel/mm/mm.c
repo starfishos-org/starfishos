@@ -197,11 +197,7 @@ skip_parse_info:
 #ifdef USE_DRAM
         /* Init dram pool */
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-#if defined(USE_NVM) || defined(USE_CXL_MEM)
                 global_dram_mem[i] = &static_global_dram_mem[i];
-#else
-                global_mem[i] = &static_global_mem[i];
-#endif
         }
 
         /* Step-2: init the buddy allocators for each continuous range of the
@@ -211,12 +207,8 @@ skip_parse_info:
                 free_mem_start = physmem_map[physmem_map_idx][0];
                 free_mem_end = physmem_map[physmem_map_idx][1];
                 /* use global memory pool */
-#if defined(USE_NVM) || defined(USE_CXL_MEM)
                 /* Hybrid DRAM and NVM memory pool */
                 init_buddy_for_one_mem_pool(global_dram_mem[physmem_map_idx],
-#else
-                init_buddy_for_one_mem_pool(global_mem[physmem_map_idx],
-#endif /* USE_NVM */
                                             DRAM_PAGE,
                                             free_mem_start,
                                             free_mem_end);
@@ -280,7 +272,7 @@ void ext_mm_init()
         int cxlmem_map_idx = 0;
 
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_mem[i] = &static_global_mem[i];
+                global_cxl_mem[i] = &static_global_cxl_mem[i];
         }
 
         /* Step-2: init the buddy allocators for each continuous range
@@ -290,13 +282,13 @@ void ext_mm_init()
                 free_mem_start = cxlmem_map[cxlmem_map_idx][0];
                 free_mem_end = cxlmem_map[cxlmem_map_idx][1];
 
-                init_buddy_for_one_mem_pool(global_mem[cxlmem_map_idx],
+                init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
                                             CXL_MEM_PAGE,
                                             free_mem_start,
                                             free_mem_end);
         }
 
-        init_slab();
+        init_cxl_slab();
 #endif /* USE_CXL_MEM */
 }
 

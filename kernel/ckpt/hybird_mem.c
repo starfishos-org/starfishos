@@ -206,7 +206,7 @@ static int migrate_page(struct page *old_page, bool to_dram)
             /* free old dram page */
             /* track_info should be clear to avoid being destroyed */
             old_page->track_info = NULL;
-            free_dram_pages(old_va);
+            free_pages(old_va);
         }
 
         LOG("[CKPT=%d] to_dram?%d, migrate page: %p (va=0x%llx,flag=%d) => "

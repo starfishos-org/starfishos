@@ -192,7 +192,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 if (pa == 0) {
                         /* Not committed before. Then, allocate the physical
                          * page. */
-                        void *new_va = get_pages(0);
+                        void *new_va;
+#if 0
+                        if (pmo->type == PMO_CROSS_SHM)
+                                new_va = get_cxl_pages(0);
+                        else
+#endif
+                                new_va = get_pages(0, __DEFAULT__);
                         BUG_ON(new_va == NULL);
                         pa = virt_to_phys(new_va);
                         BUG_ON(pa == 0);
@@ -281,7 +287,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                         lock(&page->lock);
                                         if (page->ref_cnt > 1) {
                                                 void *new_va =
-                                                        kmalloc(pmo->size);
+                                                        kmalloc(pmo->size, __DEFAULT__);
                                                 if (new_va == NULL) {
                                                         ret = -ENOMEM;
                                                         unlock(&page->lock);
@@ -330,7 +336,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                                 (void *)phys_to_virt(pa));
                                         lock(&page->lock);
                                         if (page->ref_cnt > 1) {
-                                                void *new_va = get_pages(0);
+                                                void *new_va = get_pages(0, __DEFAULT__);
                                                 if (new_va == NULL) {
                                                         ret = -ENOMEM;
                                                         unlock(&page->lock);

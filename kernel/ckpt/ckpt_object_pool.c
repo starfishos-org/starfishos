@@ -35,7 +35,7 @@ struct ckpt_ws_data *get_ckpt_ws_data()
 		/* update data version number */
 		data->version_number = data->version_number + 2;
 	} else {
-		data = kzalloc(sizeof(*data));
+		data = kzalloc(sizeof(*data), __DEFAULT__);
 		if (!data) {
 			goto out_fail;
 		}
@@ -89,7 +89,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
 	//      Thus the address of object-defined data is always 8-byte
 	//      aligned.
 	total_size = sizeof(*object) + ckpt_obj_size[type];
-	object = kzalloc(total_size);
+	object = kzalloc(total_size, __DEFAULT__);
 	/* TODO: errno ecoded in pointer */
 	if (!object)
 		return NULL;
@@ -107,7 +107,7 @@ struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc)
 
 	struct ckpt_obj_root *root = obj->obj_root;
 	if (!root && alloc) {
-		root = kmalloc(sizeof(*root));
+		root = kmalloc(sizeof(*root), __DEFAULT__);
 		if (!root)
 			return NULL;
 

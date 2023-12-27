@@ -93,7 +93,7 @@ static int register_server(struct thread *server, u64 ipc_routine,
 	 * - free this memory when destoring the thread ...
 	 * - check kmalloc return value
 	 */
-	config = kmalloc(sizeof(*config));
+	config = kmalloc(sizeof(*config), __DEFAULT__);
 	config->config_type = IPC_SERVER;
 	/*
 	 * @ipc_routine will be the real ipc_routine_entry.
@@ -110,7 +110,7 @@ static int register_server(struct thread *server, u64 ipc_routine,
 	 * - free this memory when destoring the thread ...
 	 * - check kmalloc return value
 	 */
-	register_cb_config = kmalloc(sizeof(*register_cb_config));
+	register_cb_config = kmalloc(sizeof(*register_cb_config), __DEFAULT__);
 	register_cb_config->config_type = IPC_SERVER_REGISTER_CB;
 	register_cb_thread->general_ipc_config = register_cb_config;
 
@@ -547,7 +547,7 @@ static int ipc_send_cap(struct ipc_connection *conn, struct ipc_msg *ipc_msg,
 	if (r < 0)
 		goto out;
 
-	cap_buf = kmalloc(cap_num * sizeof(*cap_buf));
+	cap_buf = kmalloc(cap_num * sizeof(*cap_buf), __DEFAULT__);
 	if (!cap_buf) {
 		r = -ENOMEM;
 		goto out;
@@ -933,7 +933,7 @@ void sys_ipc_register_cb_return(u64 server_handler_thread_cap, u64 server_thread
 	 */
 	if (!ipc_server_handler_thread->general_ipc_config) {
 		handler_config = (struct ipc_server_handler_config *)
-		    kmalloc(sizeof(*handler_config));
+		    kmalloc(sizeof(*handler_config), __DEFAULT__);
 		// For ckpt
 		handler_config->config_type = IPC_SERVER_HANDLER;
 		handler_config->active_conn = NULL;

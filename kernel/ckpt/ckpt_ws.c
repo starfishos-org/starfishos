@@ -32,7 +32,7 @@ int ckpt_ws_init(void)
 
 	/* Create ckpt whole-sys table */
 	CKPT_WS_TABLE =
-	    (struct ckpt_ws_table *)kmalloc(sizeof(struct ckpt_ws_table));
+	    (struct ckpt_ws_table *)kmalloc(sizeof(struct ckpt_ws_table), __DEFAULT__);
 	if (!CKPT_WS_TABLE) {
 		kinfo("[CKPT WS] can not alloc ckpt_ws_table\n");
 		ret = -ENOMEM;
@@ -96,7 +96,7 @@ int __name_kvs_put(struct ckpt_ws_info *info)
 
 	if (!info_list_head_val) {
 		info_list_head =
-		    (ckpt_ws_info_list_t *)kmalloc(sizeof(*info_list_head));
+		    (ckpt_ws_info_list_t *)kmalloc(sizeof(*info_list_head), __DEFAULT__);
 		if (!info_list_head) {
 			kinfo("[CKPT WS] fail to malloc info list\n");
 			return -ENOMEM;
@@ -166,7 +166,7 @@ u64 ckpt_ws_put(struct ckpt_ws_data *ckpt_data, u64 name_buf, u64 name_len)
 	struct ckpt_ws_info *info;
 	int ret = 0;
 
-	info = (struct ckpt_ws_info *)kmalloc(sizeof(*info));
+	info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __DEFAULT__);
 	if (!info) {
 		kinfo("[CKPT WS] can not allocate memory for ckpt info.\n");
 		return 0;

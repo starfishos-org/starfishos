@@ -7,7 +7,9 @@ target_sources(
             slab.c
             vmregion.c
             dram_alloc.c
-            dram_slab.c)
+            dram_slab.c
+            cxl_alloc.c
+            cxl_slab.c)
 
 if(RMAP_ENABLED)
   target_sources(

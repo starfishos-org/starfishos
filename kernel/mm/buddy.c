@@ -291,7 +291,7 @@ struct page *virt_to_page(void *ptr)
         struct phys_mem_pool *pool = NULL;
         vaddr_t addr = (vaddr_t)ptr;
         int i;
-
+#if 0
         /* Find the corresponding physical memory pool. */
         for (i = 0; i < physmem_map_num; ++i) {
                 if (addr >= global_mem[i]->pool_start_addr
@@ -301,17 +301,8 @@ struct page *virt_to_page(void *ptr)
                         break;
                 }
         }
-#if 0
-        for (i = 0; i < cxlmem_map_num; ++i) {
-                if (addr >= global_cxl_mem[i]->pool_start_addr
-                    && addr < global_cxl_mem[i]->pool_start_addr
-                                       + global_cxl_mem[i]->pool_mem_size) {
-                        pool = global_cxl_mem[i];
-                        break;
-                }
-        }
 #endif
-#if 1
+#ifdef USE_DRAM
         if (pool == NULL /* not find NVM memory polls */) {
                 for (i = 0; i < physmem_map_num; ++i) {
                         if (addr >= global_dram_mem[i]->pool_start_addr
@@ -321,6 +312,16 @@ struct page *virt_to_page(void *ptr)
                                 pool = global_dram_mem[i];
                                 break;
                         }
+                }
+        }
+#endif
+#ifdef USE_CXL_MEM
+        for (i = 0; i < cxlmem_map_num; ++i) {
+                if (addr >= global_cxl_mem[i]->pool_start_addr
+                    && addr < global_cxl_mem[i]->pool_start_addr
+                                       + global_cxl_mem[i]->pool_mem_size) {
+                        pool = global_cxl_mem[i];
+                        break;
                 }
         }
 #endif
@@ -622,7 +623,7 @@ void apply_latest_log(struct phys_mem_pool *pool)
                 /* set log but not commited */
                 if (log->type == ADD_PAGES) {
                         /* undo get_pages */
-                        undo_get_pages(pool, log);
+                        undo_get_pages(pool, log, __DEFAULT__);
                 } else if (log->type == REMOVE_PAGES) {
                         /* redo free_pages */
                         redo_free_pages(pool, log);

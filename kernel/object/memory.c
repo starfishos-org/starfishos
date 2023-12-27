@@ -108,7 +108,7 @@ int sys_create_pmos(u64 user_buf, u64 cnt)
 
         /* TODO: can we directly read/write user buffers */
         size = sizeof(*requests) * cnt;
-        requests = (struct pmo_request *)kmalloc(size);
+        requests = (struct pmo_request *)kmalloc(size, __DEFAULT__);
         if (requests == NULL) {
                 kwarn("cannot allocate more memory\n");
                 return -EAGAIN;
@@ -192,7 +192,7 @@ static int read_write_pmo(u64 pmo_cap, u64 offset, u64 user_buf, u64 size,
                                 /* Allocate a physical page for the anonymous
                                  * pmo like a page fault happens.
                                  */
-                                kva = (vaddr_t)get_pages(0);
+                                kva = (vaddr_t)get_pages(0, __DEFAULT__);
                                 // kva = (vaddr_t)get_dram_pages(0);
                                 BUG_ON(kva == 0);
 
@@ -312,7 +312,7 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
                 if (src_pmo->dram_cache.array != NULL) {
                         /* Just copy */
                         *is_cow = false;
-                        void *new_va = kmalloc(dst_pmo->size);
+                        void *new_va = kmalloc(dst_pmo->size, __DEFAULT__);
                         if (new_va == NULL) {
                                 return -ENOMEM;
                         }
@@ -591,7 +591,7 @@ int sys_map_pmos(u64 target_cap_group_cap, u64 user_buf, u64 cnt)
 
         /* TODO: can we directly read/write user buffers */
         size = sizeof(*requests) * cnt;
-        requests = (struct pmo_map_request *)kmalloc(size);
+        requests = (struct pmo_map_request *)kmalloc(size, __DEFAULT__);
         if (requests == NULL) {
                 kwarn("cannot allocate more memory\n");
                 return -EAGAIN;
@@ -714,7 +714,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                  * So, we directly allocate the physical memory.
                  * Note that kmalloc(>2048) returns continous physical pages.
                  */
-                void *new_va = kmalloc(len);
+                void *new_va = kmalloc(len, __DEFAULT__);
                 pmo->start = (paddr_t)virt_to_phys(new_va);
                 lock_init(&(pmo->dram_cache.lock));
 #ifdef CHCORE_SLS
@@ -801,7 +801,7 @@ void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa)
                 lock(&(pmo->dram_cache.lock));
                 if (!pmo->dram_cache.array) {
                         pmo->dram_cache.array =
-                                kzalloc(DIV_ROUND_UP(pmo->size, PAGE_SIZE)
+                                dram_kzalloc(DIV_ROUND_UP(pmo->size, PAGE_SIZE)
                                         * sizeof(u64));
                 }
                 unlock(&(pmo->dram_cache.lock));

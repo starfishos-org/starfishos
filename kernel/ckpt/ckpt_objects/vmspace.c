@@ -69,7 +69,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
                 if (ckpt_vmspace->ckpt_vmrs)
                         kfree(ckpt_vmspace->ckpt_vmrs);
                 ckpt_vmr_array =
-                        kmalloc(sizeof(struct ckpt_vmregion) * vmr_count);
+                        kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __DEFAULT__);
         }
 
         ckpt_vmspace->user_current_mmap_addr =
@@ -145,7 +145,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
                         }
                         if (pool->next) {
                                 next_pool = pool->next;
-                                free_dram_pages(pool);
+                                free_pages(pool);
                                 pool = next_pool;
                         } else {
                                 /* Traverse pte pool finish; reinit pool */

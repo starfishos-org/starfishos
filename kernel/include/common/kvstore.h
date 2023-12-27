@@ -29,7 +29,7 @@ struct kvs {
 typedef struct kvs_node* kvs_list_t;
 
 inline static void *kvs_alloc(unsigned int size) {
-    return kmalloc(size);
+    return kmalloc(size, __DEFAULT__);
 }
 
 inline static void kvs_free(void *ptr) {

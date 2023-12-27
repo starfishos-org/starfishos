@@ -1,3 +1,4 @@
+#include "mm/kmalloc.h"
 #include <common/types.h>
 #include <common/macro.h>
 #include <common/errno.h>
@@ -14,6 +15,7 @@
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
 
+#if 0
 extern struct phys_mem_pool *global_mem[];
 
 void *get_pages(int order)
@@ -33,7 +35,7 @@ void *get_pages(int order)
 #endif
         /* Try to get continous physical memory pages from one physmem pool. */
         for (i = 0; i < map_num; ++i) {
-                page = buddy_get_pages(global_mem[i], order);
+                page = buddy_get_pages(global_mem[i], order, __DEFAULT__);
                 if (page)
                         break;
         }
@@ -48,16 +50,9 @@ void *get_pages(int order)
 
         return page_to_virt(page);
 }
+#endif
 
-void free_pages(void *addr)
-{
-        struct page *page;
-
-        page = virt_to_page(addr);
-        buddy_free_pages(page->pool, page);
-}
-
-static int size_to_page_order(unsigned long size)
+int size_to_page_order(unsigned long size)
 {
         unsigned long order;
         unsigned long pg_num;
@@ -78,41 +73,12 @@ static int size_to_page_order(unsigned long size)
         return (int)order;
 }
 
-/* Currently, BUG_ON no available memory. */
-void *kmalloc(size_t size)
+void free_pages(void *addr)
 {
-        void *addr;
-        int order;
+        struct page *page;
 
-        if (unlikely(size == 0))
-                return ZERO_SIZE_PTR;
-
-        if (size <= SLAB_MAX_SIZE) {
-#if TRACK_THREAD_MM == ON
-                if (current_thread)
-                        current_thread->mm_size +=
-                                (1 << size_to_page_order(size));
-#endif
-                addr = alloc_in_slab(size);
-        } else {
-                if (size <= BUDDY_PAGE_SIZE)
-                        order = 0;
-                else
-                        order = size_to_page_order(size);
-                addr = get_pages(order);
-        }
-
-        BUG_ON(!addr);
-        return addr;
-}
-
-void *kzalloc(size_t size)
-{
-        void *addr;
-
-        addr = kmalloc(size);
-        memset(addr, 0, size);
-        return addr;
+        page = virt_to_page(addr);
+        buddy_free_pages(page->pool, page);
 }
 
 void kfree(void *ptr)
@@ -144,3 +110,81 @@ void kfree(void *ptr)
                 }
         }
 }
+
+#if 0
+/* Currently, BUG_ON no available memory. */
+void *kmalloc(size_t size)
+{
+        void *addr;
+        int order;
+
+        if (unlikely(size == 0))
+                return ZERO_SIZE_PTR;
+
+        if (size <= SLAB_MAX_SIZE) {
+#if TRACK_THREAD_MM == ON
+                if (current_thread)
+                        current_thread->mm_size +=
+                                (1 << size_to_page_order(size));
+#endif
+                addr = alloc_in_slab(size);
+        } else {
+                if (size <= BUDDY_PAGE_SIZE)
+                        order = 0;
+                else
+                        order = size_to_page_order(size);
+                addr = get_pages(order, __DEFAULT__);
+        }
+
+        BUG_ON(!addr);
+        return addr;
+}
+
+void *kzalloc(size_t size)
+{
+        void *addr;
+
+        addr = kmalloc(size, __DEFAULT__);
+        memset(addr, 0, size);
+        return addr;
+}
+#else
+void *kmalloc(unsigned long long size, int flags)
+{
+        switch (flags) {
+        case DRAM_PAGE:
+                return dram_kmalloc(size);
+        case CXL_MEM_PAGE:
+                return cxl_kmalloc(size);
+        default:
+                kwarn_once("%s: type: %d is not supported\n",  __func__, flags);
+        }
+
+        return NULL;
+}
+
+void *kzalloc(unsigned long long size, int flags)
+{
+        void *addr;
+
+        addr = kmalloc(size, flags);
+        memset(addr, 0, size);
+        return addr;
+}
+
+/* Return vaddr of (1 << order) continous free physical pages */
+void *get_pages(int order, int flags)
+{
+        switch (flags) {
+        case DRAM_PAGE:
+                return get_dram_pages(order);
+        case CXL_MEM_PAGE:
+                return get_cxl_pages(order);
+        default:
+                kwarn_once("%s: type: %d is not supported\n", __func__, flags);
+        }
+
+        return NULL;
+}
+
+#endif

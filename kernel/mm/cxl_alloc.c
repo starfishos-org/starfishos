@@ -15,14 +15,11 @@
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
 
-extern struct phys_mem_pool *global_dram_mem[];
+extern struct phys_mem_pool *global_cxl_mem[];
 
 /* Declaration */
-void *get_dram_pages(int order)
+void *get_cxl_pages(int order)
 {
-// #if !defined USE_NVM || !defined USE_DRAM
-//         return get_pages(order, __DEFAULT__);
-// #endif
 #if TRACK_THREAD_MM == ON
         if (current_thread)
                 current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
@@ -32,7 +29,7 @@ void *get_dram_pages(int order)
 
         /* Try to get continous physical memory pages from one physmem pool. */
         for (i = 0; i < physmem_map_num; ++i) {
-                page = buddy_get_pages(global_dram_mem[i], order);
+                page = buddy_get_pages(global_cxl_mem[i], order);
                 if (page)
                         break;
         }
@@ -48,12 +45,17 @@ void *get_dram_pages(int order)
         return page_to_virt(page);
 }
 
-/* Currently, BUG_ON no available memory. */
-void *dram_kmalloc(size_t size)
+void free_cxl_pages(void *addr)
 {
-        // #if !defined USE_NVM || !defined USE_DRAM
-        //         return kmalloc(size, __DEFAULT__);
-        // #endif
+        struct page *page;
+
+        page = virt_to_page(addr);
+        buddy_free_pages(page->pool, page);
+}
+
+/* Currently, BUG_ON no available memory. */
+void *cxl_kmalloc(size_t size)
+{
         void *addr;
         int order;
 
@@ -66,24 +68,24 @@ void *dram_kmalloc(size_t size)
                         current_thread->mm_size +=
                                 (1 << size_to_slab_order(size));
 #endif
-                addr = alloc_in_dram_slab(size);
+                addr = alloc_in_cxl_slab(size);
         } else {
                 if (size <= BUDDY_PAGE_SIZE)
                         order = 0;
                 else
                         order = size_to_page_order(size);
-                addr = get_dram_pages(order);
+                addr = get_cxl_pages(order);
         }
 
         BUG_ON(!addr);
         return addr;
 }
 
-void *dram_kzalloc(size_t size)
+void *cxl_kzalloc(size_t size)
 {
         void *addr;
 
-        addr = dram_kmalloc(size);
+        addr = cxl_kmalloc(size);
         memset(addr, 0, size);
         return addr;
 }
