@@ -101,11 +101,11 @@ static int pci_mmcfg_read(unsigned int seg, unsigned int bus,
         }
 
         addr = pci_dev_base(seg, bus, devfn);
-        pci_debug("[mmcfg read] bus=%04x devfn=%04x addr=0x%llx reg=%llx\n",
-                  bus,
-                  devfn,
-                  addr,
-                  reg);
+        // pci_debug("[mmcfg read] bus=%04x devfn=%04x addr=0x%llx reg=%llx\n",
+        //           bus,
+        //           devfn,
+        //           addr,
+        //           reg);
 
         if (!addr) {
                 goto err;

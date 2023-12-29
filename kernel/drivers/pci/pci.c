@@ -1,6 +1,11 @@
-#include "common/kprint.h"
+#include <common/kprint.h>
+#include <drivers/pci-regs.h>
+#include <drivers/pci-special.h>
 #include <drivers/pci.h>
 #include <drivers/io.h>
+#include <drivers/cxl.h>
+#include <drivers/ivshmem.h>
+
 /**
  * pci_find_next_ext_capability - Find an extended capability
  * @dev: PCI device to query
@@ -114,6 +119,9 @@ static u8 pci_hdr_type(struct pci_dev *dev)
 int pci_cfg_space_size(struct pci_dev *dev)
 {
         kwarn_once("%s: need to check if it is a PCIE device\n", __func__);
+        if (dev->vendor == PCI_VENDOR_ID_IVSHMEM
+            && dev->device == PCI_DEVICE_ID_QEMU_IVSHMEM)
+                return PCI_CFG_SPACE_SIZE;
         return PCI_CFG_SPACE_EXP_SIZE;
 }
 
@@ -287,7 +295,7 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
                 pci_debug("reg 0x%x: invalid BAR (can't size)\n", pos);
                 goto fail;
         }
-
+#if 0
         if (res->flags & IORESOURCE_MEM_64) {
                 if ((sizeof(pci_bus_addr_t) < 8 || sizeof(resource_size_t) < 8)
                     && sz64 > 0x100000000ULL) {
@@ -312,7 +320,7 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
                         goto out;
                 }
         }
-
+#endif
         // region.start = l64;
         // region.end = l64 + sz64 - 1;
         // pcibios_bus_to_resource(dev->bus, res, &region);
@@ -434,6 +442,9 @@ int pci_setup_device(struct pci_dev *dev)
 void pci_setup_devices()
 {
         /* loop mmcfg and setup valid device */
-        pci_debug("%s: TODO\n", __func__);
+        // pci_debug("%s: TODO\n", __func__);
         arch_pci_probe_devices();
+
+        cxl_setup_devices();
+        ivshmem_setup_devices();
 }

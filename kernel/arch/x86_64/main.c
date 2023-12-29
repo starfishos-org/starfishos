@@ -8,7 +8,6 @@
 #include <arch/machine/machine.h>
 #include <arch/drivers/multiboot2.h>
 #include <drivers/pci.h>
-#include <drivers/cxl.h>
 #include <io/uart.h>
 #include <irq/irq.h>
 #include <irq/timer.h>
@@ -66,9 +65,6 @@ void main(u64 mbmagic, paddr_t mbaddr)
         arch_pci_mmcfg_init();
         pci_setup_devices();
         kinfo("[ChCore] pci setup finished\n");
-
-        cxl_setup_devices();
-        kinfo("[ChCore] cxl setup finished\n");
 
         ext_mm_init();
         kinfo("[ChCore] external mm init finished\n");

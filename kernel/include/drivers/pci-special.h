@@ -5,6 +5,10 @@
 #define PCI_DEVICE_ID_INTEL_E7520_MCH 0x3590
 #define PCI_DEVICE_ID_INTEL_82945G_HB 0x2770
 
+/* for QEMU ivshmem device */
+#define PCI_VENDOR_ID_IVSHMEM 0x1af4
+#define PCI_DEVICE_ID_QEMU_IVSHMEM 0x1110
+
 #define PCI_DEVFN(slot, func) ((((slot) & 0x1f) << 3) | ((func) & 0x07))
 
 #if 0
