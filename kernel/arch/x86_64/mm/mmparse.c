@@ -1,3 +1,4 @@
+#include "lib/printk.h"
 #include <common/types.h>
 #include <common/kprint.h>
 #include <common/macro.h>
@@ -300,6 +301,105 @@ static void parse_cxl_mem_device(struct cxl_mem_dev *devs, int dev_num)
         refill_kernel_page_table(max_paddr);
 }
 
+#if 0
+/**
+ * FIXME(FN): Map PCI memory to CHCORE_PUD_CODE_Mapping start
+ * PCI MEM Base = 512 * 1G (0x40000000) = 0x2800000000
+ */
+#define PCI_MEM_KBASE (0x2800000000)
+
+void print_binary(u64 value)
+{
+        u64 mask = 1ULL << 63;
+
+        for (int i = 0; i < 64; ++i) {
+                u64 bit = (value & mask) ? 1 : 0;
+                printk("%lu", bit);
+                mask >>= 1;
+        }
+
+        printk("\n");
+}
+
+/**
+ * ioremap_pci_memory -- map a pci mem region to kernel page table
+ * @paddr: start of the pci bar mem resource
+ * @mem_size: size of the pci bar mem resource
+ * return mapped kernel vaddr
+ */
+static int ioremap_pci_memory(paddr_t paddr, size_t mem_size, paddr_t *base)
+{
+        u64 *direct_mapping;
+        u64 idx, paddr_idx;
+
+        BUG_ON(!IS_ALIGNED(paddr, SIZE_1G));
+
+        idx = 0;
+        paddr_idx = paddr / SIZE_1G;
+
+        kinfo("idx=%d, paddr_idx=%llx\n", idx, paddr_idx);
+
+        /* Re-setup the direct mapping for all the physical memory */
+        direct_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
+        *direct_mapping =
+                (paddr_idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+        printk("%lx\n", *direct_mapping);
+        print_binary(*direct_mapping);
+
+        // while (mem_size >= SIZE_1G) {
+        //         /**
+        //         *should not map to the last 1GB,
+        //         * which is mapped to kernel code
+        //         */
+        //         if (idx >= 1023) {
+        //                 return -1;
+        //         }
+        //         /* Add mapping for 1G, 2G, 3G ... */
+        //         *direct_mapping = (paddr_idx << 30) + PRESENT + WRITABLE
+        //                           + HUGE_1G + GLOBAL + NX;
+        //         print_binary(*direct_mapping);
+        //         mem_size -= SIZE_1G;
+        //         direct_mapping += 1;
+        //         idx += 1;
+        //         paddr_idx += 1;
+        // }
+
+        /* Flush TLB: SMP is not enabled for now. */
+        extern void flush_boot_tlb(void);
+        flush_boot_tlb();
+
+        *base = PCI_MEM_KBASE;
+        return 0;
+}
+#endif
+
+static void parse_kvm_ivshmem_device()
+{
+        // fill kernel page table for cxl mem devices
+        u64 dev_start = 0, dev_size = 0;
+        // paddr_t base;
+        // int rc;
+
+        extern void ivshmem_setup_mem(u64 * start, u64 * end);
+        ivshmem_setup_mem(&dev_start, &dev_size);
+
+#if 0
+        rc = ioremap_pci_memory(dev_start, dev_size, &base);
+        if (rc) {
+                kinfo("mmap pci memory region failed\n");
+                return;
+        }
+#endif
+        refill_kernel_page_table(dev_start + dev_size);
+
+        cxlmem_map[cxlmem_map_num][0] = dev_start;
+        cxlmem_map[cxlmem_map_num][1] = dev_start + dev_size;
+        kinfo("Use IVSHMEM (SHM): 0x%lx - 0x%lx\n",
+              cxlmem_map[cxlmem_map_num][0],
+              cxlmem_map[cxlmem_map_num][1]);
+        cxlmem_map_num++;
+}
+
 void parse_cxlmem_map()
 {
         parse_cxl_mem_device(cxl_mem_devs, cxl_mem_dev_num);
@@ -311,14 +411,22 @@ void parse_cxlmem_map()
         struct cxl_component_reg_map map;
         cxl_probe_component_regs(NULL, (void *)phys_to_virt(ctx->base), &map);
 
+#if 1
+        /* Currently, we use ivshmem to simulate CXL Type3 device */
+        cxlmem_map_num = 0;
+        parse_kvm_ivshmem_device();
+#endif
+
 #if 0 /* test the visibility of CXL device write */
-        vaddr_t start = phys_to_virt(cxl_mem_devs[0].start);
+        vaddr_t start = phys_to_virt(cxlmem_map[0][0]);
         kinfo("[CXL] start=%llx\n", start);
-        if (*(u64 *)start == 0) {
-                kinfo("[CXL] start = 0; init it...\n");
-                *(u64 *)start = 1;
+        if (*(u64 *)start != 0xA) {
+                kinfo("[CXL] uninited; init it...\n");
+                *(u64 *)start = 0xA;
+                FLUSH(start);
+                kinfo("[CXL] now start = %lx\n", *(u64 *)start);
         } else {
-                kinfo("[CXL] start != 0; already inited\n");
+                kinfo("[CXL] start == 0xA; already inited\n");
         }
         BUG_ON(1);
 #endif

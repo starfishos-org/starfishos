@@ -11,36 +11,46 @@
 #include <common/bitfield.h>
 #include <drivers/pci-special.h>
 
-typedef struct kvm_ivshmem_device {
-	void * regs;
+struct kvm_ivshmem_device {
+	// void * regs;
 
-	void * base_addr;
+	// void * base_addr;
 
-	unsigned int regaddr;
-	unsigned int reg_size;
+	// unsigned int regaddr;
+	// unsigned int reg_size;
 
-	unsigned int ioaddr;
-	unsigned int ioaddr_size;
-	unsigned int irq;
+	u64 ioaddr;
+	u64 ioaddr_size;
+	// unsigned int irq;
 
 	struct pci_dev *dev;
-	char (*msix_names)[256];
-	struct msix_entry *msix_entries;
-	int nvectors;
+	// char (*msix_names)[256];
+	// struct msix_entry *msix_entries;
+	// int nvectors;
 
 	bool		 enabled;
 
-} kvm_ivshmem_device;
+} __attribute__((packed, aligned(16)));
 
-static kvm_ivshmem_device kvm_ivshmem_dev;
+struct kvm_ivshmem_device kvm_ivshmem_dev;
+
+void ivshmem_setup_mem(u64 *start, u64 *size)
+{
+        *start = kvm_ivshmem_dev.ioaddr;
+        *size = kvm_ivshmem_dev.ioaddr_size;
+}
 
 static int ivshmem_pci_probe(struct pci_dev *pdev)
 {
         kvm_ivshmem_dev.ioaddr = pci_resource_start(pdev, 2);
         kvm_ivshmem_dev.ioaddr_size = pci_resource_len(pdev, 2);
+        kvm_ivshmem_dev.dev = pdev;
 
         pci_info("[IVSHMEM] ioaddr=%llx, iosize=%llx\n",
-                        kvm_ivshmem_dev.ioaddr, kvm_ivshmem_dev.ioaddr_size);
+                kvm_ivshmem_dev,
+                kvm_ivshmem_dev.ioaddr,
+                kvm_ivshmem_dev.ioaddr_size);
+
         return 0;
 }
 

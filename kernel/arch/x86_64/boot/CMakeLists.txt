@@ -37,9 +37,9 @@ if(0)
     -cpu host -smp 20 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
   )
 
-    # "--trace events=\$basedir/../qemu-trace-events.txt \
-    # -object memory-backend-file,id=vmem0,share=on,mem-path=\$cxl_backend_file,size=1G \
-chcore_generate_emulate_sh(
+  # "--trace events=\$basedir/../qemu-trace-events.txt \
+  # -object memory-backend-file,id=vmem0,share=on,mem-path=\$cxl_backend_file,size=1G \
+  chcore_generate_emulate_sh(
     "/opt/qemu-jic23/bin/qemu-system-x86_64"
     "--enable-kvm -M q35,cxl=on -m 4G,slots=2,maxmem=64G \
     -object memory-backend-ram,id=vmem0,share=on,size=1G \
@@ -51,11 +51,11 @@ chcore_generate_emulate_sh(
   )
 endif()
 
-  chcore_generate_emulate_sh(
-    "/opt/qemu-jic23/bin/qemu-system-x86_64"
-    "--enable-kvm -M q35,cxl=on -m 4G,slots=2,maxmem=64G \
+chcore_generate_emulate_sh(
+    "qemu-system-x86_64"
+    "--enable-kvm -M q35 -m 4G \
     -object memory-backend-ram,id=vmem0,share=on,size=1G,prealloc=on,prealloc-threads=8 \
-    -object memory-backend-file,size=256M,share=on,mem-path=/dev/shm/ivshmem,id=hostmem \
+    -object memory-backend-file,size=4G,share=on,mem-path=/dev/shm/ivshmem,id=hostmem \
     -device ivshmem-plain,memdev=hostmem \
     -cpu host -smp 10 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
   )
