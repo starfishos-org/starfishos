@@ -25,6 +25,7 @@ add_executable(udp_echo_server.bin udp_echo_server.c)
 add_executable(tcp_echo_server.bin tcp_echo_server.c)
 
 add_executable(pingpong.bin ping_pong.c)
+add_executable(pingpong-pthread.bin ping_pong_pthread.c)
 
 # TreeSLS
 add_subdirectory(treesls)
