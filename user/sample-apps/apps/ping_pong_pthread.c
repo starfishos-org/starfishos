@@ -25,9 +25,15 @@ volatile struct shared_data *region;
 
 void *count(void *arg)
 {
-        printf("arg = %p\n", arg);
         int myturn = (int)(long)arg;
-        printf("myturn = %d\n", myturn);
+
+        /* schedule FOLLOWER to another machine */
+        if (myturn == FOLLOWER) {
+                usys_set_affinity(-2, 10);
+                usys_yield();
+        }
+        printf("I'm ready to ping pong\n");
+        
         for (;;) {
                 /* wait for my turn */
                 while (region->turn != myturn)

@@ -17,6 +17,9 @@
 #include <irq/ipi.h>
 #include <sched/context.h>
 #include <sched/fpu.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 struct thread *current_threads[PLAT_CPU_NUM];
 struct thread idle_threads[PLAT_CPU_NUM];
@@ -468,7 +471,7 @@ static void init_idle_threads(void)
                 BUG_ON(idle_threads[i].thread_ctx == NULL);
 
                 init_thread_ctx(
-                        &idle_threads[i], 0, 0, IDLE_PRIO, TYPE_IDLE, i);
+                        &idle_threads[i], 0, 0, IDLE_PRIO, TYPE_IDLE, cpuid_l2g(i));
 
                 extern void idle_thread_routine(void); // in arch/sched/idle.S
                 arch_idle_ctx_init(idle_threads[i].thread_ctx,

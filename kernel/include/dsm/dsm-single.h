@@ -9,6 +9,29 @@
 #include <mm/slab.h>
 #include <machine.h>
 
+#define DSM_DEBUG
+
+#define DSM_PREFIX "[DSM]"
+
+#define dsm_info(fmt, ...)  printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
+#define dsm_error(fmt, ...) printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
+#ifdef DSM_DEBUG
+#define dsm_debug(fmt, ...) printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
+#else
+#define dsm_debug(fmt, ...)
+#endif
+
+/**
+ * DSM_STATE
+ */
+enum {
+        DSM_CONFIG_STATE_UNINITED = 0,
+        DSM_CONFIG_STATE_MM_INITED,
+        DSM_CONFIG_STATE_SCHED_INITED,
+} dsm_config_state_type;
+
+#define DSM_STATE (dsm_meta->state)
+
 /**
  * cluster machine nume
  * when register every machine, it will increase (LOCAL CPU NUM)
@@ -24,19 +47,18 @@ u32 cpu_range_low, cpu_range_high;
 #define CPU_RANGE_LOW  (cpu_range_low)
 #define CPU_RANGE_HIGH (cpu_range_high)
 
+/* local to global, global to local */
+#define cpuid_l2g(x) ((x) + CPU_RANGE_LOW)
+#define cpuid_g2l(x) ((x) - CPU_RANGE_LOW)
+
 struct shared_queue_meta {
         struct list_head queue_head;
         u32 queue_len;
         struct lock queue_lock;
 };
-
 typedef struct {
         // global configuration
         u64 cluster_cpu_num;
-        enum {
-                DSM_CONFIG_STATE_UNINITED = 0,
-                DSM_CONFIG_STATE_INITED,
-        } dsm_config_state_type;
         volatile u64 state;
         // after configuration, should be consistent among all machines
         // buddy system
@@ -59,13 +81,7 @@ static inline void dsm_init_meta(vaddr_t start_addr)
 static inline u64 dsm_is_inited()
 {
         BUG_ON(!dsm_meta);
-        return (dsm_meta->state == DSM_CONFIG_STATE_INITED);
-}
-
-static inline void dsm_mark_inited()
-{
-        BUG_ON(!dsm_meta);
-        dsm_meta->state = DSM_CONFIG_STATE_INITED;
+        return (DSM_STATE > DSM_CONFIG_STATE_UNINITED);
 }
 
 static inline void dsm_add_machine()

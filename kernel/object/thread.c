@@ -22,7 +22,13 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #endif
-        
+
+#ifndef DSM_ENABLED
+#define is_invalid(aff)  (aff < 0 || aff >= PLAT_CPU_NUM)
+#else
+#define is_invalid(aff) (aff < 0 || aff >= CLUSTER_CPU_NUM)
+#endif
+
 extern const char binary_procmgr_bin_start;
 extern const char binary_procmgr_bin_size;
 
@@ -39,7 +45,8 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
         if (prio >= PRIO_NUM) {
                 return -EINVAL;
         }
-        if (aff != NO_AFF && (aff < 0 || aff >= PLAT_CPU_NUM)) {
+
+        if (aff != NO_AFF && is_invalid(aff)) {
                 return -EINVAL;
         }
 
@@ -260,7 +267,7 @@ void create_root_thread(void)
                           meta.entry,
                           ROOT_THREAD_PRIO,
                           TYPE_USER,
-                          smp_get_cpu_id());
+                          smp_get_cpu_id() + CPU_RANGE_LOW);
         BUG_ON(ret != 0);
 
         /* Add the thread into the thread_list of the cap_group */
@@ -527,7 +534,18 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         if (thread_cap == -1) {
                 thread = current_thread;
                 BUG_ON(!thread);
-        } else {
+#ifdef DSM_ENABLED
+                aff = cpuid_l2g(aff);
+#endif
+        }
+#ifdef DSM_ENABLED
+        else if (thread_cap == -2) {
+                thread = current_thread;
+                /* -2 means use global aff */
+                BUG_ON(!thread);
+        }
+#endif
+        else {
                 thread = obj_get(current_cap_group, thread_cap, TYPE_THREAD);
         }
 
@@ -537,11 +555,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         }
 
         /* Check aff */
-#ifdef DSM_ENABLED
-        if (aff >= CLUSTER_CPU_NUM) {
-#else
-        if (aff >= PLAT_CPU_NUM) {
-#endif        
+        if (is_invalid(aff)) {
                 ret = -EINVAL;
                 goto out_obj_put;
         }
