@@ -1,4 +1,5 @@
 /* Scheduler related functions are implemented here */
+#include "lib/printk.h"
 #include <sched/sched.h>
 #include <sched/fpu.h>
 #include <arch/machine/smp.h>
@@ -15,6 +16,10 @@
 #include <object/thread.h>
 #include <irq/irq.h>
 #include <sched/context.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#define rr_shared_queue (dsm_meta->shared_queue)
+#endif
 
 /* in arch/sched/idle.S */
 void idle_thread_routine(void);
@@ -42,7 +47,7 @@ struct queue_meta rr_ready_queue_meta[PLAT_CPU_NUM];
  */
 extern struct thread idle_threads[PLAT_CPU_NUM]; // in sched/sched.c
 
-int __rr_sched_enqueue(struct thread *thread, int cpuid)
+int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 {
 	/* Already in the ready queue */
 	if (thread->thread_ctx->state == TS_READY) {
@@ -56,6 +61,31 @@ int __rr_sched_enqueue(struct thread *thread, int cpuid)
 	return 0;
 }
 
+#ifdef DSM_ENABLED
+static bool inline is_local_cpu(u32 cpuid)
+{
+        return (cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW);
+}
+
+/* local to global, global to local */
+#define cpuid_l2g(x)    ((x) + CPU_RANGE_LOW)
+#define cpuid_g2l(x)    ((x) - CPU_RANGE_LOW)
+
+int __rr_sched_enqueue_shared(struct thread *thread, int cpuid)
+{
+		/* Already in the ready queue */
+		if (thread->thread_ctx->state == TS_READY) {
+			return -EINVAL;
+		}
+		thread->thread_ctx->cpuid = cpuid;
+		thread->thread_ctx->state = TS_READY;
+        list_append(&(thread->ready_queue_node), &(rr_shared_queue[cpuid].queue_head));
+		rr_shared_queue[cpuid].queue_len ++;
+		return 0;
+}
+#endif
+
+                
 /* FIXME: A dummy config, no optimized for performance */
 #define LOADBALANCE_THRESHOLD	0
 #define MIGRATE_THRESHOLD	0
@@ -69,7 +99,7 @@ static u32 rr_sched_choose_cpu(void)
 	min_rr_len = rr_ready_queue_meta[local_cpuid].queue_len;
 	
 	if (min_rr_len <= LOADBALANCE_THRESHOLD) {
-		return local_cpuid;
+		return cpuid_l2g(local_cpuid);
 	}
 
 	/* Find the cpu with the shortest ready queue */
@@ -87,7 +117,7 @@ static u32 rr_sched_choose_cpu(void)
 		}
 	}
 
-	return cpuid;
+	return cpuid_l2g(cpuid);
 }
 
 /*
@@ -102,26 +132,41 @@ int rr_sched_enqueue(struct thread *thread)
 	BUG_ON(!thread->thread_ctx);
 
 	s32 cpubind = 0;
-	u32 cpuid = 0;
+	u32 gcpuid = 0, lcpuid;
 	int ret = 0;
 
 	if (thread->thread_ctx->type == TYPE_IDLE)
 		return 0;
 
 	cpubind = get_cpubind(thread);
-	cpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
+	gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
 
 	/* Check Prio */
 	if (unlikely(thread->thread_ctx->prio > MAX_PRIO))
 		return -EINVAL;
 
+#ifdef DSM_ENABLED
+	if (unlikely(gcpuid >= CLUSTER_CPU_NUM)) {
+#else
 	if (unlikely(cpuid >= PLAT_CPU_NUM)) {
+#endif
 		return -EINVAL;
 	}
 
-	lock(&(rr_ready_queue_meta[cpuid].queue_lock));
-	ret = __rr_sched_enqueue(thread, cpuid);
-	unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+#ifdef DSM_ENABLED
+        if (!is_local_cpu(gcpuid)) {
+		lock(&(rr_shared_queue[gcpuid].queue_lock));
+		ret = __rr_sched_enqueue(thread, gcpuid);
+		unlock(&(rr_shared_queue[gcpuid].queue_lock));
+		return ret;
+	}
+	/* Fall back to and thread to local rr_queue */
+#endif
+
+        lcpuid = cpuid_g2l(gcpuid);
+	lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
+	ret = __rr_sched_enqueue(thread, lcpuid);
+	unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 	return ret;
 }
 
@@ -174,13 +219,14 @@ again:
 			unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
 			goto out;
 		}
-		/*
-		 * When the thread is just moved from another cpu and
-		 * the kernel stack is used by the origina core, try
-		 * to find another thread.
-		 */
-		if (!(thread = find_runnable_thread(
-				&(rr_ready_queue_meta[cpuid].queue_head)))) {
+                /*
+                 * When the thread is just moved from another cpu and
+                 * the kernel stack is used by the origina core, try
+                 * to find another thread.
+                 */
+                thread = find_runnable_thread(
+				&(rr_ready_queue_meta[cpuid].queue_head));
+		if (!thread) {
 			unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
 			goto out;
 		}
@@ -265,7 +311,8 @@ int rr_sched(void)
 		}
 	}
 
-	BUG_ON(!(new = rr_sched_choose_thread()));
+        new = rr_sched_choose_thread();
+	BUG_ON(!new);
 	switch_to_thread(new);
 
 	return 0;

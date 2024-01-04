@@ -19,6 +19,10 @@
 
 #include "thread_env.h"
 
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
+        
 extern const char binary_procmgr_bin_start;
 extern const char binary_procmgr_bin_size;
 
@@ -533,7 +537,11 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         }
 
         /* Check aff */
+#ifdef DSM_ENABLED
+        if (aff >= CLUSTER_CPU_NUM) {
+#else
         if (aff >= PLAT_CPU_NUM) {
+#endif        
                 ret = -EINVAL;
                 goto out_obj_put;
         }
