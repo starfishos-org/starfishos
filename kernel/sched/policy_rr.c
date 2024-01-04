@@ -26,11 +26,11 @@ void idle_thread_routine(void);
 
 /* Metadata for ready queue */
 struct queue_meta {
-	struct list_head queue_head;
-	u32 queue_len;
-	struct lock queue_lock;
-	char pad[pad_to_cache_line(sizeof(u32) +
-		sizeof(struct list_head) + sizeof(struct lock))];
+        struct list_head queue_head;
+        u32 queue_len;
+        struct lock queue_lock;
+        char pad[pad_to_cache_line(sizeof(u32) + sizeof(struct list_head)
+                                   + sizeof(struct lock))];
 };
 
 /*
@@ -49,16 +49,17 @@ extern struct thread idle_threads[PLAT_CPU_NUM]; // in sched/sched.c
 
 int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 {
-	/* Already in the ready queue */
-	if (thread->thread_ctx->state == TS_READY) {
-		return -EINVAL;
-	}
-	thread->thread_ctx->cpuid = cpuid;
-	thread->thread_ctx->state = TS_READY;
-	list_append(&(thread->ready_queue_node), &(rr_ready_queue_meta[cpuid].queue_head));
-	rr_ready_queue_meta[cpuid].queue_len ++;
+        /* Already in the ready queue */
+        if (thread->thread_ctx->state == TS_READY) {
+                return -EINVAL;
+        }
+        thread->thread_ctx->cpuid = cpuid;
+        thread->thread_ctx->state = TS_READY;
+        list_append(&(thread->ready_queue_node),
+                    &(rr_ready_queue_meta[cpuid].queue_head));
+        rr_ready_queue_meta[cpuid].queue_len++;
 
-	return 0;
+        return 0;
 }
 
 #ifdef DSM_ENABLED
@@ -68,56 +69,56 @@ static bool inline is_local_cpu(u32 cpuid)
 }
 
 /* local to global, global to local */
-#define cpuid_l2g(x)    ((x) + CPU_RANGE_LOW)
-#define cpuid_g2l(x)    ((x) - CPU_RANGE_LOW)
+#define cpuid_l2g(x) ((x) + CPU_RANGE_LOW)
+#define cpuid_g2l(x) ((x)-CPU_RANGE_LOW)
 
 int __rr_sched_enqueue_shared(struct thread *thread, int cpuid)
 {
-		/* Already in the ready queue */
-		if (thread->thread_ctx->state == TS_READY) {
-			return -EINVAL;
-		}
-		thread->thread_ctx->cpuid = cpuid;
-		thread->thread_ctx->state = TS_READY;
-        list_append(&(thread->ready_queue_node), &(rr_shared_queue[cpuid].queue_head));
-		rr_shared_queue[cpuid].queue_len ++;
-		return 0;
+        /* Already in the ready queue */
+        if (thread->thread_ctx->state == TS_READY) {
+                return -EINVAL;
+        }
+        thread->thread_ctx->cpuid = cpuid;
+        thread->thread_ctx->state = TS_READY;
+        list_append(&(thread->ready_queue_node),
+                    &(rr_shared_queue[cpuid].queue_head));
+        rr_shared_queue[cpuid].queue_len++;
+        return 0;
 }
 #endif
 
-                
 /* FIXME: A dummy config, no optimized for performance */
-#define LOADBALANCE_THRESHOLD	0
-#define MIGRATE_THRESHOLD	0
+#define LOADBALANCE_THRESHOLD 0
+#define MIGRATE_THRESHOLD     0
 
 /* A simple load balance when enqueue threads */
 static u32 rr_sched_choose_cpu(void)
 {
-	u32 i, cpuid, min_rr_len, local_cpuid, queue_len;
-	
-	local_cpuid = smp_get_cpu_id();
-	min_rr_len = rr_ready_queue_meta[local_cpuid].queue_len;
-	
-	if (min_rr_len <= LOADBALANCE_THRESHOLD) {
-		return cpuid_l2g(local_cpuid);
-	}
+        u32 i, cpuid, min_rr_len, local_cpuid, queue_len;
 
-	/* Find the cpu with the shortest ready queue */
-	cpuid = local_cpuid;
-	for (i = 0; i < PLAT_CPU_NUM; i++) {
-		if (i == local_cpuid) {
-			continue;
-		}
+        local_cpuid = smp_get_cpu_id();
+        min_rr_len = rr_ready_queue_meta[local_cpuid].queue_len;
 
-		queue_len =
-			rr_ready_queue_meta[i].queue_len + MIGRATE_THRESHOLD;
-		if (queue_len < min_rr_len) {
-			min_rr_len = queue_len;
-			cpuid = i;
-		}
-	}
+        if (min_rr_len <= LOADBALANCE_THRESHOLD) {
+                return cpuid_l2g(local_cpuid);
+        }
 
-	return cpuid_l2g(cpuid);
+        /* Find the cpu with the shortest ready queue */
+        cpuid = local_cpuid;
+        for (i = 0; i < PLAT_CPU_NUM; i++) {
+                if (i == local_cpuid) {
+                        continue;
+                }
+
+                queue_len =
+                        rr_ready_queue_meta[i].queue_len + MIGRATE_THRESHOLD;
+                if (queue_len < min_rr_len) {
+                        min_rr_len = queue_len;
+                        cpuid = i;
+                }
+        }
+
+        return cpuid_l2g(cpuid);
 }
 
 /*
@@ -128,60 +129,62 @@ static u32 rr_sched_choose_cpu(void)
  */
 int rr_sched_enqueue(struct thread *thread)
 {
-	BUG_ON(!thread);
-	BUG_ON(!thread->thread_ctx);
+        BUG_ON(!thread);
+        BUG_ON(!thread->thread_ctx);
 
-	s32 cpubind = 0;
-	u32 gcpuid = 0, lcpuid;
-	int ret = 0;
+        s32 cpubind = 0;
+        u32 gcpuid = 0, lcpuid;
+        int ret = 0;
 
-	if (thread->thread_ctx->type == TYPE_IDLE)
-		return 0;
+        if (thread->thread_ctx->type == TYPE_IDLE)
+                return 0;
 
-	cpubind = get_cpubind(thread);
-	gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
+        cpubind = get_cpubind(thread);
+        gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
 
-	/* Check Prio */
-	if (unlikely(thread->thread_ctx->prio > MAX_PRIO))
-		return -EINVAL;
+        /* Check Prio */
+        if (unlikely(thread->thread_ctx->prio > MAX_PRIO))
+                return -EINVAL;
 
 #ifdef DSM_ENABLED
-	if (unlikely(gcpuid >= CLUSTER_CPU_NUM)) {
+        if (unlikely(gcpuid >= CLUSTER_CPU_NUM)) {
 #else
-	if (unlikely(cpuid >= PLAT_CPU_NUM)) {
+        if (unlikely(cpuid >= PLAT_CPU_NUM)) {
 #endif
-		return -EINVAL;
-	}
+                return -EINVAL;
+        }
 
 #ifdef DSM_ENABLED
         if (!is_local_cpu(gcpuid)) {
-		lock(&(rr_shared_queue[gcpuid].queue_lock));
-		ret = __rr_sched_enqueue(thread, gcpuid);
-		unlock(&(rr_shared_queue[gcpuid].queue_lock));
-		return ret;
-	}
-	/* Fall back to and thread to local rr_queue */
+                kinfo("sched to remote CPU %d\n", gcpuid);
+                lock(&(rr_shared_queue[gcpuid].queue_lock));
+                ret = __rr_sched_enqueue(thread, gcpuid);
+                unlock(&(rr_shared_queue[gcpuid].queue_lock));
+                return ret;
+        }
+        /* Fall back to and thread to local rr_queue */
 #endif
 
         lcpuid = cpuid_g2l(gcpuid);
-	lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
-	ret = __rr_sched_enqueue(thread, lcpuid);
-	unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
-	return ret;
+        lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
+        ret = __rr_sched_enqueue(thread, lcpuid);
+        unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
+        return ret;
 }
 
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
-	if (thread->thread_ctx->state != TS_READY) {
-		kwarn("%s: thread state is %d\n", __func__,
-		      thread->thread_ctx->state);
-		return -EINVAL;
-	}
-	list_del(&(thread->ready_queue_node));
-	rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len --;
-	thread->thread_ctx->state = TS_INTER;
-	return 0;
+        if (thread->thread_ctx->state != TS_READY) {
+                kwarn("%s: thread state is %d\n",
+                      __func__,
+                      thread->thread_ctx->state);
+                return -EINVAL;
+        }
+        list_del(&(thread->ready_queue_node));
+        rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len--;
+        thread->thread_ctx->state = TS_INTER;
+        return 0;
 }
 
 /*
@@ -189,19 +192,19 @@ int __rr_sched_dequeue(struct thread *thread)
  */
 int rr_sched_dequeue(struct thread *thread)
 {
-	BUG_ON(!thread);
-	BUG_ON(!thread->thread_ctx);
-	/* IDLE thread will **not** be in any ready queue */
-	BUG_ON(thread->thread_ctx->type == TYPE_IDLE);
+        BUG_ON(!thread);
+        BUG_ON(!thread->thread_ctx);
+        /* IDLE thread will **not** be in any ready queue */
+        BUG_ON(thread->thread_ctx->type == TYPE_IDLE);
 
-	u32 cpuid = 0;
-	int ret = 0;
+        u32 cpuid = 0;
+        int ret = 0;
 
-	cpuid = thread->thread_ctx->cpuid;
-	lock(&(rr_ready_queue_meta[cpuid].queue_lock));
-	ret = __rr_sched_dequeue(thread);
-	unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
-	return ret;
+        cpuid = thread->thread_ctx->cpuid;
+        lock(&(rr_ready_queue_meta[cpuid].queue_lock));
+        ret = __rr_sched_dequeue(thread);
+        unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+        return ret;
 }
 
 /*
@@ -209,45 +212,45 @@ int rr_sched_dequeue(struct thread *thread)
  */
 struct thread *rr_sched_choose_thread(void)
 {
-	u32 cpuid = smp_get_cpu_id();
-	struct thread *thread = NULL;
+        u32 cpuid = smp_get_cpu_id();
+        struct thread *thread = NULL;
 
-	if (!list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
-		lock(&(rr_ready_queue_meta[cpuid].queue_lock));
-again:
-		if (list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
-			unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
-			goto out;
-		}
+        if (!list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
+                lock(&(rr_ready_queue_meta[cpuid].queue_lock));
+        again:
+                if (list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
+                        unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+                        goto out;
+                }
                 /*
                  * When the thread is just moved from another cpu and
                  * the kernel stack is used by the origina core, try
                  * to find another thread.
                  */
                 thread = find_runnable_thread(
-				&(rr_ready_queue_meta[cpuid].queue_head));
-		if (!thread) {
-			unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
-			goto out;
-		}
+                        &(rr_ready_queue_meta[cpuid].queue_head));
+                if (!thread) {
+                        unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+                        goto out;
+                }
 
-		BUG_ON(__rr_sched_dequeue(thread));
-		if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
-			/* Thread need to exit. Set the state to TS_EXIT */
-			thread->thread_ctx->state = TS_EXIT;
-			thread->thread_ctx->thread_exit_state = TE_EXITED;
-			goto again;
-		}
-		unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
-		return thread;
-	}
+                BUG_ON(__rr_sched_dequeue(thread));
+                if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
+                        /* Thread need to exit. Set the state to TS_EXIT */
+                        thread->thread_ctx->state = TS_EXIT;
+                        thread->thread_ctx->thread_exit_state = TE_EXITED;
+                        goto again;
+                }
+                unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+                return thread;
+        }
 out:
-	return &idle_threads[cpuid];
+        return &idle_threads[cpuid];
 }
 
 static inline void rr_sched_refill_budget(struct thread *target, u32 budget)
 {
-	target->thread_ctx->sc->budget = budget;
+        target->thread_ctx->sc->budget = budget;
 }
 
 /*
@@ -263,139 +266,150 @@ static inline void rr_sched_refill_budget(struct thread *target, u32 budget)
  */
 int rr_sched(void)
 {
-	/* WITH IRQ Disabled */
-	struct thread *old = current_thread;
-	struct thread *new = 0;
+        /* WITH IRQ Disabled */
+        struct thread *old = current_thread;
+        struct thread *new = 0;
 
-	if (old) {
-		BUG_ON(!old->thread_ctx);
+        if (old) {
+                BUG_ON(!old->thread_ctx);
 
-		/* old thread may pass its scheduling context to others. */
-		if (old->thread_ctx->type != TYPE_SHADOW &&
-		    old->thread_ctx->type != TYPE_REGISTER) {
-			BUG_ON(!old->thread_ctx->sc);
-		}
+                /* old thread may pass its scheduling context to others. */
+                if (old->thread_ctx->type != TYPE_SHADOW
+                    && old->thread_ctx->type != TYPE_REGISTER) {
+                        BUG_ON(!old->thread_ctx->sc);
+                }
 
-		/* Set TE_EXITING after check won't cause any trouble, the
-		 * thread will be recycle afterwards. Just a fast path. */
-		/* Check whether the thread is going to exit */
-		if (old->thread_ctx->thread_exit_state == TE_EXITING) {
-			/* Set the state to TS_EXIT */
-			old->thread_ctx->state = TS_EXIT;
-			old->thread_ctx->thread_exit_state = TE_EXITED;
-		}
+                /* Set TE_EXITING after check won't cause any trouble, the
+                 * thread will be recycle afterwards. Just a fast path. */
+                /* Check whether the thread is going to exit */
+                if (old->thread_ctx->thread_exit_state == TE_EXITING) {
+                        /* Set the state to TS_EXIT */
+                        old->thread_ctx->state = TS_EXIT;
+                        old->thread_ctx->thread_exit_state = TE_EXITED;
+                }
 
-		/* check old state */
-		switch (old->thread_ctx->state) {
-		case TS_EXIT:
-			/* do nothing */
-			break;
-		case TS_RUNNING:
-			/* A thread without SC should not be TS_RUNNING. */
-			BUG_ON(!old->thread_ctx->sc);
-			if (old->thread_ctx->sc->budget != 0) {
-				switch_to_thread(old);
-				return 0; /* no schedule needed */
-			}
-			rr_sched_refill_budget(old, DEFAULT_BUDGET);
-			old->thread_ctx->state = TS_INTER;
-			BUG_ON(rr_sched_enqueue(old) != 0);
-			break;
-		case TS_WAITING:
-			/* do nothing */
-			break;
-		default:
-			kinfo("thread state: %d\n", old->thread_ctx->state);
-			BUG_ON(1);
-			break;
-		}
-	}
+                /* check old state */
+                switch (old->thread_ctx->state) {
+                case TS_EXIT:
+                        /* do nothing */
+                        break;
+                case TS_RUNNING:
+                        /* A thread without SC should not be TS_RUNNING. */
+                        BUG_ON(!old->thread_ctx->sc);
+                        if (old->thread_ctx->sc->budget != 0) {
+                                switch_to_thread(old);
+                                return 0; /* no schedule needed */
+                        }
+                        rr_sched_refill_budget(old, DEFAULT_BUDGET);
+                        old->thread_ctx->state = TS_INTER;
+                        BUG_ON(rr_sched_enqueue(old) != 0);
+                        break;
+                case TS_WAITING:
+                        /* do nothing */
+                        break;
+                default:
+                        kinfo("thread state: %d\n", old->thread_ctx->state);
+                        BUG_ON(1);
+                        break;
+                }
+        }
 
         new = rr_sched_choose_thread();
-	BUG_ON(!new);
-	switch_to_thread(new);
+        BUG_ON(!new);
+        switch_to_thread(new);
 
-	return 0;
+        return 0;
 }
 
 int rr_sched_init(void)
 {
-	int i = 0;
+        int i = 0;
 
-	/* Initialize global variables */
-	for (i = 0; i < PLAT_CPU_NUM; i++) {
-		init_list_head(&(rr_ready_queue_meta[i].queue_head));
-		lock_init(&(rr_ready_queue_meta[i].queue_lock));
-		rr_ready_queue_meta[i].queue_len = 0;
-	}
+        /* Initialize global variables */
+        for (i = 0; i < PLAT_CPU_NUM; i++) {
+                init_list_head(&(rr_ready_queue_meta[i].queue_head));
+                lock_init(&(rr_ready_queue_meta[i].queue_lock));
+                rr_ready_queue_meta[i].queue_len = 0;
+        }
 
-	return 0;
+        return 0;
 }
 
 #define MAX_CAP_GROUP_BUF 256
 
 void rr_top(void)
 {
-	u32 cpuid;
-	struct thread *thread;
-	/* A simple way to collect all cap groups */
-	struct cap_group *cap_group_buf[MAX_CAP_GROUP_BUF] = {0};
-	unsigned int cap_group_num = 0;
-	int i = 0;
+        u32 cpuid;
+        struct thread *thread;
+        /* A simple way to collect all cap groups */
+        struct cap_group *cap_group_buf[MAX_CAP_GROUP_BUF] = {0};
+        unsigned int cap_group_num = 0;
+        int i = 0;
 
-	for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
-		lock(&(rr_ready_queue_meta[cpuid].queue_lock));
-	}
+        for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
+                lock(&(rr_ready_queue_meta[cpuid].queue_lock));
+        }
 
-	printk("\n*****CPU RQ Info*****\n");
-	for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
-		printk("== CPU %d RQ LEN %lu==\n", cpuid, rr_ready_queue_meta[cpuid].queue_len);
-		thread = current_threads[cpuid];
-		if (thread != NULL) {
-			for (i = 0; i < cap_group_num; i ++)
-				if (thread->cap_group == cap_group_buf[i])
-					break;
-			if (i == cap_group_num && cap_group_num < MAX_CAP_GROUP_BUF) {
-				cap_group_buf[cap_group_num] = thread->cap_group;
-				cap_group_num ++;
-			}
-			printk("Current ");
-			print_thread(thread);
-		}
-		if (!list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
-			for_each_in_list(thread, struct thread,
-					 ready_queue_node,
-					 &(rr_ready_queue_meta[cpuid].queue_head)) {
-				for (i = 0; i < cap_group_num; i ++)
-					if (thread->cap_group == cap_group_buf[i])
-						break;
-				if (i == cap_group_num && cap_group_num < MAX_CAP_GROUP_BUF) {
-					cap_group_buf[cap_group_num] = thread->cap_group;
-					cap_group_num ++;
-				}
-				print_thread(thread);
-			}
-		}
-		printk("\n");
-	}
+        printk("\n*****CPU RQ Info*****\n");
+        for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
+                printk("== CPU %d RQ LEN %lu==\n",
+                       cpuid,
+                       rr_ready_queue_meta[cpuid].queue_len);
+                thread = current_threads[cpuid];
+                if (thread != NULL) {
+                        for (i = 0; i < cap_group_num; i++)
+                                if (thread->cap_group == cap_group_buf[i])
+                                        break;
+                        if (i == cap_group_num
+                            && cap_group_num < MAX_CAP_GROUP_BUF) {
+                                cap_group_buf[cap_group_num] =
+                                        thread->cap_group;
+                                cap_group_num++;
+                        }
+                        printk("Current ");
+                        print_thread(thread);
+                }
+                if (!list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
+                        for_each_in_list (
+                                thread,
+                                struct thread,
+                                ready_queue_node,
+                                &(rr_ready_queue_meta[cpuid].queue_head)) {
+                                for (i = 0; i < cap_group_num; i++)
+                                        if (thread->cap_group
+                                            == cap_group_buf[i])
+                                                break;
+                                if (i == cap_group_num
+                                    && cap_group_num < MAX_CAP_GROUP_BUF) {
+                                        cap_group_buf[cap_group_num] =
+                                                thread->cap_group;
+                                        cap_group_num++;
+                                }
+                                print_thread(thread);
+                        }
+                }
+                printk("\n");
+        }
 
-	printk("\n*****CAP GROUP Info*****\n");
-	for (i = 0; i < cap_group_num; i ++) {
-		printk("== CAP GROUP:%s ==\n", cap_group_buf[i]->cap_group_name);
-		for_each_in_list(thread, struct thread, node, &(cap_group_buf[i]->thread_list)) {
-			print_thread(thread);
-		}
-		printk("\n");
-	}
-	for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
-		unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
-	}
+        printk("\n*****CAP GROUP Info*****\n");
+        for (i = 0; i < cap_group_num; i++) {
+                printk("== CAP GROUP:%s ==\n",
+                       cap_group_buf[i]->cap_group_name);
+                for_each_in_list (thread,
+                                  struct thread,
+                                  node,
+                                  &(cap_group_buf[i]->thread_list)) {
+                        print_thread(thread);
+                }
+                printk("\n");
+        }
+        for (cpuid = 0; cpuid < PLAT_CPU_NUM; cpuid++) {
+                unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
+        }
 }
 
-struct sched_ops rr = {
-	.sched_init = rr_sched_init,
-	.sched = rr_sched,
-	.sched_enqueue = rr_sched_enqueue,
-	.sched_dequeue = rr_sched_dequeue,
-	.sched_top = rr_top
-};
+struct sched_ops rr = {.sched_init = rr_sched_init,
+                       .sched = rr_sched,
+                       .sched_enqueue = rr_sched_enqueue,
+                       .sched_dequeue = rr_sched_dequeue,
+                       .sched_top = rr_top};

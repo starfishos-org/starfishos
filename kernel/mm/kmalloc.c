@@ -157,7 +157,7 @@ void *kmalloc(unsigned long long size, int flags)
         case __SHARED__:
                 return cxl_kmalloc(size);
         default:
-                kwarn_once("%s: type: %d is not supported\n",  __func__, flags);
+                kwarn_once("%s: type: %d is not supported\n", __func__, flags);
         }
 
         return NULL;

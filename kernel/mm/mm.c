@@ -232,10 +232,10 @@ void ext_mm_init()
         cxlmem_map_num = 0;
         parse_cxlmem_map();
 
-        /**
-        * use shared memory to init mem pool
-        * so memory allocator can be shared between machines
-        */
+        /*
+         * use shared memory to init mem pool
+         * so memory allocator can be shared between machines
+         */
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
                 // global_cxl_mem[i] = &static_global_cxl_mem[i];
                 global_cxl_mem[i] = &(dsm_meta->mem_pool[i]);

@@ -14,20 +14,20 @@
  * when register every machine, it will increase (LOCAL CPU NUM)
  */
 #define CLUSTER_MAX_CPU_NUM (128)
-#define CLUSTER_CPU_NUM 	(dsm_meta->cluster_cpu_num)
+#define CLUSTER_CPU_NUM     (dsm_meta->cluster_cpu_num)
 
 /**
  * cpu range of current machine
  */
 u32 cpu_range_low, cpu_range_high;
 
-#define CPU_RANGE_LOW       (cpu_range_low)
-#define CPU_RANGE_HIGH      (cpu_range_high)
+#define CPU_RANGE_LOW  (cpu_range_low)
+#define CPU_RANGE_HIGH (cpu_range_high)
 
 struct shared_queue_meta {
-	struct list_head queue_head;
-	u32 queue_len;
-    struct lock queue_lock;
+        struct list_head queue_head;
+        u32 queue_len;
+        struct lock queue_lock;
 };
 
 typedef struct {
@@ -74,10 +74,11 @@ static inline void dsm_add_machine()
         CPU_RANGE_LOW =
                 atomic_fetch_add_32(&(dsm_meta->cluster_cpu_num), PLAT_CPU_NUM);
         CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
-        
+
         if (dsm_meta->cluster_cpu_num > CLUSTER_MAX_CPU_NUM)
                 BUG("[DSM] cpu number exceed max allowed num\n");
-        
+
         kinfo("[DSM] machine (cpu%d - cpu%d) join the cluster!\n",
-            CPU_RANGE_LOW, CPU_RANGE_HIGH);
+              CPU_RANGE_LOW,
+              CPU_RANGE_HIGH);
 }
