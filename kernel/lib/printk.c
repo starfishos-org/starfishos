@@ -355,16 +355,24 @@ out:
 }
 
 /* Enable seri output */
-extern struct lock printk_lock;
+// #define SERI_OUPUT
+#ifdef SERI_OUPUT
+#include <common/lock.h>
+struct lock printk_lock;
+extern void lock(struct lock *lock);
+extern void unlock(struct lock *lock);
+#endif
 void printk(const char *fmt, ...)
 {
-	extern void lock(struct lock *lock);
-	extern void unlock(struct lock *lock);
-	// lock(&printk_lock);
+#ifdef SERI_OUPUT
+	lock(&printk_lock);
+#endif      
 	va_list va;
 
 	va_start(va, fmt);
 	simple_vsprintf(NULL, fmt, va);
 	va_end(va);
-	// unlock(&printk_lock);
+#ifdef SERI_OUPUT
+	unlock(&printk_lock);
+#endif     
 }
