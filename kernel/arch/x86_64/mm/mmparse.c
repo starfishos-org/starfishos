@@ -1,4 +1,3 @@
-#include "lib/printk.h"
 #include <common/types.h>
 #include <common/kprint.h>
 #include <common/macro.h>
@@ -10,7 +9,7 @@
 #include <arch/drivers/multiboot2.h>
 
 #ifdef DSM_ENABLED
-#include <dsm/dsm.h>
+#include <dsm/dsm-single.h>
 #endif
 
 extern paddr_t physmem_map[N_PHYS_MEM_POOLS][2];
@@ -392,8 +391,13 @@ static void parse_kvm_ivshmem_device()
 #endif
         refill_kernel_page_table(dev_start + dev_size);
 
-        cxlmem_map[cxlmem_map_num][0] = dev_start;
+        cxlmem_map[cxlmem_map_num][0] = dev_start + sizeof(dsm_metadata_t);
         cxlmem_map[cxlmem_map_num][1] = dev_start + dev_size;
+
+        /* init dsm metadata */
+        dsm_init_meta(phys_to_virt(dev_start));
+        dsm_add_machine();
+
         kinfo("Use IVSHMEM (SHM): 0x%lx - 0x%lx\n",
               cxlmem_map[cxlmem_map_num][0],
               cxlmem_map[cxlmem_map_num][1]);

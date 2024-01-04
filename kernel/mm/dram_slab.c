@@ -11,56 +11,6 @@
 struct slab_pointer dram_slab_pool[SLAB_MAX_ORDER + 1];
 static struct lock dram_slabs_locks[SLAB_MAX_ORDER + 1];
 
-/*
-static inline int order_to_index(int order)
-{
-        return order - SLAB_MIN_ORDER;
-}
-*/
-
-static inline int size_to_order(unsigned long size)
-{
-	unsigned long order = 0;
-	unsigned long tmp = size;
-
-	while (tmp > 1) {
-		tmp >>= 1;
-		order += 1;
-	}
-	if (size > (1 << order))
-		order += 1;
-
-	return (int)order;
-}
-
-static inline unsigned long order_to_size(int order)
-{
-	return 1UL << order;
-}
-
-/* @set_or_clear: true for set and false for clear. */
-static void set_or_clear_slab_in_page(void *addr, unsigned long size, bool set_or_clear)
-{
-	struct page *page;
-	int order;
-	unsigned long page_num;
-	int i;
-	void *page_addr;
-
-	order = size_to_order(size / BUDDY_PAGE_SIZE);
-	page_num = order_to_size(order);
-
-	/* Set/Clear the `slab` field in each struct page. */
-	for (i = 0; i < page_num; i++) {
-		page_addr = (void *)((unsigned long)addr + i * BUDDY_PAGE_SIZE);
-		page = virt_to_page(page_addr);
-		if (set_or_clear)
-			page->slab = addr;
-		else
-			page->slab = NULL;
-	}
-}
-
 static void* alloc_slab_memory(unsigned long size)
 {
 	void *addr;

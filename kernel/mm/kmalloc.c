@@ -152,9 +152,9 @@ void *kzalloc(size_t size)
 void *kmalloc(unsigned long long size, int flags)
 {
         switch (flags) {
-        case DRAM_PAGE:
-                return dram_kmalloc(size);
-        case CXL_MEM_PAGE:
+        case __DEFAULT__:
+                // return dram_kmalloc(size);
+        case __SHARED__:
                 return cxl_kmalloc(size);
         default:
                 kwarn_once("%s: type: %d is not supported\n",  __func__, flags);
@@ -176,9 +176,9 @@ void *kzalloc(unsigned long long size, int flags)
 void *get_pages(int order, int flags)
 {
         switch (flags) {
-        case DRAM_PAGE:
-                return get_dram_pages(order);
-        case CXL_MEM_PAGE:
+        case __DEFAULT__:
+                // return get_dram_pages(order);
+        case __SHARED__:
                 return get_cxl_pages(order);
         default:
                 kwarn_once("%s: type: %d is not supported\n", __func__, flags);

@@ -52,6 +52,30 @@ void init_cxl_slab(void);
 void *alloc_in_cxl_slab(unsigned long);
 void free_in_cxl_slab(void *addr);
 
+/* common */
+static inline int size_to_order(unsigned long size)
+{
+	unsigned long order = 0;
+	unsigned long tmp = size;
+
+	while (tmp > 1) {
+		tmp >>= 1;
+		order += 1;
+	}
+	if (size > (1 << order))
+		order += 1;
+
+	return (int)order;
+}
+
+static inline unsigned long order_to_size(int order)
+{
+	return 1UL << order;
+}
+
+/* @set_or_clear: true for set and false for clear. */
+void set_or_clear_slab_in_page(void *addr, unsigned long size, bool set_or_clear);
+
 #if TRACK_THREAD_MM == ON
 u64 size_to_slab_order(u64 size);
 #endif

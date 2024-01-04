@@ -6,7 +6,7 @@
 #include <mm/buddy.h>
 #include <mm/nvm.h>
 #include <drivers/cxl.h>
-#include <dsm/dsm.h>
+#include <dsm/dsm-single.h>
 
 extern void parse_mem_map(void *);
 
@@ -225,55 +225,24 @@ skip_parse_info:
 
 void ext_mm_init()
 {
-        int i = 0;
+        int i = 0, cxlmem_map_idx = 0;
         paddr_t free_mem_start = 0, free_mem_end = 0;
 
 #ifdef USE_CXL_MEM
         cxlmem_map_num = 0;
         parse_cxlmem_map();
-#endif
 
-#if 0
-        /* init dsm_info */
-#if 0
-        dsm_mem_dev_t *dev = dsm_add_memdev_of_current_machine(
-                (u64)cxlmem_map[0][0],
-                (size_t)cxlmem_map[0][1] - cxlmem_map[0][0],
-                0);
-        BUG_ON(!dev);
-        kdebug("dev=%p, dev->start=0x%lx\n", dev, dev->start);
-// #else
-        dsm_devs_init((u64)cxlmem_map[0][0],
-                      (size_t)cxlmem_map[0][1] - cxlmem_map[0][0],
-                      0);
-#endif
-        dsm_memdev_metadata_t *meta = CUR_MACHINE_META;
-        kinfo("[DSM] [BEFORE] meta=%p, meta->state=%d, meta->ownerid=%d\n",
-              meta,
-              meta->state,
-              meta->ownerid);
-        if (meta->state == DSM_CONFIG_STATE_UNINITIALIZED) {
-                dsm_owner_init_metadata(meta);
-                kinfo("[DSM] [AFTER] meta=%p, meta->state=%d, meta->ownerid=%d\n",
-                      meta,
-                      meta->state,
-                      meta->ownerid);
-        } else {
-                BUG("[DSM] [STATE ALREADY SET] meta=%p, meta->state=%d, meta->ownerid=%d\n",
-                    meta,
-                    meta->state,
-                    meta->ownerid);
-        }
-        cxlmem_map[0][0] += sizeof(dsm_memdev_metadata_t);
-        dsm_followers_init_metadata();
-#endif
-
-#ifdef USE_CXL_MEM
-        int cxlmem_map_idx = 0;
-
+        /**
+        * use shared memory to init mem pool
+        * so memory allocator can be shared between machines
+        */
         for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_cxl_mem[i] = &static_global_cxl_mem[i];
+                // global_cxl_mem[i] = &static_global_cxl_mem[i];
+                global_cxl_mem[i] = &(dsm_meta->mem_pool[i]);
         }
+
+        if (dsm_is_inited())
+                goto skip_init;
 
         /* Step-2: init the buddy allocators for each continuous range
          * of the physmem. */
@@ -289,6 +258,12 @@ void ext_mm_init()
         }
 
         init_cxl_slab();
+
+        /* mark metadata as inited */
+        dsm_mark_inited();
+
+skip_init:
+        kinfo("[DSM] cxl mem pool has been inited\n");
 #endif /* USE_CXL_MEM */
 }
 
