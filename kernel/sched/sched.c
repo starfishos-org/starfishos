@@ -306,7 +306,7 @@ s32 get_cpubind(struct thread *thread)
                 return affinity;
         } else if (is_fpu_owner == local_cpuid) {
                 if (affinity == local_cpuid || affinity == NO_AFF) {
-                        return local_cpuid;
+                        return cpuid_l2g(local_cpuid);
                 } else {
                         save_and_release_fpu(thread);
                         return affinity;

@@ -561,7 +561,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         }
         thread->thread_ctx->affinity = aff;
 out_obj_put:
-        if (thread_cap != -1)
+        if (thread_cap > -1)
                 obj_put((void *)thread);
 out:
         return ret;

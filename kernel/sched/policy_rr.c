@@ -68,17 +68,11 @@ static bool inline is_local_cpu(u32 cpuid)
         return (cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW);
 }
 
-int __rr_sched_enqueue_shared(struct thread *thread, int cpuid)
+int __rr_sched_enqueue_shared(struct thread *thread, u32 gcpuid)
 {
-        /* Already in the ready queue */
-        if (thread->thread_ctx->state == TS_READY) {
-                return -EINVAL;
-        }
-        thread->thread_ctx->cpuid = cpuid;
-        thread->thread_ctx->state = TS_READY;
         list_append(&(thread->ready_queue_node),
-                    &(rr_shared_queue[cpuid].queue_head));
-        rr_shared_queue[cpuid].queue_len++;
+                    &(rr_shared_queue[gcpuid].queue_head));
+        rr_shared_queue[gcpuid].queue_len++;
         return 0;
 }
 
@@ -123,7 +117,10 @@ int __rr_sched_migrate_from_shared_queue()
                                   struct thread,
                                   ready_queue_node,
                                   &(rr_shared_queue[gcpuid].queue_head)) {
-                        dsm_info("find remote task(%p), sched to %d\n", thread, lcpuid);
+                        dsm_info("find remote task(%s), sched to %d\n",
+                                 thread->cap_group->cap_group_name,
+                                 lcpuid);
+                        print_thread(thread);
                         /* move thread from shared queue to local queue */
                         ret = __rr_sched_dequeue_shared(thread);
                         ret = __rr_sched_enqueue(thread, lcpuid);
