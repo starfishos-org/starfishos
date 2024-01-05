@@ -1,12 +1,15 @@
 
 # demos
+
+set(_demos_clean_targets)
+
 if(CHCORE_DEMOS_REDIS)
   add_custom_target(
     redis-clean
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
     COMMAND make clean
 )
-
+list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
@@ -23,7 +26,7 @@ if(CHCORE_DEMOS_YCSB)
     WORKING_DIRECTORY ${build_demos_dir}/YCSB-C
     COMMAND make clean
 )
-
+list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     ycsb ALL
     COMMAND export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib # to find libhiredis
@@ -70,7 +73,7 @@ if(CHCORE_DEMOS_MEMCACHED)
             && make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -s -j12
     COMMAND cp ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
     DEPENDS)
-
+    list(APPEND _demos_clean_targets memcached-clean)
   add_custom_target(
     memcached-clean
     COMMAND make maintainer-clean-local
@@ -84,6 +87,7 @@ if(CHCORE_DEMOS_MEMCACHETEST)
     WORKING_DIRECTORY ${build_demos_dir}/memcachetest
     COMMAND make distclean
     )
+    list(APPEND _demos_clean_targets memcachetest-clean)
   add_custom_target(
     memcachetest ALL
     WORKING_DIRECTORY ${build_demos_dir}/memcachetest
@@ -100,7 +104,7 @@ if(CHCORE_DEMOS_SQLITE)
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
     COMMAND make clean
 )
-
+list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     sqlite ALL
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
@@ -115,6 +119,7 @@ if(CHCORE_DEMOS_LEVELDB)
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND rm -rf ./build
     )
+    list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
@@ -136,6 +141,7 @@ if(CHCORE_DEMOS_ROCKSDB)
     gflags-clean
     COMMAND rm -rf ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
     )
+    list(APPEND _demos_clean_targets gflags-clean)
   add_custom_target(
     gflags ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
@@ -157,6 +163,7 @@ if(CHCORE_DEMOS_ROCKSDB)
     rocksdb-clean
     COMMAND rm -rf ${build_demos_dir}/aurora-rocksdb/build
     )
+    list(APPEND _demos_clean_targets rocksdb-clean)
   add_custom_target(
     rocksdb ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build
@@ -181,6 +188,7 @@ if(CHCORE_DEMOS_PHOENIX)
     WORKING_DIRECTORY ${build_demos_dir}/phoenix-2.0
     COMMAND make clean
 )
+list(APPEND _demos_clean_targets phoenix-clean)
   add_custom_target(
     phoenix ALL
     WORKING_DIRECTORY ${build_demos_dir}/phoenix-2.0
@@ -210,14 +218,4 @@ if(CHCORE_DEMOS_PHOENIX)
     DEPENDS)
 endif()
 
-add_custom_target(demos-clean DEPENDS
-    redis-clean
-    ycsb-clean
-    memcached-clean
-    memcachetest-clean
-    gflags-clean
-    rocksdb-clean
-    sqlite-clean
-    leveldb-clean
-    phoenix-clean
-${_clean_targets})
+add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
