@@ -29,7 +29,7 @@ void *count(void *arg)
 
         /* schedule FOLLOWER to another machine */
         if (myturn == FOLLOWER) {
-                usys_set_affinity(-2, 10);
+                usys_set_affinity(-2, 15);
                 usys_yield();
         }
         printf("I'm ready to ping pong\n");

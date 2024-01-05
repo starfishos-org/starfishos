@@ -70,17 +70,17 @@ static bool inline is_local_cpu(u32 cpuid)
 
 int __rr_sched_enqueue_shared(struct thread *thread, u32 gcpuid)
 {
-        list_append(&(thread->ready_queue_node),
+        list_append(&(thread->shared_queue_node),
                     &(rr_shared_queue[gcpuid].queue_head));
         rr_shared_queue[gcpuid].queue_len++;
         return 0;
 }
 
 /* dequeue w/o lock */
-int __rr_sched_dequeue_shared(struct thread *thread)
+int __rr_sched_dequeue_shared(struct thread *thread, u32 gcpuid)
 {
-        list_del(&(thread->ready_queue_node));
-        rr_shared_queue[thread->thread_ctx->cpuid].queue_len--;
+        list_del(&(thread->shared_queue_node));
+        rr_shared_queue[gcpuid].queue_len--;
         return 0;
 }
 
@@ -115,15 +115,16 @@ int __rr_sched_migrate_from_shared_queue()
                 lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
                 for_each_in_list (thread,
                                   struct thread,
-                                  ready_queue_node,
+                                  shared_queue_node,
                                   &(rr_shared_queue[gcpuid].queue_head)) {
+                        /* move thread from shared queue to local queue */
+                        ret = __rr_sched_dequeue_shared(thread, gcpuid);
+                        ret = __rr_sched_enqueue(thread, lcpuid);
+
                         dsm_info("find remote task(%s), sched to %d\n",
                                  thread->cap_group->cap_group_name,
                                  lcpuid);
                         print_thread(thread);
-                        /* move thread from shared queue to local queue */
-                        ret = __rr_sched_dequeue_shared(thread);
-                        ret = __rr_sched_enqueue(thread, lcpuid);
                 }
                 unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
