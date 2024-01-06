@@ -46,6 +46,8 @@
 #include "processor.h"
 #include "memory.h"
 
+#include <chcore/syscall.h>
+
 /* Query the number of CPUs online. */
 int proc_get_num_cpus (void)
 {
@@ -65,7 +67,7 @@ int proc_get_num_cpus (void)
     // }
 
     // return num_cpus;
-    return 8;
+    return 20;
     // return 1;
 }
 
@@ -96,6 +98,12 @@ static cpu_set_t* proc_get_full_set(void)
    Returns 0 if successful, -1 if failed. */
 int proc_bind_thread (int cpu_id)
 {
+    int ret;
+    ret = usys_set_affinity(-2, cpu_id);
+    if (!ret) return ret;
+    ret = usys_yield();
+    if (!ret) return ret;
+    return 0;
 #ifdef _LINUX_
     cpu_set_t   cpu_set;
 
