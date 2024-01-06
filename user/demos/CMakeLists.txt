@@ -201,12 +201,11 @@ list(APPEND _demos_clean_targets phoenix-clean)
         && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
         && cd ${build_demos_dir}/phoenix-2.0/tests/word_count
         && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
-    COMMAND
-        cp ${build_demos_dir}/phoenix-2.0/tests/kmeans/kmeans ${build_ramdisk_dir}/kmeans.bin
+        && cp ${build_demos_dir}/phoenix-2.0/tests/kmeans/kmeans ${build_ramdisk_dir}/kmeans.bin
         && cp ${build_demos_dir}/phoenix-2.0/tests/pca/pca ${build_ramdisk_dir}/pca.bin
         && cp ${build_demos_dir}/phoenix-2.0/tests/word_count/word_count ${build_ramdisk_dir}/word_count.bin
-        && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_100MB.txt
-        && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_50MB.txt ${build_ramdisk_dir}/word_100MB.txt
+        && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
+        && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_50MB.txt ${build_ramdisk_dir}/word_50MB.txt
         && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_100MB.txt ${build_ramdisk_dir}/word_100MB.txt
         # && cp ${build_demos_dir}/phoenix-2.0/tests/linear_regression/linear_regression linear_regression.bin
         # && cp ${build_demos_dir}/phoenix-2.0/data/linear_regression_datafiles/key_file_100MB.txt .
