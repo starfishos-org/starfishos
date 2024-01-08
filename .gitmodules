@@ -1,0 +1,4 @@
+[submodule "user/demos/phoenix"]
+	path = user/demos/phoenix-2.0
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/phoenix.git
+	branch = phoenix-2.0
