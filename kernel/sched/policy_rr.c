@@ -49,6 +49,9 @@ extern struct thread idle_threads[PLAT_CPU_NUM]; // in sched/sched.c
 
 int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 {
+        /* should not enqueue local queue */
+        BUG_ON(!is_local_cpu(thread->thread_ctx->affinity));
+
         /* Already in the ready queue */
         if (thread->thread_ctx->state == TS_READY) {
                 return -EINVAL;
@@ -63,13 +66,13 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 }
 
 #ifdef DSM_ENABLED
-static bool inline is_local_cpu(u32 cpuid)
-{
-        return (cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW);
-}
-
 int __rr_sched_enqueue_shared(struct thread *thread, u32 gcpuid)
 {
+        dsm_debug("%s: thread (%s, %p) -> cpu %d\n",
+                  __func__,
+                  thread->cap_group->cap_group_name,
+                  thread,
+                  gcpuid);
         list_append(&(thread->shared_queue_node),
                     &(rr_shared_queue[gcpuid].queue_head));
         rr_shared_queue[gcpuid].queue_len++;
@@ -79,9 +82,52 @@ int __rr_sched_enqueue_shared(struct thread *thread, u32 gcpuid)
 /* dequeue w/o lock */
 int __rr_sched_dequeue_shared(struct thread *thread, u32 gcpuid)
 {
+        dsm_debug("%s: thread (%s, %p, ctx=%p) <- cpu %d\n",
+                 __func__,
+                 thread->cap_group->cap_group_name,
+                 thread,
+                 thread->thread_ctx,
+                 gcpuid);
         list_del(&(thread->shared_queue_node));
         rr_shared_queue[gcpuid].queue_len--;
         return 0;
+}
+
+/**
+ * rr_sched_migrate_to_remote -- migrate thread to remote
+ * @thread: thread to be migrated
+ */
+static int rr_sched_migrate_to_remote(struct thread *thread)
+{
+        u64 affinitiy, gcpuid;
+        int ret;
+                
+        /* remote sched has the highest prio */
+        BUG_ON(!thread);
+        BUG_ON(!thread->thread_ctx);
+
+        affinitiy = thread->thread_ctx->affinity;
+        BUG_ON(is_local_cpu(affinitiy));
+
+        if (thread->thread_ctx->is_fpu_owner >= 0) {
+                dsm_debug("%s: save and release fpu of thread (%p)\n",
+                         __func__,
+                         thread);
+                /* sys_set_aff -> sched -> save_and_release_fpu */
+                save_and_release_fpu(thread);
+        }
+
+        gcpuid = affinitiy;
+        dsm_info("sched task(%s, %p) to remote CPU %d\n",
+                 thread->cap_group->cap_group_name,
+                 thread,
+                 gcpuid);
+        
+        lock(&(rr_shared_queue[gcpuid].queue_lock));
+        ret = __rr_sched_enqueue_shared(thread, gcpuid);
+        unlock(&(rr_shared_queue[gcpuid].queue_lock));
+
+        return ret;
 }
 
 /**
@@ -119,12 +165,16 @@ int __rr_sched_migrate_from_shared_queue()
                                   &(rr_shared_queue[gcpuid].queue_head)) {
                         /* move thread from shared queue to local queue */
                         ret = __rr_sched_dequeue_shared(thread, gcpuid);
+                        thread->thread_ctx->state = TS_RUNNING;
+                        thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
+
                         ret = __rr_sched_enqueue(thread, lcpuid);
 
-                        dsm_info("find remote task(%s), sched to %d\n",
+                        dsm_debug("find remote task(%s, %p), sched to %d\n",
                                  thread->cap_group->cap_group_name,
+                                 thread,
                                  lcpuid);
-                        print_thread(thread);
+                        // print_thread(thread);
                 }
                 unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
@@ -202,16 +252,17 @@ int rr_sched_enqueue(struct thread *thread)
         }
 
 #ifdef DSM_ENABLED
+        /* enqueue should only be called by a local sched */
         if (!is_local_cpu(gcpuid)) {
-                dsm_info("sched task(%s) to remote CPU %d\n",
-                         thread->cap_group->cap_group_name,
-                         gcpuid);
+                /* enqueue a alreay migrated thread */
+                dsm_debug("enqueue a already migrated thread (%p, ctx=%p) to gcpuid=%d\n",
+                         thread, thread->thread_ctx, gcpuid);
+                // print_thread(thread);
                 lock(&(rr_shared_queue[gcpuid].queue_lock));
                 ret = __rr_sched_enqueue_shared(thread, gcpuid);
                 unlock(&(rr_shared_queue[gcpuid].queue_lock));
                 return ret;
         }
-        /* Fall back to and thread to local rr_queue */
 #endif
 
         lcpuid = cpuid_g2l(gcpuid);
@@ -353,6 +404,12 @@ int rr_sched(void)
                         old->thread_ctx->state = TS_INTER;
                         BUG_ON(rr_sched_enqueue(old) != 0);
                         break;
+#ifdef DSM_ENABLED
+                case TS_MIGRATING:
+                        /* schedule migrate thread to remote */
+                        rr_sched_migrate_to_remote(old);
+                        break;
+#endif
                 case TS_WAITING:
                         /* do nothing */
                         break;

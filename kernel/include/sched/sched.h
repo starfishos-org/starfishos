@@ -40,6 +40,9 @@ enum thread_state {
 	TS_RUNNING,
 	TS_EXIT,    /* Only for debug use */
 	TS_WAITING, /* Waiting IPC or etc */
+#ifdef DSM_ENABLED
+	TS_MIGRATING, /* migrating to remote */
+#endif
 };
 
 enum kernel_stack_state {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sched/sched.h"
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/types.h>
@@ -9,7 +10,7 @@
 #include <mm/slab.h>
 #include <machine.h>
 
-#define DSM_DEBUG
+// #define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
@@ -20,6 +21,10 @@
 #else
 #define dsm_debug(fmt, ...)
 #endif
+
+#define pingpong_info(thread, fmt, ...) \
+if (!strcmp(thread->cap_group->cap_group_name, "/pingpong-pthread.bin")) \
+        printk("[pingpong] " fmt, ##__VA_ARGS__)
 
 /**
  * DSM_STATE
@@ -50,6 +55,12 @@ u32 cpu_range_low, cpu_range_high;
 /* local to global, global to local */
 #define cpuid_l2g(x) ((x) + CPU_RANGE_LOW)
 #define cpuid_g2l(x) ((x) - CPU_RANGE_LOW)
+
+static bool inline is_local_cpu(u32 cpuid)
+{
+        return ((cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW))
+                || cpuid == NO_AFF;
+}
 
 struct shared_queue_meta {
         struct list_head queue_head;

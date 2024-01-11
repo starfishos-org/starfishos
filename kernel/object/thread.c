@@ -1,3 +1,4 @@
+#include "sched/sched.h"
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/types.h>
@@ -357,6 +358,7 @@ static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
                 cap = cap_copy(cap_group, current_cap_group, cap);
         if (type == TYPE_USER) {
                 thread->thread_ctx->state = TS_INTER;
+                dsm_debug("%s: sched_enqueue\n", __func__);
                 BUG_ON(sched_enqueue(thread));
         } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
                 thread->thread_ctx->state = TS_WAITING;
@@ -543,6 +545,16 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
                 thread = current_thread;
                 /* -2 means use global aff */
                 BUG_ON(!thread);
+                /* FIXME(FN): do not allow already bind thread to be changed */
+                /* We can not change FPU owner */
+                if (thread->thread_ctx->affinity != NO_AFF) {
+                        dsm_debug("DO NOT change affinity of remote thread (%p)\n", thread);
+                        goto out_obj_put;
+                }
+                /* thread set to remote */
+                if (!is_local_cpu(aff)) {
+                        thread->thread_ctx->state = TS_MIGRATING;
+                }
         }
 #endif
         else {

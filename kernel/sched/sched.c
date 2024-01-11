@@ -1,4 +1,5 @@
 /* Scheduler related functions are implemented here */
+#include "lib/printk.h"
 #include <sched/sched.h>
 #include <arch/machine/smp.h>
 #include <arch/ipi.h>
@@ -107,9 +108,11 @@ int switch_to_thread(struct thread *target)
         int is_fpu_owner = target->thread_ctx->is_fpu_owner;
         if ((is_fpu_owner >= 0)
             && (is_fpu_owner != target->thread_ctx->cpuid)) {
-                kinfo("target is_fpu_owner %d, local cpu id %d\n",
+                dsm_debug("target %p is_fpu_owner %d, local cpu id %d, affinity %d\n",
+                      target,
                       is_fpu_owner,
-                      target->thread_ctx->cpuid);
+                      target->thread_ctx->cpuid,
+                      target->thread_ctx->affinity);
                 BUG("WRONG FPU in sched\n");
         }
 #endif
@@ -162,6 +165,15 @@ int switch_to_thread(struct thread *target)
  */
 void sched_to_thread(struct thread *target)
 {
+#ifdef DSM_ENABLED
+        /* sched to a thread already migrate to remote */
+        if (target->thread_ctx->state == TS_MIGRATING) {
+                dsm_debug("%s: to a remote thread (%p), sched again\n",
+                         __func__, target);
+                sched();
+                return;
+        }
+#endif
         int is_fpu_owner;
 
         /* TS_INTER may be set in signal_notific */
@@ -294,6 +306,10 @@ s32 get_cpubind(struct thread *thread)
         affinity = thread->thread_ctx->affinity;
         is_fpu_owner = thread->thread_ctx->is_fpu_owner;
 
+#ifdef DSM_ENABLED
+        if (!is_local_cpu(affinity))
+                return affinity;
+#endif
         /*
          * If the thread is the FPU owner of current CPU core,
          * save_and_release_fpu() can make it become not a owner.
@@ -312,7 +328,7 @@ s32 get_cpubind(struct thread *thread)
                         return affinity;
                 }
         } else {
-                return is_fpu_owner;
+                return cpuid_l2g(is_fpu_owner);
         }
 #else
         return thread->thread_ctx->affinity;

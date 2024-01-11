@@ -1,3 +1,5 @@
+#include <dsm/dsm-single.h>
+#include <sched/sched.h>
 #include <sched/fpu.h>
 #include <arch/machine/smp.h>
 #include <mm/kmalloc.h>
@@ -153,6 +155,19 @@ void change_fpu_owner()
 	struct thread *fpu_owner;
 	u32 cpuid;
 
+#ifdef DSM_ENABLED
+	BUG_ON(!current_thread);
+	BUG_ON(!current_thread->thread_ctx);
+	/* do not change fpu owner to a remote thread */
+    if (!is_local_cpu(current_thread->thread_ctx->affinity)) {
+            dsm_debug("[FPU] try to change fpu owner of thread(%s, %p) to %d\n",
+                      current_thread->cap_group->cap_group_name,
+                      current_thread,
+                      current_thread->thread_ctx->affinity);
+            return;
+	}
+#endif
+
 	cpuid = smp_get_cpu_id();
 
 	/*
@@ -199,6 +214,8 @@ void change_fpu_owner()
 	restore_fpu_state(current_thread);
 	/* Current_thread will not be modified by other CPUs */
 	current_thread->thread_ctx->is_fpu_owner = cpuid;
+	dsm_debug("set thread (%s, %p) is_fpu_owner to %d\n",
+              current_thread->cap_group->cap_group_name, current_thread, cpuid);
 }
 
 /* This interface is specialized for the scheduler to use */
@@ -231,6 +248,13 @@ void save_and_release_fpu(struct thread *thread)
 		fpu_owner = NULL;
 		cpu_info[cpuid].fpu_owner = (void *)fpu_owner;
 		disable_fpu_usage();
+	} else {
+		dsm_debug("thread %p (cpuid=%d, aff=%d, fpu_owner=%d) is not the fpu_owner of current cpu %d\n",
+				thread,
+				thread->thread_ctx->cpuid,
+				thread->thread_ctx->affinity,
+				thread->thread_ctx->is_fpu_owner,
+				cpuid);
 	}
 }
 
