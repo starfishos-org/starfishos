@@ -1,0 +1,15 @@
+#!/usr/bin/expect  
+
+set timeout 60
+# prepare the iso if you like to direct use the image
+# spawn cp ./images/treesls-base.iso ./build/treesls.iso
+# prepare the nvm backend
+spawn rm [exec sh -c {echo "/dev/shm/ivshmem"}]
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "kmeans.bin -p 5000 & \r"
+
+interact
