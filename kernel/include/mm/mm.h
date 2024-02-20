@@ -15,6 +15,9 @@ void mm_init(void *physmem_info, int clear_nvm);
 
 void ext_mm_init(void);
 
+/* remap mem range in kernel page table */
+void remap_memory(u64 from_addr, u64 to_addr, u64 mem_size);
+
 /* Return the size of free memory in the buddy and slab allocator. */
 unsigned long get_free_mem_size(void);
 

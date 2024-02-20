@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sched/sched.h"
+#include <sched/sched.h>
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/types.h>
@@ -38,11 +38,20 @@ enum {
 #define DSM_STATE (dsm_meta->state)
 
 /**
- * cluster machine nume
+ * cluster machine num
  * when register every machine, it will increase (LOCAL CPU NUM)
  */
 #define CLUSTER_MAX_CPU_NUM (128)
 #define CLUSTER_CPU_NUM     (dsm_meta->cluster_cpu_num)
+
+#define CLUSTER_MAX_MACHINE_NUM (16)
+#define CLUSTER_MACHINE_NUM     (dsm_meta->cluster_machine_num)
+
+/**
+ * machine ID of current machine
+ */
+u32 machine_id;
+#define MACHINE_ID      (machine_id)
 
 /**
  * cpu range of current machine
@@ -67,10 +76,33 @@ struct shared_queue_meta {
         u32 queue_len;
         struct lock queue_lock;
 };
+
+typedef struct {
+        u32 cpu_range_low;
+        u32 cpu_range_high;
+        u64 local_mem_start;
+        u64 local_mem_size;
+} dsm_machine_local_metadata_t;
+
 typedef struct {
         // global configuration
-        u64 cluster_cpu_num;
+        u32 cluster_cpu_num;
+        u32 cluster_machine_num;
         volatile u64 state;
+
+        /**
+         * dsm memory layout:
+         * kernel space: 
+         * shm_vaddr                                 max_vaddr
+         *     | SHM | M1 LOCAL MEM | ... | Mn LOCAL MEM |
+         */
+        u64 shm_paddr;
+        u64 shm_size;
+        u64 max_paddr; // vaddr of max local DRAM
+
+        /* local mem kernel addr of each machine */
+        dsm_machine_local_metadata_t local_meta[CLUSTER_MAX_MACHINE_NUM];
+
         // after configuration, should be consistent among all machines
         // buddy system
         struct phys_mem_pool mem_pool[N_PHYS_MEM_POOLS];
@@ -84,9 +116,12 @@ typedef struct {
 
 dsm_metadata_t *dsm_meta;
 
-static inline void dsm_init_meta(vaddr_t start_addr)
+/* local meta of current machine */
+// #define local_meta (dsm_meta->local_meta[MACHINE_ID]);
+
+static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
-        dsm_meta = (dsm_metadata_t *)start_addr;
+        dsm_meta = (dsm_metadata_t *)shm_vaddr;
 }
 
 static inline u64 dsm_is_inited()
@@ -95,17 +130,17 @@ static inline u64 dsm_is_inited()
         return (DSM_STATE > DSM_CONFIG_STATE_UNINITED);
 }
 
-static inline void dsm_add_machine()
+static inline void dsm_init_mm(paddr_t shm_paddr, paddr_t shm_size)
 {
-        BUG_ON(!dsm_meta);
-        CPU_RANGE_LOW =
-                atomic_fetch_add_32(&(dsm_meta->cluster_cpu_num), PLAT_CPU_NUM);
-        CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
-
-        if (dsm_meta->cluster_cpu_num > CLUSTER_MAX_CPU_NUM)
-                BUG("[DSM] cpu number exceed max allowed num\n");
-
-        kinfo("[DSM] machine (cpu%d - cpu%d) join the cluster!\n",
-              CPU_RANGE_LOW,
-              CPU_RANGE_HIGH);
+        /* check and init shm_vaddr */
+        if (dsm_meta->shm_paddr) {
+                /* TODO: should remap shm */
+                BUG_ON(dsm_meta->shm_paddr != shm_paddr);
+        } else {
+                dsm_meta->shm_paddr = shm_paddr;
+                dsm_meta->shm_size = shm_size;
+                dsm_meta->max_paddr = shm_paddr + shm_size;
+        }
 }
+
+void dsm_add_machine(void);

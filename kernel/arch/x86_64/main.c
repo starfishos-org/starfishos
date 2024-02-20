@@ -16,6 +16,7 @@
 #include <mm/nvm.h>
 #include <ckpt/hybird_mem.h>
 #include <ckpt/hot_pages_tracker.h>
+#include <dsm/dsm-single.h>
 
 /* Global big kernel lock */
 struct lock big_kernel_lock;

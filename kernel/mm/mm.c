@@ -110,7 +110,7 @@ static void init_buddy_for_one_nvmmem_map(int physmem_map_idx)
  * | metadata (npages * sizeof(struct page)) | start_vaddr ... (npages *
  * PAGE_SIZE) |
  */
-static void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
+void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
                                         page_type_t type,
                                         paddr_t free_mem_start,
                                         paddr_t free_mem_end)

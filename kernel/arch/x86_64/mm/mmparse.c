@@ -26,7 +26,7 @@ extern int nvmmem_map_num;
 #ifdef USE_CXL_MEM
 extern paddr_t cxlmem_map[N_PHYS_MEM_POOLS][2];
 extern int cxlmem_map_num;
-#endif /* USE_NVM */
+#endif /* USE_CXL_MEM */
 
 /* vaddr: kernel image end */
 extern char img_end[];
@@ -80,6 +80,9 @@ static void refill_kernel_page_table(u64 mem_size)
                 /* Add mapping for 1G, 2G, 3G ... */
                 *direct_mapping = (idx << 30) + PRESENT + WRITABLE + HUGE_1G
                                   + GLOBAL + NX;
+                kdebug("set direct mapping (%p) to idx %d\n",
+                      direct_mapping,
+                      idx);
                 mem_size -= SIZE_1G;
         }
 
@@ -95,6 +98,71 @@ static void refill_kernel_page_table(u64 mem_size)
                 mem_size -= SIZE_1G;
                 direct_mapping += 1;
                 idx += 1;
+        }
+
+        /* Flush TLB: SMP is not enabled for now. */
+        extern void flush_boot_tlb(void);
+        flush_boot_tlb();
+}
+
+/**
+ * remap_memory -- remap a mem region from old place to new place in kernel page table
+ * @from_addr: addr of the old place
+ * @to_addr: addr of the new place
+ * @mem_size: size of the mem resource
+ * return mapped kernel vaddr
+ */
+void remap_memory(u64 from_addr, u64 to_addr, u64 mem_size)
+{
+        u64 *new_mapping, *old_mapping;
+        u64 from_idx, to_idx;
+
+        BUG_ON(!IS_ALIGNED(to_addr, SIZE_1G));
+        to_idx = to_addr / SIZE_1G;
+
+        BUG_ON(!IS_ALIGNED(from_addr, SIZE_1G));
+        from_idx = from_addr / SIZE_1G;
+
+        /* Re-setup the direct mapping for all the physical memory */
+        new_mapping = (u64 *)CHCORE_PUD_Direct_Mapping;
+        new_mapping += to_idx;
+
+        old_mapping = (u64 *)CHCORE_PUD_Direct_Mapping;
+        old_mapping += from_idx;
+
+        /* We map the available physical memory here. 0~1G has been mapped. */
+        while (mem_size > 0 && to_idx < 511 /* 0, 1 to 511 */) {
+                /* clear old mapping */
+                *old_mapping = 0;
+                /* Add new mapping */
+                *new_mapping = (from_idx << 30) + PRESENT + WRITABLE + HUGE_1G
+                                  + GLOBAL + NX;
+                kdebug("set new mapping (%p) to idx %d\n",
+                      new_mapping,
+                      from_idx);
+                mem_size -= SIZE_1G;
+                from_idx += 1;
+                to_idx += 1;
+                new_mapping += 1;
+                old_mapping += 1;
+        }
+
+        /* Re-setup the direct mapping for all the physical memory */
+        new_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
+        old_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
+        while (mem_size > SIZE_1G) {
+                /* Can not map to the last 1GB, mapped to kernel code */
+                BUG_ON(to_idx >= 1023);
+                /* clear old mapping */
+                *old_mapping = 0;
+                /* Add new mapping */
+                *new_mapping = (from_idx << 30) + PRESENT + WRITABLE + HUGE_1G
+                                  + GLOBAL + NX;
+                mem_size -= SIZE_1G;
+                from_idx += 1;
+                to_idx += 1;
+                new_mapping += 1;
+                old_mapping += 1;
         }
 
         /* Flush TLB: SMP is not enabled for now. */
@@ -396,6 +464,7 @@ static void parse_kvm_ivshmem_device()
 
         /* init dsm metadata */
         dsm_init_meta(phys_to_virt(dev_start));
+        dsm_init_mm(dev_start, dev_size);
         dsm_add_machine();
 
         kinfo("Use IVSHMEM (SHM): 0x%lx - 0x%lx\n",

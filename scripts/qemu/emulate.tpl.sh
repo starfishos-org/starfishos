@@ -7,6 +7,8 @@ basedir=$(dirname "$0")
 nvm_backend_file="/tmp/nvm-file-$USER"
 
 ivshmem_dev="/dev/shm/ivshmem-$USER"
+# ivshmem_dev="/dev/dax0.0,align=2M"
+# align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
 
 port=$(shuf -i 30000-40000 -n 1)
 #while true; do
