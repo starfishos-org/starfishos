@@ -24,7 +24,7 @@ asm
 
 run_*
 
-exec_log
+exec_log*
 make-tag.sh
 
 !scripts/build/
