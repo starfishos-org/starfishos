@@ -49,6 +49,7 @@ int at_quick_exit (void (*) (void));
 _Noreturn void quick_exit (int);
 
 char *getenv (const char *);
+int putenv (char *);
 
 int system (const char *);
 

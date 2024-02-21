@@ -1,3 +1,5 @@
 if(CHCORE_SAMPLE_STATIC)
     add_subdirectory(apps)
+    add_subdirectory(utils)
+    chcore_copy_all_targets_to_ramdisk()
 endif()

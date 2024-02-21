@@ -1,7 +1,7 @@
 cpu_num=$1
 test_name=$2
 
-./dsm-scripts/change_cpu_num.sh 32 $cpu_num
+./dsm-scripts/change_cpu_num.sh 32
 
 ./quick-build.sh
 
@@ -9,10 +9,10 @@ test_name=$2
 
 if [ "$test_name" = "pca" ]; then
     echo "Running PCA function..."
-    ./dsm-scripts/pca.exp
+    ./dsm-scripts/pca.exp $cpu_num
 elif [ "$test_name" = "kmeans" ]; then
     echo "Running KMeans function..."
-    ./dsm-scripts/kmeans.exp
+    ./dsm-scripts/kmeans.exp $cpu_num
 else
     echo "Unknown test_name: $test_name"
 fi

@@ -10,9 +10,6 @@ add_executable(irq.bin irq.c)
 add_executable(pipe.bin pipe.c)
 add_executable(ttcp.bin ttcp.c)
 add_executable(multicast.bin multicast.c)
-add_executable(cat.bin cat.c)
-add_executable(diff.bin diff.c)
-add_executable(mount.bin mount.c)
 
 add_executable(timerfd.bin timerfd.c)
 add_executable(timerfd_epoll.bin timerfd_epoll.c)
@@ -26,8 +23,3 @@ add_executable(tcp_echo_server.bin tcp_echo_server.c)
 
 add_executable(pingpong.bin ping_pong.c)
 add_executable(pingpong-pthread.bin ping_pong_pthread.c)
-
-# TreeSLS
-add_subdirectory(treesls)
-
-chcore_copy_all_targets_to_ramdisk()
