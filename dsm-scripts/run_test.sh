@@ -1,9 +1,16 @@
 cpu_num=$1
 test_name=$2
+mode=$3
 
 ./dsm-scripts/change_cpu_num.sh 32
 
-./quick-build.sh
+if [ "$mode" = "build" ]; then
+    ./chbuild build
+elif [ "$mode" = "full-build" ]; then
+    ./quick-build.sh
+else
+    echo "direct run without build"
+fi
 
 ./dsm-scripts/config.sh
 
