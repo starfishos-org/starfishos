@@ -5,6 +5,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <pthread.h>
+#include <string.h>
 
 #include <chcore/syscall.h>
 #include <chcore/launcher.h>
@@ -23,16 +24,25 @@ struct shared_data {
 
 volatile struct shared_data *region;
 
+struct passed_args {
+        int myturn;
+        u64 affinity;
+};
+
 void *count(void *arg)
 {
-        int myturn = (int)(long)arg;
+        struct passed_args *pargs = (struct passed_args *)arg;
+        int myturn = pargs->myturn;
+        u64 affinity = pargs->affinity;
 
         /* schedule FOLLOWER to another machine */
-        if (myturn == FOLLOWER) {
-                usys_set_affinity(-2, 15);
+        if (affinity != -1) {
+                usys_set_affinity(-2, affinity);
                 usys_yield();
         }
-        printf("I'm ready to ping pong\n");
+        printf("%s's ready to ping pong (aff=%lu)\n",
+                (myturn == LEADER ? "LEADER": "FOLLOWER"),
+                affinity);
         
         for (;;) {
                 /* wait for my turn */
@@ -52,10 +62,28 @@ void *count(void *arg)
         return NULL;
 }
 
+#define eq(s1, s2) (!strcmp(s1, s2))
+
 int main(int argc, char *argv[])
 {
         // pthread_attr_t attr;
         pthread_t tid;
+        int i;
+        u64 follower_aff = -1;
+        int lastarg;
+
+        for (i = 1; i < argc; i++) {
+                lastarg = (i == (argc-1));
+
+                if (eq(argv[i],"-a")) {
+                        if (lastarg) goto invalid;
+                        follower_aff = atoi(argv[++i]);
+                } else if (eq(argv[i],"-help")) {
+                        goto usage;
+                } else {
+                        goto invalid;
+                }
+        }
         
         /* create shared memory */
         region = (volatile struct shared_data *)malloc(
@@ -67,11 +95,23 @@ int main(int argc, char *argv[])
         region->turn = 0; // leader
         region->counter = 1;
 
+        struct passed_args *args1 = malloc(sizeof(struct passed_args));
+        args1->myturn = FOLLOWER;
+        args1->affinity = follower_aff;
+
         /* spawn the follower process */
-        pthread_create(&tid, NULL, count, (void *)(long)FOLLOWER);
+        pthread_create(&tid, NULL, count, (void *)args1);
 
         /* start counting */
-        count((void *)(long)LEADER);
-        
+        struct passed_args *args2 = malloc(sizeof(struct passed_args));
+        args2->myturn = LEADER;
+        args2->affinity = 0;
+
+        count((void *)args2);
+invalid:
+        printf("Invalid option \"%s\" or option argument missing\n",argv[i]);
+usage:
+        printf("Usage: checkpoint.bin [-a <affinity>] [-help]\n"
+                " -a <affinity>      set affinity to core <affinity>\n");
         return 0;
 }
