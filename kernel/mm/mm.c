@@ -162,7 +162,12 @@ void mm_init(void *physmem_info, int clear_nvm)
         /* Step-1: parse the physmem_info to get each continuous range of the
          * physmem. */
         physmem_map_num = 0;
+#ifdef DSM_SHM_DEVICE_CXL_NUMA
+        extern void parse_numa_mem_map();
+        parse_numa_mem_map();
+#else
         parse_mem_map(physmem_info);
+#endif
 #ifdef USE_NVM
         nvmmem_map_num = 0;
         parse_nvm_map();

@@ -250,6 +250,25 @@ void parse_mem_map(void *info)
               physmem_map[0][1]);
 }
 
+#ifdef DSM_SHM_DEVICE_CXL_NUMA
+void parse_numa_mem_map()
+{
+        u64 cxl_start = 0, cxl_size = 0;
+        u64 max_paddr;
+        
+        dram_numa_mode_setup_mem(&cxl_start, &cxl_size);
+        physmem_map[0][0] = cxl_start;
+        physmem_map[0][1] = cxl_start + cxl_size;
+        max_paddr = physmem_map[0][1];
+
+        refill_kernel_page_table(max_paddr);
+
+        kinfo("Use NUMA NODE: 0x%lx - 0x%lx\n",
+              physmem_map[0][0],
+              physmem_map[0][1]);
+}
+#endif
+
 #ifdef USE_NVM
 void parse_nvm_map(void *info)
 {
@@ -358,9 +377,8 @@ void parse_cxlmem_map()
         ivshmem_setup_mem(&dev_start, &dev_size);
 #elif defined(DSM_SHM_DEVICE_CXL)
         real_cxl_setup_mem(&dev_start, &dev_size);
-#elif defined(DSM_SHM_DEVICE_CXLSPR)
+#elif defined(DSM_SHM_DEVICE_CXL_NUMA)
         /* on spr2, shm device is simulated as NUMA node */
-        extern void real_cxl_numa_mode_setup_mem(u64 * start, u64 * end);
         real_cxl_numa_mode_setup_mem(&dev_start, &dev_size);
 #endif
         /* refill page table */

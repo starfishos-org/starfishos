@@ -59,7 +59,7 @@ if(CHCORE_SSI)
       -device ivshmem-plain,memdev=hostmem \
       -cpu host -smp 32 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
-  elseif("${DSM_SHM_DEVICE}" STREQUAL "CXLSPR")
+  elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL_NUMA")
     chcore_generate_emulate_sh(
       "qemu-system-x86_64"
       "--enable-kvm -M q35 -m 4G \
