@@ -4,6 +4,7 @@
 #include <common/size.h>
 #include <mm/mm.h>
 #include <mm/nvm.h>
+#include <mm/numa.h>
 #include <drivers/cxl.h>
 #include <arch/mmu.h>
 #include <arch/drivers/multiboot2.h>
@@ -328,136 +329,45 @@ void parse_nvm_map(void *info)
 #endif /* USE_NVM */
 
 #ifdef USE_CXL_MEM
-static void parse_cxl_mem_device(struct cxl_mem_dev *devs, int dev_num)
+void real_cxl_setup_mem(u64 *start, u64 *size)
 {
-        // fill kernel page table for cxl mem devices
         struct cxl_mem_dev *dev;
-        u64 max_paddr = 0, dev_start = 0, dev_end = 0;
-        int idx = 0;
 
-        if (dev_num == 0)
-                return;
+        dev = &(cxl_mem_devs[0]);
+        *start = cxl_get_memdev_start(dev);
+        *size = cxl_get_memdev_end(dev);
 
-        for (idx = 0; idx < dev_num; idx++) {
-                dev = &(devs[idx]);
-                dev_start = cxl_get_memdev_start(dev);
-                dev_end = cxl_get_memdev_end(dev);
+        // enable hdm decoder
+        // struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
+        // cxl_debug("cxl parse chbs: base=%llx\n", ctx->base);
 
-                cxlmem_map[cxlmem_map_num][0] = dev_start;
-                cxlmem_map[cxlmem_map_num][1] = dev_end;
-
-                // dsm_add_visible_memdev(dev->start, dev->size, 1);
-
-                if (dev_end > max_paddr)
-                        max_paddr = dev_end;
-
-                kinfo("Use CXL Fixed Memory Window: 0x%lx - 0x%lx\n",
-                      cxlmem_map[cxlmem_map_num][0],
-                      cxlmem_map[cxlmem_map_num][1]);
-
-                cxlmem_map_num++;
-        }
-
-        if (max_paddr >= MAX_KERNEL_PG_PADDR)
-                BUG("[CXL] CXL memdev base exceed paddr limitation\n");
-
-        kinfo("[CXL] max paddr: %llx, paddr limit: %llx\n",
-              max_paddr,
-              MAX_KERNEL_PG_PADDR);
-
-        refill_kernel_page_table(max_paddr);
+        // struct cxl_component_reg_map map;
+        // cxl_probe_component_regs(NULL, (void *)phys_to_virt(ctx->base), &map);
 }
 
-#if 0
-/**
- * FIXME(FN): Map PCI memory to CHCORE_PUD_CODE_Mapping start
- * PCI MEM Base = 512 * 1G (0x40000000) = 0x2800000000
- */
-#define PCI_MEM_KBASE (0x2800000000)
-
-void print_binary(u64 value)
-{
-        u64 mask = 1ULL << 63;
-
-        for (int i = 0; i < 64; ++i) {
-                u64 bit = (value & mask) ? 1 : 0;
-                printk("%lu", bit);
-                mask >>= 1;
-        }
-
-        printk("\n");
-}
-
-/**
- * ioremap_pci_memory -- map a pci mem region to kernel page table
- * @paddr: start of the pci bar mem resource
- * @mem_size: size of the pci bar mem resource
- * return mapped kernel vaddr
- */
-static int ioremap_pci_memory(paddr_t paddr, size_t mem_size, paddr_t *base)
-{
-        u64 *direct_mapping;
-        u64 idx, paddr_idx;
-
-        BUG_ON(!IS_ALIGNED(paddr, SIZE_1G));
-
-        idx = 0;
-        paddr_idx = paddr / SIZE_1G;
-
-        kinfo("idx=%d, paddr_idx=%llx\n", idx, paddr_idx);
-
-        /* Re-setup the direct mapping for all the physical memory */
-        direct_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
-        *direct_mapping =
-                (paddr_idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
-        printk("%lx\n", *direct_mapping);
-        print_binary(*direct_mapping);
-
-        // while (mem_size >= SIZE_1G) {
-        //         /**
-        //         *should not map to the last 1GB,
-        //         * which is mapped to kernel code
-        //         */
-        //         if (idx >= 1023) {
-        //                 return -1;
-        //         }
-        //         /* Add mapping for 1G, 2G, 3G ... */
-        //         *direct_mapping = (paddr_idx << 30) + PRESENT + WRITABLE
-        //                           + HUGE_1G + GLOBAL + NX;
-        //         print_binary(*direct_mapping);
-        //         mem_size -= SIZE_1G;
-        //         direct_mapping += 1;
-        //         idx += 1;
-        //         paddr_idx += 1;
-        // }
-
-        /* Flush TLB: SMP is not enabled for now. */
-        extern void flush_boot_tlb(void);
-        flush_boot_tlb();
-
-        *base = PCI_MEM_KBASE;
-        return 0;
-}
-#endif
-
-static void parse_kvm_ivshmem_device()
+void parse_cxlmem_map()
 {
         // fill kernel page table for cxl mem devices
         u64 dev_start = 0, dev_size = 0;
-        // paddr_t base;
-        // int rc;
+        u64 max_paddr = 0;
+        cxlmem_map_num = 0;
 
+/* simulate dev use ivshmem or real cxl device */
+#if defined(DSM_SHM_DEVICE_IVSHMEM)
         extern void ivshmem_setup_mem(u64 * start, u64 * end);
         ivshmem_setup_mem(&dev_start, &dev_size);
-
-#if 0
-        rc = ioremap_pci_memory(dev_start, dev_size, &base);
-        if (rc) {
-                kinfo("mmap pci memory region failed\n");
-                return;
-        }
+#elif defined(DSM_SHM_DEVICE_CXL)
+        real_cxl_setup_mem(&dev_start, &dev_size);
+#elif defined(DSM_SHM_DEVICE_CXLSPR)
+        /* on spr2, shm device is simulated as NUMA node */
+        extern void real_cxl_numa_mode_setup_mem(u64 * start, u64 * end);
+        real_cxl_numa_mode_setup_mem(&dev_start, &dev_size);
 #endif
-        refill_kernel_page_table(dev_start + dev_size);
+        /* refill page table */
+        max_paddr = dev_start + dev_size;
+        if (max_paddr >= MAX_KERNEL_PG_PADDR)
+                BUG("[CXL] CXL memdev base exceed paddr limitation\n");
+        refill_kernel_page_table(max_paddr);
 
         cxlmem_map[cxlmem_map_num][0] = dev_start + sizeof(dsm_metadata_t);
         cxlmem_map[cxlmem_map_num][1] = dev_start + dev_size;
@@ -467,28 +377,10 @@ static void parse_kvm_ivshmem_device()
         dsm_init_mm(dev_start, dev_size);
         dsm_add_machine();
 
-        kinfo("Use IVSHMEM (SHM): 0x%lx - 0x%lx\n",
+        kinfo("[SHM] Use 0x%lx - 0x%lx\n",
               cxlmem_map[cxlmem_map_num][0],
               cxlmem_map[cxlmem_map_num][1]);
         cxlmem_map_num++;
-}
-
-void parse_cxlmem_map()
-{
-        parse_cxl_mem_device(cxl_mem_devs, cxl_mem_dev_num);
-
-        // enable hdm decoder
-        struct cxl_chbs_context *ctx = &cxl_chbs_ctxs[0];
-        cxl_debug("cxl parse chbs: base=%llx\n", ctx->base);
-
-        struct cxl_component_reg_map map;
-        cxl_probe_component_regs(NULL, (void *)phys_to_virt(ctx->base), &map);
-
-#if 1
-        /* Currently, we use ivshmem to simulate CXL Type3 device */
-        cxlmem_map_num = 0;
-        parse_kvm_ivshmem_device();
-#endif
 
 #if 0 /* test the visibility of CXL device write */
         vaddr_t start = phys_to_virt(cxlmem_map[0][0]);

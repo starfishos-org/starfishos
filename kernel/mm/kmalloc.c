@@ -151,6 +151,10 @@ void *kzalloc(size_t size)
 #else
 void *kmalloc(unsigned long long size, int flags)
 {
+#ifdef DSM_MALLOC_MODE_DRAM
+        UNUSED(flags);
+        return dram_kmalloc(size);
+#endif
         switch (flags) {
         case __DEFAULT__:
                 // return dram_kmalloc(size);
@@ -175,6 +179,10 @@ void *kzalloc(unsigned long long size, int flags)
 /* Return vaddr of (1 << order) continous free physical pages */
 void *get_pages(int order, int flags)
 {
+#ifdef DSM_MALLOC_MODE_DRAM
+        UNUSED(flags);
+        return get_dram_pages(order);
+#endif
         switch (flags) {
         case __DEFAULT__:
                 // return get_dram_pages(order);

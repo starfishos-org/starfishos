@@ -83,7 +83,7 @@ void parse_madt(struct acpi_table_madt *madt)
                                 (struct acpi_madt_local_apic *)entry;
                         if (local_apic->id == 0xFF)
                                 break;
-                        kinfo("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
+                        kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
                               local_apic->processor_id,
                               local_apic->id,
                               local_apic->lapic_flags);
@@ -114,7 +114,7 @@ void parse_madt(struct acpi_table_madt *madt)
                         kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
                                local_x2apic->uid,
                                local_x2apic->local_apic_id,
-                               local_x2apic->flags);
+                               local_x2apic->lapic_flags);
 #ifdef USE_SINGLE_NUMA_NODE
                         if (real_core_cnt % 2 == 0) {
 #endif

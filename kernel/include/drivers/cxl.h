@@ -6,7 +6,7 @@
 #include <common/types.h>
 #include <arch/mm/page_table.h>
 
-// #define CXL_DEBUG
+#define CXL_DEBUG
 
 #define CXL_PREFIX "[cxl]"
 

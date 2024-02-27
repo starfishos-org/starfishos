@@ -5,6 +5,8 @@
 #include <dsm/dsm.h>
 #endif
 
+#include <mm/numa.h>
+
 // TODO: consider merge several parse_table together
 void parse_srat(struct acpi_table_srat *table)
 {
@@ -29,15 +31,15 @@ void parse_srat(struct acpi_table_srat *table)
                 case ACPI_SRAT_TYPE_MEMORY_AFFINITY: {
                         struct acpi_srat_mem_affinity *mem_aff =
                                 (struct acpi_srat_mem_affinity *)entry;
-                        kinfo("[SRAT INFO] [MEM AFF] address: 0x%llx, size: %llx, prox_domain=%d\n",
-                              mem_aff->base_address,
-                              mem_aff->length,
-                              mem_aff->proximity_domain);
-#if 0
-                        // #ifdef DSM_ENABLED
-                        dsm_add_visible_memdev(
-                                // mem_aff->base_address, mem_aff->length, 0);
-#endif
+                        if (mem_aff->base_address && mem_aff->length) {
+                                kinfo("[SRAT INFO] [MEM AFF] address: 0x%llx, size: %llx, prox_domain=%d\n",
+                                      mem_aff->base_address,
+                                      mem_aff->length,
+                                      mem_aff->proximity_domain);
+                                add_mem_to_numa_node(mem_aff->base_address,
+                                      mem_aff->length,
+                                      mem_aff->proximity_domain);
+                        }
                         break;
                 }
                 case ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY: {

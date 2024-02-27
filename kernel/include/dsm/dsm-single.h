@@ -62,8 +62,12 @@ u32 cpu_range_low, cpu_range_high;
 #define CPU_RANGE_HIGH (cpu_range_high)
 
 /* local to global, global to local */
+#ifndef cpuid_l2g
 #define cpuid_l2g(x) ((x) + CPU_RANGE_LOW)
-#define cpuid_g2l(x) ((x) - CPU_RANGE_LOW)
+#endif
+#ifndef cpuid_g2l
+#define cpuid_g2l(x) ((x)-CPU_RANGE_LOW)
+#endif
 
 static bool inline is_local_cpu(u32 cpuid)
 {
@@ -132,10 +136,17 @@ static inline u64 dsm_is_inited()
 
 static inline void dsm_init_mm(paddr_t shm_paddr, paddr_t shm_size)
 {
+#ifdef DSM_CLEAR_FIRST
+        memset((void *)phys_to_virt(shm_paddr),
+               0, sizeof(dsm_metadata_t));
+#endif
         /* check and init shm_vaddr */
         if (dsm_meta->shm_paddr) {
                 /* TODO: should remap shm */
-                BUG_ON(dsm_meta->shm_paddr != shm_paddr);
+                if (dsm_meta->shm_paddr != shm_paddr) {
+                        kwarn("[DSM] shm paddr mismatch, expect: %llu, get: %llu\n",
+                              shm_paddr, dsm_meta->shm_paddr);
+                }
         } else {
                 dsm_meta->shm_paddr = shm_paddr;
                 dsm_meta->shm_size = shm_size;

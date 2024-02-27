@@ -7,13 +7,19 @@ target_sources(
             slab.c
             vmregion.c
             dram_alloc.c
-            dram_slab.c
-            cxl_alloc.c
-            cxl_slab.c)
+            dram_slab.c)
 
-if(RMAP_ENABLED)
+if(CHCORE_SLS)
   target_sources(
     ${kernel_target}
     PRIVATE rmap.c
   )
+endif()
+
+if(CHCORE_SSI)
+target_sources(
+  ${kernel_target}
+  PRIVATE cxl_alloc.c
+          cxl_slab.c
+)
 endif()

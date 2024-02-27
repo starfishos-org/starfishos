@@ -63,10 +63,6 @@ target_include_directories(${kernel_target} PRIVATE include/arch/${CHCORE_ARCH})
 target_include_directories(
     ${kernel_target} PRIVATE include/arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
 
-
-# enable DSM configuration
-target_compile_definitions(${kernel_target} PRIVATE DSM_ENABLED)
-
 # Add source code directories
 add_subdirectory(arch/${CHCORE_ARCH})
 add_subdirectory(arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
@@ -103,8 +99,17 @@ endmacro()
 # enabel DRAM allocator
 target_compile_definitions(${kernel_target} PRIVATE USE_DRAM)
 
-# enabel CXL mem allocator
-target_compile_definitions(${kernel_target} PRIVATE USE_CXL_MEM)
+if(CHCORE_SSI)
+  include(dsm_config.cmake)
+  # enable DSM configuration
+  target_compile_definitions(${kernel_target} PRIVATE DSM_ENABLED)
+  target_compile_definitions(${kernel_target} PRIVATE USE_CXL_MEM)
+  target_compile_definitions(${kernel_target} PRIVATE DSM_CLEAR_FIRST)
+  # use which device to simulate the shm
+  target_compile_definitions(${kernel_target} PRIVATE DSM_SHM_DEVICE_${DSM_SHM_DEVICE})
+  # malloc configuration
+  target_compile_definitions(${kernel_target} PRIVATE DSM_MALLOC_MODE_${DSM_MALLOC_MODE})
+endif()
 
 # SLS Basic Configruations
 if(CHCORE_SLS)

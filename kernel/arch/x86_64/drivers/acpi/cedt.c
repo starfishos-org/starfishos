@@ -79,7 +79,7 @@ static void cxl_parse_chbs(struct acpi_cedt_chbs *chbs)
 
         ctx->uid = chbs->uid;
         ctx->cxl_version = chbs->cxl_version;
-        BUG_ON(ctx->cxl_version != ACPI_CEDT_CHBS_VERSION_CXL20);
+        // BUG_ON(ctx->cxl_version != ACPI_CEDT_CHBS_VERSION_CXL20);
         ctx->base = chbs->base;
 }
 

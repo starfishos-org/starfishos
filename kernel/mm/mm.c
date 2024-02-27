@@ -225,10 +225,10 @@ skip_parse_info:
 
 void ext_mm_init()
 {
+#ifdef USE_CXL_MEM
         int i = 0, cxlmem_map_idx = 0;
         paddr_t free_mem_start = 0, free_mem_end = 0;
 
-#ifdef USE_CXL_MEM
         cxlmem_map_num = 0;
         parse_cxlmem_map();
 

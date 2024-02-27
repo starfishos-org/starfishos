@@ -129,6 +129,7 @@ static int cxl_probe_regs(struct cxl_register_map *map)
         switch (map->reg_type) {
         case CXL_REGLOC_RBI_COMPONENT:
                 comp_map = &map->component_map;
+                cxl_debug("[CXL] BI_COMPONENT base: 0x%llx\n", base);
                 cxl_probe_component_regs(pdev, base, comp_map);
                 cxl_debug("[CXL] Set up component registers\n");
                 break;

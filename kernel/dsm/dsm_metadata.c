@@ -1,3 +1,4 @@
+#include "mm/slab.h"
 #include <dsm/dsm-single.h>
 
 void dsm_add_machine()
@@ -21,6 +22,7 @@ void dsm_add_machine()
         dsm_meta->local_meta[MACHINE_ID].cpu_range_low = CPU_RANGE_LOW;
         dsm_meta->local_meta[MACHINE_ID].cpu_range_high = CPU_RANGE_HIGH;
 
+#ifdef DSM_LINEAR_MM_LAYOUT
         /* dram */
         u64 lmem_old_start, lmem_new_start, lmem_size;
         lmem_old_start = physmem_map[0][0];
@@ -40,12 +42,13 @@ void dsm_add_machine()
         dsm_meta->local_meta[MACHINE_ID].local_mem_start = lmem_new_start;
         dsm_meta->local_meta[MACHINE_ID].local_mem_size = lmem_size;
 
+        kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
+              MACHINE_ID,
+              lmem_new_start,
+              lmem_new_start + lmem_size);
+#endif
         kinfo("[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n",
               MACHINE_ID,
               CPU_RANGE_LOW,
               CPU_RANGE_HIGH);
-        kinfo("[DSM] machine %d local memory range: %llx-%llx\n", 
-            MACHINE_ID, 
-            lmem_new_start, 
-            lmem_new_start + lmem_size);
 }
