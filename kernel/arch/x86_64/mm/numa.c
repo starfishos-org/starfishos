@@ -24,7 +24,7 @@ void add_mem_to_numa_node(u64 base, u64 size, u64 domain_id)
                 base + size);
 }
 
-static void find_numa_mem_with_id(u64 domain_id, u64 *start, u64 *size)
+__attribute__((unused)) static void find_numa_mem_with_id(u64 domain_id, u64 *start, u64 *size)
 {
         int idx;
         for (idx = 0; idx < MAX_NR_NUMAS; idx++) {
