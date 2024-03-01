@@ -2,6 +2,7 @@
 
 void add_mem_to_numa_node(u64 base, u64 size, u64 domain_id)
 {
+#if 0
         int idx;
 
         for (idx = 0; idx < MAX_NR_NUMAS; idx++) {
@@ -13,6 +14,7 @@ void add_mem_to_numa_node(u64 base, u64 size, u64 domain_id)
                         return;
                 }
         }
+#endif
         /* new numa node */
         numa_nodes[numa_node_nr].base = base;
         numa_nodes[numa_node_nr].size = size;

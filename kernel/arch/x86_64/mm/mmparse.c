@@ -261,6 +261,8 @@ void parse_numa_mem_map()
         physmem_map[0][1] = cxl_start + cxl_size;
         max_paddr = physmem_map[0][1];
 
+        physmem_map_num = 1;
+
         refill_kernel_page_table(max_paddr);
 
         kinfo("Use NUMA NODE: 0x%lx - 0x%lx\n",
