@@ -7,7 +7,7 @@
 #define COM2    0x2f8
 
 #define IRQ_COM1 4
-#define IRQ_COM2 4
+#define IRQ_COM2 3
 
 #define COM_IN_RECEIVE             0	// DLAB = 0, in
 #define COM_OUT_TRANSMIT           0	// DLAB = 0, out
@@ -63,7 +63,7 @@ static struct {
 	int irq;
 } conf[] = {
 	// Try COM2 (aka ttyS1) first, because it usually does SOL for IPMI.
-	// { COM2, IRQ_COM2 },
+	{ COM2, IRQ_COM2 },
 	// Still try COM1 (aka ttyS0), because it is what QEMU emulates.
 	{ COM1, IRQ_COM1 },
 };
