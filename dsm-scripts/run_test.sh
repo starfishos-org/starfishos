@@ -20,6 +20,9 @@ if [ "$test_name" = "pca" ]; then
 elif [ "$test_name" = "kmeans" ]; then
     echo "Running KMeans function..."
     ./dsm-scripts/kmeans.exp $cpu_num
+elif [ "$test_name" = "kmeans" ]; then
+    echo "Running Wordcount function..."
+    ./dsm-scripts/word_count.exp $cpu_num
 else
     echo "Unknown test_name: $test_name"
 fi
