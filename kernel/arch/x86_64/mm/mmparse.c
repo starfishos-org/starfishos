@@ -374,7 +374,7 @@ void parse_cxlmem_map()
         cxlmem_map_num = 0;
 
 /* simulate dev use ivshmem or real cxl device */
-#if defined(DSM_SHM_DEVICE_IVSHMEM)
+#if defined(DSM_SHM_DEVICE_IVSHMEM) || defined(DSM_SHM_DEVICE_IVSHMEM_NUMA)
         extern void ivshmem_setup_mem(u64 * start, u64 * end);
         ivshmem_setup_mem(&dev_start, &dev_size);
 #elif defined(DSM_SHM_DEVICE_CXL)
