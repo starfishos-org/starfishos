@@ -1,2 +1,8 @@
-set(DSM_SHM_DEVICE "IVSHMEM_NUMA") # "IVSHMEM_NUMA" or "CXL_NUMA" or "CXL"
-set(DSM_MALLOC_MODE "DRAM") # "ALL_CXL"
+# DSM_SHM_DEVICE:
+# "IVSHMEM_NUMA" or "CXL_NUMA" or "CXL"
+set(DSM_SHM_DEVICE "IVSHMEM")
+# DSM_MALLOC_MODE 
+# "CXL": all on CXL
+# "DRAM": all on DRAM
+# "MIXED": our target partten
+set(DSM_MALLOC_MODE "CXL")

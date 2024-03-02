@@ -154,16 +154,19 @@ void *kmalloc(unsigned long long size, int flags)
 #ifdef DSM_MALLOC_MODE_DRAM
         UNUSED(flags);
         return dram_kmalloc(size);
-#endif
+#elif defined(DSM_MALLOC_MODE_CXL)
+        UNUSED(flags);
+        return cxl_kmalloc(size);
+#elif defined(DSM_MALLOC_MODE_MIXED)
         switch (flags) {
         case __DEFAULT__:
-                // return dram_kmalloc(size);
+                return dram_kmalloc(size);
         case __SHARED__:
                 return cxl_kmalloc(size);
         default:
                 kwarn_once("%s: type: %d is not supported\n", __func__, flags);
         }
-
+#endif
         return NULL;
 }
 
@@ -182,16 +185,19 @@ void *get_pages(int order, int flags)
 #ifdef DSM_MALLOC_MODE_DRAM
         UNUSED(flags);
         return get_dram_pages(order);
-#endif
+#elif defined(DSM_MALLOC_MODE_CXL)
+        UNUSED(flags);
+        return get_cxl_pages(order);
+#elif defined(DSM_MALLOC_MODE_MIXED)
         switch (flags) {
         case __DEFAULT__:
-                // return get_dram_pages(order);
+                return get_dram_pages(order);
         case __SHARED__:
                 return get_cxl_pages(order);
         default:
                 kwarn_once("%s: type: %d is not supported\n", __func__, flags);
         }
-
+#endif
         return NULL;
 }
 
