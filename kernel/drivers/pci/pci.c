@@ -441,6 +441,7 @@ int pci_setup_device(struct pci_dev *dev)
 /* PCI setup all valid devices */
 void pci_setup_devices()
 {
+        arch_pci_mmcfg_init();
         /* loop mmcfg and setup valid device */
         // pci_debug("%s: TODO\n", __func__);
         arch_pci_probe_devices();

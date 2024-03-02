@@ -63,7 +63,6 @@ void main(u64 mbmagic, paddr_t mbaddr)
         kinfo("[ChCore] mm init finished\n");
 
         /* Configure drivers info */
-        arch_pci_mmcfg_init();
         pci_setup_devices();
         kinfo("[ChCore] pci setup finished\n");
 
