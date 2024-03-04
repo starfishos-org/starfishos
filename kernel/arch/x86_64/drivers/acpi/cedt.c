@@ -57,7 +57,7 @@ static int cxl_acpi_cfmws_verify(struct acpi_cedt_cfmws *cfmws)
         }
 
         if (!IS_ALIGNED(cfmws->window_size, SIZE_256M)) {
-                kdebug(dev, "CFMWS Window Size not 256MB aligned\n");
+                kdebug("CFMWS Window Size not 256MB aligned\n");
                 return -1;
         }
 
