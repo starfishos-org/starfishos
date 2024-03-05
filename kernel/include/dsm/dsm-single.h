@@ -102,6 +102,7 @@ typedef struct {
          */
         u64 shm_paddr;
         u64 shm_size;
+        u64 local_paddr;
         u64 max_paddr; // vaddr of max local DRAM
 
         /* local mem kernel addr of each machine */
@@ -134,7 +135,8 @@ static inline u64 dsm_is_inited()
         return (DSM_STATE > DSM_CONFIG_STATE_UNINITED);
 }
 
-static inline void dsm_init_mm(paddr_t shm_paddr, paddr_t shm_size)
+static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size, 
+                        paddr_t local_paddr)
 {
 #ifdef DSM_CLEAR_FIRST
         memset((void *)phys_to_virt(shm_paddr),
@@ -150,7 +152,8 @@ static inline void dsm_init_mm(paddr_t shm_paddr, paddr_t shm_size)
         } else {
                 dsm_meta->shm_paddr = shm_paddr;
                 dsm_meta->shm_size = shm_size;
-                dsm_meta->max_paddr = shm_paddr + shm_size;
+                dsm_meta->local_paddr = local_paddr;
+                dsm_meta->max_paddr = local_paddr;
         }
 }
 

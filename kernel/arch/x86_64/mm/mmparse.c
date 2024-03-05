@@ -151,9 +151,9 @@ void remap_memory(u64 from_addr, u64 to_addr, u64 mem_size)
         /* Re-setup the direct mapping for all the physical memory */
         new_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
         old_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
-        while (mem_size > SIZE_1G) {
+        
+        while (mem_size > 0 && to_idx < 1024) {
                 /* Can not map to the last 1GB, mapped to kernel code */
-                BUG_ON(to_idx >= 1023);
                 /* clear old mapping */
                 *old_mapping = 0;
                 /* Add new mapping */
@@ -165,6 +165,9 @@ void remap_memory(u64 from_addr, u64 to_addr, u64 mem_size)
                 new_mapping += 1;
                 old_mapping += 1;
         }
+
+        /* Can not mapped all */
+        BUG_ON(mem_size > 0);
 
         /* Flush TLB: SMP is not enabled for now. */
         extern void flush_boot_tlb(void);
@@ -394,7 +397,7 @@ void parse_cxlmem_map()
 
         /* init dsm metadata */
         dsm_init_meta(phys_to_virt(dev_start));
-        dsm_init_mm(dev_start, dev_size);
+        dsm_init_mm(dev_start, dev_size, physmem_map[0][0]);
         dsm_add_machine();
 
         kinfo("[SHM] Use 0x%lx - 0x%lx\n",

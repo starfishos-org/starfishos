@@ -142,9 +142,11 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
 
         /* Clear the page_metadata area. */
         memset((char *)start_page, 0, page_num * sizeof(struct page));
+        printk("buddy system page area end: 0x%llx\n", (u64)start_page + page_num * sizeof(struct page));
 
-        /* Init the page_metadata area. */
-        for (page_idx = 0; page_idx < page_num; ++page_idx) {
+                /* Init the page_metadata area. */
+        for (page_idx = 0; page_idx < page_num; ++page_idx)
+        {
                 page = start_page + page_idx;
                 page_set_flag(page, PG_allocated);
                 page->order = 0;
@@ -266,7 +268,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
         list_add(&page->node, free_list);
         pool->free_lists[order].nr_free += 1;
 
-#ifdef SLS_ENABLED
+#ifdef CHCORE_SLS
         commit_latest_log(pool);
 #endif
         unlock(&pool->buddy_lock);
@@ -301,19 +303,21 @@ struct page *virt_to_page(void *ptr)
                         break;
                 }
         }
+        if (pool)
+                goto out;
 #endif
 #ifdef USE_DRAM
-        if (pool == NULL /* not find NVM memory polls */) {
-                for (i = 0; i < physmem_map_num; ++i) {
-                        if (addr >= global_dram_mem[i]->pool_start_addr
-                            && addr < global_dram_mem[i]->pool_start_addr
-                                               + global_dram_mem[i]
-                                                         ->pool_mem_size) {
-                                pool = global_dram_mem[i];
-                                break;
-                        }
+        for (i = 0; i < physmem_map_num; ++i) {
+                if (addr >= global_dram_mem[i]->pool_start_addr
+                        && addr < global_dram_mem[i]->pool_start_addr
+                                        + global_dram_mem[i]
+                                                        ->pool_mem_size) {
+                        pool = global_dram_mem[i];
+                        break;
                 }
         }
+        if (pool)
+                goto find;
 #endif
 #ifdef USE_CXL_MEM
         for (i = 0; i < cxlmem_map_num; ++i) {
@@ -324,13 +328,23 @@ struct page *virt_to_page(void *ptr)
                         break;
                 }
         }
+        if (pool)
+                goto find;
 #endif
-        if (pool == NULL) {
-                BUG("pool=NULL for va=%llx\n", addr);
+#ifdef DSM_LINEAR_MM_LAYOUT
+        if (addr >= global_temp_mem->pool_start_addr
+                    && addr < global_temp_mem->pool_start_addr
+                                + global_temp_mem->pool_mem_size) {
+                pool = global_temp_mem;
+                goto find;
         }
+#endif
+        BUG("pool=NULL for va=%llx\n", addr);
 
+find:
         page = pool->page_metadata
                + (((vaddr_t)addr - pool->pool_start_addr) / BUDDY_PAGE_SIZE);
+        // BUG_ON(page->pool != pool);
         return page;
 }
 

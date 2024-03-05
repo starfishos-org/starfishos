@@ -29,16 +29,17 @@ void free_pages(void *addr);
 // TODO: merge several different kmalloc into kmalloc(size_t size, int flags)
 /* DRAM */
 void *dram_kmalloc(unsigned long long size);
-void *dram_kzalloc(unsigned long long size);
-// void kfree(void *ptr);
-
 void *get_dram_pages(int order);
-// void free_dram_pages(void *addr);
 
 /* CXL */
 void *cxl_kmalloc(unsigned long long size);
-void *cxl_kzalloc(unsigned long long size);
-// void cxl_kfree(void *ptr);
-
 void *get_cxl_pages(int order);
-// void free_cxl_pages(void *addr);
+
+#ifdef DSM_LINEAR_MM_LAYOUT
+/* Temporal */
+void *temp_kmalloc(unsigned long long size);
+void *get_temp_pages(int order);
+#else
+#define temp_kmalloc(size) kmalloc(size, __DEFAULT__)
+#define get_temp_pages(order) get_pages(order, __DEFAULT__)
+#endif

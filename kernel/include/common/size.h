@@ -33,3 +33,4 @@
 
 #define SIZE_1G 0x40000000
 #define SIZE_2G 0x80000000
+#define SIZE_4G 0x100000000

@@ -63,7 +63,7 @@ static struct {
 	int irq;
 } conf[] = {
 	// Try COM2 (aka ttyS1) first, because it usually does SOL for IPMI.
-	{ COM2, IRQ_COM2 },
+	// { COM2, IRQ_COM2 },
 	// Still try COM1 (aka ttyS0), because it is what QEMU emulates.
 	{ COM1, IRQ_COM1 },
 };

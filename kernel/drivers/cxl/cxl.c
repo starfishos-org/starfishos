@@ -11,8 +11,8 @@
 
 static struct cxl_memdev_state *cxl_memdev_state_create(struct pci_dev *pdev)
 {
-        struct cxl_memdev_state *mds = dram_kzalloc(sizeof(*mds));
-        mds->cxlds = dram_kzalloc(sizeof(*(mds->cxlds)));
+        struct cxl_memdev_state *mds = temp_kmalloc(sizeof(*mds));
+        mds->cxlds = temp_kmalloc(sizeof(*(mds->cxlds)));
         return mds;
 }
 

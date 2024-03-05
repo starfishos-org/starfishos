@@ -801,7 +801,7 @@ void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa)
                 lock(&(pmo->dram_cache.lock));
                 if (!pmo->dram_cache.array) {
                         pmo->dram_cache.array =
-                                dram_kzalloc(DIV_ROUND_UP(pmo->size, PAGE_SIZE)
+                                temp_kmalloc(DIV_ROUND_UP(pmo->size, PAGE_SIZE)
                                         * sizeof(u64));
                 }
                 unlock(&(pmo->dram_cache.lock));

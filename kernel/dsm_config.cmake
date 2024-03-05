@@ -5,4 +5,4 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "CXL": all on CXL
 # "DRAM": all on DRAM
 # "MIXED": our target partten
-set(DSM_MALLOC_MODE "CXL")
+set(DSM_MALLOC_MODE "DRAM")

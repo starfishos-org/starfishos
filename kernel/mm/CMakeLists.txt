@@ -21,5 +21,7 @@ target_sources(
   ${kernel_target}
   PRIVATE cxl_alloc.c
           cxl_slab.c
+          temp_alloc.c
+          temp_slab.c
 )
 endif()

@@ -45,8 +45,8 @@ static int slot_table_init(struct slot_table *slot_table, unsigned int size,
                 goto out_free_slots;
         }
 
-        slot_table->full_slots_bmp = dram_kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size))
-                                             * sizeof(unsigned long));
+        slot_table->full_slots_bmp = kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size))
+                                             * sizeof(unsigned long), __DEFAULT__);
         if (!slot_table->full_slots_bmp) {
                 r = -ENOMEM;
                 goto out_free_slots_bmp;

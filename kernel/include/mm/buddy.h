@@ -151,6 +151,10 @@ extern struct phys_mem_pool *global_dram_mem[];
 extern struct phys_mem_pool *global_cxl_mem[];
 #endif
 
+#ifdef DSM_LINEAR_MM_LAYOUT
+extern struct phys_mem_pool *global_temp_mem;
+#endif
+
 /* All interfaces are kernel/mm module internal interfaces. */
 
 void init_buddy(struct phys_mem_pool *, struct page *start_page,

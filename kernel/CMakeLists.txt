@@ -53,7 +53,7 @@ target_link_options(${kernel_target} PRIVATE -no-pie -nostdlib -nostartfiles
 # Build-config-specific options
 # FIXME(qyc): defining with hardcoded values is ugly
 target_compile_definitions(${kernel_target}
-                           PRIVATE $<$<CONFIG:Debug>:LOG_LEVEL=2>)
+                           PRIVATE $<$<CONFIG:Debug>:LOG_LEVEL=1>)
 target_compile_definitions(${kernel_target}
                            PRIVATE $<$<CONFIG:Release>:LOG_LEVEL=1>)
 
@@ -104,7 +104,8 @@ if(CHCORE_SSI)
   # enable DSM configuration
   target_compile_definitions(${kernel_target} PRIVATE DSM_ENABLED)
   target_compile_definitions(${kernel_target} PRIVATE USE_CXL_MEM)
-  target_compile_definitions(${kernel_target} PRIVATE DSM_CLEAR_FIRST)
+  # target_compile_definitions(${kernel_target} PRIVATE DSM_CLEAR_FIRST)
+  target_compile_definitions(${kernel_target} PRIVATE DSM_LINEAR_MM_LAYOUT)
   # use which device to simulate the shm
   target_compile_definitions(${kernel_target} PRIVATE DSM_SHM_DEVICE_${DSM_SHM_DEVICE})
   # malloc configuration

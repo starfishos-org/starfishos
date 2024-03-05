@@ -1,3 +1,4 @@
+#ifdef DSM_LINEAR_MM_LAYOUT
 #include <common/types.h>
 #include <common/macro.h>
 #include <common/errno.h>
@@ -15,27 +16,19 @@
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
 
-extern struct phys_mem_pool *global_dram_mem[];
+extern struct phys_mem_pool *global_temp_mem;
 
 /* Declaration */
-void *get_dram_pages(int order)
+void *get_temp_pages(int order)
 {
-// #if !defined USE_NVM || !defined USE_DRAM
-//         return get_pages(order, __DEFAULT__);
-// #endif
 #if TRACK_THREAD_MM == ON
         if (current_thread)
                 current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
 #endif
         struct page *page = NULL;
-        int i;
 
         /* Try to get continous physical memory pages from one physmem pool. */
-        for (i = 0; i < physmem_map_num; ++i) {
-                page = buddy_get_pages(global_dram_mem[i], order);
-                if (page)
-                        break;
-        }
+        page = buddy_get_pages(global_temp_mem, order);
 
         if (unlikely(!page)) {
                 kwarn("[OOM] Cannot get page from any memory pool!\n");
@@ -48,8 +41,16 @@ void *get_dram_pages(int order)
         return page_to_virt(page);
 }
 
+void free_temp_pages(void *addr)
+{
+        struct page *page;
+
+        page = virt_to_page(addr);
+        buddy_free_pages(page->pool, page);
+}
+
 /* Currently, BUG_ON no available memory. */
-void *dram_kmalloc(size_t size)
+void *temp_kmalloc(size_t size)
 {
         void *addr;
         int order;
@@ -63,15 +64,25 @@ void *dram_kmalloc(size_t size)
                         current_thread->mm_size +=
                                 (1 << size_to_slab_order(size));
 #endif
-                addr = alloc_in_dram_slab(size);
+                addr = alloc_in_temp_slab(size);
         } else {
                 if (size <= BUDDY_PAGE_SIZE)
                         order = 0;
                 else
                         order = size_to_page_order(size);
-                addr = get_dram_pages(order);
+                addr = get_temp_pages(order);
         }
-        // printk("%s: addr=%llx, size=%llx\n", __func__, addr, size);
+
         BUG_ON(!addr);
         return addr;
 }
+
+void *temp_kzalloc(size_t size)
+{
+        void *addr;
+
+        addr = temp_kmalloc(size);
+        memset(addr, 0, size);
+        return addr;
+}
+#endif

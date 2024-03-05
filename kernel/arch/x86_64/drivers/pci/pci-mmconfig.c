@@ -19,7 +19,7 @@ static struct pci_mmcfg_region *pci_mmconfig_alloc(int segment, int start,
         if (addr == 0)
                 return NULL;
 
-        new = (struct pci_mmcfg_region *)dram_kzalloc(sizeof(*new));
+        new = (struct pci_mmcfg_region *)temp_kmalloc(sizeof(*new));
         if (!new)
                 return NULL;
 

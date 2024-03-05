@@ -52,6 +52,13 @@ void init_cxl_slab(void);
 void *alloc_in_cxl_slab(unsigned long);
 void free_in_cxl_slab(void *addr);
 
+#ifdef DSM_LINEAR_MM_LAYOUT
+/* TEMP slabs */
+void init_temp_slab(void);
+void *alloc_in_temp_slab(unsigned long);
+void free_in_temp_slab(void *addr);
+#endif
+
 /* common */
 static inline int size_to_order(unsigned long size)
 {

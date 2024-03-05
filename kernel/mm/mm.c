@@ -14,6 +14,15 @@ extern void parse_mem_map(void *);
 paddr_t physmem_map[N_PHYS_MEM_POOLS][2];
 int physmem_map_num;
 
+#ifdef DSM_LINEAR_MM_LAYOUT
+/* A temparol memory pool for local info */
+paddr_t temp_physmem_map[2];
+int temp_physmem_map_num;
+
+struct phys_mem_pool *global_temp_mem;
+struct phys_mem_pool static_global_temp_mem;
+#endif
+
 #ifdef USE_NVM
 extern void parse_nvm_map(void); /* Currently only support X86 */
 
@@ -149,10 +158,39 @@ void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
                    type);
 }
 
-void mm_init(void *physmem_info, int clear_nvm)
+void dram_mm_init()
 {
+#ifdef USE_DRAM
         int i = 0;
         int physmem_map_idx;
+        paddr_t free_mem_start = 0, free_mem_end = 0;
+
+        /* Init dram pool */
+        for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
+                global_dram_mem[i] = &static_global_dram_mem[i];
+        }
+
+        /* Step-2: init the buddy allocators for each continuous range of the
+         * physmem. */
+        for (physmem_map_idx = 0; physmem_map_idx < physmem_map_num;
+             ++physmem_map_idx) {
+                free_mem_start = physmem_map[physmem_map_idx][0];
+                free_mem_end = physmem_map[physmem_map_idx][1];
+                /* use global memory pool */
+                /* Hybrid DRAM and NVM memory pool */
+                init_buddy_for_one_mem_pool(global_dram_mem[physmem_map_idx],
+                                            DRAM_PAGE,
+                                            free_mem_start,
+                                            free_mem_end);
+        }
+
+        /* Step-3: init the slab allocator. */
+        init_dram_slab();
+#endif
+}
+
+void mm_init(void *physmem_info, int clear_nvm)
+{
         paddr_t free_mem_start = 0, free_mem_end = 0;
 
         /* Step-0: for system shutdown, we pass info=NULL */
@@ -173,6 +211,29 @@ void mm_init(void *physmem_info, int clear_nvm)
         parse_nvm_map();
 #endif
 skip_parse_info:
+#ifdef DSM_LINEAR_MM_LAYOUT
+        /* Use a temporal memory pool to init local structures */
+        /* Init dram pool */
+        global_temp_mem = &static_global_temp_mem;
+
+        /* init the buddy allocator */
+        free_mem_start = physmem_map[0][0];
+        physmem_map[0][0] += SIZE_1G;
+        free_mem_end = physmem_map[0][0];
+
+        /* use global memory pool */
+        /* Hybrid DRAM and NVM memory pool */
+        init_buddy_for_one_mem_pool(global_temp_mem,
+                                        DRAM_PAGE,
+                                        free_mem_start,
+                                        free_mem_end);
+
+        init_temp_slab();
+        return;
+#endif
+
+        dram_mm_init();
+
 #ifdef USE_NVM /* use NVM as main memory */
 #ifdef CHCORE_SLS
         /* The first NVM map is used as metadata */
@@ -198,34 +259,6 @@ skip_parse_info:
         /* set false */
         nvm_metadata = &nvm_metadata_for_dram;
 #endif
-
-#ifdef USE_DRAM
-        /* Init dram pool */
-        for (i = 0; i < N_PHYS_MEM_POOLS; i++) {
-                global_dram_mem[i] = &static_global_dram_mem[i];
-        }
-
-        /* Step-2: init the buddy allocators for each continuous range of the
-         * physmem. */
-        for (physmem_map_idx = 0; physmem_map_idx < physmem_map_num;
-             ++physmem_map_idx) {
-                free_mem_start = physmem_map[physmem_map_idx][0];
-                free_mem_end = physmem_map[physmem_map_idx][1];
-                /* use global memory pool */
-                /* Hybrid DRAM and NVM memory pool */
-                init_buddy_for_one_mem_pool(global_dram_mem[physmem_map_idx],
-                                            DRAM_PAGE,
-                                            free_mem_start,
-                                            free_mem_end);
-        }
-
-/* Step-3: init the slab allocator. */
-#if defined(USE_NVM) || defined(USE_CXL_MEM)
-        init_dram_slab();
-#else
-        // init_slab();
-#endif /* USE_NVM */
-#endif /* USE_DRAM */
 }
 
 void ext_mm_init()
