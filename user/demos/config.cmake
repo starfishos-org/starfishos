@@ -1,3 +1,4 @@
+chcore_config(CHCORE_DEMOS_LIGRA BOOL ON "Build ligra?")
 chcore_config(CHCORE_DEMOS_REDIS BOOL OFF "Build redis?")
 # chcore_config(CHCORE_DEMOS_LIBEVENT BOOL OFF "Build libevent? Already installed in Docker")
 chcore_config(CHCORE_DEMOS_MEMCACHED BOOL OFF "Build memcached?")

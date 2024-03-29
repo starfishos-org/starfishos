@@ -2,3 +2,6 @@
 	path = user/demos/phoenix-2.0
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/phoenix.git
 	branch = phoenix-2.0
+[submodule "user/demos/ligra"]
+	path = user/demos/ligra
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/ligra.git
