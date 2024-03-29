@@ -3,6 +3,22 @@
 
 set(_demos_clean_targets)
 
+if(CHCORE_DEMOS_LIGRA)
+  add_custom_target(
+    ligra-clean
+    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
+    COMMAND make clean
+)
+list(APPEND _demos_clean_targets ligra-clean)
+  add_custom_target(
+    ligra ALL
+    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
+    COMMAND make MALLOC=libc PCC=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ -s
+    COMMAND cp ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
+    COMMAND cp ${build_demos_dir}/ligra/inputs/rMatGraph_J_5_100 ${build_ramdisk_dir}/
+    DEPENDS)
+endif()
+
 if(CHCORE_DEMOS_REDIS)
   add_custom_target(
     redis-clean

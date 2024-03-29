@@ -1,0 +1,13 @@
+#!/usr/bin/expect  
+
+set timeout 60
+set thread_num [lindex $argv 0]
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "PageRank rMatGraph_J_5_100 & \r"
+
+interact
