@@ -25,11 +25,11 @@
 struct thread *current_threads[PLAT_CPU_NUM];
 struct thread idle_threads[PLAT_CPU_NUM];
 
-#if PLAT_CPU_NUM <= 32
+// #if PLAT_CPU_NUM <= 32
 u32 resched_bitmaps[PLAT_CPU_NUM];
-#elif
-#error TODO: support more CPUs
-#endif
+// #elif
+// #error TODO: support more CPUs
+// #endif
 
 /* For TLB maintenence */
 extern void record_history_cpu(struct vmspace *vmspcae, u32 cpuid);
