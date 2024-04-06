@@ -97,7 +97,16 @@ void kfree(void *ptr)
                                 (1
                                  << ((struct slab_header *)(page->slab))->order);
 #endif
-                free_in_slab(ptr);
+                switch (page->pool->type) {
+                        case DRAM_PAGE:
+                                free_in_dram_slab(ptr);
+                                break;
+                        case CXL_MEM_PAGE:
+                                free_in_cxl_slab(ptr);
+                                break;
+                        default:
+                                BUG("type %d currently not supported\n", page->pool->type);
+                        }
         } else {
                 old_refcnt = atomic_fetch_sub_64(&page->ref_cnt, 1);
                 if (old_refcnt == 1) {
