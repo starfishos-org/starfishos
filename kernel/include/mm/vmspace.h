@@ -91,7 +91,7 @@ struct vmspace {
         u64 pcid;
 
         /* The lock for manipulating vmregions */
-        struct lock vmspace_lock;
+        struct rwlock vmspace_lock;
         /* The lock for manipulating the page table */
         struct lock pgtbl_lock;
 

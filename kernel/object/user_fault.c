@@ -207,12 +207,12 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
                 ret = query_in_pgtbl(
                         handler_vmspace->pgtbl, remap_va, &pa, NULL);
                 if (ret) {
-                        lock(&handler_vmspace->vmspace_lock);
+                        read_lock(&handler_vmspace->vmspace_lock);
                         handler_vmr =
                                 find_vmr_for_va(handler_vmspace, remap_va);
                         ret = get_pa_from_handler_vmr(
                                 handler_vmr, remap_va, &pa);
-                        unlock(&handler_vmspace->vmspace_lock);
+                        read_unlock(&handler_vmspace->vmspace_lock);
                         if (ret) {
                                 /* remap_va is not mapped in handler_vmspace */
                                 unlock(&handler_vmspace->pgtbl_lock);
@@ -226,7 +226,7 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
 
         fault_vmspace = obj_get(
                 thread_to_wake->cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
-        lock(&fault_vmspace->vmspace_lock);
+        write_lock(&fault_vmspace->vmspace_lock);
         /* Decide whether copy the physical page or share */
         if (!copy) {
                 if (!remap_va)
@@ -276,7 +276,7 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
                 //     }
         }
 #endif
-        unlock(&fault_vmspace->vmspace_lock);
+        write_unlock(&fault_vmspace->vmspace_lock);
         obj_put(fault_vmspace);
 
         /* Pending thread should come back to scheduler */
