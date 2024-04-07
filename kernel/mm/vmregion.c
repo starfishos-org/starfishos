@@ -294,9 +294,9 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
          * Note that each operation on the vmspace should be protected by
          * the per_vmspace lock, i.e., vmspace_lock
          */
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
         ret = add_vmr_to_vmspace(vmspace, vmr);
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         if (ret < 0) {
                 kwarn("add_vmr_to_vmspace fails\n");
@@ -342,7 +342,7 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
          * Protect `find_vmr_for_va` and `del_vmr_from_vmspace`
          * with the vmspace_lock
          */
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
         vmr = find_vmr_for_va(vmspace, va);
         if (!vmr) {
                 kwarn("unmap a non-exist vmr.\n");
@@ -364,7 +364,7 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
         }
 
         del_vmr_from_vmspace(vmspace, vmr);
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         pmo = vmr->pmo;
         /* No pmo is mapped */
@@ -448,7 +448,7 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo)
         u64 flush_va_start;
         u64 flush_len;
 
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
 
         vmr = find_vmr_by_pmo(vmspace, pmo);
 
@@ -461,7 +461,7 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo)
         flush_len = vmr->size;
         /* Remove the vmr from the given vmspace */
         del_vmr_from_vmspace(vmspace, vmr);
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         lock(&vmspace->pgtbl_lock);
         /* Remove the mapping in page table */
@@ -472,7 +472,7 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo)
 
         return 0;
 out:
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
         return ret;
 }
 
@@ -592,7 +592,7 @@ u64 vmspace_mmap_with_pmo(struct vmspace *vmspace, struct pmobject *pmo,
         vmr->vmspace = (void *)vmspace;
 
         /* Protect vmspace->user_current_mmap_addr with vmspace_lock */
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
 
         vmr->start = vmspace->user_current_mmap_addr;
 
@@ -614,7 +614,7 @@ u64 vmspace_mmap_with_pmo(struct vmspace *vmspace, struct pmobject *pmo,
         pmo_add_reverse_node(pmo, vmr);
 #endif
         ret = add_vmr_to_vmspace(vmspace, vmr);
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         if (ret < 0)
                 goto out_free_vmr;
@@ -638,7 +638,7 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
         u64 flush_va_start;
         u64 flush_len;
 
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
 
         vmr = find_vmr_for_va(vmspace, va);
         if (vmr == NULL) {
@@ -662,7 +662,7 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
         /* Delete the vmr from the vmspace */
         del_vmr_from_vmspace(vmspace, vmr);
 
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         /* Umap a whole vmr */
         lock(&vmspace->pgtbl_lock);
@@ -677,7 +677,7 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
         return 0;
 
 fail_out:
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
         return -EINVAL;
 }
 
@@ -715,7 +715,7 @@ int vmspace_init(struct vmspace *vmspace)
          * Note: acquire vmspace_lock before pgtbl_lock
          * when locking them together.
          */
-        lock_init(&vmspace->vmspace_lock);
+        rwlock_init(&vmspace->vmspace_lock);
         lock_init(&vmspace->pgtbl_lock);
 
         /* The vmspace does not run on any CPU for now */
@@ -776,7 +776,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
         int cap;
         bool is_cow;
 
-        lock(&src_vmspace->vmspace_lock);
+        write_lock(&src_vmspace->vmspace_lock);
         lock(&src_vmspace->pgtbl_lock);
         dst_vmspace->heap_vmr = NULL;
 
@@ -848,7 +848,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
         r = 0;
 out_fail:
         unlock(&src_vmspace->pgtbl_lock);
-        unlock(&src_vmspace->vmspace_lock);
+        write_unlock(&src_vmspace->vmspace_lock);
         return r;
 }
 

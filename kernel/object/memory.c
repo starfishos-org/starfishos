@@ -949,7 +949,7 @@ u64 sys_handle_brk(u64 addr, u64 heap_start)
         int pmo_cap;
 
         vmspace = obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
         if (addr == 0) {
                 retval = heap_start;
 
@@ -987,7 +987,7 @@ u64 sys_handle_brk(u64 addr, u64 heap_start)
         }
 
 out:
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
         obj_put(vmspace);
         return retval;
 }
@@ -1046,7 +1046,7 @@ int sys_handle_mprotect(u64 addr, size_t length, int prot)
         target_prot = get_vmr_prot(prot);
         vmspace = obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
 
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
         /*
          * Validate the VM range [addr, addr + lenght]
          * - the range is totally mapped
@@ -1087,7 +1087,7 @@ int sys_handle_mprotect(u64 addr, size_t length, int prot)
                         // just igonre this syscall now
 
                         obj_put(vmspace);
-                        unlock(&vmspace->vmspace_lock);
+                        write_unlock(&vmspace->vmspace_lock);
 
                         ret = 0;
                         return ret;
@@ -1121,7 +1121,7 @@ int sys_handle_mprotect(u64 addr, size_t length, int prot)
 
 out:
         obj_put(vmspace);
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         return ret;
 }

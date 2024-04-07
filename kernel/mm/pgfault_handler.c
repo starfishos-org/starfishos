@@ -22,6 +22,7 @@
 #include <arch/sync.h>
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
+#include <object/recycle.h>
 #ifdef CHCORE_SLS
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/ckpt.h>
@@ -113,13 +114,14 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
          * may fault on the same page, so we need to prevent them
          * from adding the same mapping twice.
          */
-        lock(&vmspace->vmspace_lock);
+        read_lock(&vmspace->vmspace_lock);
         vmr = find_vmr_for_va(vmspace, fault_addr);
         if (vmr == NULL) {
                 kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n",
                       fault_addr);
                 // TODO: kill the process
                 kwarn("TODO: kill such faulting process.\n");
+                sys_exit_group(-1);
                 return -ENOMAPPING;
         }
 
@@ -179,7 +181,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 if (pmo->type == PMO_FILE && !pa) {
                         /* pa != 0 means this fault is cause by ckpt/restore */
 #ifdef CHCORE_ENABLE_FMAP
-                        unlock(&vmspace->vmspace_lock);
+                        read_unlock(&vmspace->vmspace_lock);
                         handle_user_fault(pmo, fault_addr);
                         /* One short-cut exit */
                         BUG("Should never be here!\n");
@@ -453,7 +455,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         }
         }
 
-        unlock(&vmspace->vmspace_lock);
+        read_unlock(&vmspace->vmspace_lock);
         return ret;
 }
 

@@ -38,7 +38,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         vmspace = obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
 
         /* Prevent concurrent operations on the vmspace */
-        lock(&vmspace->vmspace_lock);
+        write_lock(&vmspace->vmspace_lock);
 
         vmr = find_vmr_for_va(vmspace, (vaddr_t)user_buf);
         /* Target user address is not valid (not mapped before) */
@@ -199,7 +199,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 }
         }
 #endif /* CHCORE_SLS */
-        unlock(&vmspace->vmspace_lock);
+        write_unlock(&vmspace->vmspace_lock);
 
         obj_put(vmspace);
         return kva;
