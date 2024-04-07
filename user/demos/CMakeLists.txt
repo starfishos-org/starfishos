@@ -13,9 +13,9 @@ list(APPEND _demos_clean_targets ligra-clean)
   add_custom_target(
     ligra ALL
     WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make MALLOC=libc PCC=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ -s
+    COMMAND make MALLOC=libc OPENMP=1 PCC=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
     COMMAND cp ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    COMMAND cp ${build_demos_dir}/ligra/inputs/rMatGraph_J_5_100 ${build_ramdisk_dir}/
+    COMMAND cp ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 

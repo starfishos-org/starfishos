@@ -20,6 +20,7 @@ add_custom_target(
     # install cpp library
     COMMAND cp ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6 .
     COMMAND cp ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgcc_s.so.1 .
+    COMMAND cp ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1 .
     # install packages installed by ChPM
     COMMAND ${_copy_chpm_install_cmd}
     # libevent
