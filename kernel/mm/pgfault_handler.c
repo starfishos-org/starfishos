@@ -441,6 +441,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         case PMO_FORBID: {
                 kinfo("Forbidden memory access (pmo->type is PMO_FORBID).\n");
                 BUG_ON(1);
+                sys_exit_group(-1);
                 break;
         }
         default: {

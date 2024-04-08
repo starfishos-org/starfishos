@@ -229,6 +229,7 @@ void kprint_vmr(struct vmspace *vmspace)
         vaddr_t start, end;
 
         /* rb_for_each will iterate the vmrs in order. */
+        read_lock(&vmspace->vmspace_lock);
         rb_for_each(&vmspace->vmr_tree, node)
         {
                 vmr = rb_entry(node, struct vmregion, tree_node);
@@ -240,6 +241,7 @@ void kprint_vmr(struct vmspace *vmspace)
                       end,
                       vmr->pmo->type);
         }
+        read_unlock(&vmspace->vmspace_lock);
 }
 
 /* This function should be surrounded with a lock (vmspace_lock). */
