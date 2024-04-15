@@ -3,6 +3,7 @@
 #include "stdio_impl.h"
 #include "libc.h"
 #include "lock.h"
+#include "rpmalloc.h"
 #include <sys/mman.h>
 #include <string.h>
 #include <stddef.h>
@@ -100,6 +101,8 @@ _Noreturn void __pthread_exit(void *result)
 	}
 
 	__pthread_tsd_run_dtors();
+
+	__malloc_thread_finalize();
 
 	/* Access to target the exiting thread with syscalls that use
 	 * its kernel tid is controlled by killlock. For detached threads,
@@ -239,6 +242,7 @@ static int start(void *p)
 	lwip_ipc_struct->server_id = NET_MANAGER;
 #endif
 
+	__malloc_thread_init();
 	result = args->start_func(args->start_arg);
 	__pthread_exit(result);
 	return 0;

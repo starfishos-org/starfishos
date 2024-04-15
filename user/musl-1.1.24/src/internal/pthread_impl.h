@@ -50,6 +50,7 @@ struct pthread {
 	volatile int killlock[1];
 	char *dlerror_buf;
 	void *stdio_locks;
+	void *heap;
 
 	ipc_struct_t system_ipc_fsm;
 	ipc_struct_t system_ipc_net;
