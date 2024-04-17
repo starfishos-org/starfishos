@@ -103,12 +103,12 @@ int switch_to_thread(struct thread *target)
 
         target->thread_ctx->cpuid = cpuid;
 
-#if 1
+#if 0
         // TODO: send IPI to save FPU if migrating a thread from other CPUs
         int is_fpu_owner = target->thread_ctx->is_fpu_owner;
         if ((is_fpu_owner >= 0)
             && (is_fpu_owner != target->thread_ctx->cpuid)) {
-                dsm_debug("target %p is_fpu_owner %d, local cpu id %d, affinity %d\n",
+                dsm_info("target %p is_fpu_owner %d, local cpu id %d, affinity %d\n",
                       target,
                       is_fpu_owner,
                       target->thread_ctx->cpuid,
