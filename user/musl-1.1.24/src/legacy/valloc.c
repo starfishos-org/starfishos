@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "libc.h"
 
-void *valloc(size_t size)
+void *internel_valloc(size_t size)
 {
-	return memalign(PAGE_SIZE, size);
+	return internel_memalign(PAGE_SIZE, size);
 }

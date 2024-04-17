@@ -41,6 +41,12 @@ void *realloc (void *, size_t);
 void free (void *);
 void *aligned_alloc(size_t, size_t);
 
+void *internel_malloc (size_t);
+void *internel_calloc (size_t, size_t);
+void *internel_realloc (void *, size_t);
+void internel_free (void *);
+void *internel_aligned_alloc(size_t, size_t);
+
 _Noreturn void abort (void);
 int atexit (void (*) (void));
 _Noreturn void exit (int);
@@ -98,6 +104,7 @@ size_t __ctype_get_mb_cur_max(void);
 #define WIFSIGNALED(s) (((s)&0xffff)-1U < 0xffu)
 
 int posix_memalign (void **, size_t, size_t);
+int internel_posix_memalign (void **, size_t, size_t);
 int setenv (const char *, const char *, int);
 int unsetenv (const char *);
 int mkstemp (char *);
@@ -142,6 +149,8 @@ int mkstemps (char *, int);
 int mkostemps (char *, int, int);
 void *valloc (size_t);
 void *memalign(size_t, size_t);
+void *internel_valloc (size_t);
+void *internel_memalign(size_t, size_t);
 int getloadavg(double *, int);
 int clearenv(void);
 #define WCOREDUMP(s) ((s) & 0x80)

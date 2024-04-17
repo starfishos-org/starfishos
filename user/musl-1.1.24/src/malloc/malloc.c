@@ -9,6 +9,7 @@
 #include "atomic.h"
 #include "pthread_impl.h"
 #include "malloc_impl.h"
+#include "rpmalloc.h"
 
 #if defined(__GNUC__) && defined(__PIC__)
 #define inline inline __attribute__((always_inline))
@@ -289,55 +290,6 @@ static void trim(struct chunk *self, size_t n)
 	__bin_chunk(split);
 }
 
-void *malloc(size_t n)
-{
-	struct chunk *c;
-	int i, j;
-
-	if (adjust_size(&n) < 0) return 0;
-
-	if (n > MMAP_THRESHOLD) {
-		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
-		char *base = __mmap(0, len, PROT_READ|PROT_WRITE,
-			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-		if (base == (void *)-1) return 0;
-		c = (void *)(base + SIZE_ALIGN - OVERHEAD);
-		c->csize = len - (SIZE_ALIGN - OVERHEAD);
-		c->psize = SIZE_ALIGN - OVERHEAD;
-		return CHUNK_TO_MEM(c);
-	}
-
-	i = bin_index_up(n);
-	for (;;) {
-		uint64_t mask = mal.binmap & -(1ULL<<i);
-		if (!mask) {
-			c = expand_heap(n);
-			if (!c) return 0;
-			if (alloc_rev(c)) {
-				struct chunk *x = c;
-				c = PREV_CHUNK(c);
-				NEXT_CHUNK(x)->psize = c->csize =
-					x->csize + CHUNK_SIZE(c);
-			}
-			break;
-		}
-		j = first_set(mask);
-		lock_bin(j);
-		c = mal.bins[j].head;
-		if (c != BIN_TO_CHUNK(j)) {
-			if (!pretrim(c, n, i, j)) unbin(c, j);
-			unlock_bin(j);
-			break;
-		}
-		unlock_bin(j);
-	}
-
-	/* Now patch up in case we over-allocated */
-	trim(c, n);
-
-	return CHUNK_TO_MEM(c);
-}
-
 static size_t mal0_clear(char *p, size_t pagesz, size_t n)
 {
 #ifdef __GNUC__
@@ -354,98 +306,6 @@ static size_t mal0_clear(char *p, size_t pagesz, size_t n)
 		        if (((T *)pp)[-1] | ((T *)pp)[-2])
 				break;
 	}
-}
-
-void *calloc(size_t m, size_t n)
-{
-	if (n && m > (size_t)-1/n) {
-		errno = ENOMEM;
-		return 0;
-	}
-	n *= m;
-	void *p = malloc(n);
-	if (!p) return p;
-	if (!__malloc_replaced) {
-		if (IS_MMAPPED(MEM_TO_CHUNK(p)))
-			return p;
-		if (n >= PAGE_SIZE)
-			n = mal0_clear(p, PAGE_SIZE, n);
-	}
-	return memset(p, 0, n);
-}
-
-void *realloc(void *p, size_t n)
-{
-	struct chunk *self, *next;
-	size_t n0, n1;
-	void *new;
-
-	if (!p) return malloc(n);
-
-	if (adjust_size(&n) < 0) return 0;
-
-	self = MEM_TO_CHUNK(p);
-	n1 = n0 = CHUNK_SIZE(self);
-
-	if (IS_MMAPPED(self)) {
-		size_t extra = self->psize;
-		char *base = (char *)self - extra;
-		size_t oldlen = n0 + extra;
-		size_t newlen = n + extra;
-		/* Crash on realloc of freed chunk */
-		if (extra & 1) a_crash();
-		if (newlen < PAGE_SIZE && (new = malloc(n-OVERHEAD))) {
-			n0 = n;
-			goto copy_free_ret;
-		}
-		newlen = (newlen + PAGE_SIZE-1) & -PAGE_SIZE;
-		if (oldlen == newlen) return p;
-		base = __mremap(base, oldlen, newlen, MREMAP_MAYMOVE);
-		if (base == (void *)-1)
-			goto copy_realloc;
-		self = (void *)(base + extra);
-		self->csize = newlen - extra;
-		return CHUNK_TO_MEM(self);
-	}
-
-	next = NEXT_CHUNK(self);
-
-	/* Crash on corrupted footer (likely from buffer overflow) */
-	if (next->psize != self->csize) a_crash();
-
-	/* Merge adjacent chunks if we need more space. This is not
-	 * a waste of time even if we fail to get enough space, because our
-	 * subsequent call to free would otherwise have to do the merge. */
-	if (n > n1 && alloc_fwd(next)) {
-		n1 += CHUNK_SIZE(next);
-		next = NEXT_CHUNK(next);
-	}
-	/* FIXME: find what's wrong here and reenable it..? */
-	if (0 && n > n1 && alloc_rev(self)) {
-		self = PREV_CHUNK(self);
-		n1 += CHUNK_SIZE(self);
-	}
-	self->csize = n1 | C_INUSE;
-	next->psize = n1 | C_INUSE;
-
-	/* If we got enough space, split off the excess and return */
-	if (n <= n1) {
-		//memmove(CHUNK_TO_MEM(self), p, n0-OVERHEAD);
-		trim(self, n);
-		return CHUNK_TO_MEM(self);
-	}
-
-copy_realloc:
-	/* As a last resort, allocate a new chunk and copy to it. */
-	new = malloc(n-OVERHEAD);
-	if (!new) return 0;
-copy_free_ret:
-	/* CHCORE FIX: Adopt the fix from
-	 * https://git.musl-libc.org/cgit/musl/tree/src/malloc/oldmalloc/malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
-	n0 = (n0 > n) ? n : n0;
-	memcpy(new, p, n0-OVERHEAD);
-	free(CHUNK_TO_MEM(self));
-	return new;
 }
 
 void __bin_chunk(struct chunk *self)
@@ -527,16 +387,68 @@ static void unmap_chunk(struct chunk *self)
 	__munmap(base, len);
 }
 
-void free(void *p)
+/* This function returns true if the interval [old,new]
+ * intersects the 'len'-sized interval below &libc.auxv
+ * (interpreted as the main-thread stack) or below &b
+ * (the current stack). It is used to defend against
+ * buggy brk implementations that can cross the stack. */
+
+static int traverses_stack_p(uintptr_t old, uintptr_t new)
 {
-	if (!p) return;
+	const uintptr_t len = 8<<20;
+	uintptr_t a, b;
 
-	struct chunk *self = MEM_TO_CHUNK(p);
+	b = (uintptr_t)libc.auxv;
+	a = b > len ? b-len : 0;
+	if (new>a && old<b) return 1;
 
-	if (IS_MMAPPED(self))
-		unmap_chunk(self);
-	else
-		__bin_chunk(self);
+	b = (uintptr_t)&b;
+	a = b > len ? b-len : 0;
+	if (new>a && old<b) return 1;
+
+	return 0;
+}
+
+/* Expand the heap in-place if brk can be used, or otherwise via mmap,
+ * using an exponential lower bound on growth by mmap to make
+ * fragmentation asymptotically irrelevant. The size argument is both
+ * an input and an output, since the caller needs to know the size
+ * allocated, which will be larger than requested due to page alignment
+ * and mmap minimum size rules. The caller is responsible for locking
+ * to prevent concurrent calls. */
+
+void *__expand_heap(size_t *pn)
+{
+	static uintptr_t brk;
+	static unsigned mmap_step;
+	size_t n = *pn;
+
+	if (n > SIZE_MAX/2 - PAGE_SIZE) {
+		errno = ENOMEM;
+		return 0;
+	}
+	n += -n & PAGE_SIZE-1;
+
+	if (!brk) {
+		brk = __syscall(SYS_brk, 0);
+		brk += -brk & PAGE_SIZE-1;
+	}
+
+	if (n < SIZE_MAX-brk && !traverses_stack_p(brk, brk+n)
+	    && __syscall(SYS_brk, brk+n)==brk+n) {
+		*pn = n;
+		brk += n;
+		return (void *)(brk-n);
+	}
+
+	size_t min = (size_t)PAGE_SIZE << mmap_step/2;
+	if (n < min) n = min;
+	void *area = __mmap(0, n, PROT_READ|PROT_WRITE,
+		MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if (area == MAP_FAILED) return 0;
+	*pn = n;
+	mmap_step++;
+	return area;
 }
 
 void __malloc_donate(char *start, char *end)
@@ -556,4 +468,288 @@ void __malloc_donate(char *start, char *end)
 	c->psize = n->csize = C_INUSE;
 	c->csize = n->psize = C_INUSE | (end-start);
 	__bin_chunk(c);
+}
+
+
+void *internel_malloc(size_t n)
+{
+	struct chunk *c;
+	int i, j;
+
+	if (adjust_size(&n) < 0) return 0;
+
+	if (n > MMAP_THRESHOLD) {
+		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
+		char *base = __mmap(0, len, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+		if (base == (void *)-1) return 0;
+		c = (void *)(base + SIZE_ALIGN - OVERHEAD);
+		c->csize = len - (SIZE_ALIGN - OVERHEAD);
+		c->psize = SIZE_ALIGN - OVERHEAD;
+		return CHUNK_TO_MEM(c);
+	}
+
+	i = bin_index_up(n);
+	for (;;) {
+		uint64_t mask = mal.binmap & -(1ULL<<i);
+		if (!mask) {
+			c = expand_heap(n);
+			if (!c) return 0;
+			if (alloc_rev(c)) {
+				struct chunk *x = c;
+				c = PREV_CHUNK(c);
+				NEXT_CHUNK(x)->psize = c->csize =
+					x->csize + CHUNK_SIZE(c);
+			}
+			break;
+		}
+		j = first_set(mask);
+		lock_bin(j);
+		c = mal.bins[j].head;
+		if (c != BIN_TO_CHUNK(j)) {
+			if (!pretrim(c, n, i, j)) unbin(c, j);
+			unlock_bin(j);
+			break;
+		}
+		unlock_bin(j);
+	}
+
+	/* Now patch up in case we over-allocated */
+	trim(c, n);
+
+	return CHUNK_TO_MEM(c);
+}
+
+void *internel_calloc(size_t m, size_t n)
+{
+	if (n && m > (size_t)-1/n) {
+		errno = ENOMEM;
+		return 0;
+	}
+	n *= m;
+	void *p = malloc(n);
+	if (!p) return p;
+	if (!__malloc_replaced) {
+		if (IS_MMAPPED(MEM_TO_CHUNK(p)))
+			return p;
+		if (n >= PAGE_SIZE)
+			n = mal0_clear(p, PAGE_SIZE, n);
+	}
+	return memset(p, 0, n);
+}
+
+void *internel_realloc(void *p, size_t n)
+{
+	struct chunk *self, *next;
+	size_t n0, n1;
+	void *new;
+
+	if (!p) return malloc(n);
+
+	if (adjust_size(&n) < 0) return 0;
+
+	self = MEM_TO_CHUNK(p);
+	n1 = n0 = CHUNK_SIZE(self);
+
+	if (IS_MMAPPED(self)) {
+		size_t extra = self->psize;
+		char *base = (char *)self - extra;
+		size_t oldlen = n0 + extra;
+		size_t newlen = n + extra;
+		/* Crash on realloc of freed chunk */
+		if (extra & 1) a_crash();
+		if (newlen < PAGE_SIZE && (new = malloc(n-OVERHEAD))) {
+			n0 = n;
+			goto copy_free_ret;
+		}
+		newlen = (newlen + PAGE_SIZE-1) & -PAGE_SIZE;
+		if (oldlen == newlen) return p;
+		base = __mremap(base, oldlen, newlen, MREMAP_MAYMOVE);
+		if (base == (void *)-1)
+			goto copy_realloc;
+		self = (void *)(base + extra);
+		self->csize = newlen - extra;
+		return CHUNK_TO_MEM(self);
+	}
+
+	next = NEXT_CHUNK(self);
+
+	/* Crash on corrupted footer (likely from buffer overflow) */
+	if (next->psize != self->csize) a_crash();
+
+	/* Merge adjacent chunks if we need more space. This is not
+	 * a waste of time even if we fail to get enough space, because our
+	 * subsequent call to free would otherwise have to do the merge. */
+	if (n > n1 && alloc_fwd(next)) {
+		n1 += CHUNK_SIZE(next);
+		next = NEXT_CHUNK(next);
+	}
+	/* FIXME: find what's wrong here and reenable it..? */
+	if (0 && n > n1 && alloc_rev(self)) {
+		self = PREV_CHUNK(self);
+		n1 += CHUNK_SIZE(self);
+	}
+	self->csize = n1 | C_INUSE;
+	next->psize = n1 | C_INUSE;
+
+	/* If we got enough space, split off the excess and return */
+	if (n <= n1) {
+		//memmove(CHUNK_TO_MEM(self), p, n0-OVERHEAD);
+		trim(self, n);
+		return CHUNK_TO_MEM(self);
+	}
+
+copy_realloc:
+	/* As a last resort, allocate a new chunk and copy to it. */
+	new = malloc(n-OVERHEAD);
+	if (!new) return 0;
+copy_free_ret:
+	/* CHCORE FIX: Adopt the fix from
+	 * https://git.musl-libc.org/cgit/musl/tree/src/malloc/oldmalloc/malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
+	n0 = (n0 > n) ? n : n0;
+	memcpy(new, p, n0-OVERHEAD);
+	free(CHUNK_TO_MEM(self));
+	return new;
+}
+
+void internel_free(void *p)
+{
+	if (!p) return;
+
+	struct chunk *self = MEM_TO_CHUNK(p);
+
+	if (IS_MMAPPED(self))
+		unmap_chunk(self);
+	else
+		__bin_chunk(self);
+}
+
+void *internel_memalign(size_t align, size_t len)
+{
+	unsigned char *mem, *new;
+
+	if ((align & -align) != align) {
+		errno = EINVAL;
+		return 0;
+	}
+
+	if (len > SIZE_MAX - align || __malloc_replaced) {
+		errno = ENOMEM;
+		return 0;
+	}
+
+	if (align <= SIZE_ALIGN)
+		return malloc(len);
+
+	if (!(mem = malloc(len + align-1)))
+		return 0;
+
+	new = (void *)((uintptr_t)mem + align-1 & -align);
+	if (new == mem) return mem;
+
+	struct chunk *c = MEM_TO_CHUNK(mem);
+	struct chunk *n = MEM_TO_CHUNK(new);
+
+	if (IS_MMAPPED(c)) {
+		/* Apply difference between aligned and original
+		 * address to the "extra" field of mmapped chunk. */
+		n->psize = c->psize + (new-mem);
+		n->csize = c->csize - (new-mem);
+		return new;
+	}
+
+	struct chunk *t = NEXT_CHUNK(c);
+
+	/* Split the allocated chunk into two chunks. The aligned part
+	 * that will be used has the size in its footer reduced by the
+	 * difference between the aligned and original addresses, and
+	 * the resulting size copied to its header. A new header and
+	 * footer are written for the split-off part to be freed. */
+	n->psize = c->csize = C_INUSE | (new-mem);
+	n->csize = t->psize -= new-mem;
+
+	__bin_chunk(c);
+	return new;
+}
+
+void *internel_aligned_alloc(size_t align, size_t len)
+{
+	return internel_memalign(align, len);
+}
+
+
+int internel_posix_memalign(void **res, size_t align, size_t len)
+{
+	if (align < sizeof(void *)) return EINVAL;
+	void *mem = internel_memalign(align, len);
+	if (!mem) return errno;
+	*res = mem;
+	return 0;
+}
+
+// #define RPMALLOC
+
+void *malloc(size_t n)
+{
+	#ifdef RPMALLOC
+		return rpmalloc(n);
+	#else
+		return internel_malloc(n);
+	#endif
+}
+void *realloc(void *p, size_t n)
+{
+	#ifdef RPMALLOC
+	return rprealloc(p, n);
+	#else
+	return internel_realloc(p, n);
+	#endif
+}
+void *calloc(size_t n, size_t m)
+{
+	#ifdef RPMALLOC
+	return rpcalloc(n, m);
+	#else
+	return internel_calloc(n, m);
+	#endif
+}
+void *aligned_alloc(size_t a, size_t n)
+{
+	#ifdef RPMALLOC
+	return rpaligned_alloc(a, n);
+	#else
+	return internel_aligned_alloc(a, n);
+	#endif
+}
+void free(void *p)
+{
+	#ifdef RPMALLOC
+	return rpfree(p);
+	#else
+	return internel_free(p);
+	#endif
+}
+void *memalign(size_t a, size_t n)
+{
+	#ifdef RPMALLOC
+	return rpmemalign(a, n);
+	#else
+	return internel_memalign(a, n);
+	#endif
+}
+void *valloc(size_t n)
+{
+	#ifdef RPMALLOC
+	return rpmemalign(PAGE_SIZE ,n);
+	#else
+	return internel_memalign(PAGE_SIZE, n);
+	#endif
+}
+int posix_memalign(void **res, size_t align, size_t len)
+{
+	#ifdef RPMALLOC
+	return rpposix_memalign(res, align, len);
+	#else
+	return internel_posix_memalign(res, align, len);
+	#endif
 }
