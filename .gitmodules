@@ -5,3 +5,4 @@
 [submodule "user/demos/ligra"]
 	path = user/demos/ligra
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/ligra.git
+  branch = master
