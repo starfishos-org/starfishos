@@ -1,5 +1,7 @@
 
 # demos
+set(MUSL_CC ${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc)
+set(MUSL_CXX ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)
 
 set(_demos_clean_targets)
 
@@ -13,9 +15,9 @@ list(APPEND _demos_clean_targets ligra-clean)
   add_custom_target(
     ligra ALL
     WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make MALLOC=libc OPENMP=1 PCC=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
+    COMMAND make MALLOC=libc OPENMP=1 PCC=${MUSL_CXX}
     COMMAND cp ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    COMMAND cp ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
+    # COMMAND cp ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
@@ -29,7 +31,7 @@ list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
-    COMMAND make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j12 -s
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-cli ${build_ramdisk_dir}/
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-server ${build_ramdisk_dir}/
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-benchmark ${build_ramdisk_dir}/
@@ -46,16 +48,16 @@ list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     ycsb ALL
     COMMAND export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib # to find libhiredis
-    # COMMAND export CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc
-    # COMMAND export CXX=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
+    # COMMAND export CC=${MUSL_CC}
+    # COMMAND export CXX=${MUSL_CC}
     WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/core
-    COMMAND make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc CXX=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ -s
+    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
     WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/redis
-    COMMAND make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc CXX=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ -s
+    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
     WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/db
-    COMMAND make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc CXX=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ -s
+    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
     WORKING_DIRECTORY ${build_demos_dir}/YCSB-C
-    COMMAND make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc CXX=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++ ycsb -s
+    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} ycsb -s
 )
 
   add_custom_command(
@@ -75,7 +77,7 @@ if(CHCORE_DEMOS_LIBEVENT)
     WORKING_DIRECTORY ${build_demos_dir}/libevent
     COMMAND ./autogen.sh
     COMMAND ./configure --disable-openssl --disable-debug-mode --disable-samples -prefix=/usr/libevent
-    COMMAND CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -s &> /dev/null
+    COMMAND CC=${MUSL_CC} -s &> /dev/null
     COMMAND make install
 )
 endif()
@@ -86,7 +88,7 @@ if(CHCORE_DEMOS_MEMCACHED)
     WORKING_DIRECTORY ${build_demos_dir}/memcached
     COMMAND ./autogen.sh
             && ./configure --disable-coverage -with-libevent=/usr/libevent/ --enable-static
-            && make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -s -j12
+            && make CC=${MUSL_CC} -s -j12
     COMMAND cp ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
     DEPENDS)
     list(APPEND _demos_clean_targets memcached-clean)
@@ -109,7 +111,7 @@ if(CHCORE_DEMOS_MEMCACHETEST)
     WORKING_DIRECTORY ${build_demos_dir}/memcachetest
     COMMAND ./config/autorun.sh
             && ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-            && make CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -s -j12
+            && make CC=${MUSL_CC} -s -j12
     COMMAND cp ${build_demos_dir}/memcachetest/memcachetest ${build_ramdisk_dir}/
     DEPENDS)
 endif()
@@ -124,7 +126,7 @@ list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     sqlite ALL
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
-    COMMAND make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j12 -s
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
     COMMAND cp ${build_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
     DEPENDS)
 endif()
@@ -141,8 +143,8 @@ if(CHCORE_DEMOS_LEVELDB)
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND mkdir -p build && cd build &&
          cmake -j12 -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc
-            -DCMAKE_CXX_COMPILER=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
+            -DCMAKE_C_COMPILER=${MUSL_CC}
+            -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
             && cmake --build . -j12
@@ -162,7 +164,7 @@ if(CHCORE_DEMOS_ROCKSDB)
     gflags ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
     COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_CXX_COMPILER=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
+            -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CXX_FLAGS=-fPIC
             -DCMAKE_CROSSCOMPILING=1
             -DBUILD_SHARED_LIBS=ON
@@ -184,8 +186,8 @@ if(CHCORE_DEMOS_ROCKSDB)
     rocksdb ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build
     COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc
-            -DCMAKE_CXX_COMPILER=${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++
+            -DCMAKE_C_COMPILER=${MUSL_CC}
+            -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CROSSCOMPILING=1
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -S
@@ -199,38 +201,48 @@ if(CHCORE_DEMOS_ROCKSDB)
 endif()
 
 if(CHCORE_DEMOS_PHOENIX)
+  # Define variables for commonly used paths
+  set(PHOENIX_DIR ${build_demos_dir}/phoenix-2.0)
+  set(PHOENIX_SRC_DIR ${PHOENIX_DIR}/src)
+  set(PHOENIX_TESTS_DIR ${PHOENIX_DIR}/tests)
+
+  # Add the custom clean target
   add_custom_target(
     phoenix-clean
-    WORKING_DIRECTORY ${build_demos_dir}/phoenix-2.0
+    WORKING_DIRECTORY ${PHOENIX_DIR}
     COMMAND make clean
-)
-list(APPEND _demos_clean_targets phoenix-clean)
+  )
+  list(APPEND _demos_clean_targets phoenix-clean)
+
+  # Define the list of tests to build
+  set(TESTS kmeans pca word_count matrix_multiply)
+
+  # Add the custom target for building Phoenix
   add_custom_target(
-    phoenix ALL
-    WORKING_DIRECTORY ${build_demos_dir}/phoenix-2.0
-    # FIXME(FN): currently, direct make XX at the root dir will cause errors of finding lib.a
-    COMMAND cd ${build_demos_dir}/phoenix-2.0/src
-        && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
-        && cd ${build_demos_dir}/phoenix-2.0/tests/kmeans
-        && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
-        && cd ${build_demos_dir}/phoenix-2.0/tests/pca
-        && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
-        && cd ${build_demos_dir}/phoenix-2.0/tests/word_count
-        && make MALLOC=libc CC=${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc -j4
-        && cp ${build_demos_dir}/phoenix-2.0/tests/kmeans/kmeans ${build_ramdisk_dir}/kmeans.bin
-        && cp ${build_demos_dir}/phoenix-2.0/tests/pca/pca ${build_ramdisk_dir}/pca.bin
-        && cp ${build_demos_dir}/phoenix-2.0/tests/word_count/word_count ${build_ramdisk_dir}/word_count.bin
-        && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
-        # && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_50MB.txt ${build_ramdisk_dir}/word_50MB.txt
-        # && cp ${build_demos_dir}/phoenix-2.0/data/word_count_datafiles/word_100MB.txt ${build_ramdisk_dir}/word_100MB.txt
-        # && cp ${build_demos_dir}/phoenix-2.0/tests/linear_regression/linear_regression linear_regression.bin
-        # && cp ${build_demos_dir}/phoenix-2.0/data/linear_regression_datafiles/key_file_100MB.txt .
-        # && cp ${build_demos_dir}/phoenix-2.0/tests/matrix_multiply/matrix_multiply matrix_multiply.bin
-        # && cp ${build_demos_dir}/phoenix-2.0/tests/string_match/string_match string_match.bin
-        # && cp ${build_demos_dir}/phoenix-2.0/data/string_match_datafiles/key_file_100MB.txt sm_key_file_100MB.txt
-        # && cp ${build_demos_dir}/phoenix-2.0/data/histogram_datafiles/med.bmp .
-        # && cp ${build_demos_dir}/phoenix-2.0/tests/histogram/histogram histogram.bin
-    DEPENDS)
+      phoenix ALL
+      WORKING_DIRECTORY ${PHOENIX_DIR}
+      COMMAND cd ${PHOENIX_SRC_DIR} && make MALLOC=libc CC=${MUSL_CC} -j4
+      DEPENDS
+  )
+
+  # Loop through each test and add the build commands
+  foreach(test ${TESTS})
+      add_custom_command(
+          TARGET phoenix
+          POST_BUILD
+          COMMAND cd ${PHOENIX_TESTS_DIR}/${test} && make MALLOC=libc CC=${MUSL_CC} -j4
+          COMMAND cp ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
+      )
+  endforeach()
+
+  # Copy additional data files
+  add_custom_command(
+      TARGET phoenix
+      POST_BUILD
+      COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
+      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
+      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
+  )
 endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
