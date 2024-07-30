@@ -340,8 +340,6 @@ long __syscall1(long n, long a)
 		// TODO: maybe we need to obey the convention
 		return fake_tid_val++;
 	}
-	case SYS_brk:
-		return chcore_syscall2(CHCORE_SYS_handle_brk, a, HEAP_START);
 	case SYS_chdir: {
 		return chcore_chdir((const char *)a);
 	}
@@ -406,6 +404,8 @@ long __syscall2(long n, long a, long b)
 	case SYS_open:
 		return __syscall6(SYS_open, a, b, 0, 0, 0, 0);
 #endif
+	case SYS_brk:
+		return chcore_syscall3(CHCORE_SYS_handle_brk, a, HEAP_START, b);
 	case SYS_fstat: {
 		if (fd_dic[a] == 0) {
 			return -EBADF;

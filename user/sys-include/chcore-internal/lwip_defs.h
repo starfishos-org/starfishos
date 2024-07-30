@@ -112,7 +112,7 @@ static inline int pack_message(struct msghdr *msg, char *dst, int dst_len,
 		return -EINVAL;
 
 	if (total_len > LWIP_DATA_LEN) {
-		shared_pmo = usys_create_pmo(total_len, PMO_DATA);
+		shared_pmo = usys_create_pmo(total_len, PMO_DATA, MALLOC_TYPE_DEFAULT);
 		*shared_pmo_ptr = shared_pmo;
 		if (shared_pmo < 0)
 			return -ENOMEM;

@@ -784,7 +784,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 
         for_each_in_list_safe (vmr, tmp, list_node, &(src_vmspace->vmr_list)) {
                 /* Create new pmo */
-                new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject));
+                new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject), __DEFAULT__);
                 if (!new_pmo) {
                         r = -ENOMEM;
                         goto out_fail;

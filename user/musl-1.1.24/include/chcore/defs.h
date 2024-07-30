@@ -58,6 +58,9 @@
 #define PMO_RING_BUFFER_RADIX  8
 #define PMO_FORBID       10
 
+#define MALLOC_TYPE_DEFAULT 0
+#define MALLOC_TYPE_SHARED  1
+
 /* a thread's own cap_group */
 #define SELF_CAP 0
 

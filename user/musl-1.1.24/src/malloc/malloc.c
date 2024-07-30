@@ -370,7 +370,7 @@ void __bin_chunk(struct chunk *self)
 		__madvise((void *)a, b-a, MADV_DONTNEED);
 #else
 		__mmap((void *)a, b-a, PROT_READ|PROT_WRITE,
-			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_DRAM, -1, 0);
 #endif
 	}
 
@@ -430,12 +430,12 @@ void *__expand_heap(size_t *pn)
 	n += -n & PAGE_SIZE-1;
 
 	if (!brk) {
-		brk = __syscall(SYS_brk, 0);
+		brk = __syscall2(SYS_brk, 0, MALLOC_TYPE_DEFAULT);
 		brk += -brk & PAGE_SIZE-1;
 	}
 
 	if (n < SIZE_MAX-brk && !traverses_stack_p(brk, brk+n)
-	    && __syscall(SYS_brk, brk+n)==brk+n) {
+	    && __syscall2(SYS_brk, brk+n, MALLOC_TYPE_DEFAULT)==brk+n) {
 		*pn = n;
 		brk += n;
 		return (void *)(brk-n);

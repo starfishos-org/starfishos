@@ -1251,8 +1251,8 @@ WL_EXPORT struct wl_display *wl_display_connect(const char *name)
 	if (gui_ipc_struct == NULL)
 		return NULL;
 
-	c2s_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA);
-	s2c_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA);
+	c2s_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
+	s2c_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 	c2s_pipe = create_pipe_from_pmo(PAGE_SIZE, c2s_pipe_pmo);
 	s2c_pipe = create_pipe_from_pmo(PAGE_SIZE, s2c_pipe_pmo);
 	vsync_notific_cap = usys_create_notifc();

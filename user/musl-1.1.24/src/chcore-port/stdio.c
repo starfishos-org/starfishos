@@ -57,7 +57,7 @@ static int get_one_char()
 	}
 
 	if (stdin_buff_cap == -1) {
-		stdin_buff_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA);
+		stdin_buff_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 		BUG_ON(stdin_buff_cap < 0);
 		stdin_pmo_addr = (void *)chcore_auto_map_pmo(
 			stdin_buff_cap, PAGE_SIZE, PROT_READ | PROT_WRITE);

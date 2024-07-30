@@ -13,7 +13,7 @@ u32 usys_getc(void);
 _Noreturn void usys_exit(u64 ret);
 u64 usys_yield(void);
 int usys_create_device_pmo(u64 paddr, u64 size);
-int usys_create_pmo(u64 size, u64 type);
+int usys_create_pmo(u64 size, u64 type, s32 flags);
 int usys_map_pmo(u64 cap_group_cap, u64 pmo_cap, u64 addr, u64 perm);
 int usys_revoke_cap(u64 obj_cap);
 int usys_create_thread(u64 thread_args_p);
@@ -35,7 +35,7 @@ int usys_get_phys_addr(void *vaddr, u64 *paddr);
 
 u64 usys_get_free_mem_size(void);
 int usys_create_pmos(void *, u64);
-int usys_map_pmos(u64, void *, u64);
+int usys_map_pmos(u64, void *, u64, s32);
 int usys_write_pmo(u64, u64, void *, u64);
 int usys_read_pmo(u64 cap, u64 offset, void *buf, u64 size);
 int usys_transfer_caps(u64, int *, int, int *);

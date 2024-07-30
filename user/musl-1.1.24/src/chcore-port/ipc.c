@@ -291,8 +291,8 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	 * Both types are tested and can work well.
 	 */
 
-	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM);
-	// shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_DATA);
+	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
+	// shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		printf("usys_create_pmo ret %d\n", shm_cap);
 		usys_exit(-1);

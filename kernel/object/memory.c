@@ -25,7 +25,7 @@ int sys_create_device_pmo(u64 paddr, u64 size)
         struct pmobject *pmo;
 
         BUG_ON(size == 0);
-        pmo = obj_alloc(TYPE_PMO, sizeof(*pmo));
+        pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __DEFAULT__);
         if (!pmo) {
                 r = -ENOMEM;
                 goto out_fail;
@@ -44,13 +44,13 @@ out_fail:
         return r;
 }
 
-int create_pmo(u64 size, u64 type, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
                struct pmobject **new_pmo)
 {
         int cap, r;
         struct pmobject *pmo;
 
-        pmo = obj_alloc(TYPE_PMO, sizeof(*pmo));
+        pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), flags);
         if (!pmo) {
                 r = -ENOMEM;
                 goto out_fail;
@@ -77,10 +77,10 @@ out_fail:
         return r;
 }
 
-int sys_create_pmo(u64 size, u64 type)
+int sys_create_pmo(u64 size, u64 type, int flags)
 {
         BUG_ON(size == 0);
-        return create_pmo(size, type, current_cap_group, NULL);
+        return create_pmo(size, type, flags, current_cap_group, NULL);
 }
 
 struct pmo_request {
@@ -93,7 +93,7 @@ struct pmo_request {
 
 #define MAX_CNT 32
 
-int sys_create_pmos(u64 user_buf, u64 cnt)
+int sys_create_pmos(u64 user_buf, u64 cnt, int flags)
 {
         u64 size;
         struct pmo_request *requests;
@@ -116,7 +116,7 @@ int sys_create_pmos(u64 user_buf, u64 cnt)
         copy_from_user((char *)requests, (char *)user_buf, size);
 
         for (i = 0; i < cnt; ++i) {
-                cap = sys_create_pmo(requests[i].size, requests[i].type);
+                cap = sys_create_pmo(requests[i].size, requests[i].type, flags);
                 /*
                  * TODO: what if some errors occur (i.e., create part of pmos).
                  * levave it to user space for now.
@@ -939,7 +939,7 @@ void pmo_deinit(void *pmo_ptr)
  * TODO (tmac): we should modify LibC malloc as follows:
  * instead of invoking brk(0) at first, it should create the heap pmo by itself.
  */
-u64 sys_handle_brk(u64 addr, u64 heap_start)
+u64 sys_handle_brk(u64 addr, u64 heap_start, int flags)
 {
         struct vmspace *vmspace;
         struct pmobject *pmo;
@@ -955,7 +955,7 @@ u64 sys_handle_brk(u64 addr, u64 heap_start)
 
                 /* create the heap pmo for the user process */
                 len = 0;
-                pmo_cap = create_pmo(len, PMO_ANONYM, current_cap_group, &pmo);
+                pmo_cap = create_pmo(len, PMO_ANONYM, flags, current_cap_group, &pmo);
                 if (pmo_cap < 0) {
                         kinfo("Fail: cannot create the initial heap pmo.\n");
                         BUG_ON(1);

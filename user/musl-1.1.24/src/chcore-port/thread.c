@@ -37,7 +37,7 @@ int create_thread(void *(*func)(void *), u64 arg, u32 prio, u64 tls)
 	tid = __sync_fetch_and_add(&thread_num_in_cap_group, 1);
 
 	child_stack_pmo_cap = usys_create_pmo(CHILD_THREAD_STACK_SIZE,
-					      PMO_ANONYM);
+					      PMO_ANONYM, MALLOC_TYPE_DEFAULT);
 	if (child_stack_pmo_cap < 0)
 		return child_stack_pmo_cap;
 

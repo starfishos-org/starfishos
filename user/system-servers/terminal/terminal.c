@@ -425,7 +425,7 @@ struct terminal *terminal_create(u32 col_num, u32 row_num,
 	check_ptr(terminal->shell_surface = wl_shell_get_shell_surface(
 			  terminal->shell, terminal->surface));
 
-	check_ret(pmo = usys_create_pmo(buffer_size, PMO_DATA));
+	check_ret(pmo = usys_create_pmo(buffer_size, PMO_DATA, MALLOC_TYPE_DEFAULT));
 	check_ptr(terminal->data = chcore_auto_map_pmo(
 			  pmo, buffer_size, VM_READ | VM_WRITE));
 	check_ptr(terminal->pool =

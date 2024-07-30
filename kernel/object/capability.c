@@ -34,13 +34,13 @@ const obj_deinit_func obj_deinit_tbl[TYPE_NR] = {
  * initialize the obj;
  * cap_alloc(obj);
  */
-void *obj_alloc(u64 type, u64 size)
+void *obj_alloc(u64 type, u64 size, int flags)
 {
         u64 total_size;
         struct object *object;
 
         total_size = sizeof(*object) + size;
-        object = kzalloc(total_size, __DEFAULT__);
+        object = kzalloc(total_size, flags);
         if (!object)
                 return NULL;
 

@@ -465,7 +465,7 @@ int main(void)
 	pthread_t shell_pid;
 	pthread_t receive_char_thread_pid;
 
-	fsm_scan_pmo_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA);
+	fsm_scan_pmo_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 	fail_cond(fsm_scan_pmo_cap < 0,
 		  "usys create_ret ret %d\n",
 		  fsm_scan_pmo_cap);

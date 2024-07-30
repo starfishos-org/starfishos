@@ -28,7 +28,7 @@ void server_trampoline(ipc_msg_t *ipc_msg, u64 client_badge)
                 printf("read %x\n", shared_msg);
 
                 /* return a pmo cap */
-                ret_cap = usys_create_pmo(0x1000, PMO_DATA);
+                ret_cap = usys_create_pmo(0x1000, PMO_DATA, MALLOC_TYPE_DEFAULT);
                 if (ret_cap < 0) {
                         printf("usys_create_pmo ret %d\n", ret_cap);
                         usys_exit(ret_cap);

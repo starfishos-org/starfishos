@@ -238,7 +238,7 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
         }
 
         /* cap current cap_group */
-        new_cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group));
+        new_cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __DEFAULT__);
         if (!new_cap_group) {
                 r = -ENOMEM;
                 goto out_fail;
@@ -260,7 +260,7 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
         }
 
         /* 2st cap is vmspace */
-        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace));
+        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __DEFAULT__);
         if (!vmspace) {
                 r = -ENOMEM;
                 goto out_free_obj_vmspace;
@@ -303,7 +303,7 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
         struct vmspace *vmspace;
         int slot_id;
 
-        cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*cap_group));
+        cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*cap_group), __DEFAULT__);
         BUG_ON(!cap_group);
         cap_group_init(cap_group,
                        BASE_OBJECT_NUM,
@@ -312,7 +312,7 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
         slot_id = cap_alloc(cap_group, cap_group, 0);
         BUG_ON(slot_id != CAP_GROUP_OBJ_ID);
 
-        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace));
+        vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __DEFAULT__);
         BUG_ON(!vmspace);
 
         /* fixed PCID 1 for root process, PCID 0 is not used. */
@@ -369,7 +369,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
         BUG_ON(r);
 
         /* 1. Create a new cap group */
-        new_cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group));
+        new_cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __DEFAULT__);
         if (!new_cap_group) {
                 r = -ENOMEM;
                 goto out_fail;
@@ -386,7 +386,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
                MAX_GROUP_NAME_LEN);
 
         /* 2. Create a new vmspace for the new cap group */
-        child_vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*child_vmspace));
+        child_vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*child_vmspace), __DEFAULT__);
         if (!child_vmspace) {
                 r = -ENOMEM;
                 goto out_free_obj_vmspace;
@@ -399,7 +399,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
         vmspace_init(child_vmspace);
 
         /* 3. Create a new main thread for the new cap group */
-        thread = obj_alloc(TYPE_THREAD, sizeof(*thread));
+        thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __DEFAULT__);
         if (!thread) {
                 goto out_free_obj_thread;
         }

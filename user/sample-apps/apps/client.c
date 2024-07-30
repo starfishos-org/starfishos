@@ -66,7 +66,7 @@ int main(int argc, char *argv[], char *envp[])
 
 /* IPC send cap */
 #define PAGE_SIZE 0x1000
-        shared_page_pmo_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA);
+        shared_page_pmo_cap = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
         shared_msg = 0xbeefbeef;
         usys_write_pmo(shared_page_pmo_cap, 0, &shared_msg, sizeof(shared_msg));
 

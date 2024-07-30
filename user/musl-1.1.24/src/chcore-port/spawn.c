@@ -356,7 +356,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
                 pmo_map_requests[2 + i].free_cap = 1;
         }
 
-        ret = usys_map_pmos(new_process_cap, (void *)pmo_map_requests, 2 + i);
+        ret = usys_map_pmos(new_process_cap, (void *)pmo_map_requests, 2 + i, MALLOC_TYPE_DEFAULT);
 
         if (ret != 0) {
                 printf("%s: fail to map_pmos (ret: %d)\n", __func__, ret);
@@ -369,7 +369,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
 
         if (nr_pmo_map_reqs) {
                 ret = usys_map_pmos(
-                        new_process_cap, (void *)pmo_map_reqs, nr_pmo_map_reqs);
+                        new_process_cap, (void *)pmo_map_reqs, nr_pmo_map_reqs, MALLOC_TYPE_DEFAULT);
                 if (ret != 0) {
                         printf("%s: fail to map_pmos (ret: %d)\n",
                                __func__,

@@ -56,7 +56,7 @@ void *chcore_alloc_dma_mem(u64 size, struct chcore_dma_handle *dma_handle)
 
 	dma_handle->size = size;
 
-	dma_handle->pmo = usys_create_pmo(size, PMO_DATA_NOCACHE);
+	dma_handle->pmo = usys_create_pmo(size, PMO_DATA_NOCACHE, MALLOC_TYPE_DEFAULT);
 	if (dma_handle->pmo < 0) {
 		return NULL;
 	}

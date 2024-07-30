@@ -33,9 +33,9 @@ int usys_create_device_pmo(u64 paddr, u64 size)
 	return chcore_syscall2(CHCORE_SYS_create_device_pmo, paddr, size);
 }
 
-int usys_create_pmo(u64 size, u64 type)
+int usys_create_pmo(u64 size, u64 type, s32 flags)
 {
-	return chcore_syscall2(CHCORE_SYS_create_pmo, size, type);
+	return chcore_syscall3(CHCORE_SYS_create_pmo, size, type, flags);
 }
 
 int usys_map_pmo(u64 cap_group_cap, u64 pmo_cap, u64 addr, u64 rights)
@@ -142,9 +142,9 @@ int usys_create_pmos(void *req, u64 cnt)
 	return chcore_syscall2(CHCORE_SYS_create_pmos, (u64)req, cnt);
 }
 
-int usys_map_pmos(u64 cap, void *req, u64 cnt)
+int usys_map_pmos(u64 cap, void *req, u64 cnt, s32 flags)
 {
-	return chcore_syscall3(CHCORE_SYS_map_pmos, cap, (u64)req, cnt);
+	return chcore_syscall4(CHCORE_SYS_map_pmos, cap, (u64)req, cnt, flags);
 }
 
 int usys_write_pmo(u64 cap, u64 offset, void *buf, u64 size)

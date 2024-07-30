@@ -77,7 +77,7 @@ int handle_shmget(int key, size_t size, int flag)
 	record->key = key;
 	record->size = size;
 	/* Allocate a PMO_SHM for the new shm_cap */
-	shm_cap = usys_create_pmo(size, PMO_SHM);
+	shm_cap = usys_create_pmo(size, PMO_SHM, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		goto out;
 	}

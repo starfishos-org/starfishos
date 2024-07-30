@@ -781,7 +781,7 @@ int fs_wrapper_fmap(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr,
 	/* Step: Create a PMO_FILE for file, if not created */
 	if (vnode->pmo_cap == -1) {
 		/* FIXME: what about file size changed? */
-		pmo_cap = usys_create_pmo(vnode->size, PMO_FILE);
+		pmo_cap = usys_create_pmo(vnode->size, PMO_FILE, MALLOC_TYPE_DEFAULT);
 		if (pmo_cap < 0) {
 			ret = pmo_cap;
 			goto out_fail;

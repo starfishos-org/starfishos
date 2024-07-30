@@ -37,8 +37,8 @@ int connect_to_gui_server()
 		return -1;
 
 	wconn.vsync_notific_cap = usys_create_notifc();
-	c2s_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA);
-	s2c_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA);
+	c2s_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
+	s2c_pipe_pmo = usys_create_pmo(PAGE_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 
 	gui_msg = ipc_create_msg(wconn.gui_ipc_struct,
 		sizeof(struct gui_request), 4);

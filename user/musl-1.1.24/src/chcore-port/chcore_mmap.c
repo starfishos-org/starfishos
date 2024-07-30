@@ -60,7 +60,7 @@ static void initial_common_stack(void)
         pthread_spin_init(&common_stack_lock, 0);
 
         common_stack_pmo_cap =
-                usys_create_pmo(UNMAPSELF_STACK_SIZE, PMO_ANONYM);
+                usys_create_pmo(UNMAPSELF_STACK_SIZE, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
         if (common_stack_pmo_cap < 0) {
                 printf("Error occur on create unmapself pmo\n");
                 ret = common_stack_pmo_cap;
@@ -207,7 +207,7 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         pthread_once(&init_mmap_once, initial_mmap);
 
         /* pmo create */
-        pmo_cap = usys_create_pmo(length, PMO_ANONYM);
+        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
         if (pmo_cap <= 0) {
                 printf("Fail: cannot create the new pmo for mmap\n");
                 goto err_exit;

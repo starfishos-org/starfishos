@@ -83,7 +83,7 @@ local_socket_connect(int fd, int server_conn_id)
 	int ret = 0, i = 0;
 	struct ringbuf_header *header;
 	// 2MB shared ring buffer
-	int ringbuf_cap = usys_create_pmo(SHARED_RINGBUF_SIZE, PMO_RING_BUFFER);
+	int ringbuf_cap = usys_create_pmo(SHARED_RINGBUF_SIZE, PMO_RING_BUFFER, MALLOC_TYPE_DEFAULT);
 	if (ringbuf_cap < 0) {
 		printf("usys_create_pmo ret %d\n", ringbuf_cap);
 		usys_exit(-1);
@@ -97,7 +97,7 @@ local_socket_connect(int fd, int server_conn_id)
 	header->is_delayed_ringbuf = 0;
 	header->pos_writer = 0;
 	header->pos_reader = 0;
-	ringbuf_cap = usys_create_pmo(SHARED_RINGBUF_SIZE, PMO_RING_BUFFER);
+	ringbuf_cap = usys_create_pmo(SHARED_RINGBUF_SIZE, PMO_RING_BUFFER, MALLOC_TYPE_DEFAULT);
 	if (ringbuf_cap < 0) {
 		printf("usys_create_pmo ret %d\n", ringbuf_cap);
 		usys_exit(-1);

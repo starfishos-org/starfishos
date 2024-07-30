@@ -181,7 +181,7 @@ int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr);
 int vmspace_init(struct vmspace *vmspace);
 
 struct cap_group;
-int create_pmo(u64 size, u64 type, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
                struct pmobject **new_pmo);
 
 int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo);
