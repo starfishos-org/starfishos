@@ -174,8 +174,6 @@ static void add_node_in_order(struct pmo_node *node)
 void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
                   off_t off)
 {
-        printf("chcore mmap\n");
-        printf("flags %x\n", flags);
         if (flags & MAP_CXL) {
                 printf("chcore mmap cxl\n");
         }

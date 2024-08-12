@@ -137,9 +137,9 @@ int usys_cap_copy_from(u64 src_cap_group_cap, u64 src_slot_id)
 	return chcore_syscall2(CHCORE_SYS_cap_copy_from, src_cap_group_cap, src_slot_id);
 }
 
-int usys_create_pmos(void *req, u64 cnt)
+int usys_create_pmos(void *req, u64 cnt, s32 flags)
 {
-	return chcore_syscall2(CHCORE_SYS_create_pmos, (u64)req, cnt);
+	return chcore_syscall3(CHCORE_SYS_create_pmos, (u64)req, cnt, flags);
 }
 
 int usys_map_pmos(u64 cap, void *req, u64 cnt, s32 flags)

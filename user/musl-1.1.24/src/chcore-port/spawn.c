@@ -280,7 +280,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
         pmo_requests[1].size = PAGE_SIZE;
         pmo_requests[1].type = PMO_FORBID;
 
-        ret = usys_create_pmos((void *)pmo_requests, 2);
+        ret = usys_create_pmos((void *)pmo_requests, 2, MALLOC_TYPE_DEFAULT);
 
         if (ret != 0) {
                 printf("%s: fail to create_pmos (ret: %d)\n", __func__, ret);

@@ -34,7 +34,7 @@ int usys_get_pmo_paddr(u64 pmo_cap, u64 *buf);
 int usys_get_phys_addr(void *vaddr, u64 *paddr);
 
 u64 usys_get_free_mem_size(void);
-int usys_create_pmos(void *, u64);
+int usys_create_pmos(void *, u64, s32);
 int usys_map_pmos(u64, void *, u64, s32);
 int usys_write_pmo(u64, u64, void *, u64);
 int usys_read_pmo(u64 cap, u64 offset, void *buf, u64 size);
