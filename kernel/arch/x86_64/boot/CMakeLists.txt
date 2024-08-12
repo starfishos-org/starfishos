@@ -53,7 +53,7 @@ if(CHCORE_SSI)
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
   chcore_generate_emulate_sh(
-      "/opt/qemu-6.2.0/qemu-system-x86_64"
+      "qemu-6.2-system-x86_64"
       "--enable-kvm -M q35 -m 16G \
       -object memory-backend-file,size=4G,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
