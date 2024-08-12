@@ -74,7 +74,8 @@ class DynamicElfLoader(gdb.Command):
         print(r)
 
         # Get the breakpoint id and disable it later
-        bp_number = re.search("(\d+)", r).group(1)
+        # bp_number = re.search("(\d+)", r).group(1)
+        bp_number = re.search(r"(\d+)", r).group(1)
 
         gdb.execute('continue')
         gdb.execute('delete ' + bp_number)
