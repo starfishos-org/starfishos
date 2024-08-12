@@ -31,6 +31,7 @@ add_custom_target(
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
     )
+add_dependencies(ramdisk phoenix)
 # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
 include(CommonTools)

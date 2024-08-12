@@ -6,6 +6,7 @@
 #define MAP_PRIVATE	0x02
 
 #define MAP_ANONYMOUS	0x20
+#define MAP_CXL       0x200000
 
 #define PROT_NONE	0
 #define PROT_READ	1

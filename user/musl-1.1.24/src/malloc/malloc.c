@@ -370,7 +370,7 @@ void __bin_chunk(struct chunk *self)
 		__madvise((void *)a, b-a, MADV_DONTNEED);
 #else
 		__mmap((void *)a, b-a, PROT_READ|PROT_WRITE,
-			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_DRAM, -1, 0);
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_DRAM, -1, 0, MALLOC_TYPE_DEFAULT);
 #endif
 	}
 
@@ -693,6 +693,8 @@ void *malloc(size_t n)
 {
 	#ifdef RPMALLOC
 		return rpmalloc(n);
+	#elif defined MIXED_MALLOC
+		return mixed_malloc(n, MALLOC_TYPE_DEFAULT);
 	#else
 		return internel_malloc(n);
 	#endif
@@ -752,4 +754,142 @@ int posix_memalign(void **res, size_t align, size_t len)
 	#else
 	return internel_posix_memalign(res, align, len);
 	#endif
+}
+
+void *__mixed_expand_heap(size_t *pn, int flags) {
+	flags = MALLOC_TYPE_DEFAULT;
+	static uintptr_t brk;
+	static unsigned mmap_step;
+	size_t n = *pn;
+
+	if (n > SIZE_MAX/2 - PAGE_SIZE) {
+		errno = ENOMEM;
+		return 0;
+	}
+	n += -n & PAGE_SIZE-1;
+
+	if (!brk) {
+		brk = __syscall2(SYS_brk, 0, flags);
+		brk += -brk & PAGE_SIZE-1;
+	}
+
+	if (n < SIZE_MAX-brk && !traverses_stack_p(brk, brk+n)
+	    && __syscall2(SYS_brk, brk+n, flags)==brk+n) {
+		*pn = n;
+		brk += n;
+		return (void *)(brk-n);
+	}
+
+	size_t min = (size_t)PAGE_SIZE << mmap_step/2;
+	if (n < min) n = min;
+	void *area = NULL;
+	if (flags == MALLOC_TYPE_SHARED) {
+		area = __mmap(0, n, PROT_READ|PROT_WRITE,
+		MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+	} else {
+		area = __mmap(0, n, PROT_READ|PROT_WRITE,
+		MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	}
+	if (area == MAP_FAILED) return 0;
+	*pn = n;
+	mmap_step++;
+	return area;
+}
+
+static struct chunk *mixed_expand_heap(size_t n, int flags) {
+	flags = MALLOC_TYPE_DEFAULT;
+  static int heap_lock[2];
+	static void *end;
+	void *p;
+	struct chunk *w;
+
+	n += SIZE_ALIGN;
+
+	lock(heap_lock);
+
+	p = __mixed_expand_heap(&n, flags);
+	if (!p) {
+		unlock(heap_lock);
+		return 0;
+	}
+
+	if (p != end) {
+		n -= SIZE_ALIGN;
+		p = (char *)p + SIZE_ALIGN;
+		w = MEM_TO_CHUNK(p);
+		w->psize = 0 | C_INUSE;
+	}
+
+	end = (char *)p + n;
+	w = MEM_TO_CHUNK(end);
+	w->psize = n | C_INUSE;
+	w->csize = 0 | C_INUSE;
+
+	w = MEM_TO_CHUNK(p);
+	w->csize = n | C_INUSE;
+
+	unlock(heap_lock);
+
+	return w;
+}
+
+void *mixed_malloc(size_t n, int flags) {
+	struct chunk *c;
+	int i, j;
+
+	if (adjust_size(&n) < 0) return NULL;
+
+	if (n > MMAP_THRESHOLD) {
+		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
+		char *base;
+		if (flags == MALLOC_TYPE_DEFAULT) {
+			base = __mmap(0, len, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+			printf("malloc on default base:%p\n", base);
+		} else {
+			base = __mmap(0, len, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+			printf("malloc on cxl base:%p\n", base);
+		}
+		
+		if (base == (void *)-1) return 0;
+		c = (void *)(base + SIZE_ALIGN - OVERHEAD);
+		c->csize = len - (SIZE_ALIGN - OVERHEAD);
+		c->psize = SIZE_ALIGN - OVERHEAD;
+		void *res = CHUNK_TO_MEM(c);
+		printf("c:%p c2m:%p\n", c, res);
+		return res;
+	}
+
+	i = bin_index_up(n);
+	for (;;) {
+		uint64_t mask = mal.binmap & -(1ULL<<i);
+		if (!mask) {
+			c = mixed_expand_heap(n, flags);
+			if (!c) return 0;
+			if (alloc_rev(c)) {
+				struct chunk *x = c;
+				c = PREV_CHUNK(c);
+				NEXT_CHUNK(x)->psize = c->csize =
+					x->csize + CHUNK_SIZE(c);
+			}
+			break;
+		}
+		j = first_set(mask);
+		lock_bin(j);
+		c = mal.bins[j].head;
+		if (c != BIN_TO_CHUNK(j)) {
+			if (!pretrim(c, n, i, j)) unbin(c, j);
+			unlock_bin(j);
+			break;
+		}
+		unlock_bin(j);
+	}
+
+	/* Now patch up in case we over-allocated */
+	trim(c, n);
+
+	void* act = CHUNK_TO_MEM(c);
+	printf("brk:%p\n", act);
+	return act;
 }

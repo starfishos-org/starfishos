@@ -11,7 +11,7 @@ fi
 tmux new -d -s mywork -n window0
 
 ## Split the window to 4 panes.
-tmux split-window -v -t mywork:window0
+tmux split-window -h -t mywork:window0
 # tmux split-window -v -t mywork:window0.0
 # tmux split-window -v -t mywork:window0.1
 

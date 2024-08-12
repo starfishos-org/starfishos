@@ -174,6 +174,11 @@ static void add_node_in_order(struct pmo_node *node)
 void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
                   off_t off)
 {
+        printf("chcore mmap\n");
+        printf("flags %x\n", flags);
+        if (flags & MAP_CXL) {
+                printf("chcore mmap cxl\n");
+        }
         struct pmo_node *node;
         void *map_addr;
         int pmo_cap;
@@ -193,8 +198,8 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         }
 
         /* Check @flags */
-        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE)) {
-                printf("%s: here only supports anonymous and private mapping\n",
+        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_CXL)) {
+                printf("%s: here only supports anonymous, private and shared mapping\n",
                        __func__);
                 goto err_exit;
         }
@@ -207,7 +212,12 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         pthread_once(&init_mmap_once, initial_mmap);
 
         /* pmo create */
-        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+        if (flags & MAP_CXL) {
+                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
+        } else {
+                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+        }
+        
         if (pmo_cap <= 0) {
                 printf("Fail: cannot create the new pmo for mmap\n");
                 goto err_exit;

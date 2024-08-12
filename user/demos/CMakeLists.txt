@@ -215,7 +215,7 @@ if(CHCORE_DEMOS_PHOENIX)
   list(APPEND _demos_clean_targets phoenix-clean)
 
   # Define the list of tests to build
-  set(TESTS kmeans pca word_count matrix_multiply)
+  set(TESTS kmeans pca word_count matrix_multiply basic)
 
   # Add the custom target for building Phoenix
   add_custom_target(
