@@ -845,11 +845,9 @@ void *mixed_malloc(size_t n, int flags) {
 		if (flags == MALLOC_TYPE_DEFAULT) {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-			printf("malloc on default base:%p\n", base);
 		} else {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
-			printf("malloc on cxl base:%p\n", base);
 		}
 		
 		if (base == (void *)-1) return 0;
@@ -857,7 +855,6 @@ void *mixed_malloc(size_t n, int flags) {
 		c->csize = len - (SIZE_ALIGN - OVERHEAD);
 		c->psize = SIZE_ALIGN - OVERHEAD;
 		void *res = CHUNK_TO_MEM(c);
-		printf("c:%p c2m:%p\n", c, res);
 		return res;
 	}
 
@@ -890,6 +887,5 @@ void *mixed_malloc(size_t n, int flags) {
 	trim(c, n);
 
 	void* act = CHUNK_TO_MEM(c);
-	printf("brk:%p\n", act);
 	return act;
 }
