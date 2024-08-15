@@ -73,7 +73,7 @@ static bool cmp_two_vmrs(const struct rb_node *node1,
         vmr2 = rb_entry(node2, struct vmregion, tree_node);
 
         vmr1_start = vmr1->start;
-        vmr1_end = vmr1_start + vmr1->size - 1;
+        vmr1_end = vmr1_start + (vmr1->size > 0 ? (vmr1->size - 1) : vmr1->size);
 
         vmr2_start = vmr2->start;
 
@@ -103,7 +103,7 @@ static int cmp_vmr_and_range(const void *va_range, const struct rb_node *node)
 
         vmr = rb_entry(node, struct vmregion, tree_node);
         vmr_start = vmr->start;
-        vmr_end = vmr_start + vmr->size - 1;
+        vmr_end = vmr_start + (vmr->size > 0 ? (vmr->size - 1) : vmr->size);
 
         struct va_range *range = (struct va_range *)va_range;
         /* range < vmr */
@@ -131,7 +131,7 @@ static int cmp_vmr_and_va(const void *va, const struct rb_node *node)
 
         vmr = rb_entry(node, struct vmregion, tree_node);
         vmr_start = vmr->start;
-        vmr_end = vmr_start + vmr->size - 1;
+        vmr_end = vmr_start + (vmr->size > 0 ? (vmr->size - 1) : vmr->size);
 
         if ((vaddr_t)va < vmr_start)
                 return -1;
@@ -149,7 +149,8 @@ static int check_vmr_intersect(struct vmspace *vmspace,
         struct va_range range;
 
         range.start = vmr_to_add->start;
-        range.end = range.start + vmr_to_add->size - 1;
+        range.end = range.start + (vmr_to_add->size > 0 ? 
+                (vmr_to_add->size - 1) : 0);
 
         struct rb_node *res;
         res = rb_search(
@@ -164,7 +165,8 @@ static int check_vmr_intersect(struct vmspace *vmspace,
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
 {
         if (check_vmr_intersect(vmspace, vmr) != 0) {
-                kwarn("VM fault: vmr overlap.\n");
+                kwarn("VM fault: vmr overlap, vmr->va=%llx, ->size=%llx\n", 
+                        vmr->start, vmr->size);
                 /* TODO: kill the faulting process */
                 BUG_ON(1);
                 return -EINVAL;
@@ -176,13 +178,16 @@ int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
         return 0;
 }
 
-static void remove_vmr_from_vmspace(struct vmspace *vmspace,
+static int remove_vmr_from_vmspace(struct vmspace *vmspace,
                                     struct vmregion *vmr)
 {
         if (check_vmr_intersect(vmspace, vmr) != 0) {
                 rb_erase(&vmspace->vmr_tree, &vmr->tree_node);
                 list_del(&vmr->list_node);
                 vmr->vmspace = NULL;
+                return 0;
+        } else {
+                return -1;
         }
 }
 
@@ -301,7 +306,8 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
         write_unlock(&vmspace->vmspace_lock);
 
         if (ret < 0) {
-                kwarn("add_vmr_to_vmspace fails\n");
+                kwarn("add_vmr_to_vmspace fails, vmr->va=%llx, ->size=%llx\n", 
+                        vmr->start, vmr->size);
                 goto out_free_vmr;
         }
 
