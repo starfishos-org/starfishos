@@ -226,20 +226,27 @@ if(CHCORE_DEMOS_PHOENIX)
   )
 
   # Loop through each test and add the build commands
-  foreach(test ${TESTS})
-      add_custom_command(
-          TARGET phoenix
-          POST_BUILD
-          COMMAND cd ${PHOENIX_TESTS_DIR}/${test} && make MALLOC=libc CC=${MUSL_CC} -j4
-          COMMAND cp ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
-      )
-  endforeach()
+  # foreach(test ${TESTS})
+  #     add_custom_command(
+  #         TARGET phoenix
+  #         POST_BUILD
+  #         COMMAND cd ${PHOENIX_TESTS_DIR}/${test} && make MALLOC=libc CC=${MUSL_CC} -j4
+  #         COMMAND cp ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
+  #     )
+  # endforeach()
 
+  add_custom_command(
+    TARGET phoenix
+    POST_BUILD
+    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
+    COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply ${build_ramdisk_dir}/matrix_multiply.bin
+    COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
+  )
   # Copy additional data files
   add_custom_command(
       TARGET phoenix
       POST_BUILD
-      COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
+      # COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
   )

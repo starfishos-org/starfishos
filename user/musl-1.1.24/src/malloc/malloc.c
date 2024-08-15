@@ -889,3 +889,95 @@ void *mixed_malloc(size_t n, int flags) {
 	void* act = CHUNK_TO_MEM(c);
 	return act;
 }
+
+void *mixed_calloc(size_t m, size_t n, int flags)
+{
+	if (n && m > (size_t)-1/n) {
+		errno = ENOMEM;
+		return 0;
+	}
+	n *= m;
+	void *p = mixed_malloc(n, flags);
+	if (!p) return p;
+	if (!__malloc_replaced) {
+		if (IS_MMAPPED(MEM_TO_CHUNK(p)))
+			return p;
+		if (n >= PAGE_SIZE)
+			n = mal0_clear(p, PAGE_SIZE, n);
+	}
+	return memset(p, 0, n);
+}
+
+void *mixed_realloc(void *p, size_t n, int flags)
+{
+	struct chunk *self, *next;
+	size_t n0, n1;
+	void *new;
+
+	if (!p) return malloc(n);
+
+	if (adjust_size(&n) < 0) return 0;
+
+	self = MEM_TO_CHUNK(p);
+	n1 = n0 = CHUNK_SIZE(self);
+
+	if (IS_MMAPPED(self)) {
+		size_t extra = self->psize;
+		char *base = (char *)self - extra;
+		size_t oldlen = n0 + extra;
+		size_t newlen = n + extra;
+		/* Crash on realloc of freed chunk */
+		if (extra & 1) a_crash();
+		if (newlen < PAGE_SIZE && (new = mixed_malloc(n-OVERHEAD, flags))) {
+			n0 = n;
+			goto copy_free_ret;
+		}
+		newlen = (newlen + PAGE_SIZE-1) & -PAGE_SIZE;
+		if (oldlen == newlen) return p;
+		base = __mremap(base, oldlen, newlen, MREMAP_MAYMOVE);
+		if (base == (void *)-1)
+			goto copy_realloc;
+		self = (void *)(base + extra);
+		self->csize = newlen - extra;
+		return CHUNK_TO_MEM(self);
+	}
+
+	next = NEXT_CHUNK(self);
+
+	/* Crash on corrupted footer (likely from buffer overflow) */
+	if (next->psize != self->csize) a_crash();
+
+	/* Merge adjacent chunks if we need more space. This is not
+	 * a waste of time even if we fail to get enough space, because our
+	 * subsequent call to free would otherwise have to do the merge. */
+	if (n > n1 && alloc_fwd(next)) {
+		n1 += CHUNK_SIZE(next);
+		next = NEXT_CHUNK(next);
+	}
+	/* FIXME: find what's wrong here and reenable it..? */
+	if (0 && n > n1 && alloc_rev(self)) {
+		self = PREV_CHUNK(self);
+		n1 += CHUNK_SIZE(self);
+	}
+	self->csize = n1 | C_INUSE;
+	next->psize = n1 | C_INUSE;
+
+	/* If we got enough space, split off the excess and return */
+	if (n <= n1) {
+		//memmove(CHUNK_TO_MEM(self), p, n0-OVERHEAD);
+		trim(self, n);
+		return CHUNK_TO_MEM(self);
+	}
+
+copy_realloc:
+	/* As a last resort, allocate a new chunk and copy to it. */
+	new = mixed_malloc(n-OVERHEAD, flags);
+	if (!new) return 0;
+copy_free_ret:
+	/* CHCORE FIX: Adopt the fix from
+	 * https://git.musl-libc.org/cgit/musl/tree/src/malloc/oldmalloc/malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
+	n0 = (n0 > n) ? n : n0;
+	memcpy(new, p, n0-OVERHEAD);
+	free(CHUNK_TO_MEM(self));
+	return new;
+}

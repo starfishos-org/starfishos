@@ -10,9 +10,11 @@ extern "C" {
 #include <bits/alltypes.h>
 
 void *malloc (size_t);
-void* mixed_malloc(size_t n, int flags);
+void *mixed_malloc(size_t, int);
 void *calloc (size_t, size_t);
+void *mixed_calloc(size_t, size_t, int);
 void *realloc (void *, size_t);
+void *mixed_realloc(void *, size_t, int);
 void free (void *);
 void *valloc (size_t);
 void *memalign(size_t, size_t);
