@@ -10,6 +10,7 @@
 #include "pthread_impl.h"
 #include "malloc_impl.h"
 #include "rpmalloc.h"
+#include "malloc.h"
 
 #if defined(__GNUC__) && defined(__PIC__)
 #define inline inline __attribute__((always_inline))
@@ -26,6 +27,8 @@ int __malloc_replaced;
 /* Synchronization tools */
 
 #include <debug_lock.h>
+
+static int heap_lock[2];
 
 static inline void lock(volatile int *lk)
 {
@@ -134,7 +137,6 @@ void __dump_heap(int x)
 
 static struct chunk *expand_heap(size_t n)
 {
-	static int heap_lock[2];
 	static void *end;
 	void *p;
 	struct chunk *w;
@@ -473,6 +475,7 @@ void __malloc_donate(char *start, char *end)
 
 void *internel_malloc(size_t n)
 {
+	printf("internel malloc called\n");
 	struct chunk *c;
 	int i, j;
 
@@ -688,13 +691,14 @@ int internel_posix_memalign(void **res, size_t align, size_t len)
 }
 
 // #define RPMALLOC
+#define MALLOC_CXL
 
 void *malloc(size_t n)
 {
 	#ifdef RPMALLOC
 		return rpmalloc(n);
-	#elif defined MIXED_MALLOC
-		return mixed_malloc(n, MALLOC_TYPE_DEFAULT);
+	#elif defined MALLOC_CXL
+		return mixed_malloc(n, MALLOC_TYPE_SHARED);
 	#else
 		return internel_malloc(n);
 	#endif
@@ -703,6 +707,8 @@ void *realloc(void *p, size_t n)
 {
 	#ifdef RPMALLOC
 	return rprealloc(p, n);
+	#elif defined MALLOC_CXL
+	return mixed_realloc(p, n, MALLOC_TYPE_SHARED);
 	#else
 	return internel_realloc(p, n);
 	#endif
@@ -711,6 +717,8 @@ void *calloc(size_t n, size_t m)
 {
 	#ifdef RPMALLOC
 	return rpcalloc(n, m);
+	#elif defined MALLOC_CXL
+	return mixed_calloc(n, m, MALLOC_TYPE_SHARED);
 	#else
 	return internel_calloc(n, m);
 	#endif
@@ -797,8 +805,6 @@ void *__mixed_expand_heap(size_t *pn, int flags) {
 }
 
 static struct chunk *mixed_expand_heap(size_t n, int flags) {
-	flags = MALLOC_TYPE_DEFAULT;
-  static int heap_lock[2];
 	static void *end;
 	void *p;
 	struct chunk *w;
@@ -834,6 +840,7 @@ static struct chunk *mixed_expand_heap(size_t n, int flags) {
 }
 
 void *mixed_malloc(size_t n, int flags) {
+	// printf("mixed malloc called\n");
 	struct chunk *c;
 	int i, j;
 
