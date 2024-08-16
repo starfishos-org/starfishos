@@ -17,6 +17,8 @@ includedir = $(prefix)/include
 libdir = $(prefix)/lib
 syslibdir = /lib
 
+DSM_HEAP_MODE = CXL
+
 SRC_DIRS = $(addprefix $(srcdir)/,src/* crt ldso)
 BASE_GLOBS = $(addsuffix /*.c,$(SRC_DIRS))
 ARCH_GLOBS = $(addsuffix /$(ARCH)/*.[csS],$(SRC_DIRS))
@@ -49,6 +51,7 @@ CFLAGS_ALL = $(CFLAGS_C99FSE)
 CFLAGS_ALL += -D_XOPEN_SOURCE=700 -I$(srcdir)/arch/$(ARCH) -I$(srcdir)/arch/generic -Iobj/src/internal -I$(srcdir)/src/include -I$(srcdir)/src/internal -Iobj/include -I$(srcdir)/include -I../sys-include
 CFLAGS_ALL += $(CPPFLAGS) $(CFLAGS_AUTO) $(CFLAGS)
 CFLAGS_ALL += -D__$(ARCH)__ # used by pmu.h
+CFLAGS_ALL += -DDSM_HEAP_MODE_$(DSM_HEAP_MODE)
 
 LDFLAGS_ALL = $(LDFLAGS_AUTO) $(LDFLAGS)
 

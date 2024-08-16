@@ -57,7 +57,7 @@ if(CHCORE_SSI)
       "--enable-kvm -M q35 -m 16G \
       -object memory-backend-file,size=4G,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
-      -cpu host -smp 32 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
+      -cpu host -smp 64 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM_NUMA")
     chcore_generate_emulate_sh(

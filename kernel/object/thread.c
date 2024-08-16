@@ -228,8 +228,13 @@ void create_root_thread(void)
         obj_put(init_vmspace);
 
         /* Allocate and setup a user stack for the init thread */
+        #ifdef DSM_STACK_MODE_CXL
+        stack_pmo_cap = create_pmo(
+                ROOT_THREAD_STACK_SIZE, PMO_ANONYM, __SHARED__, root_cap_group, &stack_pmo);
+        #else
         stack_pmo_cap = create_pmo(
                 ROOT_THREAD_STACK_SIZE, PMO_ANONYM, __DEFAULT__, root_cap_group, &stack_pmo);
+        #endif
         BUG_ON(stack_pmo_cap < 0);
 
         ret = vmspace_map_range(init_vmspace,

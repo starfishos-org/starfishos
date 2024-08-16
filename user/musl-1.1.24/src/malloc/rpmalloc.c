@@ -11,8 +11,6 @@
 
 #include "rpmalloc.h"
 
-#define MALLOC_CXL
-
 ////////////
 ///
 /// Build time configurable limits
@@ -822,7 +820,7 @@ _rpmalloc_mmap_os(size_t size, size_t* offset) {
 	}
 #else
 	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_UNINITIALIZED;
-	#ifdef MALLOC_CXL
+	#ifdef DSM_HEAP_MODE_CXL
 	flags |= MAP_CXL;
 	#endif
 	

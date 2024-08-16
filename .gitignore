@@ -33,6 +33,7 @@ make-tag.sh
 /.chpm
 __pycache__
 *.cache
+*.out
 
 infer_*_report.txt
 

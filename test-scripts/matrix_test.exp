@@ -1,0 +1,26 @@
+#!/usr/bin/expect  
+
+set timeout 60
+set thread_num [lindex $argv 0]
+
+# start
+spawn numactl --cpunodebind=0 ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "matrix_multiply_cxl.bin 2000 2000 -t=$thread_num & \r"
+
+while {1} {
+  expect {
+    "matrix multiply finished" {
+      puts "success\n"
+      exit
+    }
+    timeout {
+      puts "failed\n"
+      exit
+    }
+  }
+}
+
+
