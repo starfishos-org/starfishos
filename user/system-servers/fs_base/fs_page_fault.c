@@ -95,8 +95,8 @@ static int handle_one_fault(u64 fault_badge, vaddr_t fault_va)
 	}
 
 	/* Handle flags */
-	BUG_ON(flags != MAP_SHARED && flags != MAP_PRIVATE);
-	if (flags == MAP_SHARED) {
+	BUG_ON(!(flags & MAP_SHARED || flags & MAP_PRIVATE));
+	if (flags & MAP_SHARED) {
 		copy = 0;
 		if (!server_page_addr) {
 			/* The file offset is out-of-range */
@@ -115,7 +115,7 @@ static int handle_one_fault(u64 fault_badge, vaddr_t fault_va)
 				vnode, file_offset + area_off);
 			BUG_ON(!server_page_addr); /* TODO */
 		}
-	} else if (flags == MAP_PRIVATE) {
+	} else if (flags & MAP_PRIVATE) {
 		copy = 1;
 		if (!server_page_addr) {
 			/* The file offset is out-of-range */

@@ -760,7 +760,7 @@ int fs_wrapper_fmap(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr,
 		return -EINVAL;
 	}
 
-	if (flags != MAP_SHARED && flags != MAP_PRIVATE) {
+	if (!(flags & MAP_SHARED || flags & MAP_PRIVATE)) {
 		/**
 		 * TODO: We don't support MAP_FIXED here
 		 * TODO: Some comment dropped in old sys_handle_fmap.
