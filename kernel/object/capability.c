@@ -152,7 +152,7 @@ void clear_fpu_owner(struct object *object)
 void __free_object(struct object *object)
 {
 #ifdef CHCORE_SLS
-        extern struct ckpt_obj_root *ckpt_obj_root_get(struct object * obj,
+        extern struct ckpt_obj_root *ckpt_obj_root_get(struct object *, bool);
         struct ckpt_obj_root *root = ckpt_obj_root_get(object, false);
         if (root) {
                 return;

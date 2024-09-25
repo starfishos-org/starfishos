@@ -107,7 +107,7 @@ struct vmspace {
 
         /* For the virtual address of mmap */
         vaddr_t user_current_mmap_addr;
-#ifdef CHCORE_SLS
+#if defined(CHCORE_SLS) || defined(CHCORE_SSI_SLS)
         /* Track all modified pages('s pte) */
         void *pte_patch_pool;
 #endif

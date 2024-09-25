@@ -57,6 +57,13 @@ struct page {
         struct lock lock;
         /* Reference count for ChCore fork */
         int ref_cnt;
+#ifdef CHCORE_SSI_SLS
+        /* PMO page belongs to and index in PMO */
+        struct pmobject *pmo;
+        /* page's page pair in checkpoint */
+        u64 page_pair;
+#endif
+
 #ifdef CHCORE_SLS
 #ifdef PMO_CHECKSUM
         u64 ckpt_version_number;
@@ -227,7 +234,7 @@ static inline u64 compound_head_offset(struct page *page, struct page *head)
 #endif
 
 /* TreeSlS */
-#ifdef CHCORE_SLS
+#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
 static inline void init_page_info(struct page *page, struct pmobject *pmo,
                                   u64 index)
 {
