@@ -5,6 +5,7 @@
 #include <ckpt/ckpt_data.h>
 #include <mm/nvm.h>
 
+#ifdef RMAP_ENABLED
 /*
  * pmo_add_reverse_node: add reverse node to page->reverse_list.
  */
@@ -50,3 +51,4 @@ void pmo_remove_reverse_node(struct pmobject *pmo, struct vmregion *vmr)
         }
         unlock(&pmo->reverse_list_lock);
 }
+#endif

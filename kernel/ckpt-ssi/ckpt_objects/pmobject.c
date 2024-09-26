@@ -324,7 +324,6 @@ static int __radix_pmo_restore(struct pmobject *pmo, struct radix_node *page_nod
                 va = (vaddr_t)phys_to_virt(pa);
                 /* set page info */
                 struct page* page = virt_to_page((void*)va);
-                page->track_info = NULL;
                 page_type_t type = get_page_type(page);
                 if (type == NVM_PAGE) {
                     if (page_pair) {
@@ -360,15 +359,9 @@ static int __radix_pmo_restore(struct pmobject *pmo, struct radix_node *page_nod
                     BUG_ON(page_pair->pages[idx].version_number == 0);
                     
                     va = page_pair->pages[stale_idx].va;
-                    
                     clear_ckpt_page(page_pair, stale_idx);
-
                     pagecpy((void*)va, (void*)page_pair->pages[idx].va);
-                    
                     page_node->values[i] = (void*)virt_to_phys((void*)va);
-
-                    struct page *page = virt_to_page((void*)va);
-                    init_page_info(page, pmo, prefix | i);
                 }
             }
         }
@@ -454,7 +447,6 @@ static int __continuous_pmo_restore(struct pmobject *pmo, struct radix_node *ckp
                 va = (vaddr_t)phys_to_virt(pa);
                 /* set page info */
                 struct page* page = virt_to_page((void*)va);
-                page->track_info = NULL;
 
                 int idx = choose_ckpt_page_idx(page_pair);
                 int stale_idx = 1 - idx;
@@ -670,22 +662,10 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj, struct
     init_list_head(&pmo->reverse_list);
 #endif
     
-    vaddr_t pmo_start_va;
-    struct page *sp;
-
     if (use_continuous_pages(pmo)) {
         continuous_pmo_restore(pmo, ckpt_pmo->radix);
         pmo->dram_cache.array = NULL;
         lock_init(&pmo->dram_cache.lock);
-
-        pmo_start_va = phys_to_virt(pmo->start);
-        sp = virt_to_page((void*)pmo_start_va);
-#ifdef RMAP_ENABLED
-        /* set page info of first page */
-        sp->pmo = pmo;
-        sp->index = 0;
-#endif
-
 #ifdef PMO_CHECKSUM
         if (pmo_checksum(pmo) != ckpt_pmo->checksum && !is_external_sync_pmo(pmo)) {
             printk("error\n");

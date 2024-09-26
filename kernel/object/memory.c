@@ -717,7 +717,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                 void *new_va = kmalloc(len, __DEFAULT__);
                 pmo->start = (paddr_t)virt_to_phys(new_va);
                 lock_init(&(pmo->dram_cache.lock));
-#ifdef CHCORE_SLS
+#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
                 /* init first page's PMO info */
                 struct page *page = virt_to_page(new_va);
                 init_page_info(page, pmo, 0);
@@ -950,6 +950,7 @@ u64 sys_handle_brk(u64 addr, u64 heap_start, int flags)
 
         vmspace = obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
         write_lock(&vmspace->vmspace_lock);
+        // printk("sys_handle_brk enter\n");
         if (addr == 0) {
                 retval = heap_start;
 
@@ -987,6 +988,7 @@ u64 sys_handle_brk(u64 addr, u64 heap_start, int flags)
         }
 
 out:
+        // printk("sys_handle_brk finish\n");
         write_unlock(&vmspace->vmspace_lock);
         obj_put(vmspace);
         return retval;
