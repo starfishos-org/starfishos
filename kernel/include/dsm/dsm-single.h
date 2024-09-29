@@ -117,6 +117,19 @@ typedef struct {
 
         // FIXME(FN): remove this ugly tetsing share
         struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
+
+        #if defined CHCORE_SSI_SLS
+        /* crash_last_time = 1 means unexpected */
+        bool crash_last_time;
+        /* Checkpoint time stamp */
+        u64 version_number;
+        /* Is doing ckpt (or else is restore) */
+        bool ckpt_initialized;
+        /* Checkpoint data */
+        struct ckpt_ws_table *ckpt_whole_sys_table;
+        struct kvs *ckpt_global_obj_map;
+        struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
+        #endif
 } __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;

@@ -7,6 +7,7 @@ extern int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len,
 extern int set_pte_write_flag(pte_t *entry, bool flag);
 extern int is_pte_dirty(pte_t *entry);
 extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl);
+extern void *create_patch_pool();
 
 #ifdef REPORT
 extern u64 pool1_time;
@@ -69,7 +70,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
                 if (ckpt_vmspace->ckpt_vmrs)
                         kfree(ckpt_vmspace->ckpt_vmrs);
                 ckpt_vmr_array =
-                        kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __DEFAULT__);
+                        kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __SHARED__);
         }
 
         ckpt_vmspace->user_current_mmap_addr =

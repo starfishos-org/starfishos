@@ -102,7 +102,7 @@ int sys_whole_restore_without_ipi(u64 ckpt_name, u64 name_len);
 
 void handle_shutdown(int reset)
 {
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* set CKPT_INITIALIZED to 0 to enable wait_finish_in_kernel */
         u64 old_ckpt_initialized = CKPT_INITIALIZED;
         CKPT_INITIALIZED = 0;
@@ -122,6 +122,14 @@ void handle_shutdown(int reset)
                 nvm_metadata_reset_crash_flag();
         } else { // restore
                 nvm_metadata_set_crash_flag();
+        }
+#elif defined CHCORE_SSI_SLS
+        if (reset) { // reset
+                // set nvm flag to 0 means deletes all the ckpts
+                old_ckpt_initialized = 0;
+                dsm_metadata_reset_crash_flag();
+        } else { // restore
+                dsm_metadata_set_crash_flag();
         }
 #endif
         for (int i = 0; i < PLAT_CPU_NUM; i++) {
@@ -187,7 +195,7 @@ void handle_shutdown(int reset)
         create_root_thread();
         kinfo("[ChCore] root thread created\n");
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifdef RESTORE_ENABLED
 skip_create_root_thread:
 #endif
@@ -254,7 +262,7 @@ void sys_shutdown(int flag)
         handle_shutdown(flag);
 }
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 void sys_ipi_stop_all();
 void sys_ipi_start_all();
 void sys_ipi_test_kernel(int cpuid);

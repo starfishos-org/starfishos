@@ -347,7 +347,7 @@ out_fail:
 
 u64 sys_track_pf_begin()
 {
-    pf_record = kmalloc(sizeof(u64) * 20000000, __DEFAULT__);
+    pf_record = kmalloc(sizeof(u64) * 20000000, __SHARED__);
     track_pf = true;
     
     return 0;

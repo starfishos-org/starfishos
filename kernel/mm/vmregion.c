@@ -689,11 +689,15 @@ fail_out:
         return -EINVAL;
 }
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 void *create_patch_pool()
 {
         struct pte_patch_pool *pool;
+        #if defined CHCORE_SLS
         pool = (struct pte_patch_pool *)get_dram_pages(0);
+        #else
+        pool = (struct pte_patch_pool *)get_cxl_pages(0);
+        #endif
         pool->count = 0;
         pool->next = NULL;
         return (void *)pool;

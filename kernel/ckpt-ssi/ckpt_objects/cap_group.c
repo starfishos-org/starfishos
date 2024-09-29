@@ -43,7 +43,7 @@ int slot_table_ckpt(struct cap_group *cap_group,struct ckpt_cap_group *ckpt_cap_
     }
 
     ckpt_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
-            (ckpt_cap_group->table_size) * sizeof(struct ckpt_object_slot));
+            (ckpt_cap_group->table_size) * sizeof(struct ckpt_object_slot), __SHARED__);
 
     count = 0;
     struct ckpt_object *new_ckpt_obj;

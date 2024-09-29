@@ -16,7 +16,7 @@ int notification_ckpt(struct notification *notifc, struct ckpt_notification *ckp
     ckpt_notifc->waiting_threads_count = notifc->waiting_threads_count;
     if (ckpt_notifc->waiting_thread_roots)
         kfree(ckpt_notifc->waiting_thread_roots);
-    ckpt_notifc->waiting_thread_roots = kmalloc(ckpt_notifc->waiting_threads_count * sizeof(struct ckpt_obj_root*), __DEFAULT__);
+    ckpt_notifc->waiting_thread_roots = kmalloc(ckpt_notifc->waiting_threads_count * sizeof(struct ckpt_obj_root*), __SHARED__);
     
     count = 0;
     for_each_in_list(old_thread, struct thread, notification_queue_node, &notifc->waiting_threads) {

@@ -2,6 +2,7 @@
 
 #include <ckpt/ckpt_data.h>
 #include <mm/buddy.h>
+#include <mm/page.h>
 
 struct ckpt_page *get_latest_ckpt_page(struct ckpt_page_pair *page_pair);
 struct ckpt_page *get_second_latest_ckpt_page(struct ckpt_page_pair *page_pair);

@@ -6,15 +6,15 @@ void* alloc_ckpt_ipc_config(int config_type)
     void* ckpt_ipc_config = NULL;
     switch(config_type) {
         case IPC_SERVER_REGISTER_CB:{
-            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_register_cb_config), __DEFAULT__);
+            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_register_cb_config), __SHARED__);
             break;
         }
         case IPC_SERVER_HANDLER:{
-            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_handler_config), __DEFAULT__);
+            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_handler_config), __SHARED__);
             break;
         }
         case IPC_SERVER:{
-            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_config), __DEFAULT__);
+            ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_config), __SHARED__);
             break;
         }
         default:
@@ -207,7 +207,7 @@ static void thread_ctx_restore(struct ckpt_thread_ctx *ckpt_ctx,struct thread_ct
     /* Set the budget of the thread */
     /* There may cause memory leak for TYPE_SHADOW thread*/
     if (!target_ctx->sc) {
-        target_ctx->sc = kmalloc(sizeof(sched_cont_t), __DEFAULT__);
+        target_ctx->sc = kmalloc(sizeof(sched_cont_t), __SHARED__);
 	    target_ctx->sc->budget = DEFAULT_BUDGET;
     }
     if (ckpt_ctx->fpu_state) {
@@ -251,7 +251,7 @@ int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_ob
         switch(((struct ipc_config*)ckpt_thread->general_ipc_config)->config_type) {
             case IPC_SERVER_REGISTER_CB:{
                 struct ckpt_ipc_server_register_cb_config *ckpt_config = ckpt_thread->general_ipc_config;
-                struct ipc_server_register_cb_config *new_config = kmalloc(sizeof(*new_config), __DEFAULT__);
+                struct ipc_server_register_cb_config *new_config = kmalloc(sizeof(*new_config), __SHARED__);
                 new_config->config_type = ckpt_config->config_type;
                 new_config->conn_cap_in_client = ckpt_config->conn_cap_in_client;
                 new_config->conn_cap_in_server = ckpt_config->conn_cap_in_server;
@@ -264,7 +264,7 @@ int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_ob
             }
             case IPC_SERVER_HANDLER:{
                 struct ckpt_ipc_server_handler_config *ckpt_config = ckpt_thread->general_ipc_config;
-                struct ipc_server_handler_config *new_config = kmalloc(sizeof(*new_config), __DEFAULT__);
+                struct ipc_server_handler_config *new_config = kmalloc(sizeof(*new_config), __SHARED__);
                 struct object *new_conn_obj;
                 
                 new_config->config_type = ckpt_config->config_type;
@@ -284,7 +284,7 @@ int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_ob
             }
             case IPC_SERVER:{
                 struct ckpt_ipc_server_config *ckpt_config = ckpt_thread->general_ipc_config;
-                struct ipc_server_config *new_config = kmalloc(sizeof(*new_config), __DEFAULT__);
+                struct ipc_server_config *new_config = kmalloc(sizeof(*new_config), __SHARED__);
                 struct object *new_thread_obj;
 
                 new_config->config_type = ckpt_config->config_type;

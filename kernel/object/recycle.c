@@ -524,7 +524,7 @@ out:
         return ret;
 }
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* recycle ckpt and restore */
 extern struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc);
 extern struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root);
@@ -547,8 +547,13 @@ int recycle_create_ckpt(struct ckpt_recycle_data *recycle_data)
         recycle_data->recycle_msg_buffer = ckpt_ring_buffer(recycle_msg_buffer);
 
         /* ckpt recycle_msg_array */
+        #if defined CHCORE_SLS
         struct recycle_msg_node **recycle_msg_array =
                 kmalloc(msg_list_size * sizeof(struct recycle_msg_node *), __DEFAULT__);
+        #else
+        struct recycle_msg_node **recycle_msg_array =
+                kmalloc(msg_list_size * sizeof(struct recycle_msg_node *), __SHARED__);
+        #endif
         struct recycle_msg_node *msg;
         int i = 0;
         for_each_in_list (

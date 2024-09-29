@@ -2,6 +2,7 @@
 #include "../ckpt_object_pool.h"
 #include "../ckpt_page.h"
 
+
 extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl);
 
 #ifdef PMO_CHECKSUM
@@ -19,7 +20,7 @@ u64 pmo_checksum(struct pmobject *pmo) {
         if (pmo->dram_cache.array == NULL) {
             return (u64)mem_checksum((unsigned char *)phys_to_virt(pmo->start), pmo->size);
         } else {
-            char *pages = kmalloc(pmo->size, __DEFAULT__);
+            char *pages = kmalloc(pmo->size, __SHARED__);
             memcpy(pages, (unsigned char *)phys_to_virt(pmo->start), pmo->size);
             for (int i = 0; i < pmo->size / PAGE_SIZE; i++) {
                 if (pmo->dram_cache.array[i]) {
@@ -371,14 +372,14 @@ static int __radix_pmo_restore(struct pmobject *pmo, struct radix_node *page_nod
     for (i = 0; i < RADIX_NODE_SIZE;i++) {
         if (ckpt_page_node->children[i] || page_node->children[i]) {
             if (!page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __DEFAULT__);
+                new = kzalloc(sizeof(*new), __SHARED__);
                 if(IS_ERR(new)) {
                     return -ENOMEM;
                 }
                 page_node->children[i] = new;
             }
             if (!ckpt_page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __DEFAULT__);
+                new = kzalloc(sizeof(*new), __SHARED__);
                 if (IS_ERR(new)) {
                     return -ENOMEM;
                 }
@@ -407,7 +408,7 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
 	lock(&pmo_radix->radix_lock);
 	lock(&ckpt_page_radix->radix_lock);
 	if (!ckpt_page_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __DEFAULT__);
+        new_node = kzalloc(sizeof(*new_node), __SHARED__);
         if (IS_ERR(new_node)) {
             r = -ENOMEM;
         }
@@ -415,7 +416,7 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
     }
 
     if (!pmo_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __DEFAULT__);
+        new_node = kzalloc(sizeof(*new_node), __SHARED__);
         if (IS_ERR(new_node)) {
             r = -ENOMEM;
         }
@@ -447,7 +448,7 @@ static int __continuous_pmo_restore(struct pmobject *pmo, struct radix_node *ckp
                 va = (vaddr_t)phys_to_virt(pa);
                 /* set page info */
                 struct page* page = virt_to_page((void*)va);
-
+                UNUSED(page);
                 int idx = choose_ckpt_page_idx(page_pair);
                 int stale_idx = 1 - idx;
                 clear_ckpt_page(page_pair, stale_idx);
@@ -490,7 +491,7 @@ int continuous_pmo_restore(struct pmobject *pmo, struct radix *ckpt_page_radix)
 	struct radix_node *new_node;
 	lock(&ckpt_page_radix->radix_lock);
 	if (!ckpt_page_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __DEFAULT__);
+        new_node = kzalloc(sizeof(*new_node), __SHARED__);
         if(IS_ERR(new_node)) {
             r = -ENOMEM;
         }
@@ -512,12 +513,12 @@ static int __init_ckpt_page_radix(struct radix_node *page_node, struct radix_nod
     if (node_level == RADIX_LEVELS - 1) {
         for (i = 0;i < RADIX_NODE_SIZE;i++) {
             if (page_node->values[i]) {
-                struct ckpt_page_pair *page_pair = kzalloc(sizeof(*page_pair), __DEFAULT__);
+                struct ckpt_page_pair *page_pair = kzalloc(sizeof(*page_pair), __SHARED__);
                 if (!page_pair) {
                     return -ENOMEM;
                 }
                 // printk("%s: page=%p\n", __func__, virt_to_page((void*)phys_to_virt(page_node->values[i])));
-                page_pair->pages[0].va = (vaddr_t)get_pages(0, __DEFAULT__);
+                page_pair->pages[0].va = (vaddr_t)get_pages(0, __SHARED__);
                 page_pair->pages[1].va = phys_to_virt(page_node->values[i]);
                 pagecpy((void*)page_pair->pages[0].va, (void*)phys_to_virt(page_node->values[i]));
                 page_pair->pages[0].version_number = get_current_ckpt_version();
@@ -532,7 +533,7 @@ static int __init_ckpt_page_radix(struct radix_node *page_node, struct radix_nod
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (page_node->children[i]) {
             if (!ckpt_page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __DEFAULT__);
+                new = kzalloc(sizeof(*new), __SHARED__);
                 if (IS_ERR(new)) {
                     return -ENOMEM;
                 }
@@ -731,7 +732,7 @@ static int __radix_deep_copy_with_hybird_mem(struct radix_node *src, struct radi
                     unlock(&page->lock);
                     dst->values[i] = src_pa;
                 }else {
-                    void *newpage = get_pages(0, __DEFAULT__);
+                    void *newpage = get_pages(0, __SHARED__);
 					BUG_ON(!newpage);
 					pagecpy(newpage,
 							(void *)phys_to_virt(src->values[i]));
@@ -745,7 +746,7 @@ static int __radix_deep_copy_with_hybird_mem(struct radix_node *src, struct radi
 
 	for (i = 0; i < RADIX_NODE_SIZE; i++) {
 		if (src->children[i]) {
-			new = kzalloc(sizeof(struct radix_node), __DEFAULT__);
+			new = kzalloc(sizeof(struct radix_node), __SHARED__);
 			if (IS_ERR(new)) {
 				return -ENOMEM;
 			}
@@ -778,7 +779,7 @@ int radix_deep_copy_with_hybird_mem(struct radix *src,struct radix *dst)
     }
 
     if (!dst->root) {
-        new = kzalloc(sizeof(struct radix_node), __DEFAULT__);
+        new = kzalloc(sizeof(struct radix_node), __SHARED__);
         if (IS_ERR(new)) {
             r = -ENOMEM;
         }

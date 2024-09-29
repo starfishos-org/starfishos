@@ -4,6 +4,7 @@
 #include <mm/nvm.h>
 #include <sched/fpu.h>
 
+#ifdef CHCORE_SSI_SLS
 void sys_ipi_stop_all()
 {
     u32 target_cpu;
@@ -19,28 +20,6 @@ void sys_ipi_stop_all()
         // kinfo("send ipi to cpu %d\n", target_cpu);
     }
     save_fpu_state(current_thread);
-    wait_all_in_kernel(cpuid);
-}
-
-static void send_ipi_reset_sched_in_kernel(u32 target_cpu)
-{
-    prepare_ipi_tx(target_cpu);
-    start_ipi_tx(target_cpu, IPI_RESET_SCHEDULE);
-}
-
-void sys_ipi_reset_sched_all() 
-{
-    u32 target_cpu;
-    u32 cpuid = smp_get_cpu_id();
-
-    for (target_cpu = 0; target_cpu < PLAT_CPU_NUM; ++target_cpu){
-        // wait other cpu to get into ipi
-        if (target_cpu == cpuid)
-            continue;
-        // wait other cpu to get into ipi
-        send_ipi_reset_sched_in_kernel(target_cpu);
-    }
-
     wait_all_in_kernel(cpuid);
 }
 
@@ -66,3 +45,4 @@ void sys_ipi_test_kernel(int cpuid)
             printk("cpu %d\n", cpuid);
     }
 }
+#endif

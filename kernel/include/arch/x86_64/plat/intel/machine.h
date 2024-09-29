@@ -1,7 +1,7 @@
 #pragma once
 
 /* Should be set at boot time */
-#define PLAT_CPU_NUM (64)
+#define PLAT_CPU_NUM (32)
 
 /* MSR Registers */
 #define IA32_APIC_BASE		0x0000001b
