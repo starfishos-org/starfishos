@@ -212,7 +212,7 @@ static int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
         pa = vmr->pmo->start;
         va = vmr->start;
         perm = vmr->perm;
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifndef OMIT_PF
         if ((vmspace->flags & VM_FLAG_PRESERVE)
             && !is_external_sync_pmo(vmr->pmo))

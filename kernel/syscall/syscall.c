@@ -1,6 +1,6 @@
 #include <common/types.h>
 #include <common/vars.h>
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/ckpt.h>
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/external_sync.h>
@@ -370,7 +370,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_set_poll_remote] = sys_set_poll_remote,
         [SYS_set_excepted_connected_client_num] =
                 sys_set_excepted_connected_client_num,
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         [SYS_set_dyn_args] = sys_set_dyn_args,
 
         /* Checkpoint */

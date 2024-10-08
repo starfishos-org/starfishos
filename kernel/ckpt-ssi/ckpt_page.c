@@ -89,9 +89,8 @@ extern u64 page_copy_time[PLAT_CPU_NUM];
 extern u64 get_page_pair_time[PLAT_CPU_NUM];
 #endif
 
-#if 0
 /* ckpt_nvm_page: copy nvm page to ckpt_page */
-int ckpt_nvm_page(struct pmobject *pmo, void *kva, u64 index) 
+int ckpt_dsm_page(struct pmobject *pmo, void *kva, u64 index) 
 {
     u64 current_version = get_current_ckpt_version();
     struct ckpt_obj_root* obj_root = container_of(pmo, struct object, opaque)->obj_root;
@@ -115,7 +114,7 @@ int ckpt_nvm_page(struct pmobject *pmo, void *kva, u64 index)
 
     return 0;
 }
-#endif
+
 /* ckpt_dram_cached_page: copy dram-cached page to ckpt_page */
 void ckpt_dram_cached_page(struct pmobject *pmo, void *kva, u64 index)
 {

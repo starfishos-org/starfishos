@@ -101,7 +101,7 @@
 /* Virtualization */
 #define SYS_virt_dispatch 240
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* Checkpoint */
 #define SYS_whole_ckpt                241
 #define SYS_whole_restore             242

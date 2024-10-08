@@ -23,7 +23,7 @@
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
 #include <object/recycle.h>
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/ckpt.h>
 #endif
@@ -41,7 +41,7 @@
 
 #if PGFAULT_POLICY == ONDEMAND
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* add_pte_patch_to_pool: when trigger write, track pages's pte and page struct
  */
 void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte,
@@ -102,7 +102,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         u64 index;
         int ret = 0;
         pte_t *pte; /* out pte */
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         int ckpt_ret = 0;
 #if defined(OMIT_PF) && !defined(PMO_CHECKSUM)
         UNUSED(page);
@@ -129,7 +129,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         switch (pmo->type) {
         case PMO_DATA:
         case PMO_FILE:
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         case PMO_RING_BUFFER:
         case PMO_RING_BUFFER_RADIX:
 #endif
@@ -219,7 +219,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                 vmspace->pgtbl, fault_addr, pa, perm, &pte);
                         unlock(&vmspace->pgtbl_lock);
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
                         /* do not persist pages belong to external sync pmo */
                         if (is_external_sync_pmo(pmo))
                                 break;
@@ -237,8 +237,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                 page->ckpt_version_number =
                                         get_current_ckpt_version() + 1;
 #endif
-#ifndef OMIT_BENCHMARK
+#ifndef OMIT_BENCHMARK 
+                                #ifdef CHCORE_SSI_SLS
+                                ckpt_dsm_page(pmo, new_va, index);
+                                #else
                                 ckpt_nvm_page(pmo, new_va, index);
+                                #endif
 #endif
                                 add_pte_patch_to_pool(
                                         vmspace, (pte_t *)pte, page);
@@ -271,7 +275,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         if (pmo->type == PMO_FILE) {
                                 perm = VMR_READ | VMR_WRITE | VMR_EXEC;
                         }
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifndef OMIT_PF
                         if ((vmspace->flags & VM_FLAG_PRESERVE) && !write
                             && !is_external_sync_pmo(pmo)) {
@@ -385,7 +389,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         unlock(&vmspace->pgtbl_lock);
                 skip_add_mapping:
                         kdebug("[CoW] skip add mapping\n");
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 
                         /* do not persist pages belong to external sync pmo */
                         if (is_external_sync_pmo(pmo))
@@ -411,8 +415,14 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                 if (pmo != page->pmo) {
                                         page->pmo = pmo;
                                 }
+                                #ifdef CHCORE_SSI_SLS
+                                ckpt_ret = ckpt_dsm_page(
+                                        pmo, (void *)phys_to_virt(pa), index);
+                                #else
                                 ckpt_ret = ckpt_nvm_page(
                                         pmo, (void *)phys_to_virt(pa), index);
+                                #endif
+
 #endif /* OMIT_MEMCPY */
                                 /* Add pte patch */
                                 add_pte_patch_to_pool(vmspace, pte, page);

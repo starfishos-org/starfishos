@@ -16,7 +16,7 @@
 #include <object/object.h>
 #include <object/user_fault.h>
 #include <lib/ring_buffer.h>
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
 #endif
@@ -261,14 +261,18 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
         BUG_ON(ret);
         unlock(&fault_vmspace->pgtbl_lock);
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* Add pte patch */
         if (fault_vmspace->flags & VM_FLAG_PRESERVE) {
                 /*  vmspace lock is not get */
                 struct page *page = virt_to_page((void *)phys_to_virt(new_pa));
 //     int ckpt_ret =
 #ifndef OMIT_BENCHMARK
+                #ifdef CHCORE_SSI_SLS
+                ckpt_dsm_page(pmo, (void *)phys_to_virt(new_pa), index);
+                #else
                 ckpt_nvm_page(pmo, (void *)phys_to_virt(new_pa), index);
+                #endif
 #endif
                 add_pte_patch_to_pool(fault_vmspace, pte, page);
                 //     if(ckpt_ret) {

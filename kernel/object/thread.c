@@ -211,7 +211,7 @@ void create_root_thread(void)
 
         root_cap_group = create_root_cap_group(ROOT_NAME, strlen(ROOT_NAME));
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         root_cap_group_obj_for_ckpt =
                 container_of(root_cap_group, struct object, opaque);
 #endif /* CHCORE_SLS */

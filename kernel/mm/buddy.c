@@ -155,7 +155,7 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
                 page->pmo = NULL;
                 page->index = 0;
 #endif
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
                 page->page_pair = 0;
 #endif
         }
@@ -187,7 +187,7 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
                 if (!list_empty(free_list)) {
                         /* Get a free memory chunck from the free list */
                         page = list_entry(free_list->next, struct page, node);
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
                         prepare_latest_log(
                                 pool, ADD_PAGES, (u64)page, order, cur_order);
 #endif
@@ -218,7 +218,7 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
         }
 
 out:
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         commit_latest_log(pool);
 #endif
         unlock(&pool->buddy_lock);
@@ -235,7 +235,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
 
         lock(&pool->buddy_lock);
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         prepare_latest_log(pool, REMOVE_PAGES, (u64)page, page->order, 0);
 #endif
         for (i = 0; i < (1 << page->order); i++) {
@@ -243,7 +243,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
                 BUG_ON(!page_check_flag(p, PG_allocated));
                 /* Clear all flags of page */
                 p->flags = 0;
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifdef RMAP_ENABLED
                 /* Clear information of pages followed by head */
                 clear_compound_head(p);
@@ -268,7 +268,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
         list_add(&page->node, free_list);
         pool->free_lists[order].nr_free += 1;
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         commit_latest_log(pool);
 #endif
         unlock(&pool->buddy_lock);
@@ -382,7 +382,7 @@ unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *pool)
         return total_size;
 }
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page,
                         u32 dedicated_order, u32 cur_order)
 {
@@ -544,7 +544,9 @@ void undo_get_pages(struct phys_mem_pool *pool, struct log_entry *log)
         /* reset the allocated page */
         for (int i = 0; i < (1 << page->order); i++) {
                 struct page *p = page + i;
+                #ifdef RMAP_ENABLED
                 clear_compound_head(p);
+                #endif
                 page_clear_flag(p, PG_allocated);
         }
         /* add page to free list */
@@ -581,16 +583,19 @@ void redo_free_pages(struct phys_mem_pool *pool, struct log_entry *log)
                 /* Clear all flags of page */
                 p->flags = 0;
                 /* Clear information of pages followed by head */
+                #ifdef RMAP_ENABLED
                 clear_compound_head(p);
+                #endif
                 /* clear pmo and index */
                 p->pmo = NULL;
                 p->index = 0;
                 p->page_pair = 0;
         }
         /* Mark @page's track info as NULL and remove from active list */
+        #ifdef HYBRID_MEM
         if (page->track_info)
                 destory_track_info(page);
-
+        #endif
         /* Merge the freed chunk. */
         page = merge_chunk3(pool, page);
 
@@ -637,7 +642,7 @@ void apply_latest_log(struct phys_mem_pool *pool)
                 /* set log but not commited */
                 if (log->type == ADD_PAGES) {
                         /* undo get_pages */
-                        undo_get_pages(pool, log, __DEFAULT__);
+                        undo_get_pages(pool, log);
                 } else if (log->type == REMOVE_PAGES) {
                         /* redo free_pages */
                         redo_free_pages(pool, log);

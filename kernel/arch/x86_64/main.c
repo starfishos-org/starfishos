@@ -102,7 +102,7 @@ void main(u64 mbmagic, paddr_t mbaddr)
         disable_fpu_usage();
 #endif
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* Init global metada */
         if (ckpt_metadata_init()) {
                 BUG("[ChCore] checkpoint metadata init failed\n");
@@ -128,7 +128,11 @@ void main(u64 mbmagic, paddr_t mbaddr)
         nvm_metadata_set_crash_flag();
         kinfo("[ChCore] nvm_metadata_set_crash_flag done\n");
 #else
+        #ifdef CHCORE_SSI_SLS
+        dsm_metadata_reset_crash_flag();
+        #else
         nvm_metadata_reset_crash_flag();
+        #endif
 #endif
 #endif
         /* Flush all tlbs during boot (kernel uses the lower addresses at boot

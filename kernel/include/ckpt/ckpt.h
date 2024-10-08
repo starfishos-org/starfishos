@@ -22,7 +22,11 @@ void sys_ipi_stop_all();
 void sys_ipi_start_all();
 
 /* ckpt function */
+#ifdef CHCORE_SSI_SLS
+int ckpt_dsm_page(struct pmobject *pmo, void* kva, u64 index);
+#else
 int ckpt_nvm_page(struct pmobject *pmo, void* kva, u64 index);
+#endif
 void ckpt_dram_cached_page(struct pmobject *pmo, void* kva, u64 index);
 
 u64 sys_track_pf_begin();

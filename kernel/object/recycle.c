@@ -12,7 +12,7 @@
 #include <irq/irq.h>
 #include <lib/ring_buffer.h>
 #include <sched/context.h>
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/ckpt.h>
 #include <ckpt/ckpt_data.h>
 #endif /* CHCORE_SLS */

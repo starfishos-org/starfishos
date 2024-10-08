@@ -62,7 +62,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         switch (pmo->type) {
         case PMO_DATA:
         case PMO_DATA_NOCACHE:
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         case PMO_RING_BUFFER: {
                 /*
                  * Calculate the kva for the user_buf:
@@ -97,7 +97,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                         map_page_in_pgtbl(
                                 vmspace->pgtbl, va, pa, vmr->perm, &pte);
                         unlock(&vmspace->pgtbl_lock);
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifndef OMIT_PF
                         if ((vmspace->flags & VM_FLAG_PRESERVE)
                             && !is_external_sync_pmo(pmo)) {
@@ -105,7 +105,12 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                                 BUG_ON(page->pmo != pmo);
                                 // int ckpt_ret =
 #ifndef OMIT_BENCHMARK
+                                #ifdef CHCORE_SSI_SLS
+                                ckpt_dsm_page(pmo, new_va, index);
+                                #else
                                 ckpt_nvm_page(pmo, new_va, index);
+                                #endif
+                                
 #endif
                                 add_pte_patch_to_pool(vmspace, pte, page);
                                 // if(ckpt_ret) {
@@ -124,7 +129,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                       + (((vaddr_t)user_buf) & PAGE_OFFSET_MASK);
                 break;
         }
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         case PMO_RING_BUFFER_RADIX:
 #endif /* CHCORE_SLS */
         case PMO_SHM:
@@ -174,7 +179,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 break;
         }
         }
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         struct page *page = virt_to_page((void *)phys_to_virt(pa));
         if (write && (vmspace->flags & VM_FLAG_PRESERVE)
             && !is_external_sync_pmo(pmo)) {
@@ -189,7 +194,11 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 }
                 case NVM_PAGE: {
 #ifndef OMIT_MEMCPY
+                        #ifdef CHCORE_SSI_SLS
+                        ckpt_dsm_page(pmo, (void *)phys_to_virt(pa), index);
+                        #else
                         ckpt_nvm_page(pmo, (void *)phys_to_virt(pa), index);
+                        #endif
 #endif
                         break;
                 }

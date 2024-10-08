@@ -197,7 +197,7 @@ static void try_return_slab_to_buddy(struct slab_header *slab, int order)
 void init_slab(void)
 {
         int order;
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         slab_pool = SLAB_POOLS_PTR;
 #else
         slab_pool = (struct slab_pointer *)&static_slab_pool;

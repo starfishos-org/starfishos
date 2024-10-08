@@ -62,9 +62,15 @@ struct page {
         struct pmobject *pmo;
         /* page's page pair in checkpoint */
         u64 page_pair;
+        u64 index;
+
+        #ifdef HYBRID_MEM
+        /* Page track info */
+        struct page_track_info *track_info;
+        #endif
 #endif
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS
 #ifdef PMO_CHECKSUM
         u64 ckpt_version_number;
 #endif
@@ -144,7 +150,7 @@ struct phys_mem_pool {
 
         /* Type of mem pool */
         page_type_t type;
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* Logs of the latest log */
         struct log_entry latest_log;
 #endif
@@ -177,7 +183,7 @@ unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *);
 /* get page type by virt addr of page */
 page_type_t get_page_type(struct page *page);
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* latest log related  */
 void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page,
                         u32 dedicated_order, u32 cur_order);

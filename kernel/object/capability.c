@@ -151,7 +151,7 @@ void clear_fpu_owner(struct object *object)
 /* An internal interface: only invoked by __cap_free and obj_put. */
 void __free_object(struct object *object)
 {
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         extern struct ckpt_obj_root *ckpt_obj_root_get(struct object *, bool);
         struct ckpt_obj_root *root = ckpt_obj_root_get(object, false);
         if (root) {

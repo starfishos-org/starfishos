@@ -30,6 +30,7 @@ extern int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,
 // TODO: need support more flexable request
 int sys_whole_restore(u64 ckpt_name, u64 name_len)
 {
+    
     struct ckpt_ws_data *data;
     struct object *obj;
     struct ckpt_obj_root *ckpt_obj_root;

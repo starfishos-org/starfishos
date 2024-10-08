@@ -25,3 +25,5 @@ add_executable(pingpong.bin ping_pong.c)
 add_executable(pingpong-pthread.bin ping_pong_pthread.c)
 
 add_executable(mem_perf_checker.bin mem_perf_checker2.c)
+
+add_subdirectory(treesls)

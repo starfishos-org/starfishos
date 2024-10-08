@@ -11,4 +11,7 @@ target_sources(${kernel_target}
 			ckpt_objects/notification.c
 			ckpt_objects/pmobject.c
 			ckpt_objects/thread.c
-			ckpt_objects/vmspace.c)
+			ckpt_objects/vmspace.c
+			hot_pages_tracker.c
+			external_sync.c
+			)

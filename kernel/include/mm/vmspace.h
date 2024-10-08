@@ -127,7 +127,7 @@ typedef u64 pmo_type_t;
 #define PMO_CROSS_SHM         9 /* shared memory accross machine */
 #define PMO_FORBID            10 /* Forbidden area: avoid overflow */
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 struct page_patch {
         // unsigned char type;
         struct list_head list_node;
@@ -217,7 +217,7 @@ bool use_continuous_pages(struct pmobject *pmo);
 bool is_external_sync_pmo(struct pmobject *pmo);
 bool is_shared_pmo(struct pmobject *pmo);
 
-#ifdef CHCORE_SLS
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* TreeSLS: pmo patch */
 void pmo_set_preserved(struct pmobject *pmo);
 

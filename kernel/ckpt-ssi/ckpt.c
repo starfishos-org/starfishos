@@ -86,6 +86,7 @@ u64 pf_count;
 struct vmspace *redis_vmspace;
 int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
 {
+    printk("ckpt: %lu %p %s\n", ckpt_name, (void *)ckpt_name, (char *)ckpt_name);
     struct ckpt_ws_data *data;
     struct ckpt_obj_root *root_cap_group_obj_root;
     int r;
