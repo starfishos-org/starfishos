@@ -11,6 +11,10 @@
 
 extern struct thread *current_threads[PLAT_CPU_NUM];
 #define current_thread (current_threads[smp_get_cpu_id()])
+
+extern bool resched_flags[PLAT_CPU_NUM];
+#define current_resched_flag (resched_flags[smp_get_cpu_id()])
+
 #ifdef CHCORE_KERNEL_RT
 /* RT (kernel PREEMT): allocate the stack for each thread  */
 #define DEFAULT_KERNEL_STACK_SZ		(0x1000)

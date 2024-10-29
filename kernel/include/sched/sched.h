@@ -149,6 +149,8 @@ struct sched_ops {
 	int (*sched_dequeue)(struct thread * thread);
 	/* Debug tools */
 	void (*sched_top)(void);
+	/* CKPT restore tools */
+	void (*sched_clear)(void);
 };
 
 /* Provided Scheduling Policies */
@@ -175,7 +177,30 @@ static inline int sched_dequeue(struct thread *thread)
 	return cur_sched_ops->sched_dequeue(thread);
 }
 
+static inline void sched_clear(void)
+{
+	cur_sched_ops->sched_clear();
+}
+
 /* Syscalls */
 void sys_yield(void);
 void sys_top(void);
 void sys_perf_null(void);
+
+int rr_sched_migrate_to_remote(struct thread *thread);
+
+struct xsave_area {
+    /* legacy region */
+    u8 legacy_region_0[24];
+    u32 mxcsr;
+    u8 legacy_region_1[484];
+
+    /* xsave_header */
+    u64 xstate_bv;
+    u64 xcomp_bv;
+    u8 reserved[48];
+
+    u8 extended_region[];
+};
+
+#define STATE_AREA_SIZE (sizeof(struct xsave_area))

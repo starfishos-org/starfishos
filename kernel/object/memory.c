@@ -828,6 +828,14 @@ void clear_dram_cached_page(struct pmobject *pmo, u64 index)
         pmo->dram_cache.array[index] = 0;
 }
 
+void clear_dram_cache(struct pmobject *pmo) 
+{
+	BUG_ON(!use_continuous_pages(pmo));
+	BUG_ON(!pmo->dram_cache.array);
+    kfree(pmo->dram_cache.array);
+	pmo->dram_cache.array = NULL;
+}
+
 /* Record the physical page allocated to a pmo */
 void commit_page_to_pmo(struct pmobject *pmo, u64 index, paddr_t pa)
 {

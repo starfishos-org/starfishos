@@ -50,7 +50,7 @@ out_fail:
     return r;
 }
 
-int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map)
+int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map, bool time_traveling)
 {   
     int r;
     struct ipc_connection *conn = (struct ipc_connection *)conn_obj->opaque;
@@ -90,4 +90,33 @@ int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_ob
     return 0;
 out_fail:
     return r;
+}
+
+int ckpt_connection_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+    struct ckpt_ipc_connection *src, *dst;
+    src = (struct ckpt_ipc_connection *)src_obj->opaque;
+    dst = (struct ckpt_ipc_connection *)dst_obj->opaque;
+
+    /* Copy the contents of src to dst */
+    memcpy(dst, src, sizeof(struct ckpt_ipc_connection));
+
+    /* Update the object roots using the object map */
+    if (src->current_client_thread_root) {
+        dst->current_client_thread_root = get_copied_obj_root(
+            src->current_client_thread_root, obj_map);
+        if (!dst->current_client_thread_root) {
+            return -ENOMEM;
+        }
+    }
+
+    if (src->server_handler_thread_root) {
+        dst->server_handler_thread_root = get_copied_obj_root(
+            src->server_handler_thread_root, obj_map);
+        if (!dst->server_handler_thread_root) {
+            return -ENOMEM;
+        }
+    }
+
+    return 0;
 }

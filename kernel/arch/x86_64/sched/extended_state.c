@@ -22,21 +22,10 @@
 #define USE_INSTRUCTION USE_XSAVEOPT
 //#define USE_INSTRUCTION USE_FXSAVE
 
-struct xsave_area {
-    /* legacy region */
-    u8 legacy_region_0[24];
-    u32 mxcsr;
-    u8 legacy_region_1[484];
-
-    /* xsave_header */
-    u64 xstate_bv;
-    u64 xcomp_bv;
-    u8 reserved[48];
-
-    u8 extended_region[];
-};
-
-#define STATE_AREA_SIZE (sizeof(struct xsave_area))
+u64 get_fpu_state_size()
+{
+	return STATE_AREA_SIZE;
+}
 
 void *alloc_fpu_state()
 {

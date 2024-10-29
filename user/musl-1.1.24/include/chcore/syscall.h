@@ -71,6 +71,8 @@ int usys_whole_ckpt(char *ckpt_name, u64 name_len);
 int usys_whole_ckpt_for_test(char *ckpt_name, u64 name_len, u64 log_level);
 int usys_whole_restore(char *ckpt_name, u64 name_len);
 int usys_register_external_ringbuf(u64 buffer);
+int usys_ckpt_migrate(char *ckpt_name);
+int usys_ckpt_merge_migration();
 
 void usys_ipi_stop_all(void);
 void usys_ipi_start_all(void);

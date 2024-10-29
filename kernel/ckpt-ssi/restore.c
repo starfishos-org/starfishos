@@ -88,6 +88,10 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
         goto out_fail;
     }
     set_current_ckpt_version(data->version_number);
+
+    /* clear the sched queues first */
+    sched_clear();
+
     /* restore root_cap_group obj */		
     obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, true);
 
@@ -97,8 +101,13 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
     recycle_restore(&data->recycle_data, obj_map);
     fmap_fault_pool_restore(&data->ckpt_fmap_fault_pool_list, obj_map);
 
-    second_latest_ws_data = NULL;
-    latest_ws_data = data;
+    /* free the tmp obj map */
+    kfree(obj_map);
+
+    if (!data->ckpt_root_obj_root->time_traveling) {
+        second_latest_ws_data = NULL;
+        latest_ws_data = data;
+    }
 #ifdef RESTORE_REPORT
     int tcnt = 0;
     for (int i = 0; i < TYPE_NR; i++) {

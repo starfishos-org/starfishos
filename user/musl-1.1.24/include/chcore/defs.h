@@ -202,3 +202,6 @@
 /* track pf */
 #define CHCORE_SYS_track_pf_begin       250
 #define CHCORE_SYS_track_pf_end         251
+
+#define CHCORE_SYS_ckpt_migrate         252
+#define CHCORE_SYS_ckpt_merge_migration 253

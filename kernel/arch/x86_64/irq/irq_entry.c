@@ -211,6 +211,14 @@ void handle_irq(int irqno)
 		// kinfo("CPU %d: receive IPI on TLB.\n", smp_get_cpu_id());
 		handle_ipi();
 		arch_ack_irq();
+		if (current_resched_flag == true) {
+			current_resched_flag = false;
+			sched();
+			eret_to_thread(switch_context());
+				
+			/* should never return */
+			BUG_ON(1);
+		}
 		return;
 	case IRQ_IPI_RESET_SCHED:
 		handle_ipi();

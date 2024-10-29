@@ -130,6 +130,7 @@ typedef struct {
         struct kvs *ckpt_global_obj_map;
         struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
         #endif
+        struct shared_queue_meta ready_to_merge_object_queue;
 } __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -140,6 +141,9 @@ dsm_metadata_t *dsm_meta;
 static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
         dsm_meta = (dsm_metadata_t *)shm_vaddr;
+        init_list_head(&(dsm_meta->ready_to_merge_object_queue.queue_head));
+        lock_init(&(dsm_meta->ready_to_merge_object_queue.queue_lock));
+        dsm_meta->ready_to_merge_object_queue.queue_len = 0;
 }
 
 static inline u64 dsm_is_inited()

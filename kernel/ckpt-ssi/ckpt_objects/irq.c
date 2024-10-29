@@ -13,7 +13,7 @@ int irq_ckpt(struct irq_notification *irq_notifc, struct ckpt_irq_notification *
     return notification_ckpt(&irq_notifc->notifc,&ckpt_irq_notifc->notifc, alloc);
 }
 
-int irq_restore(struct object *irq_obj, struct ckpt_object *ckpt_irq_obj, struct kvs *obj_map)
+int irq_restore(struct object *irq_obj, struct ckpt_object *ckpt_irq_obj, struct kvs *obj_map, bool time_traveling)
 {
     int i, r;
     struct irq_notification *irq_notifc = (struct irq_notification *)irq_obj->opaque;
@@ -49,4 +49,30 @@ int irq_restore(struct object *irq_obj, struct ckpt_object *ckpt_irq_obj, struct
     return 0;
 out_fail:
     return r;
+}
+
+int ckpt_irq_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+	struct ckpt_irq_notification *src_irq, *dst_irq;
+	int r;
+
+	src_irq = (struct ckpt_irq_notification *)src_obj->opaque;
+	dst_irq = (struct ckpt_irq_notification *)dst_obj->opaque;
+
+	/* Copy basic fields */
+	dst_irq->intr_vector = src_irq->intr_vector;
+	dst_irq->status = src_irq->status;
+	dst_irq->user_handler_ready = src_irq->user_handler_ready;
+
+	/* Copy the notification part */
+	r = ckpt_notification_copy(
+		(struct ckpt_object *)&src_irq->notifc,
+		(struct ckpt_object *)&dst_irq->notifc,
+		obj_map
+	);
+	if (r) {
+		return r;
+	}
+
+	return 0;
 }

@@ -14,4 +14,5 @@ target_sources(${kernel_target}
 			ckpt_objects/vmspace.c
 			hot_pages_tracker.c
 			external_sync.c
+			ckpt_time_traveling.c
 			)

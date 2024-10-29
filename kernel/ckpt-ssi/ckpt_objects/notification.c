@@ -38,7 +38,7 @@ out_fail:
     return r;
 }
 
-int notification_restore(struct object *notifc_obj, struct ckpt_object *ckpt_notifc_obj, struct kvs *obj_map)
+int notification_restore(struct object *notifc_obj, struct ckpt_object *ckpt_notifc_obj, struct kvs *obj_map, bool time_traveling)
 {
     int r, i;
     struct notification *notifc = (struct notification *)notifc_obj->opaque;
@@ -76,4 +76,35 @@ int notification_restore(struct object *notifc_obj, struct ckpt_object *ckpt_not
     return 0;
 out_fail:
     return r;
+}
+
+int ckpt_notification_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+    struct ckpt_notification *src, *dst;
+    int i;
+
+    src = (struct ckpt_notification *)src_obj->opaque;
+    dst = (struct ckpt_notification *)dst_obj->opaque;
+
+    /* Copy basic fields */
+    dst->not_delivered_notifc_count = src->not_delivered_notifc_count;
+    dst->waiting_threads_count = src->waiting_threads_count;
+    dst->state = src->state;
+
+    /* Allocate memory for waiting_thread_roots */
+    dst->waiting_thread_roots = kmalloc(src->waiting_threads_count * sizeof(struct ckpt_obj_root *), __SHARED__);
+    if (!dst->waiting_thread_roots) {
+        return -ENOMEM;
+    }
+
+    /* Copy waiting thread roots */
+    for (i = 0; i < src->waiting_threads_count; i++) {
+        dst->waiting_thread_roots[i] = get_copied_obj_root(src->waiting_thread_roots[i], obj_map);
+        if (!dst->waiting_thread_roots[i]) {
+            kfree(dst->waiting_thread_roots);
+            return -ENOMEM;
+        }
+    }
+
+    return 0;
 }

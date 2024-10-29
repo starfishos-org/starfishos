@@ -194,10 +194,16 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
                 }
                 case NVM_PAGE: {
 #ifndef OMIT_MEMCPY
+                        #ifdef CHCORE_SLS
+                        ckpt_nvm_page(pmo, (void *)phys_to_virt(pa), index);
+                        #endif
+#endif
+                        break;
+                }
+                case CXL_MEM_PAGE: {
+#ifndef OMIT_MEMCPY
                         #ifdef CHCORE_SSI_SLS
                         ckpt_dsm_page(pmo, (void *)phys_to_virt(pa), index);
-                        #else
-                        ckpt_nvm_page(pmo, (void *)phys_to_virt(pa), index);
                         #endif
 #endif
                         break;

@@ -16,6 +16,7 @@
 #include <object/thread.h>
 #include <irq/irq.h>
 #include <sched/context.h>
+#include <sched/sched.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue (dsm_meta->shared_queue)
@@ -97,7 +98,7 @@ int __rr_sched_dequeue_shared(struct thread *thread, u32 gcpuid)
  * rr_sched_migrate_to_remote -- migrate thread to remote
  * @thread: thread to be migrated
  */
-static int rr_sched_migrate_to_remote(struct thread *thread)
+int rr_sched_migrate_to_remote(struct thread *thread)
 {
         u64 affinitiy, gcpuid;
         int ret;
@@ -276,8 +277,10 @@ int rr_sched_enqueue(struct thread *thread)
 int __rr_sched_dequeue(struct thread *thread)
 {
         if (thread->thread_ctx->state != TS_READY) {
-                kwarn("%s: thread state is %d\n",
+                
+                kwarn("%s: thread %s state is %d\n",
                       __func__,
+                      thread->cap_group->cap_group_name,
                       thread->thread_ctx->state);
                 return -EINVAL;
         }
@@ -527,8 +530,32 @@ void rr_top(void)
         }
 }
 
+void rr_sched_clear()
+{
+	/* clear all queues */
+	int i;
+	for (i = 0; i < PLAT_CPU_NUM; i++) {
+		lock(&(rr_ready_queue_meta[i].queue_lock));
+		rr_ready_queue_meta[i].queue_len = 0;
+		init_list_head(&(rr_ready_queue_meta[i].queue_head));
+		unlock(&(rr_ready_queue_meta[i].queue_lock));
+	}
+
+	/* clear all current threads and mark resched */
+	for (i = 0; i < PLAT_CPU_NUM; i++) {
+		if (i == smp_get_cpu_id())
+			continue;
+		current_threads[i] = NULL;
+		resched_flags[i] = true;
+	}
+        printk("clear sched finished\n");
+}
+
 struct sched_ops rr = {.sched_init = rr_sched_init,
                        .sched = rr_sched,
                        .sched_enqueue = rr_sched_enqueue,
                        .sched_dequeue = rr_sched_dequeue,
-                       .sched_top = rr_top};
+                       .sched_top = rr_top,
+                       .sched_clear = rr_sched_clear,
+};
+

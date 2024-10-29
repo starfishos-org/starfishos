@@ -198,6 +198,7 @@ void switch_vmspace_to(struct vmspace *);
 void commit_page_to_pmo(struct pmobject *pmo, u64 index, paddr_t pa);
 void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa);
 void clear_dram_cached_page(struct pmobject *pmo, u64 index);
+void clear_dram_cache(struct pmobject *pmo);
 
 paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index);
 

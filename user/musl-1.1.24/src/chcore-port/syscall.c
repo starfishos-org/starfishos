@@ -306,6 +306,15 @@ int usys_register_external_ringbuf(u64 buffer)
 	return chcore_syscall1(CHCORE_SYS_register_external_ringbuf, buffer);
 }
 
+int usys_ckpt_migrate(char *ckpt_name)
+{
+	return chcore_syscall1(CHCORE_SYS_ckpt_migrate, (u64)ckpt_name);
+}
+int usys_ckpt_merge_migration()
+{
+	return chcore_syscall0(CHCORE_SYS_ckpt_merge_migration);
+}
+
 void usys_ipi_stop_all()
 {
 	chcore_syscall0(CHCORE_SYS_ipi_stop_all);

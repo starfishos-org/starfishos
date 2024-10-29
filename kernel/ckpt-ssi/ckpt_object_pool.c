@@ -9,6 +9,7 @@
 #include <mm/mm.h>
 #include <mm/kmalloc.h>
 #include <mm/nvm.h>
+#include <dsm/dsm-single.h>
 
 #include "ckpt_object_pool.h"
 #include "ckpt_objects.h"
@@ -25,6 +26,16 @@ const obj_restore_func obj_restore_tbl[TYPE_NR] = {
 	[TYPE_VMSPACE] = vmspace_restore,
 };
 
+struct ckpt_ws_data *init_ckpt_ws_data()
+{
+	struct ckpt_ws_data *data;
+	data = kzalloc(sizeof(*data), __SHARED__);
+	if (!data) {
+		return NULL;
+	}
+	return data;
+}
+
 struct ckpt_ws_data *get_ckpt_ws_data()
 {
 	struct ckpt_ws_data *data;
@@ -35,7 +46,7 @@ struct ckpt_ws_data *get_ckpt_ws_data()
 		/* update data version number */
 		data->version_number = data->version_number + 2;
 	} else {
-		data = kzalloc(sizeof(*data), __SHARED__);
+		data = init_ckpt_ws_data();
 		if (!data) {
 			goto out_fail;
 		}
@@ -98,6 +109,25 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
 	return object;
 }
 
+struct ckpt_obj_root *ckpt_obj_root_alloc()
+{
+	struct ckpt_obj_root *root;
+	root = kmalloc(sizeof(*root), __SHARED__);
+	if (!root)
+		return NULL;
+
+#if OBJ_OVERWRITE == 1
+	root->ckpt_objs[0] = NULL;
+	root->ckpt_objs[1] = NULL;
+#endif
+	root->cow = false;
+	root->refcnt = 0;
+	root->flip_flag = system_current_flip_flag ^ 1;
+	
+	return root;
+}
+
+
 struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc)
 {
 	if (!CKPT_GLOBAL_OBJ_MAP || !obj) {
@@ -107,19 +137,9 @@ struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc)
 
 	struct ckpt_obj_root *root = obj->obj_root;
 	if (!root && alloc) {
-		root = kmalloc(sizeof(*root), __SHARED__);
-		if (!root)
-			return NULL;
-
-		root->obj = obj;
-#if OBJ_OVERWRITE == 1
-		root->ckpt_objs[0] = NULL;
-		root->ckpt_objs[1] = NULL;
-#endif
-		root->cow = false;
-		root->refcnt = 0;
-		root->flip_flag = system_current_flip_flag ^ 1;
+		root = ckpt_obj_root_alloc();
 		obj->obj_root = root;
+		root->obj = obj;
 	}
 
 	return root;
@@ -192,6 +212,7 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int alloc)
 		u64 object_time_begin = plat_get_mono_time();
 		get_second_latest_obj_time += object_time_begin - timer_start;
 #endif
+		char *ckpt_name = "/test_hello.bin";
 		switch (obj->type) {
 		case TYPE_PMO: {
 			pmo_ckpt((struct pmobject *)obj->opaque,
@@ -215,9 +236,19 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int alloc)
 				|| !strcmp(name, "/memcachetest"))
 					break;
 #endif
+			struct thread *thread = (struct thread *)obj->opaque;
+			if (strcmp(thread->cap_group->cap_group_name, ckpt_name) == 0) {
+				thread->thread_ctx->state = TS_WAITING;
+				sched();
+    	}
 			thread_ckpt(
 					(struct thread *)obj->opaque,
 					(struct ckpt_thread *)ckpt_obj->opaque);
+			
+			if (strcmp(thread->cap_group->cap_group_name, ckpt_name) == 0) {
+				kdebug("[%s] thread %s enqueue\n", __func__, thread->cap_group->cap_group_name);
+				dsm_enqueue(ckpt_obj);
+    	}
 			break;
 		}
 		case TYPE_CONNECTION: {
@@ -299,8 +330,16 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
 	} else if (alloc) {
 		ckpt_obj_root->flip_flag = system_current_flip_flag;
 
-		ckpt_obj = get_second_latest_ckpt_obj(
-				ckpt_obj_root, get_current_ckpt_version());
+		/* get ckpt obj */
+		if (ckpt_obj_root->time_traveling) {
+			/* time traveling obj always use the first ckpt_obj */
+			ckpt_obj = ckpt_obj_root->ckpt_objs[0];
+		} else {
+			ckpt_obj = get_second_latest_ckpt_obj(
+					ckpt_obj_root, 
+					get_current_ckpt_version());
+		}
+		BUG_ON(!ckpt_obj);
 		obj = ckpt_obj_root->obj;
 		kvs_put(obj_map, (kvs_key_t *)&ckpt_obj_root,
 				(kvs_value_t *)(&obj));
@@ -309,9 +348,10 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
 		start();
 #endif
 		/* Invoke the object-specific restore routine */
+		kdebug("restore obj type %d\n", obj->type);
 		func = obj_restore_tbl[obj->type];
 		if (func) {
-			BUG_ON(func(obj, ckpt_obj, obj_map));
+			BUG_ON(func(obj, ckpt_obj, obj_map, ckpt_obj_root->time_traveling));
 		} else {
 			WARN("obj restore func is NULL");
 			BUG_ON(1);
@@ -350,4 +390,42 @@ inline void set_second_latest_ckpt_obj(struct ckpt_obj_root *ckpt_obj_root,
                                        struct ckpt_object *ckpt_obj)
 {
 	ckpt_obj_root->ckpt_objs[1 - version_number % 2] = ckpt_obj;
+}
+
+void dsm_enqueue(void *data)
+{
+	struct shared_queue_meta *queue;
+	struct dsm_queue_node *queue_node;
+
+	queue_node = kmalloc(sizeof(*queue_node), __SHARED__);
+	queue_node->data = data;
+
+	queue = &dsm_meta->ready_to_merge_object_queue;
+	lock(&(queue->queue_lock));
+	list_append(&(queue_node->node),
+							&(queue->queue_head));
+	queue->queue_len++;
+	unlock(&(queue->queue_lock));
+}
+
+void *dsm_dequeue()
+{
+	struct shared_queue_meta *queue;
+	struct list_head *pos;
+	void *data;
+
+	queue = &dsm_meta->ready_to_merge_object_queue;
+	lock(&(queue->queue_lock));
+	if (list_empty(&(queue->queue_head))) {
+		data = NULL;
+		goto out;
+	}
+	pos = queue->queue_head.next;
+	data = container_of(pos, struct dsm_queue_node, node)->data;
+	
+	list_del(pos);
+	queue->queue_len--;
+out:
+	unlock(&(queue->queue_lock));
+	return data;
 }

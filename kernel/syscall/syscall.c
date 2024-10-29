@@ -378,6 +378,8 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_whole_restore] = sys_whole_restore,
         [SYS_whole_ckpt_for_test] = sys_whole_ckpt_for_test,
         [SYS_register_external_ringbuf] = sys_register_external_ringbuf,
+        [SYS_ckpt_migrate] = sys_ckpt_migrate,
+        [SYS_ckpt_merge_migration] = sys_ckpt_merge_migration,
 
         /* IPI */
         [SYS_ipi_stop_all] = sys_ipi_stop_all,

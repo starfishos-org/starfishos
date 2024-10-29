@@ -24,6 +24,7 @@
 
 struct thread *current_threads[PLAT_CPU_NUM];
 struct thread idle_threads[PLAT_CPU_NUM];
+bool resched_flags[PLAT_CPU_NUM];
 
 // #if PLAT_CPU_NUM <= 32
 u32 resched_bitmaps[PLAT_CPU_NUM];

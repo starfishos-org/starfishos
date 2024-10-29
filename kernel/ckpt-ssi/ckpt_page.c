@@ -4,6 +4,19 @@
 #include <mm/nvm.h>
 #include <common/list.h>
 
+inline struct ckpt_page* get_ckpt_page_with_version(struct ckpt_page_pair *page_pair, u64 version_number) 
+{
+    /* return the largest version less than @version_number */
+    if (page_pair->pages[0].version_number <= version_number &&
+        (page_pair->pages[1].version_number > version_number || 
+         page_pair->pages[0].version_number > page_pair->pages[1].version_number)) {
+        return &page_pair->pages[0];
+    } else if (page_pair->pages[1].version_number <= version_number) {
+        return &page_pair->pages[1];
+    }
+    BUG("No legal page\n");
+}
+
 /*
  * when the version number of page_0 and page_1 are equal,
  * we treat page_0 as the new one.
@@ -107,6 +120,17 @@ int ckpt_dsm_page(struct pmobject *pmo, void *kva, u64 index)
     // ckpt_page = get_second_latest_ckpt_page(page_pair);
 
     if (ckpt_page->version_number != current_version) {
+        /* if the page is refered by some time traveling ckpt */
+        if (ckpt_page->tt_page) {
+            /** 
+             * (1) the time traveling ckpt will use the old page 
+             * (2) the two-version ckpt will use a new page 
+             */
+            kinfo("ckpt_nvm_page: page %lx is refered by time traveling ckpt\n", kva);
+            ckpt_page->va = (vaddr_t)get_pages(0, __SHARED__);
+            ckpt_page->tt_page = NULL;
+        }
+
         BUG_ON((void*)ckpt_page->va == kva);
         pagecpy_nt((void*)ckpt_page->va, kva);
         ckpt_page->version_number = current_version;
@@ -132,6 +156,7 @@ void ckpt_dram_cached_page(struct pmobject *pmo, void *kva, u64 index)
 
         BUG_ON(page->pmo != pmo);
         page_pair = get_page_pair(page, index);
+        page_pair->type = CKPT_PP_DRAM;
         BUG_ON(!page_pair);
 
         /* dram-cached page use selective copy or direct-copy method,

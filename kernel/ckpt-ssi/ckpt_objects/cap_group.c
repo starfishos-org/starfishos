@@ -172,7 +172,8 @@ extern int cap_group_init(struct cap_group *cap_group, unsigned int size,
                           u64 badge);
 int cap_group_restore(struct object *cap_group_obj,
                       struct ckpt_object *ckpt_cap_group_obj,
-                      struct kvs *obj_map)
+                      struct kvs *obj_map,
+                      bool time_traveling)
 {
     struct cap_group *cap_group = (struct cap_group *)cap_group_obj->opaque;
     struct ckpt_cap_group *ckpt_cap_group = (struct ckpt_cap_group *)ckpt_cap_group_obj->opaque;
@@ -190,4 +191,47 @@ int cap_group_restore(struct object *cap_group_obj,
 
     /* Restore slot table */
     return slot_table_restore(cap_group,ckpt_cap_group,obj_map);
+}
+
+int ckpt_slot_table_copy(struct ckpt_object_slot *src_slots,
+                         struct ckpt_object_slot *dst_slots, int size,
+                         struct kvs *obj_map)
+{
+    int i;
+    struct ckpt_obj_root *copied_obj_root;
+
+    for (i = 0; i < size; i++) {
+        copied_obj_root =
+            get_copied_obj_root(src_slots[i].obj_root, obj_map);
+        BUG_ON(!copied_obj_root);
+
+        dst_slots[i].slot_id = src_slots[i].slot_id;
+        dst_slots[i].obj_root = copied_obj_root;
+    }
+    return 0;
+}
+
+int ckpt_cap_group_copy(struct ckpt_object *src_obj,
+                        struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+    struct ckpt_cap_group *src_cap_group, *dst_cap_group;
+    src_cap_group = (struct ckpt_cap_group *)src_obj->opaque;
+    dst_cap_group = (struct ckpt_cap_group *)dst_obj->opaque;
+
+    /* Copy the contents of src_cap_group to dst_cap_group */
+    memcpy(dst_cap_group, src_cap_group, sizeof(struct ckpt_cap_group));
+    dst_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
+        (dst_cap_group->table_size) * sizeof(struct ckpt_object_slot), __SHARED__);
+
+    kinfo("copy cap group: size %u (%u), badge %lx, name %s\n",
+            dst_cap_group->table_size, 
+            src_cap_group->table_size,
+            dst_cap_group->badge,
+            dst_cap_group->cap_group_name);
+
+    /* Copy slot table */
+    return ckpt_slot_table_copy(src_cap_group->slots,
+                                dst_cap_group->slots,
+                                src_cap_group->table_size,
+                                obj_map);
 }

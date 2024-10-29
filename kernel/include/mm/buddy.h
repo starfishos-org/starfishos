@@ -64,10 +64,10 @@ struct page {
         u64 page_pair;
         u64 index;
 
-        #ifdef HYBRID_MEM
+        // #ifdef HYBRID_MEM
         /* Page track info */
         struct page_track_info *track_info;
-        #endif
+        // #endif
 #endif
 
 #if defined CHCORE_SLS
@@ -82,10 +82,10 @@ struct page {
         u64 compound_head;
 #endif
         u64 page_pair;
-#ifdef HYBRID_MEM
+// #ifdef HYBRID_MEM
         /* Page track info */
         struct page_track_info *track_info;
-#endif
+// #endif
 #endif
 };
 

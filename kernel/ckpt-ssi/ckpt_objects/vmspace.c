@@ -210,8 +210,10 @@ out_fail:
         return NULL;
 }
 
-int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
-                    struct kvs *obj_map)
+int vmspace_restore(struct object *vm_obj, 
+                    struct ckpt_object *ckpt_vm_obj,
+                    struct kvs *obj_map,
+                    bool time_traveling)
 {
         int r;
         struct vmspace *target_vmspace = (struct vmspace *)vm_obj->opaque;
@@ -256,4 +258,45 @@ int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
                 BUG_ON(1);
 #endif
         return r;
+}
+
+int ckpt_vmspace_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+    struct ckpt_vmspace *src_vmspace, *dst_vmspace;
+    int i, r;
+
+    src_vmspace = (struct ckpt_vmspace *)src_obj->opaque;
+    dst_vmspace = (struct ckpt_vmspace *)dst_obj->opaque;
+
+    /* Copy basic fields */
+    dst_vmspace->pcid = src_vmspace->pcid;
+    dst_vmspace->user_current_mmap_addr = src_vmspace->user_current_mmap_addr;
+    dst_vmspace->vmr_count = src_vmspace->vmr_count;
+    dst_vmspace->heap_vmr_idx = src_vmspace->heap_vmr_idx;
+
+    /* Allocate memory for ckpt_vmrs */
+    dst_vmspace->ckpt_vmrs = kmalloc(src_vmspace->vmr_count * sizeof(struct ckpt_vmregion), __SHARED__);
+    if (!dst_vmspace->ckpt_vmrs) {
+        return -ENOMEM;
+    }
+
+    /* Copy each vmregion */
+    for (i = 0; i < src_vmspace->vmr_count; i++) {
+        memcpy(&dst_vmspace->ckpt_vmrs[i], &src_vmspace->ckpt_vmrs[i], sizeof(struct ckpt_vmregion));
+        
+        /* Update the pmo_root using the object map */
+        if (src_vmspace->ckpt_vmrs[i].pmo_root) {
+            dst_vmspace->ckpt_vmrs[i].pmo_root = get_copied_obj_root(
+                src_vmspace->ckpt_vmrs[i].pmo_root, obj_map);
+            if (!dst_vmspace->ckpt_vmrs[i].pmo_root) {
+                r = -ENOMEM;
+                goto out_free_vmrs;
+            }
+        }
+    }
+
+    return 0;
+out_free_vmrs:
+    kfree(dst_vmspace->ckpt_vmrs);
+    return r;
 }

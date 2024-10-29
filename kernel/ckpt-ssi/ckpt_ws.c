@@ -161,7 +161,45 @@ struct ckpt_ws_data *ckpt_ws_get_latest()
 }
 
 /* put ckpt data */
-u64 ckpt_ws_put(struct ckpt_ws_data *ckpt_data, u64 name_buf, u64 name_len)
+u64 ckpt_ws_put(struct ckpt_ws_data *ckpt_data, char *name, u64 name_len)
+{
+	struct ckpt_ws_info *info;
+	int ret = 0;
+
+	info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __SHARED__);
+	if (!info) {
+		kinfo("[CKPT WS] can not allocate memory for ckpt info.\n");
+		return 0;
+	}
+
+	info->ckpt_data = ckpt_data;
+	info->ts = (timestamp_t)plat_get_mono_time();
+	if (name_len) {
+		if (name_len > MAX_CKPT_NAME_LEN) {
+			name_len = MAX_CKPT_NAME_LEN;
+		}
+		memcpy(info->name, name, name_len);
+	}
+	info->name_len = name_len;
+
+	/* add pair(info, data) */
+	kvs_put(CKPT_WS_TABLE->ckpt_ws_kvs, (kvs_key_t *)&info,
+		(kvs_value_t *)&ckpt_data);
+
+	/* add pair(hash(name), info*) to kvs */
+	ret = __name_kvs_put(info);
+	if (ret) {
+		kinfo("[CKPT WS] error during add name kvs\n");
+		return 0;
+	}
+
+	/* add to list is atomic point */
+	list_add(&(info->node), &(CKPT_WS_TABLE->ckpt_ws_list));
+
+	return (u64)info;
+}
+
+u64 ckpt_ws_put_from_userspace(struct ckpt_ws_data *ckpt_data, u64 name_buf, u64 name_len)
 {
 	struct ckpt_ws_info *info;
 	int ret = 0;
@@ -218,20 +256,31 @@ u64 ckpt_ws_put(struct ckpt_ws_data *ckpt_data, u64 name_buf, u64 name_len)
 struct ckpt_ws_info *ckpt_ws_query_by_name(char *name, u64 name_len)
 {
 	ckpt_ws_info_list_t *info_list_head;
+	ckpt_ws_info_list_t **info_list_head_ptr;
 	u64 hash_val, ckpt_id;
 
-    BUG_ON(!name || name_len ==0);
+	BUG_ON(!name || name_len == 0);
+	BUG_ON(!CKPT_WS_TABLE || !CKPT_WS_TABLE->name_kvs);
 
 	/* get info list */
 	hash_val = __name_hash(name, name_len);
-	info_list_head = *((ckpt_ws_info_list_t **)kvs_get(CKPT_WS_TABLE->name_kvs,
-							(kvs_key_t *)&hash_val));
-
-	ckpt_id = __query_info_list(&(info_list_head->list), name, name_len);
+	info_list_head_ptr = ((ckpt_ws_info_list_t **)kvs_get(
+		CKPT_WS_TABLE->name_kvs,
+			(kvs_key_t *)&hash_val));
+	if (!info_list_head_ptr) {
+		goto not_found;
+	}
+	
+	info_list_head = *info_list_head_ptr;
+	ckpt_id = __query_info_list(&(info_list_head->list),
+					name, name_len);
 	if (!ckpt_id) {
 		kinfo("[CKPT WS] no ckpt found with name %s\n", name);
-		return NULL;
+		goto not_found;
 	}
 
 	return (struct ckpt_ws_info *)ckpt_id;
+not_found:
+	// kinfo("[CKPT WS] no ckpt found with name %s\n", name);
+	return NULL;
 }

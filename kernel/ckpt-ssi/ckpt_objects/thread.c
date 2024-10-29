@@ -1,5 +1,65 @@
+#include <common/kvstore.h>
+#include <sched/sched.h>
 #include "../ckpt_objects.h"
 #include "../ckpt_object_pool.h"
+#include "../ckpt_ws.h"
+
+
+void ckpt_ipc_config_copy(void* src_ipc_config, void* dst_ipc_config, int config_type, struct kvs *obj_map)
+{
+    switch(config_type) {
+        case IPC_SERVER_REGISTER_CB:{
+            struct ckpt_ipc_server_register_cb_config *src =
+                    (struct ckpt_ipc_server_register_cb_config *)src_ipc_config;
+            struct ckpt_ipc_server_register_cb_config *dst =
+                    (struct ckpt_ipc_server_register_cb_config *)dst_ipc_config;
+            memcpy(dst, src, sizeof(struct ckpt_ipc_server_register_cb_config));
+            break;
+        }
+        case IPC_SERVER_HANDLER:{
+            struct ckpt_ipc_server_handler_config *src =
+                    (struct ckpt_ipc_server_handler_config *)src_ipc_config;
+            struct ckpt_ipc_server_handler_config *dst =
+                    (struct ckpt_ipc_server_handler_config *)dst_ipc_config;
+            struct ckpt_obj_root *ckpt_obj_root;
+
+            memcpy(dst, src, sizeof(struct ckpt_ipc_server_handler_config));
+
+            if (src->active_conn_root) {
+                ckpt_obj_root = get_copied_obj_root(src->active_conn_root, obj_map);
+                BUG_ON(ckpt_obj_root == NULL);
+                dst->active_conn_root = ckpt_obj_root;
+            } else {
+                dst->active_conn_root = NULL;   
+            }
+
+            break;
+        }
+        case IPC_SERVER:{
+            struct ckpt_ipc_server_config *src =
+                    (struct ckpt_ipc_server_config *)src_ipc_config;
+            struct ckpt_ipc_server_config *dst =
+                    (struct ckpt_ipc_server_config *)dst_ipc_config;
+            struct ckpt_obj_root *ckpt_thread_obj_root;
+
+            dst->config_type = src->config_type;
+            dst->declared_ipc_routine_entry =
+                    src->declared_ipc_routine_entry;
+
+            if (src->register_cb_thread_root) {
+                ckpt_thread_obj_root = get_copied_obj_root(src->register_cb_thread_root, obj_map);
+                BUG_ON(ckpt_thread_obj_root == NULL);
+                dst->register_cb_thread_root = ckpt_thread_obj_root;
+            } else {
+                dst->register_cb_thread_root = NULL;
+            }
+
+            break;
+        }
+        default:
+            BUG_ON(1);
+    }
+}
 
 void* alloc_ckpt_ipc_config(int config_type)
 {
@@ -127,7 +187,7 @@ void ipc_config_ckpt(void* config, void* ckpt_config, int config_type)
     }
 }
 
-int thread_ckpt(struct thread *target,struct ckpt_thread *ckpt_thread)
+int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
 {
     /* Copy thread_ctx data */
     thread_ctx_ckpt(&ckpt_thread->thread_ctx,target->thread_ctx);
@@ -167,7 +227,7 @@ int thread_ckpt(struct thread *target,struct ckpt_thread *ckpt_thread)
     ckpt_thread->vmspace_root = ckpt_obj_root_get(
             container_of(target->vmspace, struct object, opaque), true);
 
-    kdebug("ckpt thread %lx from %s, fpu owner=%d, type=%u, rip=%lx, state=%u, cpuid=%u, kernel_stack_state=%u, id=%lx\n",
+    kinfo("ckpt thread %lx from %s, fpu owner=%d, type=%u, rip=%lx, state=%u, cpuid=%u, kernel_stack_state=%u, id=%lx\n",
            target,
            target->cap_group->cap_group_name,
            target->thread_ctx->is_fpu_owner,
@@ -181,7 +241,7 @@ int thread_ckpt(struct thread *target,struct ckpt_thread *ckpt_thread)
 }
 
 
-static void thread_ctx_restore(struct ckpt_thread_ctx *ckpt_ctx,struct thread_ctx *target_ctx) 
+static void thread_ctx_restore(struct ckpt_thread_ctx *ckpt_ctx, struct thread_ctx *target_ctx) 
 {
     int i;
     BUG_ON(ckpt_ctx == NULL || target_ctx == NULL);
@@ -190,6 +250,7 @@ static void thread_ctx_restore(struct ckpt_thread_ctx *ckpt_ctx,struct thread_ct
     // target_ctx->kernel_stack_state = ckpt_ctx->kernel_stack_state;
     target_ctx->kernel_stack_state = KS_FREE;
     target_ctx->prio = ckpt_ctx->prio;
+    kinfo("[%s] state %d\n", __func__, ckpt_ctx->state);
     target_ctx->state = ckpt_ctx->state;
     target_ctx->type = ckpt_ctx->type;
     target_ctx->thread_exit_state = ckpt_ctx->thread_exit_state;
@@ -229,7 +290,7 @@ void thread_sleep_state_restore(struct ckpt_sleep_state *ckpt_sleep_state, struc
     lock_init(&sleep_state->queue_lock);
 }
 
-int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_obj, struct kvs *obj_map)
+int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_obj, struct kvs *obj_map, bool time_traveling)
 {
     struct ckpt_thread *ckpt_thread = (struct ckpt_thread *)ckpt_thread_obj->opaque;
     struct thread *target = (struct thread *)thread_obj->opaque;
@@ -319,7 +380,8 @@ int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_ob
     BUG_ON(!cap_obj);
     struct vmspace* thread_vmspace = (struct vmspace*)cap_obj->opaque;
     // struct vmspace* thread_vmspace = obj_get(thread_cap_group,VMSPACE_OBJ_ID,TYPE_VMSPACE);
-    // BUG_ON(!thread_vmspace);
+    BUG_ON(!thread_vmspace);
+    // kprint_vmr(thread_vmspace);
     target->vmspace = thread_vmspace;
     // obj_put(thread_vmspace);
     kdebug("[Restore] restore thread %lx from %s, type=%u, rip=%lx, rsp=%lx, "
@@ -361,5 +423,55 @@ int thread_restore(struct object *thread_obj, struct ckpt_object *ckpt_thread_ob
             break;
         }	
     }
+
+    if (target == current_thread) {
+        target->thread_ctx->state = TS_RUNNING;
+    }
+
+    return 0;
+}
+
+#define STATE_AREA_SIZE (sizeof(struct xsave_area))
+
+int ckpt_thread_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj, struct kvs *obj_map)
+{
+    struct ckpt_thread *src = (struct ckpt_thread *)src_obj->opaque;
+    struct ckpt_thread *dst = (struct ckpt_thread *)dst_obj->opaque;
+
+    /* Copy thread_ctx */
+    memcpy(&dst->thread_ctx, 
+            &src->thread_ctx, 
+            sizeof(struct ckpt_thread_ctx));
+
+    /* Copt thread_ctx->fpu_state */
+    dst->thread_ctx.fpu_state = alloc_fpu_state();
+    memcpy(dst->thread_ctx.fpu_state,
+           src->thread_ctx.fpu_state,
+           STATE_AREA_SIZE);
+
+    /* Copy sleep_state */
+    memcpy(&dst->sleep_state,
+           &src->sleep_state,
+           sizeof(struct ckpt_sleep_state));
+
+    /* Copy cap_group_root and vmspace_root */
+    dst->cap_group_root = get_copied_obj_root(src->cap_group_root, obj_map);
+    dst->vmspace_root = get_copied_obj_root(src->vmspace_root, obj_map);
+
+    /* Copy general_ipc_config */
+    if (src->general_ipc_config) {
+        int config_type = ((struct ipc_config*)src->general_ipc_config)->config_type;
+        dst->general_ipc_config = alloc_ckpt_ipc_config(config_type);
+        if (!dst->general_ipc_config) {
+            return -ENOMEM;
+        }
+        ckpt_ipc_config_copy(src->general_ipc_config,
+                             dst->general_ipc_config,
+                             config_type,
+                             obj_map);
+    } else {
+        dst->general_ipc_config = NULL;
+    }
+
     return 0;
 }

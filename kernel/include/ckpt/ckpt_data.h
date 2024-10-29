@@ -103,9 +103,19 @@ struct ckpt_object_slot {
 struct ckpt_page {
 	vaddr_t va;
 	u64 version_number;
+
+	struct ckpt_page_pair *tt_page;
 };
 struct ckpt_page_pair {
+	u8 type;
+	u64 refcnt;
 	struct ckpt_page pages[2];
+};
+
+enum ckpt_page_pair_type {
+	CKPT_PP_DRAM,
+	CKPT_PP_NVM,
+	CKPT_PP_TT,
 };
 
 struct ckpt_pmobject {
@@ -300,6 +310,7 @@ struct ckpt_obj_root {
 	bool cow;
 	int flip_flag;
 	u64 refcnt;
+	bool time_traveling;
 };
 
 struct ckpt_ipc_server_handler_config {
@@ -341,4 +352,9 @@ struct ckpt_ipc_server_config {
 
 	/* Record the argument from the server thread */
 	u64 declared_ipc_routine_entry;
+};
+
+struct dsm_queue_node {
+	struct list_head node;
+	void *data;
 };

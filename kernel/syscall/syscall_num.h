@@ -120,3 +120,8 @@
 /* track pf */
 #define SYS_track_pf_begin 250
 #define SYS_track_pf_end   251
+
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+#define SYS_ckpt_migrate              252
+#define SYS_ckpt_merge_migration      253
+#endif
