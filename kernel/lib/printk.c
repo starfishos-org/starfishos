@@ -355,7 +355,7 @@ out:
 }
 
 /* Enable seri output */
-// #define SERI_OUPUT
+#define SERI_OUPUT
 #ifdef SERI_OUPUT
 #include <common/lock.h>
 struct lock printk_lock;

@@ -15,7 +15,7 @@ void server_trampoline(ipc_msg_t *ipc_msg, u64 client_badge)
         int ret_cap, write_val;
         bool ret_with_cap = false;
 
-        printf("Server: handle IPC with client_badge 0x%lx\n", client_badge);
+        printf("[server] handle IPC with client_badge 0x%lx\n", client_badge);
 
         if (ipc_msg->cap_slot_number == 1) {
                 int cap;
@@ -25,12 +25,12 @@ void server_trampoline(ipc_msg_t *ipc_msg, u64 client_badge)
                 usys_read_pmo(cap, 0, &shared_msg, sizeof(shared_msg));
 
                 /* read from shared memory should be MAGIC_NUM */
-                printf("read %x\n", shared_msg);
+                printf("[server] read %x\n", shared_msg);
 
                 /* return a pmo cap */
                 ret_cap = usys_create_pmo(0x1000, PMO_DATA, MALLOC_TYPE_DEFAULT);
                 if (ret_cap < 0) {
-                        printf("usys_create_pmo ret %d\n", ret_cap);
+                        printf("[server] usys_create_pmo ret %d\n", ret_cap);
                         usys_exit(ret_cap);
                 }
                 ipc_msg->cap_slot_number = 1;
@@ -78,8 +78,8 @@ int main(int argc, char *argv[])
                *(u64 *)shmaddr);
         assert(*(u64 *)shmaddr == 0xaabbcc);
 
-        printf("Happy birthday %d years! I am server.\n", years);
-        printf("[IPC Server] register server value = %u\n",
+        printf("[server] Happy birthday %d years! I am server.\n", years);
+        printf("[server] register server value = %u\n",
                ipc_register_server(server_trampoline,
                                    DEFAULT_CLIENT_REGISTER_HANDLER));
 

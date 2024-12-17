@@ -5,6 +5,7 @@ if [ "$1" == "build" ]; then
 	./chbuild build
 fi
 
+./dsm-scripts/config_memdev.sh cxl
 ./dsm-scripts/config.sh
 
 ## Create a Tmux session "mywork" in a window "window0" started in the background.

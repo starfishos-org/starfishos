@@ -45,22 +45,22 @@ int main(int argc, char *argv[], char *envp[])
                 *(u64 *)shmaddr = 0xaabbcc;
         }
 
-        printf("Hello World from user space: %d years!\n", years);
+        printf("[clinet] Hello World from user space: %d years!\n", years);
 
         /* create a new process */
-        printf("create the server process.\n");
+        printf("[clinet] create the server process.\n");
 
         args[0] = "/server.bin";
         create_process(1, args, &new_process_caps);
         new_thread_cap = new_process_caps.mt_cap;
 
-        printf("The main thread cap of the newly created process is %d\n",
+        printf("[clinet] The main thread cap of the newly created process is %d\n",
                new_thread_cap);
 
         /* register IPC client */
         client_ipc_struct = ipc_register_client(new_thread_cap);
         if (client_ipc_struct == NULL) {
-                printf("ipc_register_client failed\n");
+                printf("[clinet] ipc_register_client failed\n");
                 usys_exit(-1);
         }
 
@@ -77,9 +77,9 @@ int main(int argc, char *argv[], char *envp[])
         if (ipc_msg->cap_slot_number == 1) {
                 int ret_cap, read_val;
                 ret_cap = ipc_get_msg_cap(ipc_msg, 0);
-                printf("cap return %d\n", ret_cap);
+                printf("[clinet] cap return %d\n", ret_cap);
                 usys_read_pmo(ret_cap, 0, &read_val, sizeof(read_val));
-                printf("read pmo from server, val:%x\n", read_val);
+                printf("[clinet] read pmo from server, val:%x\n", read_val);
         }
 
         ipc_destroy_msg(ipc_msg);
@@ -93,13 +93,13 @@ int main(int argc, char *argv[], char *envp[])
                 ipc_call(client_ipc_struct, ipc_msg);
         }
         end_cycle = pmu_read_real_cycle();
-        printf("cycles for %d roundtrips are %ld, average = %ld\n",
+        printf("[clinet] cycles for %d roundtrips are %ld, average = %ld\n",
                IPC_NUM,
                end_cycle - start_cycle,
                (end_cycle - start_cycle) / IPC_NUM);
         ipc_destroy_msg(ipc_msg);
 
-        printf("will test multiple data\n");
+        printf("[clinet] will test multiple data\n");
         ipc_msg = ipc_create_msg(client_ipc_struct, 4 * 100, 0);
         for (i = 0; i < 100; i++) {
                 ipc_set_msg_data(ipc_msg, (char *)&i, i * 4, 4);

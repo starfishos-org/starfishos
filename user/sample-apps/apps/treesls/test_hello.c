@@ -11,6 +11,9 @@
 #define ARRAY_SIZE (1024 * 1024 * 32) // 1 GB
 #define ITERATIONS 1000000
 
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
+
 uint64_t get_time_ns() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -79,6 +82,10 @@ void work() {
     free((void *)array);
 }
 
+void my_exit() {
+    fprintf(stderr, "exit\n");
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
 	int cnt = 0;
@@ -88,9 +95,11 @@ int main(int argc, char *argv[], char *envp[])
         cnt++;
 		work();
         // sleep(1);
-		if (cnt == 10) {
+		if (cnt == 5) {
 			break;
 		}
 	}
-    fprintf(stderr, "exit\n");
+    my_exit();
 }
+
+#pragma GCC pop_options
