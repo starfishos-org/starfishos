@@ -56,6 +56,7 @@ static inline void __set_machine_metadata(dsm_memdev_metadata_t *meta)
  * add a memdev belongs to current machine
  * @start, @size, @type: args of this memdev
  */
+extern inline dsm_memdev_metadata_t *dsm_get_memdev_metadata(dsm_mem_dev_t *dev);
 dsm_mem_dev_t *dsm_add_memdev_of_current_machine(u64 start, size_t size,
                                                  u8 type)
 {

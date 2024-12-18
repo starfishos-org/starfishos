@@ -306,6 +306,8 @@ int choose_nvm_ckpt_page_idx(struct ckpt_page_pair *page_pair)
     }
 }
 
+extern inline void clear_ckpt_page(struct ckpt_page_pair *page_pair, int idx);
+
 static int __radix_pmo_restore(struct pmobject *pmo,
                                struct radix_node *page_node,
                                struct radix_node *ckpt_page_node,

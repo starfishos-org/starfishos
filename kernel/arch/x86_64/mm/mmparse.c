@@ -353,6 +353,8 @@ void parse_nvm_map(void *info)
 #endif /* USE_NVM */
 
 #ifdef USE_CXL_MEM
+extern inline u64 cxl_get_memdev_start(cxl_mem_dev_t *dev);
+extern inline u64 cxl_get_memdev_end(cxl_mem_dev_t *dev);
 void real_cxl_setup_mem(u64 *start, u64 *size)
 {
         struct cxl_mem_dev *dev;
