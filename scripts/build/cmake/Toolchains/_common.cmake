@@ -18,7 +18,7 @@ unset(_target_machine)
 unset(_target_arch)
 
 # Set optimization level
-add_compile_options("$<$<CONFIG:Debug>:-Og;-g>")
+add_compile_options("$<$<CONFIG:Debug>:-Og>")
 add_compile_options("$<$<CONFIG:Release>:-O3>")
 
 # Convert config items to compile definition
