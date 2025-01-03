@@ -41,7 +41,7 @@ enum {
  * cluster machine num
  * when register every machine, it will increase (LOCAL CPU NUM)
  */
-#define CLUSTER_MAX_CPU_NUM (128)
+#define CLUSTER_MAX_CPU_NUM (1024)
 #define CLUSTER_CPU_NUM     (dsm_meta->cluster_cpu_num)
 
 #define CLUSTER_MAX_MACHINE_NUM (16)

@@ -54,10 +54,10 @@ if(CHCORE_SSI)
   elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
   chcore_generate_emulate_sh(
       "qemu-6.2-system-x86_64"
-      "--enable-kvm -M q35 -m 16G \
-      -object memory-backend-file,size=4G,share=on,mem-path=\$ivshmem_dev,id=hostmem \
+      "--enable-kvm -M q35 -m \$dram_size \
+      -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
-      -cpu host -smp 64 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
+      -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM_NUMA")
     chcore_generate_emulate_sh(

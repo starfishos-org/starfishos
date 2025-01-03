@@ -254,4 +254,26 @@ if(CHCORE_DEMOS_PHOENIX)
   )
 endif()
 
+if(CHCORE_DEMOS_GEMM)
+  add_custom_target(
+    gemm-clean
+    WORKING_DIRECTORY ${build_demos_dir}/GEMM
+    COMMAND make clean
+  )
+  
+  list(APPEND _demos_clean_targets gemm-clean)
+  add_custom_target(
+    gemm ALL
+    WORKING_DIRECTORY ${build_demos_dir}/GEMM
+    COMMAND make MALLOC=libc CC=${MUSL_CC}
+    COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+    DEPENDS)
+  
+  add_custom_target(
+    TARGET phoenix
+    POST_BUILD
+    COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+  )
+endif()
+
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})

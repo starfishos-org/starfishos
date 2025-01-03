@@ -95,7 +95,7 @@ void enable_smp_cores(void)
                 kdebug("[SMP] send sipi to core %d\n", cpuid);
                 while (cpu_info[cpuid].cpu_status != cpu_run)
                         ;
-                kinfo("[SMP] CPU %d is running\n", cpuid);
+                kdebug("[SMP] CPU %d is running\n", cpuid);
                 /* check target cpu status */
         }
 

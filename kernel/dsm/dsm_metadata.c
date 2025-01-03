@@ -59,7 +59,7 @@ void dsm_add_machine()
               lmem_new_start,
               lmem_new_start + lmem_size);
 #endif
-        kinfo("[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n",
+        kinfo("\033[31m" "\red[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n" "\033[0m",
               MACHINE_ID,
               CPU_RANGE_LOW,
               CPU_RANGE_HIGH);

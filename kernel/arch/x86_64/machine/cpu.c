@@ -177,12 +177,12 @@ void set_turbo_boost(void)
 #if TURBO_ENABALED == 1
         /* enable CPU turbo boost */
         hi = hi & TURBO_ENABLE_MASK;
-        kinfo("Intel Turbo Boost is ENABLED.\n");
+        kdebug("Intel Turbo Boost is ENABLED.\n");
 #else
         /* disable CPU turbo boost */
 
         hi = hi | TURBO_DISABLE_MASK;
-        kinfo("Intel Turbo Boost is DISABLED.\n");
+        kdebug("Intel Turbo Boost is DISABLED.\n");
 #endif
         asm volatile("wrmsr" ::"c"(0x1a0), "a"(lo), "d"(hi));
 }

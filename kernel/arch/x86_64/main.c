@@ -31,10 +31,10 @@ void main(u64 mbmagic, paddr_t mbaddr)
         u32 ret = 0;
 
         uart_init();
-        kinfo("[ChCore] uart init finished\n");
+        kdebug("[ChCore] uart init finished\n");
 
         parse_mb2_info(mbmagic, phys_to_virt(mbaddr));
-        kinfo("[ChCore] parse multiboot2 info finished\n");
+        kdebug("[ChCore] parse multiboot2 info finished\n");
 
         /* Init graphic output if avaliable */
         extern void init_console(void);
@@ -46,36 +46,36 @@ void main(u64 mbmagic, paddr_t mbaddr)
          */
         extern void parse_acpi_info(void *info);
         parse_acpi_info((void *)get_mb2_acpi()->rsdp);
-        kinfo("[ChCore] parse acpi info finished\n");
+        kdebug("[ChCore] parse acpi info finished\n");
 
         init_per_cpu_info(0); /* should passed from boot? */
-        kinfo("[ChCore] per cpu info init finished\n");
+        kdebug("[ChCore] per cpu info init finished\n");
 
         arch_interrupt_init();
         timer_init();
-        kinfo("[ChCore] interrupt init finished\n");
+        kdebug("[ChCore] interrupt init finished\n");
 
         /* Configure the syscall entry */
         arch_syscall_init();
-        kinfo("[ChCore] SYSCALL init finished\n");
+        kdebug("[ChCore] SYSCALL init finished\n");
 
         mm_init((void *)get_mb2_mmap(), false);
-        kinfo("[ChCore] mm init finished\n");
+        kdebug("[ChCore] mm init finished\n");
 
         /* Configure drivers info */
         pci_setup_devices();
-        kinfo("[ChCore] pci setup finished\n");
+        kdebug("[ChCore] pci setup finished\n");
 
         ext_mm_init();
-        kinfo("[ChCore] external mm init finished\n");
+        kdebug("[ChCore] external mm init finished\n");
 
         /* Configure CPU features: setting per_core registers */
         arch_cpu_init();
-        kinfo("[ChCore] arch cpu init finished\n");
+        kdebug("[ChCore] arch cpu init finished\n");
 
         /* Init big kernel lock */
         ret = lock_init(&big_kernel_lock);
-        kinfo("[ChCore] lock init finished\n");
+        kdebug("[ChCore] lock init finished\n");
         BUG_ON(ret != 0);
 
 #ifdef CHCORE_KERNEL_RT
@@ -83,13 +83,13 @@ void main(u64 mbmagic, paddr_t mbaddr)
 #else
         sched_init(&rr);
 #endif
-        kinfo("[ChCore] sched init finished\n");
+        kdebug("[ChCore] sched init finished\n");
 
         enable_smp_cores();
-        kinfo("[ChCore] boot smp\n");
+        kdebug("[ChCore] boot smp\n");
 
         init_fpu_owner_locks();
-        kinfo("[ChCore] init fpu owner locks\n");
+        kdebug("[ChCore] init fpu owner locks\n");
 
         /* Test should be done when IRQ is not enabled */
 #ifdef CHCORE_KERNEL_TEST
