@@ -10,7 +10,7 @@
 #include <mm/slab.h>
 #include <machine.h>
 
-// #define DSM_DEBUG
+#define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
@@ -116,7 +116,7 @@ typedef struct {
         struct lock slabs_locks[SLAB_MAX_ORDER + 1];
 
         // FIXME(FN): remove this ugly tetsing share
-        struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
+        struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
 
         #if defined CHCORE_SSI_SLS
         /* crash_last_time = 1 means unexpected */
@@ -175,3 +175,13 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
 }
 
 void dsm_add_machine(void);
+
+static int inline cpuid_g2mid(u32 gcpuid)
+{
+        for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                if (gcpuid >= dsm_meta->local_meta[i].cpu_range_low &&
+                    gcpuid <= dsm_meta->local_meta[i].cpu_range_high)
+                        return i;
+        }
+        return -1;
+}

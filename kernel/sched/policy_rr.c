@@ -20,6 +20,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue (dsm_meta->shared_queue)
+#define rr_cur_shared_queue (dsm_meta->shared_queue[MACHINE_ID])
 #endif
 
 /* in arch/sched/idle.S */
@@ -67,30 +68,35 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 }
 
 #ifdef DSM_ENABLED
-int __rr_sched_enqueue_shared(struct thread *thread, u32 gcpuid)
+int __rr_sched_enqueue_shared(struct thread *thread, u32 machine_id)
 {
-        dsm_debug("%s: thread (%s, %p) -> cpu %d\n",
+        struct shared_queue_meta *queue = &(rr_shared_queue[machine_id]);
+        // lock(&(queue->queue_lock));
+        dsm_debug("%s: thread (%s, %p) -> machine %d\n",
                   __func__,
                   thread->cap_group->cap_group_name,
                   thread,
-                  gcpuid);
-        list_append(&(thread->shared_queue_node),
-                    &(rr_shared_queue[gcpuid].queue_head));
-        rr_shared_queue[gcpuid].queue_len++;
+                  machine_id);
+        list_append(&(thread->shared_queue_node), 
+                &(rr_shared_queue[machine_id].queue_head));
+        queue->queue_len++;
+        // unlock(&(queue->queue_lock));
         return 0;
 }
 
 /* dequeue w/o lock */
-int __rr_sched_dequeue_shared(struct thread *thread, u32 gcpuid)
+int __rr_sched_dequeue_shared(struct thread *thread, u32 machine_id)
 {
-        dsm_debug("%s: thread (%s, %p, ctx=%p) <- cpu %d\n",
+        struct shared_queue_meta *queue = &(rr_shared_queue[machine_id]);
+        // lock(&(queue->queue_lock));
+        dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
                  __func__,
                  thread->cap_group->cap_group_name,
                  thread,
-                 thread->thread_ctx,
-                 gcpuid);
+                 thread->thread_ctx);
         list_del(&(thread->shared_queue_node));
-        rr_shared_queue[gcpuid].queue_len--;
+        queue->queue_len++;
+        // unlock(&(queue->queue_lock));
         return 0;
 }
 
@@ -100,7 +106,7 @@ int __rr_sched_dequeue_shared(struct thread *thread, u32 gcpuid)
  */
 int rr_sched_migrate_to_remote(struct thread *thread)
 {
-        u64 affinitiy, gcpuid;
+        u64 affinitiy, gcpuid, machine_id;
         int ret;
                 
         /* remote sched has the highest prio */
@@ -119,14 +125,15 @@ int rr_sched_migrate_to_remote(struct thread *thread)
         }
 
         gcpuid = affinitiy;
-        dsm_info("sched task(%s, %p) to remote CPU %d\n",
+        machine_id = cpuid_g2mid(gcpuid);
+        dsm_info("sched task(%s, %p) to remote MACHINE %d\n",
                  thread->cap_group->cap_group_name,
                  thread,
-                 gcpuid);
-        
-        lock(&(rr_shared_queue[gcpuid].queue_lock));
-        ret = __rr_sched_enqueue_shared(thread, gcpuid);
-        unlock(&(rr_shared_queue[gcpuid].queue_lock));
+                 machine_id);
+
+        lock(&(rr_shared_queue[machine_id].queue_lock));
+        ret = __rr_sched_enqueue_shared(thread, machine_id);
+        unlock(&(rr_shared_queue[machine_id].queue_lock));
 
         return ret;
 }
@@ -141,46 +148,45 @@ int __rr_sched_migrate_from_shared_queue()
         struct thread *thread;
         int ret = 0;
 
-        for (gcpuid = CPU_RANGE_LOW; gcpuid <= CPU_RANGE_HIGH; gcpuid++) {
-                /* check every shared queue */
-                /*
-                 * FIXME(PERFORMANCE):
-                 * this might be very time consuming, lock a shared lock
-                 * need a fast path to check whether there is thread need to
-                 * migrate
-                 */
-                lock(&(rr_shared_queue[gcpuid].queue_lock));
+        /* check shared queue of current machine */
+        /*
+        * FIXME(PERFORMANCE):
+        * this might be very time consuming, lock a shared lock
+        * need a fast path to check whether there is thread need to
+        * migrate
+        */
+        lock(&(rr_cur_shared_queue.queue_lock));
 
-                if (list_empty(&(rr_shared_queue[gcpuid].queue_head))) {
-                        unlock(&(rr_shared_queue[gcpuid].queue_lock));
-                        continue;
-                }
+        if (rr_cur_shared_queue.queue_len == 0) {
+                unlock(&(rr_cur_shared_queue.queue_lock));
+                return ret;
+        }
 
-                /* shared queue[gcpuid] is not empty */
+        for_each_in_list (thread,
+                        struct thread,
+                        shared_queue_node,
+                        &(rr_cur_shared_queue.queue_head)) {
+                gcpuid = thread->thread_ctx->affinity;
+                BUG_ON(!is_local_cpu(gcpuid));
                 lcpuid = cpuid_g2l(gcpuid);
 
+                /* move thread from shared queue to local queue */
+                ret = __rr_sched_dequeue_shared(thread, MACHINE_ID);
+                thread->thread_ctx->state = TS_RUNNING;
+                thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
+
                 lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
-                for_each_in_list (thread,
-                                  struct thread,
-                                  shared_queue_node,
-                                  &(rr_shared_queue[gcpuid].queue_head)) {
-                        /* move thread from shared queue to local queue */
-                        ret = __rr_sched_dequeue_shared(thread, gcpuid);
-                        thread->thread_ctx->state = TS_RUNNING;
-                        thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
-
-                        ret = __rr_sched_enqueue(thread, lcpuid);
-
-                        dsm_debug("find remote task(%s, %p), sched to %d\n",
-                                 thread->cap_group->cap_group_name,
-                                 thread,
-                                 lcpuid);
-                        // print_thread(thread);
-                }
+                ret = __rr_sched_enqueue(thread, lcpuid);
                 unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
-                unlock(&(rr_shared_queue[gcpuid].queue_lock));
+                dsm_info("find remote task(%s, %p), sched to %d\n",
+                                thread->cap_group->cap_group_name,
+                                thread,
+                                lcpuid);
+                // print_thread(thread);
         }
+
+        unlock(&(rr_cur_shared_queue.queue_lock));
         return ret;
 }
 #endif
@@ -256,12 +262,13 @@ int rr_sched_enqueue(struct thread *thread)
         /* enqueue should only be called by a local sched */
         if (!is_local_cpu(gcpuid)) {
                 /* enqueue a alreay migrated thread */
-                dsm_debug("enqueue a already migrated thread (%p, ctx=%p) to gcpuid=%d\n",
-                         thread, thread->thread_ctx, gcpuid);
+                // dsm_debug("enqueue a already migrated thread (%p, ctx=%p) to gcpuid=%d\n",
+                        //  thread, thread->thread_ctx, gcpuid);
                 // print_thread(thread);
-                lock(&(rr_shared_queue[gcpuid].queue_lock));
-                ret = __rr_sched_enqueue_shared(thread, gcpuid);
-                unlock(&(rr_shared_queue[gcpuid].queue_lock));
+                machine_id = cpuid_g2mid(gcpuid);
+                lock(&(rr_shared_queue[machine_id].queue_lock));
+                ret = __rr_sched_enqueue_shared(thread, machine_id);
+                unlock(&(rr_shared_queue[machine_id].queue_lock));
                 return ret;
         }
 #endif

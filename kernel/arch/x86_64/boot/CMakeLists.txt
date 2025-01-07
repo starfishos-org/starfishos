@@ -54,7 +54,7 @@ if(CHCORE_SSI)
   elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
   chcore_generate_emulate_sh(
       "qemu-6.2-system-x86_64"
-      "--enable-kvm -M q35 -m \$dram_size \
+      "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
       -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
       -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"

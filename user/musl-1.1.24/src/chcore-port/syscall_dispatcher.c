@@ -555,16 +555,15 @@ long __syscall3(long n, long a, long b, long c)
 			a = -1;
 		}
 
-		/* Find the cpu (According to sched.h max is 128 */
+		/* Find the cpu (According to sched.h max is 1024 */
 		/* XXX: Currently we only support set one cpu */
-		for (int i = 0; i < 128; i++) {
+		for (int i = 0; i < CPU_SETSIZE; i++) {
 			if (CPU_ISSET(i, c)) {
-				/* XXX tid to cap */
 				return chcore_syscall2(CHCORE_SYS_set_affinity,
 						       a, i);
 			}
 		}
-		// /* No cpu aff has been set */
+		/* No cpu aff has been set */
 		return -1;
 	}
 	case SYS_lseek: {

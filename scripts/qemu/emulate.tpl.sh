@@ -2,6 +2,10 @@
 
 set -e
 
+vm_id=0
+if [ -n "$1" ]; then
+	vm_id=$1
+fi
 basedir=$(dirname "$0")
 # basedir should be /build directory
 nvm_backend_file="/tmp/nvm-file-$USER"
@@ -21,7 +25,8 @@ port=$(shuf -i 30000-40000 -n 1)
 #	fi
 #done
 
-echo $port >$basedir/gdb-port
+echo $port >$basedir/gdb-port-$vm_id
+# echo $port >$basedir/gdb-port
 
 cxl_backend_file="/tmp/cxltest0.raw"
 

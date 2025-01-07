@@ -17,11 +17,11 @@ tmux split-window -v -t mywork:window0
 tmux split-window -v -t mywork:window0.0
 
 ## Run the ROS programs sequentially.
-tmux send -t mywork:window0.0 "./build/simulate.sh > exec_log | tee exec_log1" ENTER
+tmux send -t mywork:window0.0 "./build/simulate.sh 0 > exec_log | tee exec_log1" ENTER
 sleep 3
-tmux send -t mywork:window0.1 "./build/simulate.sh > exec_log | tee exec_log2" ENTER
-tmux send -t mywork:window0.2 "./build/simulate.sh > exec_log | tee exec_log3" ENTER
-tmux send -t mywork:window0.3 "./build/simulate.sh > exec_log | tee exec_log4" ENTER
+tmux send -t mywork:window0.1 "./build/simulate.sh 1 > exec_log | tee exec_log2" ENTER
+tmux send -t mywork:window0.2 "./build/simulate.sh 2 > exec_log | tee exec_log3" ENTER
+tmux send -t mywork:window0.3 "./build/simulate.sh 3 > exec_log | tee exec_log4" ENTER
 
 ## Attach the Tmux session to the front.
 tmux a -t mywork

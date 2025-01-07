@@ -2,6 +2,7 @@ import gdb
 import io
 import re
 import subprocess
+import os
 
 # Load symbols in elf file to gdb by add-symbol-file
 # @filepath: the path to elf file
@@ -129,7 +130,9 @@ class DynamicElfLoader(gdb.Command):
         f.close()
 
 # Init gdb connection
-gdb_port_file = open("build/gdb-port", "r")
+gdb_port_id = 0
+gdb_port_id = os.getenv("CHCORE_GDB_PORT_ID")
+gdb_port_file = open("build/gdb-port-"+gdb_port_id, "r")
 gdb_port = gdb_port_file.readline()
 gdb_port_file.close()
 r = gdb.execute('target remote localhost:{}'.format(gdb_port), to_string=True)

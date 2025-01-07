@@ -12,6 +12,6 @@ if [ "$mode" = "cxl-new" ]; then
 fi
 
 if [ "$mode" = "cxl" ]; then
-	dd if=/dev/zero of=$devName bs=1 count=1024 conv=notrunc
-	echo "Set first 1KB of Shared Memory (on NUMA $memNumaNode) to 0"
+	dd if=/dev/zero of=$devName bs=1024 count=4 conv=notrunc
+	echo "Set first 4KB of Shared Memory (on NUMA $memNumaNode) to 0"
 fi

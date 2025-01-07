@@ -26,11 +26,11 @@ weak_alias(libc_exit_fini, __libc_exit_fini);
 
 _Noreturn void exit(int code)
 {
-	fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
+	// fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
 	__funcs_on_exit();
-	fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
+	// fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
 	__libc_exit_fini();
-	fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
+	// fprintf(stderr, "[%s] %d\n", __func__, __LINE__);
 	__stdio_exit();
 	_Exit(code);
 }
