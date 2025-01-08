@@ -280,8 +280,10 @@ void ext_mm_init()
         }
 
         /* memory model has been inited */
-        if (DSM_STATE >= DSM_CONFIG_STATE_MM_INITED)
+        if (DSM_STATE >= DSM_CONFIG_STATE_MM_INITED) {
+                kinfo("[DSM] cxl mem pool has been inited\n");
                 goto skip_init;
+        }
 
         /* Step-2: init the buddy allocators for each continuous range
          * of the physmem. */
@@ -302,7 +304,7 @@ void ext_mm_init()
         DSM_STATE = DSM_CONFIG_STATE_MM_INITED;
 
 skip_init:
-        kinfo("[DSM] cxl mem pool has been inited\n");
+        return;
 #endif /* USE_CXL_MEM */
 }
 

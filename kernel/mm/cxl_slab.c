@@ -21,6 +21,29 @@ static struct lock cxl_slabs_locks[SLAB_MAX_ORDER + 1];
 #define cxl_slabs_locks (dsm_meta->slabs_locks)
 #endif
 
+static bool check_slot_free_count(struct slab_header *slab)
+{
+        struct slab_slot_list *cur_slot;
+        unsigned long cnt = 0;
+
+        if (slab == NULL)
+                return 0;
+
+        cur_slot = (struct slab_slot_list *)(slab->free_list_head);
+        while (cur_slot != NULL) {
+                cnt++;
+                cur_slot = (struct slab_slot_list *)cur_slot->next_free;
+        }
+
+        if (cnt != slab->current_free_cnt) {
+                kwarn("slab system: free count is not correct. cnt: %d, free_cnt: %d\n",
+                      cnt, slab->current_free_cnt);
+                return 1;
+        }
+
+        return 0;
+}
+
 static void *alloc_slab_memory(unsigned long size)
 {
         void *addr;
@@ -101,6 +124,9 @@ static void *alloc_in_cxl_slab_impl(int order)
         lock(&cxl_slabs_locks[order]);
 
         current_slab = cxl_slab_pool[order].current_slab;
+#if CHECK_FREE_COUNT_IN_SLAB == ON
+        check_slot_free_count(current_slab);
+#endif
         /* When serving the first allocation request. */
         if (unlikely(current_slab == NULL)) {
                 current_slab = init_slab_cache(order, SIZE_OF_ONE_SLAB);
@@ -238,6 +264,10 @@ void free_in_cxl_slab(void *addr)
         slab->current_free_cnt += 1;
 
         try_return_slab_to_buddy(slab, order);
+
+#if CHECK_FREE_COUNT_IN_SLAB == ON
+        check_slot_free_count(slab);
+#endif
 
         unlock(&cxl_slabs_locks[order]);
 }

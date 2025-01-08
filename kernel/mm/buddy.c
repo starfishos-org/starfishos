@@ -142,7 +142,7 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
 
         /* Clear the page_metadata area. */
         memset((char *)start_page, 0, page_num * sizeof(struct page));
-        printk("buddy system page area end: 0x%llx\n", (u64)start_page + page_num * sizeof(struct page));
+        // printk("buddy system page area end: 0x%llx\n", (u64)start_page + page_num * sizeof(struct page));
 
                 /* Init the page_metadata area. */
         for (page_idx = 0; page_idx < page_num; ++page_idx)
@@ -235,7 +235,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
 
         lock(&pool->buddy_lock);
 
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+#if defined CHCORE_SLS
         prepare_latest_log(pool, REMOVE_PAGES, (u64)page, page->order, 0);
 #endif
         for (i = 0; i < (1 << page->order); i++) {
@@ -243,7 +243,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
                 BUG_ON(!page_check_flag(p, PG_allocated));
                 /* Clear all flags of page */
                 p->flags = 0;
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+#if defined CHCORE_SLS
 #ifdef RMAP_ENABLED
                 /* Clear information of pages followed by head */
                 clear_compound_head(p);
@@ -268,7 +268,7 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
         list_add(&page->node, free_list);
         pool->free_lists[order].nr_free += 1;
 
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+#if defined CHCORE_SLS
         commit_latest_log(pool);
 #endif
         unlock(&pool->buddy_lock);
@@ -344,7 +344,7 @@ struct page *virt_to_page(void *ptr)
 find:
         page = pool->page_metadata
                + (((vaddr_t)addr - pool->pool_start_addr) / BUDDY_PAGE_SIZE);
-        // BUG_ON(page->pool != pool);
+        BUG_ON(page->pool != pool);
         return page;
 }
 

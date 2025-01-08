@@ -59,6 +59,8 @@ void *cxl_kmalloc(size_t size)
         void *addr;
         int order;
 
+        // kinfo("before cxl malloc: size: %ld\n", size);
+
         if (unlikely(size == 0))
                 return ZERO_SIZE_PTR;
 
@@ -78,6 +80,7 @@ void *cxl_kmalloc(size_t size)
         }
 
         BUG_ON(!addr);
+        // kinfo("cxl malloc: %p, size: %ld\n", addr, size);
         return addr;
 }
 

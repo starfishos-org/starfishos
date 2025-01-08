@@ -10,7 +10,7 @@
 #include <mm/slab.h>
 #include <machine.h>
 
-#define DSM_DEBUG
+// #define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
