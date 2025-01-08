@@ -455,11 +455,9 @@ int rr_sched_init(void)
 
 #ifdef DSM_ENABLED
         /* Initialize owned shared queues */
-        for (i = CPU_RANGE_LOW; i <= CPU_RANGE_HIGH; i++) {
-                init_list_head(&(rr_shared_queue[i].queue_head));
-                lock_init(&(rr_shared_queue[i].queue_lock));
-                rr_shared_queue[i].queue_len = 0;
-        }
+        init_list_head(&(rr_cur_shared_queue.queue_head));
+        lock_init(&(rr_cur_shared_queue.queue_lock));
+        rr_cur_shared_queue.queue_len = 0;
 #endif
         return 0;
 }
