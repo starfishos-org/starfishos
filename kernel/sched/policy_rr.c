@@ -79,7 +79,7 @@ int __rr_sched_enqueue_shared(struct thread *thread, u32 machine_id)
                   machine_id);
         list_append(&(thread->shared_queue_node), 
                 &(rr_shared_queue[machine_id].queue_head));
-        queue->queue_len++;
+        queue->queue_len--;
         // unlock(&(queue->queue_lock));
         return 0;
 }
