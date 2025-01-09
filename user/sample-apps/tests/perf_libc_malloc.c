@@ -3,20 +3,23 @@
  * Copyright (c) 2017 UMEZAWA Takeshi
  * This software is licensed under GNU GPL version 2 or later.
  */
+#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sched.h>
 #include <time.h>
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
-#include <stdlib.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <pthread.h>
-
 #include <rpmalloc.h>
+
+#define DSM_ENABLED
 
 inline void *mem_malloc (size_t size)
 {
@@ -75,8 +78,25 @@ typedef struct {
     void **allocations;
 } thread_data_t;
 
+inline int proc_bind_thread (int cpu_id)
+{
+    cpu_set_t   cpu_set;
+
+    CPU_ZERO (&cpu_set);
+    CPU_SET (cpu_id, &cpu_set);
+#if defined DSM_ENABLED
+    printf("bind thread to cpu %d\n", cpu_id);
+    sched_setaffinity(-2, sizeof(cpu_set), &cpu_set);
+#else
+    sched_setaffinity (0, sizeof (cpu_set), &cpu_set);
+#endif
+    return sched_yield();
+}
+
 void* allocate_memory(void* arg) {
     thread_data_t* data = (thread_data_t*)arg;
+    proc_bind_thread(data->thread_id);
+
     void** allocations = data->allocations;
 
     for (int i = 0; i < data->iterations; i++) {
@@ -139,10 +159,14 @@ int main(int argc, char* argv[])
         }
     }
 
+    printf("Thread Number: %d, Mode: %s, Iterations: %d, Low Size: %d, High Size: %d\n", 
+        thread_num, (fixed) ? "Fixed" : "Random", iterations, low_size, high_size);
+
     pthread_t threads[thread_num];
     thread_data_t thread_data[thread_num];
     clock_t start, end;
     double cpu_time_used;
+    long throughput;
 
     for (int i = 0; i < thread_num; i++) {
         thread_data[i].size = (fixed) ? low_size : 0; // Size is only relevant if fixed
@@ -156,20 +180,21 @@ int main(int argc, char* argv[])
 
     start = clock();
 
-    for (int i = 0; i < NUM_THREADS; i++) {
+    for (int i = 0; i < thread_num; i++) {
         pthread_create(&threads[i], NULL, allocate_memory, (void*)&thread_data[i]);
     }
 
-    for (int i = 0; i < NUM_THREADS; i++) {
+    for (int i = 0; i < thread_num; i++) {
         pthread_join(threads[i], NULL);
     }
 
     end = clock();
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    throughput = (long)(thread_num * iterations / cpu_time_used);
 
-    printf("Total time taken: %f seconds\n", cpu_time_used);
+    printf("Throughput: %ld Op/s\n", throughput);
 
-    for (int i = 0; i < NUM_THREADS; i++) {
+    for (int i = 0; i < thread_num; i++) {
         mem_free(thread_data[i].allocations);
     }
 
