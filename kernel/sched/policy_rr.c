@@ -106,7 +106,7 @@ int __rr_sched_dequeue_shared(struct thread *thread, u32 machine_id)
  */
 int rr_sched_migrate_to_remote(struct thread *thread)
 {
-        u64 affinitiy, gcpuid, machine_id;
+        u64 affinitiy, gcpuid, m_id;
         int ret;
                 
         /* remote sched has the highest prio */
@@ -125,15 +125,15 @@ int rr_sched_migrate_to_remote(struct thread *thread)
         }
 
         gcpuid = affinitiy;
-        machine_id = cpuid_g2mid(gcpuid);
+        m_id = cpuid_g2mid(gcpuid);
         dsm_info("sched task(%s, %p) to remote MACHINE %d\n",
                  thread->cap_group->cap_group_name,
                  thread,
-                 machine_id);
+                 m_id);
 
-        lock(&(rr_shared_queue[machine_id].queue_lock));
-        ret = __rr_sched_enqueue_shared(thread, machine_id);
-        unlock(&(rr_shared_queue[machine_id].queue_lock));
+        lock(&(rr_shared_queue[m_id].queue_lock));
+        ret = __rr_sched_enqueue_shared(thread, m_id);
+        unlock(&(rr_shared_queue[m_id].queue_lock));
 
         return ret;
 }
@@ -239,6 +239,7 @@ int rr_sched_enqueue(struct thread *thread)
         s32 cpubind = 0;
         u32 gcpuid = 0, lcpuid;
         int ret = 0;
+        int m_id;
 
         if (thread->thread_ctx->type == TYPE_IDLE)
                 return 0;
@@ -265,10 +266,10 @@ int rr_sched_enqueue(struct thread *thread)
                 // dsm_debug("enqueue a already migrated thread (%p, ctx=%p) to gcpuid=%d\n",
                         //  thread, thread->thread_ctx, gcpuid);
                 // print_thread(thread);
-                machine_id = cpuid_g2mid(gcpuid);
-                lock(&(rr_shared_queue[machine_id].queue_lock));
-                ret = __rr_sched_enqueue_shared(thread, machine_id);
-                unlock(&(rr_shared_queue[machine_id].queue_lock));
+                m_id = cpuid_g2mid(gcpuid);
+                lock(&(rr_shared_queue[m_id].queue_lock));
+                ret = __rr_sched_enqueue_shared(thread, m_id);
+                unlock(&(rr_shared_queue[m_id].queue_lock));
                 return ret;
         }
 #endif

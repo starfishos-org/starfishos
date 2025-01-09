@@ -121,7 +121,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                       fault_addr);
                 // TODO: kill the process
                 kwarn("TODO: kill such faulting process.\n");
-                sys_exit_group(-1);
+                BUG_ON(1);
                 return -ENOMAPPING;
         }
 
