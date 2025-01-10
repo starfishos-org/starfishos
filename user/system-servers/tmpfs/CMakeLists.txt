@@ -1,6 +1,6 @@
 # chcore_enable_clang_tidy(
     # EXTRA_CHECKS -performance-no-int-to-ptr,-clang-analyzer-deadcode.DeadStores)
-message("CMAKE_C_CLANG_TIDY: ${CMAKE_C_CLANG_TIDY}")
+message(STATUS "CMAKE_C_CLANG_TIDY: ${CMAKE_C_CLANG_TIDY}")
 set(binary_path ${build_user_dir}/ramdisk.cpio)
 configure_file(incbin_ramdisk.tpl.S incbin_ramdisk.S)
 unset(binary_path)
