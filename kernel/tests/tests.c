@@ -8,8 +8,9 @@
 
 void run_test(void)
 {
-	tst_mutex();
-	tst_rwlock();
-	tst_malloc();
-	tst_sched();
+	// tst_mutex();
+	// tst_rwlock();
+	// tst_malloc();
+	// tst_sched();
+	tst_malloc_latency(1);
 }

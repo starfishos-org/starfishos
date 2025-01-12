@@ -66,7 +66,6 @@ target_include_directories(
 # Add source code directories
 add_subdirectory(arch/${CHCORE_ARCH})
 add_subdirectory(arch/${CHCORE_ARCH}/plat/${CHCORE_PLAT})
-# TODO: need to define DSM)_EBABLED as a similar var as the CHCORE_KERNEL_TEST
 #if(DSM_ENABLED)
 add_subdirectory(dsm)
 #endif()

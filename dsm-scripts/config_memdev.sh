@@ -1,6 +1,6 @@
 mode=$1
-memNumaNode=5
-size=16 # 16GB shared memory
+memNumaNode=0
+size=4 # 16GB shared memory
 devName="/dev/shm/ivshmem-$USER"
 
 if [ "$mode" = "cxl-new" ]; then
@@ -12,6 +12,6 @@ if [ "$mode" = "cxl-new" ]; then
 fi
 
 if [ "$mode" = "cxl" ]; then
-	dd if=/dev/zero of=$devName bs=1024 count=4 conv=notrunc
+	numactl --membind=$memNumaNode dd if=/dev/zero of=$devName bs=1024 count=4 conv=notrunc
 	echo "Set first 4KB of Shared Memory (on NUMA $memNumaNode) to 0"
 fi
