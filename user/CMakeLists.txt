@@ -31,13 +31,25 @@ add_custom_target(
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
     )
-if(CHCORE_DEMOS_PHOENIX)
-  add_dependencies(ramdisk phoenix)
-endif()
 # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
 include(CommonTools)
 include(UserTools)
+
+set(_targets)
+chcore_get_all_targets(_targets)
+foreach(_target ${_targets})
+  get_property(_installed GLOBAL PROPERTY ${_target}_INSTALLED)
+  if(${_installed})
+      continue()
+  endif()
+  get_target_property(_target_type ${_target} TYPE)
+  if(${_target_type} STREQUAL SHARED_LIBRARY OR ${_target_type} STREQUAL
+                                                EXECUTABLE)
+      add_dependencies(ramdisk ${_target})
+  endif()
+endforeach()
+unset(_targets)
 
 chcore_dump_cmake_vars()
 

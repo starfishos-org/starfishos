@@ -240,7 +240,6 @@ if(CHCORE_DEMOS_PHOENIX)
     POST_BUILD
     COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
     COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply ${build_ramdisk_dir}/matrix_multiply.bin
-    COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
   )
   # Copy additional data files
   add_custom_command(
