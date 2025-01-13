@@ -1,0 +1,52 @@
+Testing matrix_multiply with 192 threads
+***** file size is 100000000
+MatrixMult: Side of the matrix is 5000
+MatrixMult: Row Block Len is 5000
+MatrixMult: Running...
+***** data size is 100000000
+MatrixMult: Calling MapReduce Scheduler Matrix Multiplication
+initialize: 30470
+phoenix cpu num=192
+library: 8515175
+MatrixMult: total sum is -1374410792
+MatrixMult: MapReduce Completed
+finalize: 26791
+Testing matrix_multiply with 144 threads
+***** file size is 100000000
+MatrixMult: Side of the matrix is 5000
+MatrixMult: Row Block Len is 5000
+MatrixMult: Running...
+***** data size is 100000000
+MatrixMult: Calling MapReduce Scheduler Matrix Multiplication
+initialize: 25376
+phoenix cpu num=144
+library: 11298507
+MatrixMult: total sum is -1374410792
+MatrixMult: MapReduce Completed
+finalize: 26796
+Testing matrix_multiply with 96 threads
+***** file size is 100000000
+MatrixMult: Side of the matrix is 5000
+MatrixMult: Row Block Len is 5000
+MatrixMult: Running...
+***** data size is 100000000
+MatrixMult: Calling MapReduce Scheduler Matrix Multiplication
+initialize: 25339
+phoenix cpu num=96
+library: 16504724
+MatrixMult: total sum is -1374410792
+MatrixMult: MapReduce Completed
+finalize: 25074
+Testing matrix_multiply with 48 threads
+***** file size is 100000000
+MatrixMult: Side of the matrix is 5000
+MatrixMult: Row Block Len is 5000
+MatrixMult: Running...
+***** data size is 100000000
+MatrixMult: Calling MapReduce Scheduler Matrix Multiplication
+initialize: 25707
+phoenix cpu num=48
+library: 32317817
+MatrixMult: total sum is -1374410792
+MatrixMult: MapReduce Completed
+finalize: 25979
