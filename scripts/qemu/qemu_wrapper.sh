@@ -4,16 +4,19 @@ set -e
 
 # return true if @v1 <= @v2
 verlte() {
-	[ "$1" = "$(echo -e "$1\n$2" | sort -V | head -n 1)" ]
+	[ "$2" = "$(echo -e "$2\n$3" | sort -V | head -n 1)" ]
 }
 
 verlt() {
-	[ "$1" = "$2" ] && return 1 || verlte $1 $2
+	[ "$2" = "$3" ] && return 1 || verlte $2 $3
 }
 
-qemu=$1
+vm_id=$1
+qemu=$2
+shift
 shift
 qemu_options=$@
+echo "vm_id: $vm_id, qemu: $qemu, qemu_options: $qemu_options"
 qemu_version_str=$($qemu --version | head -n 1)
 export IFS=' '
 flag="false"
@@ -36,4 +39,4 @@ if [[ "$qemu" == *"qemu-system-aarch64"* ]]; then
 	fi
 fi
 
-$qemu $qemu_options
+numactl -N $vm_id -m $vm_id $qemu $qemu_options
