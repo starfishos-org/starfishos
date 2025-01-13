@@ -18,6 +18,31 @@ enum malloc_type {
         __SHARED__,
 };
 
+/* sepcial flag for each type of process state */
+#ifdef DSM_STACK_MODE_CXL
+#define __STACK_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_STACK_MODE_DRAM
+#define __STACK_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __STACK_MALLOC_TYPE_ __DEFAULT__
+#endif
+
+#ifdef DSM_PGTABLE_MODE_CXL
+#define __PGTABLE_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_STACK_MODE_DRAM
+#define __PGTABLE_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __PGTABLE_MALLOC_TYPE__ __DEFAULT__
+#endif
+
+#ifdef DSM_THREADCTX_MODE_CXL
+#define __THREADCTX_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_THREADCTX_MODE_DRAM
+#define __THREADCTX_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __THREADCTX_MALLOC_TYPE__ __DEFAULT__
+#endif
+
 void *kmalloc(unsigned long long size, int flags);
 void *kzalloc(unsigned long long size, int flags);
 void kfree(void *ptr);

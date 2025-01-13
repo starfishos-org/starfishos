@@ -167,11 +167,7 @@ int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va,
 #if defined USE_NVM && defined USE_DRAM 
 			new_ptp = (ptp_t *)get_dram_pages(0);
 #else
-		#if defined DSM_PGTABLE_MODE_CXL
-			new_ptp = (ptp_t *)get_pages(0, __SHARED__);
-		#else
-			new_ptp = (ptp_t *)get_pages(0, __DEFAULT__);
-		#endif
+			new_ptp = (ptp_t *)get_pages(0, __PGTABLE_MALLOC_TYPE__);
 #endif
 			BUG_ON(new_ptp == NULL);
 			memset((void *)new_ptp, 0, PAGE_SIZE);
@@ -744,7 +740,7 @@ int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len, bool fla
 	return 0;
 }
 
-int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp,u32 level)
+int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level)
 {
 	pte_t *src_entry,*dst_entry;
 	int err;
@@ -782,11 +778,8 @@ int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp,u32 level)
 #if defined USE_NVM && defined USE_DRAM 
 			new_ptp = (ptp_t *)get_dram_pages(0);
 #else
-		#if defined DSM_PGTABLE_MODE_CXL
-			new_ptp = (ptp_t *)get_pages(0, __SHARED__);
-		#else
-			new_ptp = (ptp_t *)get_pages(0, __DEFAULT__);
-		#endif
+			/* FIXME(FN): need to specify flags in function */
+			new_ptp = (ptp_t *)get_pages(0, __PGTABLE_MALLOC_TYPE__);
 #endif
 			BUG_ON(new_ptp == NULL);
 			memset((void *)new_ptp, 0, PAGE_SIZE);

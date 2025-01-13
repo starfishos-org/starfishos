@@ -228,13 +228,8 @@ void create_root_thread(void)
         obj_put(init_vmspace);
 
         /* Allocate and setup a user stack for the init thread */
-        #ifdef DSM_STACK_MODE_CXL
         stack_pmo_cap = create_pmo(
-                ROOT_THREAD_STACK_SIZE, PMO_ANONYM, __SHARED__, root_cap_group, &stack_pmo);
-        #else
-        stack_pmo_cap = create_pmo(
-                ROOT_THREAD_STACK_SIZE, PMO_ANONYM, __DEFAULT__, root_cap_group, &stack_pmo);
-        #endif
+                ROOT_THREAD_STACK_SIZE, PMO_ANONYM, __STACK_MALLOC_TYPE__, root_cap_group, &stack_pmo);
         BUG_ON(stack_pmo_cap < 0);
 
         ret = vmspace_map_range(init_vmspace,
@@ -314,7 +309,7 @@ static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
                 ret = -ECAPBILITY;
                 goto out_fail;
         }
-        thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __DEFAULT__);
+        thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __STACK_MALLOC_TYPE__);
         if (!thread) {
                 ret = -ENOMEM;
                 goto out_obj_put;
