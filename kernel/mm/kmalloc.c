@@ -168,8 +168,9 @@ void *kmalloc(unsigned long long size, int flags)
         return cxl_kmalloc(size);
 #elif defined(DSM_MALLOC_MODE_MIXED)
         switch (flags) {
-        case __DEFAULT__:
+        case __PRIVATE__:
                 return dram_kmalloc(size);
+        case __DEFAULT__:
         case __SHARED__:
                 return cxl_kmalloc(size);
         default:

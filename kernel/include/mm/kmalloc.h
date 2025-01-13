@@ -14,6 +14,7 @@ void free_pages(void *addr);
 
 enum malloc_type {
         __DEFAULT__ = 0,
+        __PRIVATE__,
         __SHARED__,
 };
 

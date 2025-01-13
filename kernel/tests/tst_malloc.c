@@ -94,7 +94,7 @@ void tst_malloc_latency(bool one_cpu)
 
         for (i = 0; i < ITERATIONS; i++) {
                 start = plat_get_mono_time();
-                memory = kmalloc(ALLOC_SIZE, __DEFAULT__);
+                memory = kmalloc(ALLOC_SIZE, __PRIVATE__);
                 end = plat_get_mono_time();
                 kfree(memory);
                 sum_ns += (end - start);
