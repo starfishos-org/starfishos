@@ -43,3 +43,6 @@ artificial_evaluation/logs/*
 artificial_evaluation/*.jpg
 artificial_evaluation/*.csv
 artificial_evaluation/*/result/
+
+log
+test-on-linux

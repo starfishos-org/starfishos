@@ -494,7 +494,6 @@ benchmark_worker(void* argptr) {
 				break;
 			}
 
-			printf("\n");
 		}
 
 		/*
@@ -584,13 +583,10 @@ benchmark_worker(void* argptr) {
 			foreign = next;
 		}
 
-		printf(".");
-		fflush(stdout);
-
-		//printf(" %.2f ", timer_ticks_to_seconds(iter_ticks_elapsed));
+		//fprintf(stderr, " %.2f ", timer_ticks_to_seconds(iter_ticks_elapsed));
 		//if (aborted) {
-		//	printf("(aborted) ");
-		//	fflush(stdout);
+		//	fprintf(stderr, "(aborted) ");
+		//	fflush(stderr);
 		//}
 		aborted = 0;
 	}
@@ -632,10 +628,10 @@ benchmark_worker(void* argptr) {
 
 	benchmark_thread_finalize();
 
+	arg->accumulator += arg->mops;
+
 	proc_bind_thread((int)arg->index % num_machine_thread);
 
-	arg->accumulator += arg->mops;
-	
 	thread_exit(0);
 }
 
@@ -647,7 +643,7 @@ benchmark_run(int argc, char** argv) {
 		return -2;
 
 	if ((argc < 9) || (argc > 10)) {
-		printf("Usage: benchmark <thread count> <mode> <size mode> <cross rate> <loops> <allocs> <op count> <min size> <max size>\n"
+		fprintf(stderr, "Usage: benchmark <thread count> <mode> <size mode> <cross rate> <loops> <allocs> <op count> <min size> <max size>\n"
 		       "         <thread count>     Number of execution threads\n"
 		       "         <mode>             0 for random size [min, max], 1 for fixed size (min)\n"
 		       "         <size mode>        0 for even distribution, 1 for linear dropoff, 2 for exp dropoff\n"
@@ -660,6 +656,8 @@ benchmark_run(int argc, char** argv) {
 		return -3;
 	}
 
+	proc_bind_thread(0);
+
 	size_t thread_count = (size_t)strtol(argv[1], 0, 10);
 	size_t mode = (size_t)strtol(argv[2], 0, 10);
 	size_t size_mode = (size_t)strtol(argv[3], 0, 10);
@@ -670,16 +668,16 @@ benchmark_run(int argc, char** argv) {
 	size_t min_size = (size_t)strtol(argv[8], 0, 10);
 	size_t max_size = (argc > 9) ? (size_t)strtol(argv[9], 0, 10) : 0;
 
-	if ((thread_count < 1) || (thread_count > 64)) {
-		printf("Invalid thread count: %s\n", argv[1]);
+	if ((thread_count < 1) || (thread_count > 192)) {
+		fprintf(stderr, "Invalid thread count: %s\n", argv[1]);
 		return -3;
 	}
 	if ((mode != MODE_RANDOM) && (mode != MODE_FIXED)) {
-		printf("Invalid mode: %s\n", argv[2]);
+		fprintf(stderr, "Invalid mode: %s\n", argv[2]);
 		return -3;
 	}
 	if ((size_mode != SIZE_MODE_EVEN) && (size_mode != SIZE_MODE_LINEAR) && (size_mode != SIZE_MODE_EXP)) {
-		printf("Invalid size mode: %s\n", argv[3]);
+		fprintf(stderr, "Invalid size mode: %s\n", argv[3]);
 		return -3;
 	}
 	if (!loop_count || (loop_count > 0x00FFFFFF))
@@ -689,11 +687,11 @@ benchmark_run(int argc, char** argv) {
 	if (!op_count || (op_count > 0x00FFFFFF))
 		op_count = 1000;
 	if ((mode == MODE_RANDOM) && (!max_size || (max_size < min_size))) {
-		printf("Invalid min/max size for random mode: %s %s\n", argv[7], (argc > 8) ? argv[8] : "<missing>");
+		fprintf(stderr, "Invalid min/max size for random mode: %s %s\n", argv[7], (argc > 8) ? argv[8] : "<missing>");
 		return -3;
 	}
 	if ((mode == MODE_FIXED) && !min_size) {
-		printf("Invalid size for fixed mode: %s\n", argv[7]);
+		fprintf(stderr, "Invalid size for fixed mode: %s\n", argv[7]);
 		return -3;
 	}
 
@@ -748,24 +746,24 @@ benchmark_run(int argc, char** argv) {
 	atomic_store32(&benchmark_start, 0);
 
 	if (mode == MODE_RANDOM)
-		printf("%-12s %3u threads random %s size [%u,%u] %u loops %u allocs %u ops:\n",
+		fprintf(stderr, "%-12s %3u threads random %s size [%u,%u] %u loops %u allocs %u ops:\n",
 		        benchmark_name(),
 		        (unsigned int)thread_count,
 		        (size_mode == SIZE_MODE_EVEN) ? "even" : ((size_mode == SIZE_MODE_LINEAR) ? "linear" : "exp"),
 		        (unsigned int)min_size, (unsigned int)max_size,
 		        (unsigned int)loop_count, (unsigned int)alloc_count, (unsigned int)op_count);
 	else
-		printf("%-12s %3u threads fixed size [%u] %u loops %u allocs %u ops:\n",
+		fprintf(stderr, "%-12s %3u threads fixed size [%u] %u loops %u allocs %u ops:\n",
 		        benchmark_name(),
 		        (unsigned int)thread_count,
 		        (unsigned int)min_size,
 		        (unsigned int)loop_count, (unsigned int)alloc_count, (unsigned int)op_count);
-	fflush(stdout);
+	fflush(stderr);
 
 	uint64_t mops = 0;
 	uint64_t ticks = 0;
 
-	for (size_t iter = 0; iter < 2; ++iter) {
+	for (size_t iter = 0; iter < 1; ++iter) {
         atomic_store32(&benchmark_start, 0);
 		atomic_store32(&benchmark_threads_sync, 0);
 		thread_fence();
@@ -830,6 +828,7 @@ benchmark_run(int argc, char** argv) {
 		for (size_t ithread = 0; ithread < thread_count; ++ithread) {
 			thread_join(thread_handle[ithread]);
 			ticks += arg[ithread].ticks;
+			printf("thread %lu cost %.8f\n", ithread, timer_ticks_to_seconds(arg[ithread].ticks));
 			mops += arg[ithread].mops;
 			if (!arg[ithread].accumulator)
 				exit(-1);
@@ -856,6 +855,7 @@ benchmark_run(int argc, char** argv) {
 
 	size_t process_peak_usage = get_process_peak_memory_usage();
 	double time_elapsed = timer_ticks_to_seconds(ticks);
+	fprintf(stderr, "\ntime elapsed: %.2f seconds\n", time_elapsed);
 	double average_mops = (double)mops / time_elapsed;
 	char linebuf[128];
 	int len = snprintf(linebuf, sizeof(linebuf), "%u,%" PRIsize "\n",
@@ -866,10 +866,10 @@ benchmark_run(int argc, char** argv) {
 		fflush(fd);
 	}
 
-	printf("\n%u memory ops/CPU second (peak %uMiB)\n",
+	fprintf(stderr, "\n%u memory ops/CPU second (peak %uMiB)\n",
 	       (unsigned int)average_mops,
 	       (unsigned int)(process_peak_usage / (1024 * 1024)));
-	fflush(stdout);
+	fflush(stderr);
 
 	if (fd)
 		fclose(fd);
