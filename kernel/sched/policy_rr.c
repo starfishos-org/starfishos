@@ -68,26 +68,26 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 }
 
 #ifdef DSM_ENABLED
-int __rr_sched_enqueue_shared(struct thread *thread, u32 machine_id)
+int __rr_sched_enqueue_shared(struct thread *thread, u32 m_id)
 {
-        struct shared_queue_meta *queue = &(rr_shared_queue[machine_id]);
+        struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
         // lock(&(queue->queue_lock));
         dsm_debug("%s: thread (%s, %p) -> machine %d\n",
                   __func__,
                   thread->cap_group->cap_group_name,
                   thread,
-                  machine_id);
+                  m_id);
         list_append(&(thread->shared_queue_node), 
-                &(rr_shared_queue[machine_id].queue_head));
+                &(rr_shared_queue[m_id].queue_head));
         queue->queue_len--;
         // unlock(&(queue->queue_lock));
         return 0;
 }
 
 /* dequeue w/o lock */
-int __rr_sched_dequeue_shared(struct thread *thread, u32 machine_id)
+int __rr_sched_dequeue_shared(struct thread *thread, u32 m_id)
 {
-        struct shared_queue_meta *queue = &(rr_shared_queue[machine_id]);
+        struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
         // lock(&(queue->queue_lock));
         dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
                  __func__,
