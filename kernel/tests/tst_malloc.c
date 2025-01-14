@@ -67,8 +67,8 @@ void tst_malloc(void)
         }
 }
 
-#define ITERATIONS 100000
-#define ALLOC_SIZE 1024
+#define ITERATIONS 5000
+#define ALLOC_SIZE 4096
 
 void tst_malloc_latency(bool one_cpu)
 {
@@ -83,8 +83,10 @@ void tst_malloc_latency(bool one_cpu)
         unlock(&big_kernel_lock);
         while (malloc_start_flag != PLAT_CPU_NUM) ;
         /* ============ Start Barrier ============ */
-
-        kinfo("[TEST] start malloc test!\n");
+        
+        if (smp_get_cpu_id() == 0) {
+                kinfo("[TEST] start malloc test!\n");
+        }
 
         if (one_cpu) {
                 if (smp_get_cpu_id() != 0) {
@@ -96,9 +98,15 @@ void tst_malloc_latency(bool one_cpu)
                 start = plat_get_mono_time();
                 memory = kmalloc(ALLOC_SIZE, __PRIVATE__);
                 end = plat_get_mono_time();
-                kfree(memory);
+                // kfree(memory);
+                if (i % 1000 == 0) {
+                        kinfo("CPU: %d, DRAM kmalloc test takes %llu ns.\n", 
+                                smp_get_cpu_id(), end - start);
+                }
                 sum_ns += (end - start);
         }
+
+        (void)memory;
 
         kinfo("[TEST] CPU: %d, DRAM kmalloc test takes %llu ns.\n", 
                 smp_get_cpu_id(), sum_ns / ITERATIONS);
@@ -109,7 +117,11 @@ void tst_malloc_latency(bool one_cpu)
                 start = plat_get_mono_time();
                 memory = kmalloc(ALLOC_SIZE, __SHARED__);
                 end = plat_get_mono_time();
-                kfree(memory);
+                // kfree(memory);
+                if (i % 1000 == 0) {
+                        kinfo("CPU: %d, CXL kmalloc test takes %llu ns.\n", 
+                                smp_get_cpu_id(), end - start);
+                }
                 sum_ns += (end - start);
         }
 
