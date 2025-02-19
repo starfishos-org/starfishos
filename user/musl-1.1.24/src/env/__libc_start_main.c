@@ -83,7 +83,7 @@ void __init_libc(char **envp, char *pn)
 
 static void libc_start_init(void)
 {
-	if (__malloc_process_init() < 0) a_crash();
+	if (rpmalloc_initialize() < 0) a_crash();
 	_init();
 	uintptr_t a = (uintptr_t)&__init_array_start;
 	for (; a<(uintptr_t)&__init_array_end; a+=sizeof(void(*)()))

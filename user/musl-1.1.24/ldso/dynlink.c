@@ -1582,7 +1582,7 @@ static void do_init_fini(struct dso **queue)
 
 void __libc_start_init(void)
 {
-	if (__malloc_process_init() < 0) {
+	if (rpmalloc_initialize() < 0) {
 		dprintf(2, "failed to initialize malloc\n");
 		_exit(127);
 	}
@@ -1967,7 +1967,7 @@ void __dls3(size_t *sp)
 	reclaim_gaps(&app);
 	reclaim_gaps(&ldso);
 
-	if (__malloc_process_init() < 0) {
+	if (rpmalloc_initialize() < 0) {
 		dprintf(2, "%s: failed to initialize malloc\n", argv[0]);
 		_exit(127);
 	}
