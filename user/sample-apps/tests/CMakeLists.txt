@@ -13,3 +13,5 @@ add_custom_command(
 add_executable(perf_mem.bin perf_mem.c)
 
 add_subdirectory(malloc_benckmark)
+
+add_executable(simple_test.bin simple_test.c)
