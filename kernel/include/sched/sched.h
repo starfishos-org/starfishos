@@ -19,7 +19,7 @@ struct thread;
 #else
 /* BUDGET represents the number of TICKs */
 #define DEFAULT_BUDGET	1
-#define TICK_MS		10
+#define TICK_MS		1000
 #endif
 
 #define MAX_PRIO	255
