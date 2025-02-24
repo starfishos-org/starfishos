@@ -16,7 +16,10 @@ RUN apt-get update && \
     pkg-config \
     cpio \
     grub2 \
-    xorriso
+    xorriso \
+    flex \
+    bison \
+    bc
 
 # install elf tools
 COPY ./scripts/read_procmgr_elf_tool /home/read_procmgr_elf_tool
