@@ -130,8 +130,9 @@ class DynamicElfLoader(gdb.Command):
         f.close()
 
 # Init gdb connection
-gdb_port_id = 0
 gdb_port_id = os.getenv("CHCORE_GDB_PORT_ID")
+if gdb_port_id is None:
+    gdb_port_id = "0"
 gdb_port_file = open("build/gdb-port-"+gdb_port_id, "r")
 gdb_port = gdb_port_file.readline()
 gdb_port_file.close()
