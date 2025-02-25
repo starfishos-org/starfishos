@@ -119,9 +119,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         if (vmr == NULL) {
                 kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n",
                       fault_addr);
-                // TODO: kill the process
-                kwarn("TODO: kill such faulting process.\n");
-                BUG_ON(1);
                 return -ENOMAPPING;
         }
 
