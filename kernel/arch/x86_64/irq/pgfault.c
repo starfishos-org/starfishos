@@ -117,7 +117,9 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
 		      fault_ins_addr, fault_addr, errorcode);
 
 		query_in_pgtbl(current_thread->vmspace->pgtbl, fault_addr, &pte_pa, &pte);
-		kinfo("Fault pte value: 0x%lx\n", *pte);
+		if (pte) {
+			kinfo("Fault pte value: 0x%lx\n", *pte);
+		}
 
 		kprint_vmr(current_thread->vmspace);
 
