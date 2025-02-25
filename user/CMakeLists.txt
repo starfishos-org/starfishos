@@ -30,6 +30,7 @@ add_custom_target(
             || echo "No custom ramdisk found, skipping"
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
+    COMMENT "Copying ramdisk files to ramdisk directory"
     )
 # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
