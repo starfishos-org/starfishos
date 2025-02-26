@@ -16,6 +16,10 @@ plat_cpu_name=48 # 48 CPUs
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
 
+# pass a virtio file to the qemu
+virtio_file_name="$basedir/../disk.img"
+echo "virtio_file_name: $virtio_file_name"
+
 port=$(shuf -i 30000-40000 -n 1)
 #while true; do
 #	port=\$(shuf -i 30000-40000 -n 1)
