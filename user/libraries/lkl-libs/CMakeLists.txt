@@ -26,5 +26,6 @@ file(GLOB common_src cla.c log.c)
 
 add_executable(lkl_virtio_blk ${common_src} tools-disk-vfio-pci.c)
 target_link_libraries(lkl_virtio_blk PRIVATE ${LKL_LIBRARY})
+add_dependencies(lkl_virtio_blk lkl)
 
 chcore_copy_all_targets_to_ramdisk()
