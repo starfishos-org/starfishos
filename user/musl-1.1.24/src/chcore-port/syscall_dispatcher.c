@@ -363,6 +363,10 @@ long __syscall1(long n, long a)
 	case SYS_pipe:
 		return __syscall2(SYS_pipe2, a, 0);
 #endif
+	case SYS_timer_delete: {
+		warn_once("SYS_timer_delete is not implemented.\n");
+		return -1;
+	}
 	default:
 		dead(n);
 		return chcore_syscall1(n, a);
@@ -634,7 +638,11 @@ long __syscall3(long n, long a, long b, long c)
 		return 0;
 	}
 	case SYS_getcpu: {
-		// warn("faked getcpu.\n");
+		warn_once("SYS_getcpu is not implemented.\n");
+		return -1;
+	}
+	case SYS_timer_create: {
+		warn_once("SYS_timer_create is not implemented.\n");
 		return -1;
 	}
 	default:
