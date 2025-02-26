@@ -409,7 +409,8 @@ int pci_setup_device(struct pci_dev *dev)
         /* Need to have dev->class ready */
         dev->cfg_size = pci_cfg_space_size(dev);
 
-        pci_debug("[pci setup device] [%04x:%04x] type %02x class %08x\n",
+        pci_debug("%s: device [%04x:%04x] type %02x class %08x\n",
+                  __func__,
                   dev->vendor,
                   dev->device,
                   dev->hdr_type,
