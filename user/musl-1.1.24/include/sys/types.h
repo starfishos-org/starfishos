@@ -69,6 +69,12 @@ typedef long long quad_t;
 typedef unsigned long long u_quad_t;
 #include <endian.h>
 #include <sys/select.h>
+typedef uint8_t u8;
+typedef uint8_t _u8;
+typedef uint8_t __u8;
+typedef int8_t s8;
+typedef int8_t _s8;
+typedef int8_t __s8;
 typedef uint16_t u16;
 typedef uint16_t _u16;
 typedef uint16_t __u16;
