@@ -4,7 +4,7 @@
 #include <arch/drivers/multiboot2.h>
 
 /* Linux 0xffffffff80000000 */
-#define KCODE      0xFFFFFFFFC0000000
+#define KCODE      0xFFFFFFFF80000000
 #define PADDR(x)   ((x) - KCODE)
 #define KSTACKSIZE (4*0x1000)
 
@@ -224,9 +224,10 @@ PUD_DM:
 .global CHCORE_PUD_CODE_Mapping
 CHCORE_PUD_CODE_Mapping:
 PUD_CODE:
-	.space 4096 - 8
-	/* Simply mapping 0~1G with rwx */
+	.space 4096 - 2*8
+	/* Simply mapping 0~2G with rwx */
 	.quad (0 << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL
+	.quad (1 << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL
 
 .align 4096
 .code32

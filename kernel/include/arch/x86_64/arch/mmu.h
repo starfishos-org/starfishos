@@ -27,7 +27,7 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len);
 #define phys_to_virt(x) ((vaddr_t)((paddr_t)x + KBASE))
 
 #ifndef KCODE
-#define KCODE 0xFFFFFFFFC0000000
+#define KCODE 0xFFFFFFFF80000000
 #endif
 
 static inline paddr_t virt_to_phys(void *va)
