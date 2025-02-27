@@ -1,27 +1,13 @@
-target_sources(
-    ${kernel_target}
-    PRIVATE buddy.c
-            kmalloc.c
-            mm.c
-            pgfault_handler.c
-            slab.c
-            vmregion.c
-            dram_alloc.c
-            dram_slab.c)
+file(GLOB src "*.c")
 
 if(CHCORE_SLS)
-  target_sources(
-    ${kernel_target}
-    PRIVATE rmap.c
-  )
+  file(GLOB_RECURSE sls_src "sls/*.c")
+  list(APPEND src ${sls_src})
 endif()
 
 if(CHCORE_SSI)
-target_sources(
-  ${kernel_target}
-  PRIVATE cxl_alloc.c
-          cxl_slab.c
-          temp_alloc.c
-          temp_slab.c
-)
+  file(GLOB_RECURSE ssi_src "cxl/*.c" "temp/*c")
+  list(APPEND src ${ssi_src})
 endif()
+
+target_sources(${kernel_target} PRIVATE ${src})

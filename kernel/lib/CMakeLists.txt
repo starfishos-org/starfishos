@@ -1,1 +1,2 @@
-target_sources(${kernel_target} PRIVATE printk.c radix.c ring_buffer.c rbtree.c)
+file(GLOB_RECURSE src "*.c")
+target_sources(${kernel_target} PRIVATE ${src})

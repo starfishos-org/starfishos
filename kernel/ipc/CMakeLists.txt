@@ -1,1 +1,2 @@
-target_sources(${kernel_target} PRIVATE connection.c notification.c)
+file(GLOB_RECURSE src "*.c")
+target_sources(${kernel_target} PRIVATE ${src})

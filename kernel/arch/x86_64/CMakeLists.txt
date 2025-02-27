@@ -1,7 +1,6 @@
 target_sources(${kernel_target} PRIVATE main.c)
 
 add_subdirectory(boot)
-
 add_subdirectory(backtrace)
 add_subdirectory(drivers)
 add_subdirectory(irq)

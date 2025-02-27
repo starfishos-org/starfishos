@@ -1,1 +1,2 @@
-target_sources(${kernel_target} PRIVATE cpu.c smp.c tsc.c)
+file(GLOB_RECURSE src "*.c")
+target_sources(${kernel_target} PRIVATE ${src})

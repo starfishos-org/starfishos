@@ -1,5 +1,2 @@
-target_sources(${kernel_target} PRIVATE acpi/acpi.c acpi/madt.c acpi/nfit.c acpi/cedt.c acpi/srat.c acpi/mcfg.c)
-target_sources(${kernel_target} PRIVATE console/console.c console/fb.c)
-target_sources(${kernel_target} PRIVATE multiboot2/multiboot2.c)
-target_sources(${kernel_target} PRIVATE uart/uart.c)
-target_sources(${kernel_target} PRIVATE pci/pci.c pci/pci-mmconfig.c)
+file(GLOB_RECURSE src "*/*.c")
+target_sources(${kernel_target} PRIVATE ${src})
