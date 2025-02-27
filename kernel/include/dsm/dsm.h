@@ -21,20 +21,20 @@ u32 CUR_MACHINE_ID;
 #define DSM_MAX_DEV_NUM             (DSM_MAX_MACHINE_NUM * DSM_PER_MACHINE_MAX_DEV_NUM)
 
 enum {
-        MEMORY_DEVICE_TYPE_DRAM_SHARED,
-        MEMORY_DEVICE_TYPE_DRAM_OWNED,
+    MEMORY_DEVICE_TYPE_DRAM_SHARED,
+    MEMORY_DEVICE_TYPE_DRAM_OWNED,
 } dsm_memdev_type_t;
 
 typedef struct {
-        u8 type;
-        u64 ownerid;
-        u64 start;
-        size_t size;
+    u8 type;
+    u64 ownerid;
+    u64 start;
+    size_t size;
 } dsm_mem_dev_t;
 
 typedef struct {
-        u64 machine_id;
-        u64 dev_paddr;
+    u64 machine_id;
+    u64 dev_paddr;
 } dsm_machine_dev_pair_t;
 
 /**
@@ -52,32 +52,32 @@ typedef struct {
  * After everything is READY, run the system.
  */
 typedef struct {
-        volatile u64 max_ownerid;
-        // local configs of this memory device,
-        // should be consistent with memdev
-        volatile u64 type;
-        volatile u64 devid;
-        volatile u64 ownerid;
-        volatile size_t size;
-        // global configuration
-        enum {
-                DSM_CONFIG_STATE_UNINITIALIZED = 0,
-                DSM_CONFIG_STATE_LOCAL_CONFIG_READY = 1,
-                DSM_CONFIG_STATE_CONFIG_READY,
-                DSM_CONFIG_STATE_OWNER_READY,
-        } dsm_config_state_type;
-        volatile u64 state;
-        // after configuration, should be consistent among all machines
-        dsm_machine_dev_pair_t mapping[DSM_MAX_MACHINE_NUM];
+    volatile u64 max_ownerid;
+    // local configs of this memory device,
+    // should be consistent with memdev
+    volatile u64 type;
+    volatile u64 devid;
+    volatile u64 ownerid;
+    volatile size_t size;
+    // global configuration
+    enum {
+        DSM_CONFIG_STATE_UNINITIALIZED = 0,
+        DSM_CONFIG_STATE_LOCAL_CONFIG_READY = 1,
+        DSM_CONFIG_STATE_CONFIG_READY,
+        DSM_CONFIG_STATE_OWNER_READY,
+    } dsm_config_state_type;
+    volatile u64 state;
+    // after configuration, should be consistent among all machines
+    dsm_machine_dev_pair_t mapping[DSM_MAX_MACHINE_NUM];
 } __attribute__((aligned(PAGE_SIZE))) dsm_memdev_metadata_t;
 
 typedef struct {
-        u64 machine_id;
-        /* currently, only support 1 dev */
-        u64 memdev_nums;
-        dsm_mem_dev_t *own_memdevs[DSM_PER_MACHINE_MAX_DEV_NUM];
-        /* metadata area for this machine to communicate with others */
-        dsm_memdev_metadata_t *meta;
+    u64 machine_id;
+    /* currently, only support 1 dev */
+    u64 memdev_nums;
+    dsm_mem_dev_t *own_memdevs[DSM_PER_MACHINE_MAX_DEV_NUM];
+    /* metadata area for this machine to communicate with others */
+    dsm_memdev_metadata_t *meta;
 } dsm_machine_t;
 
 /* current machine */
@@ -89,19 +89,19 @@ dsm_mem_dev_t dsm_visible_memdevs[DSM_MAX_DEV_NUM];
 
 inline u64 dsm_get_memdev_start(dsm_mem_dev_t *dev)
 {
-        BUG_ON(!dev);
-        return dev->start + sizeof(dsm_memdev_metadata_t);
+    BUG_ON(!dev);
+    return dev->start + sizeof(dsm_memdev_metadata_t);
 }
 
 inline u64 dsm_get_memdev_end(dsm_mem_dev_t *dev)
 {
-        BUG_ON(!dev);
-        return dev->start + dev->size;
+    BUG_ON(!dev);
+    return dev->start + dev->size;
 }
 
 inline dsm_memdev_metadata_t *dsm_get_memdev_metadata(dsm_mem_dev_t *dev)
 {
-        return (dsm_memdev_metadata_t *)(phys_to_virt(dev->start));
+    return (dsm_memdev_metadata_t *)(phys_to_virt(dev->start));
 }
 
 /* dsm add memory devices */

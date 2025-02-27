@@ -1,13 +1,13 @@
 #include <common/lock.h>
 #include <common/list.h>
+#include <common/util.h>
+#include <common/kprint.h>
 #include <drivers/pci.h>
 #include <drivers/pci-special.h>
-#include <common/kprint.h>
 #include <mm/kmalloc.h>
+#include <arch/io.h>
 
-#include "common.h"
 #include "../acpi/acpi.h"
-#include <drivers/cxl-pci.h>
 
 extern struct lock pci_mmcfg_lock;
 extern struct list_head pci_mmcfg_list;
@@ -23,29 +23,6 @@ static void add_pci_bus(struct pci_bus *new_bus)
         new_bus->parent = pci_root_bus;
     }
     init_list_head(&new_bus->children);
-}
-
-void pci_devices_traverse(struct pci_bus *bus, pci_bus_traverse_fn func)
-{
-    struct pci_dev *pdev;
-    for_each_in_list (pdev, struct pci_dev, bus_list, &bus->devices) {
-        func(pdev);
-    }
-}
-
-void pci_buses_traverse(struct pci_bus *parent, pci_bus_traverse_fn func)
-{
-    struct pci_bus *child;
-    pci_devices_traverse(parent, func);
-
-    for_each_in_list (child, struct pci_bus, node, &parent->children) {
-        pci_buses_traverse(child, func);
-    }
-}
-
-void pci_buses_traverse_all(pci_bus_traverse_fn func)
-{
-    pci_buses_traverse(pci_root_bus, func);
 }
 
 void arch_pci_mmcfg_init()
@@ -78,12 +55,11 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
     /*  parse each bus on the memory region */
     for (bus_n = start_bus_n; bus_n < end_bus_n; bus_n++) {
         struct pci_bus *bus;
-        pci_get_devid_and_vendorid(
-            region, bus_n, 0, &dev_id, &vendor_id);
-        
-        if (vendor_id == 0xffff) 
+        pci_get_devid_and_vendorid(region, bus_n, 0, &dev_id, &vendor_id);
+
+        if (vendor_id == 0xffff)
             continue;
-        
+
         // find a valid deive
         bus = temp_kmalloc(sizeof(*bus));
         bus->domain = region->segment;
@@ -105,17 +81,17 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
                 list_add(&dev->bus_list, &bus->devices);
 
                 pci_info("[%04x:%02x:%02x.%x] find device [%04x:%04x]\n",
-                    bus->domain,
-                    bus_n,
-                    devfn >> 3,
-                    devfn & 0x7,
-                    dev->vendor,
-                    dev->device);
+                         bus->domain,
+                         bus_n,
+                         devfn >> 3,
+                         devfn & 0x7,
+                         dev->vendor,
+                         dev->device);
 
                 pci_setup_device(dev);
             }
         }
-}
+    }
 }
 
 void arch_pci_probe_devices()

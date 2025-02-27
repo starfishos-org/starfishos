@@ -6,9 +6,9 @@
 #include <dsm/dsm-single.h>
 
 struct nvm_region {
-        u64 base;
-        u64 length;
-        struct nvm_region *next;
+    u64 base;
+    u64 length;
+    struct nvm_region *next;
 };
 
 int nvm_region_num;
@@ -30,7 +30,6 @@ int system_current_flip_flag;
  *  struct nvm_metadata   struct phys_mem_pool   buddy system
  */
 
-
 #define NVM_IS_CRASH     (nvm_metadata->crash_last_time)
 #define CKPT_INITIALIZED (nvm_metadata->ckpt_initialized)
 /* MOK: we no longer use global object map. */
@@ -41,16 +40,16 @@ int system_current_flip_flag;
 #define SLAB_POOLS_PTR ((struct slab_pointer *)&(nvm_metadata->slabs))
 
 struct nvm_metadata {
-        /* crash_last_time = 1 means unexpected */
-        bool crash_last_time;
-        /* Checkpoint time stamp */
-        u64 version_number;
-        /* Is doing ckpt (or else is restore) */
-        bool ckpt_initialized;
-        /* Checkpoint data */
-        struct ckpt_ws_table *ckpt_whole_sys_table;
-        struct kvs *ckpt_global_obj_map;
-        struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
+    /* crash_last_time = 1 means unexpected */
+    bool crash_last_time;
+    /* Checkpoint time stamp */
+    u64 version_number;
+    /* Is doing ckpt (or else is restore) */
+    bool ckpt_initialized;
+    /* Checkpoint data */
+    struct ckpt_ws_table *ckpt_whole_sys_table;
+    struct kvs *ckpt_global_obj_map;
+    struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
 };
 
 struct nvm_metadata *nvm_metadata;
@@ -61,52 +60,52 @@ extern struct ckpt_ws_data *second_latest_ws_data;
 
 inline static void nvm_metadata_reset(void)
 {
-        CKPT_GLOBAL_OBJ_MAP = NULL;
-        CKPT_WS_TABLE = NULL;
-        latest_ws_data = NULL;
-        second_latest_ws_data = NULL;
-        CKPT_INITIALIZED = false;
-        CKPT_VERSION_NUMBER = 0;
+    CKPT_GLOBAL_OBJ_MAP = NULL;
+    CKPT_WS_TABLE = NULL;
+    latest_ws_data = NULL;
+    second_latest_ws_data = NULL;
+    CKPT_INITIALIZED = false;
+    CKPT_VERSION_NUMBER = 0;
 }
 
 inline static void nvm_metadata_set_crash_flag(void)
 {
-        nvm_metadata->crash_last_time = 1;
+    nvm_metadata->crash_last_time = 1;
 }
 
 inline static void nvm_metadata_reset_crash_flag(void)
 {
-        nvm_metadata->crash_last_time = 0;
+    nvm_metadata->crash_last_time = 0;
 }
 
 inline static void nvm_metadata_set_slabs_data(u64 order,
                                                struct slab_pointer *ptr)
 {
-        nvm_metadata->slabs[order].current_slab = ptr->current_slab;
-        nvm_metadata->slabs[order].partial_slab_list = ptr->partial_slab_list;
+    nvm_metadata->slabs[order].current_slab = ptr->current_slab;
+    nvm_metadata->slabs[order].partial_slab_list = ptr->partial_slab_list;
 }
 
 inline static void nvm_metadata_get_slabs_data(u64 order,
                                                struct slab_pointer *ptr)
 {
-        ptr->current_slab = nvm_metadata->slabs[order].current_slab;
-        ptr->partial_slab_list = nvm_metadata->slabs[order].partial_slab_list;
+    ptr->current_slab = nvm_metadata->slabs[order].current_slab;
+    ptr->partial_slab_list = nvm_metadata->slabs[order].partial_slab_list;
 }
 
 inline static u64 get_current_ckpt_version()
 {
-        return CKPT_VERSION_NUMBER;
+    return CKPT_VERSION_NUMBER;
 }
 
 inline static void set_current_ckpt_version(u64 version_number)
 {
-        CKPT_VERSION_NUMBER = version_number;
+    CKPT_VERSION_NUMBER = version_number;
 }
 
-#elif defined CHCORE_SSI_SLS 
+#elif defined CHCORE_SSI_SLS
 
-#define NVM_IS_CRASH     (dsm_meta->crash_last_time)
-#define CKPT_INITIALIZED (dsm_meta->ckpt_initialized)
+#define NVM_IS_CRASH        (dsm_meta->crash_last_time)
+#define CKPT_INITIALIZED    (dsm_meta->ckpt_initialized)
 #define CKPT_GLOBAL_OBJ_MAP (dsm_meta->ckpt_global_obj_map)
 #define CKPT_WS_TABLE       (dsm_meta->ckpt_whole_sys_table)
 #define CKPT_VERSION_NUMBER (dsm_meta->version_number)
@@ -118,46 +117,46 @@ extern struct ckpt_ws_data *second_latest_ws_data;
 
 inline static void dsm_metadata_reset(void)
 {
-        CKPT_GLOBAL_OBJ_MAP = NULL;
-        CKPT_WS_TABLE = NULL;
-        latest_ws_data = NULL;
-        second_latest_ws_data = NULL;
-        CKPT_INITIALIZED = false;
-        CKPT_VERSION_NUMBER = 0;
+    CKPT_GLOBAL_OBJ_MAP = NULL;
+    CKPT_WS_TABLE = NULL;
+    latest_ws_data = NULL;
+    second_latest_ws_data = NULL;
+    CKPT_INITIALIZED = false;
+    CKPT_VERSION_NUMBER = 0;
 }
 
 inline static void dsm_metadata_set_crash_flag(void)
 {
-        dsm_meta->crash_last_time = 1;
+    dsm_meta->crash_last_time = 1;
 }
 
 inline static void dsm_metadata_reset_crash_flag(void)
 {
-        dsm_meta->crash_last_time = 0;
+    dsm_meta->crash_last_time = 0;
 }
 
 inline static void dsm_metadata_set_slabs_data(u64 order,
                                                struct slab_pointer *ptr)
 {
-        dsm_meta->slabs[order].current_slab = ptr->current_slab;
-        dsm_meta->slabs[order].partial_slab_list = ptr->partial_slab_list;
+    dsm_meta->slabs[order].current_slab = ptr->current_slab;
+    dsm_meta->slabs[order].partial_slab_list = ptr->partial_slab_list;
 }
 
 inline static void dsm_metadata_get_slabs_data(u64 order,
                                                struct slab_pointer *ptr)
 {
-        ptr->current_slab = dsm_meta->slabs[order].current_slab;
-        ptr->partial_slab_list = dsm_meta->slabs[order].partial_slab_list;
+    ptr->current_slab = dsm_meta->slabs[order].current_slab;
+    ptr->partial_slab_list = dsm_meta->slabs[order].partial_slab_list;
 }
 
 inline static u64 get_current_ckpt_version()
 {
-        return CKPT_VERSION_NUMBER;
+    return CKPT_VERSION_NUMBER;
 }
 
 inline static void set_current_ckpt_version(u64 version_number)
 {
-        CKPT_VERSION_NUMBER = version_number;
+    CKPT_VERSION_NUMBER = version_number;
 }
 
 #endif

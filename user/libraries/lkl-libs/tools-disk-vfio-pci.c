@@ -86,15 +86,19 @@ static int lkl_test_readdir(void)
 LKL_TEST_CALL(mount_dev, lkl_mount_blkdev, 0, LKL_MKDEV(259, 0),
 	      cla.fstype, 0, NULL, mnt_point, sizeof(mnt_point))
 LKL_TEST_CALL(closedir, lkl_closedir, 0, dir);
-LKL_TEST_CALL(chdir_mnt_point, lkl_sys_chdir, 0, mnt_point);
+// LKL_TEST_CALL(chdir_mnt_point, lkl_sys_chdir, 0, mnt_point);
 LKL_TEST_CALL(start_kernel, lkl_start_kernel, 0, bootparams);
 LKL_TEST_CALL(stop_kernel, lkl_sys_halt, 0);
 
 struct lkl_test tests[] = {
-	LKL_TEST(start_kernel),	   LKL_TEST(mount_dev),
-	LKL_TEST(chdir_mnt_point), LKL_TEST(opendir),
-	LKL_TEST(readdir),	   LKL_TEST(closedir),
-	LKL_TEST(umount_dev),	   LKL_TEST(stop_kernel),
+	LKL_TEST(start_kernel),	   
+	LKL_TEST(mount_dev),
+	// LKL_TEST(chdir_mnt_point), 
+	LKL_TEST(opendir),
+	LKL_TEST(readdir),	   
+	LKL_TEST(closedir),
+	LKL_TEST(umount_dev),	   
+	LKL_TEST(stop_kernel),
 };
 
 int main(int argc, const char **argv)

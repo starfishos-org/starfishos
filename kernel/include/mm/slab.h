@@ -15,25 +15,25 @@
 /* slab_header resides in the beginning of each slab (i.e., occupies the first
  * slot). */
 struct slab_header {
-        /* The list of free slots, which can be converted to struct
-         * slab_slot_list. */
-        void *free_list_head;
-        /* Partial slab list. */
-        struct list_head node;
+    /* The list of free slots, which can be converted to struct
+     * slab_slot_list. */
+    void *free_list_head;
+    /* Partial slab list. */
+    struct list_head node;
 
-        int order;
-        unsigned short total_free_cnt; /* MAX: 65536 */
-        unsigned short current_free_cnt;
+    int order;
+    unsigned short total_free_cnt; /* MAX: 65536 */
+    unsigned short current_free_cnt;
 };
 
 /* Each free slot in one slab is regarded as slab_slot_list. */
 struct slab_slot_list {
-        void *next_free;
+    void *next_free;
 };
 
 struct slab_pointer {
-        struct slab_header *current_slab;
-        struct list_head partial_slab_list;
+    struct slab_header *current_slab;
+    struct list_head partial_slab_list;
 };
 
 /* All interfaces are kernel/mm module internal interfaces. */
@@ -62,26 +62,27 @@ void free_in_temp_slab(void *addr);
 /* common */
 static inline int size_to_order(unsigned long size)
 {
-	unsigned long order = 0;
-	unsigned long tmp = size;
+    unsigned long order = 0;
+    unsigned long tmp = size;
 
-	while (tmp > 1) {
-		tmp >>= 1;
-		order += 1;
-	}
-	if (size > (1 << order))
-		order += 1;
+    while (tmp > 1) {
+        tmp >>= 1;
+        order += 1;
+    }
+    if (size > (1 << order))
+        order += 1;
 
-	return (int)order;
+    return (int)order;
 }
 
 static inline unsigned long order_to_size(int order)
 {
-	return 1UL << order;
+    return 1UL << order;
 }
 
 /* @set_or_clear: true for set and false for clear. */
-void set_or_clear_slab_in_page(void *addr, unsigned long size, bool set_or_clear);
+void set_or_clear_slab_in_page(void *addr, unsigned long size,
+                               bool set_or_clear);
 
 #if TRACK_THREAD_MM == ON
 u64 size_to_slab_order(u64 size);

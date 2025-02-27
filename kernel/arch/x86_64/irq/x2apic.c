@@ -86,124 +86,123 @@ u64 cntv_init;
 
 void x2apic_init_timer()
 {
-        u64 tsc;
+    u64 tsc;
 
-        if (cur_freq == 0) {
-                cur_freq = get_tsc_through_pit();
-                kinfo("[ChCore] cpu frequency=(Dec)%llu\n", cur_freq);
-                tick_per_us = cur_freq / 1000 / 1000;
+    if (cur_freq == 0) {
+        cur_freq = get_tsc_through_pit();
+        kinfo("[ChCore] cpu frequency=(Dec)%llu\n", cur_freq);
+        tick_per_us = cur_freq / 1000 / 1000;
 
-                cntv_init = get_cycles();
-        }
+        cntv_init = get_cycles();
+    }
 
-        /* frequency divided by 1 */
-        wrmsr(IA32_X2APIC_DIV_CONF, 0xb);
-        /* set local timer irq */
-        wrmsr(IA32_X2APIC_LVT_TIMER, LVT_TIMER_TSCDEADLINE | IRQ_TIMER);
-        tsc = get_cycles();
-        wrmsr(MSR_IA32_TSC_DEADLINE, tsc + cur_freq * TICK_MS / 1000);
+    /* frequency divided by 1 */
+    wrmsr(IA32_X2APIC_DIV_CONF, 0xb);
+    /* set local timer irq */
+    wrmsr(IA32_X2APIC_LVT_TIMER, LVT_TIMER_TSCDEADLINE | IRQ_TIMER);
+    tsc = get_cycles();
+    wrmsr(MSR_IA32_TSC_DEADLINE, tsc + cur_freq * TICK_MS / 1000);
 
-        wrmsr(IA32_X2APIC_EOI, 0);
+    wrmsr(IA32_X2APIC_EOI, 0);
 }
 
 /*Return the mono time using nano-seconds */
 #define NS_IN_MS (1000000UL)
 u64 plat_get_mono_time(void)
 {
-        u64 tsc;
-        tsc = get_cycles();
+    u64 tsc;
+    tsc = get_cycles();
 
-        return (tsc - cntv_init) * NS_IN_US / tick_per_us;
+    return (tsc - cntv_init) * NS_IN_US / tick_per_us;
 }
 
 u64 plat_get_current_tick(void)
 {
-        return get_cycles();
+    return get_cycles();
 }
 
 void x2apic_eoi(void)
 {
-        wrmsr(IA32_X2APIC_EOI, 0);
+    wrmsr(IA32_X2APIC_EOI, 0);
 }
 
 void x2apic_init()
 {
-        u64 apic_base = rdmsr(IA32_APIC_BASE);
+    u64 apic_base = rdmsr(IA32_APIC_BASE);
 
-        /* BIOS enable x2apic with x2apic id greater than 255 */
-        if (apic_base & APIC_BASE_X2APEC_ENABLE)
-                kwarn("x2apic already enabled\n");
-        else
-                wrmsr(IA32_APIC_BASE, apic_base | APIC_BASE_X2APEC_ENABLE);
+    /* BIOS enable x2apic with x2apic id greater than 255 */
+    if (apic_base & APIC_BASE_X2APEC_ENABLE)
+        kwarn("x2apic already enabled\n");
+    else
+        wrmsr(IA32_APIC_BASE, apic_base | APIC_BASE_X2APEC_ENABLE);
 
-        /* Enable lapic in SVR. Set spuriouse vector to max of irq. */
-        wrmsr(IA32_X2APIC_SPIV, APIC_VECTOR_MASK | APIC_SPIV_APIC_ENABLED);
+    /* Enable lapic in SVR. Set spuriouse vector to max of irq. */
+    wrmsr(IA32_X2APIC_SPIV, APIC_VECTOR_MASK | APIC_SPIV_APIC_ENABLED);
 }
 
 static int x2apic_maxlvt(void)
 {
-        u32 v;
+    u32 v;
 
-        v = rdmsr(IA32_X2APIC_VER);
-        return (((v) >> 16) & 0xFFu);
+    v = rdmsr(IA32_X2APIC_VER);
+    return (((v) >> 16) & 0xFFu);
 }
 
 /* From sv6 */
 void x2apic_sipi(u32 hwid, u32 addr)
 {
-        int i;
-        u64 accept_status;
-        int maxlvt = x2apic_maxlvt();
+    int i;
+    u64 accept_status;
+    int maxlvt = x2apic_maxlvt();
 
+    wrmsr(IA32_X2APIC_ESR, 0);
+    rdmsr(IA32_X2APIC_ESR);
+
+    if (maxlvt > 3)
         wrmsr(IA32_X2APIC_ESR, 0);
-        rdmsr(IA32_X2APIC_ESR);
+    rdmsr(IA32_X2APIC_ESR);
+
+    // "Universal startup algorithm."
+    // Send INIT (level-triggered) interrupt to reset other CPU.
+    // Asserting INIT
+    wrmsr(X2APIC_ICR,
+          ((u64)(hwid) << 32) | ICR_TYPE_INIT | ICR_TRIGGER_LEVEL
+                  | ICR_LEVEL_ASSERT);
+    delay_ms(10);
+    // Deasserting INIT
+    wrmsr(X2APIC_ICR, ((u64)(hwid) << 32) | ICR_TYPE_INIT | ICR_TRIGGER_LEVEL);
+
+    // Send startup IPI (twice!) to enter bootstrap code.
+    // Regular hardware is supposed to only accept a STARTUP
+    // when it is in the halted state due to an INIT.  So the second
+    // should be ignored, but it is part of the official Intel algorithm.
+    for (i = 0; i < 2; i++) {
+        wrmsr(IA32_X2APIC_ESR, 0);
+
+        // Kick the target chip
+        wrmsr(X2APIC_ICR,
+              ((u64)(hwid) << 32) | ICR_TYPE_STARTUP | (addr >> 12));
+        // kinfo("Boot addr 0x%lx send 0x%lx\n", addr, addr >> 12);
+        delay_ms(1);
 
         if (maxlvt > 3)
-                wrmsr(IA32_X2APIC_ESR, 0);
-        rdmsr(IA32_X2APIC_ESR);
+            wrmsr(IA32_X2APIC_ESR, 0);
 
-        // "Universal startup algorithm."
-        // Send INIT (level-triggered) interrupt to reset other CPU.
-        // Asserting INIT
-        wrmsr(X2APIC_ICR,
-              ((u64)(hwid) << 32) | ICR_TYPE_INIT | ICR_TRIGGER_LEVEL
-                      | ICR_LEVEL_ASSERT);
-        delay_ms(10);
-        // Deasserting INIT
-        wrmsr(X2APIC_ICR,
-              ((u64)(hwid) << 32) | ICR_TYPE_INIT | ICR_TRIGGER_LEVEL);
-
-        // Send startup IPI (twice!) to enter bootstrap code.
-        // Regular hardware is supposed to only accept a STARTUP
-        // when it is in the halted state due to an INIT.  So the second
-        // should be ignored, but it is part of the official Intel algorithm.
-        for (i = 0; i < 2; i++) {
-                wrmsr(IA32_X2APIC_ESR, 0);
-
-                // Kick the target chip
-                wrmsr(X2APIC_ICR,
-                      ((u64)(hwid) << 32) | ICR_TYPE_STARTUP | (addr >> 12));
-                // kinfo("Boot addr 0x%lx send 0x%lx\n", addr, addr >> 12);
-                delay_ms(1);
-
-                if (maxlvt > 3)
-                        wrmsr(IA32_X2APIC_ESR, 0);
-
-                accept_status = (rdmsr(IA32_X2APIC_ESR) & 0xEF);
-                // kinfo("Accpet_status %lx\n", accept_status);
-                BUG_ON(accept_status);
-        }
+        accept_status = (rdmsr(IA32_X2APIC_ESR) & 0xEF);
+        // kinfo("Accpet_status %lx\n", accept_status);
+        BUG_ON(accept_status);
+    }
 }
 
 void x2apic_disable_timer(void)
 {
-        wrmsr(IA32_X2APIC_LVT_TIMER, APIC_LVT_MASKED);
+    wrmsr(IA32_X2APIC_LVT_TIMER, APIC_LVT_MASKED);
 }
 
 void x2apic_enable_timer(void)
 {
-        wrmsr(IA32_X2APIC_LVT_TIMER, LVT_TIMER_PERIODIC | IRQ_TIMER);
-        wrmsr(IA32_X2APIC_INIT_COUNT, cntv_tval);
+    wrmsr(IA32_X2APIC_LVT_TIMER, LVT_TIMER_PERIODIC | IRQ_TIMER);
+    wrmsr(IA32_X2APIC_INIT_COUNT, cntv_tval);
 }
 
 /*
@@ -212,31 +211,31 @@ void x2apic_enable_timer(void)
  */
 void x2apic_send_ipi_single(int cpu_id, int interrupt_num)
 {
-        wrmsr(X2APIC_ICR, (((u64)cpu_id) << 32) | interrupt_num);
+    wrmsr(X2APIC_ICR, (((u64)cpu_id) << 32) | interrupt_num);
 }
 
 /* Send the interrupt to other cores except itself */
 void x2apic_send_ipi_broadcast(int interrupt_num)
 {
-        wrmsr(X2APIC_ICR, ICR_DEST_ALL | interrupt_num);
+    wrmsr(X2APIC_ICR, ICR_DEST_ALL | interrupt_num);
 }
 
 /* Send the interrupt to all the cores */
 void x2apic_send_ipi_all(int interrupt_num)
 {
-        wrmsr(X2APIC_ICR, ICR_DEST_ALL_SELF | interrupt_num);
+    wrmsr(X2APIC_ICR, ICR_DEST_ALL_SELF | interrupt_num);
 }
 
 void plat_timer_init(void)
 {
-        x2apic_init_timer();
+    x2apic_init_timer();
 }
 
 void plat_send_ipi(u32 cpu, u32 ipi)
 {
-        /*
-         * Use x2apic for sending IPI on x86.
-         * x2apic_send_ipi_single is used for interrupt a single core.
-         */
-        x2apic_send_ipi_single(cpu_info[cpu].apic_id, ipi);
+    /*
+     * Use x2apic for sending IPI on x86.
+     * x2apic_send_ipi_single is used for interrupt a single core.
+     */
+    x2apic_send_ipi_single(cpu_info[cpu].apic_id, ipi);
 }

@@ -22,67 +22,66 @@ extern struct phys_mem_pool *global_temp_mem;
 void *get_temp_pages(int order)
 {
 #if TRACK_THREAD_MM == ON
-        if (current_thread)
-                current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
+    if (current_thread)
+        current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
 #endif
-        struct page *page = NULL;
+    struct page *page = NULL;
 
-        /* Try to get continous physical memory pages from one physmem pool. */
-        page = buddy_get_pages(global_temp_mem, order);
+    /* Try to get continous physical memory pages from one physmem pool. */
+    page = buddy_get_pages(global_temp_mem, order);
 
-        if (unlikely(!page)) {
-                kwarn("[OOM] Cannot get page from any memory pool!\n");
-                return NULL;
-        }
+    if (unlikely(!page)) {
+        kwarn("[OOM] Cannot get page from any memory pool!\n");
+        return NULL;
+    }
 
-        /* Init page reference count */
-        page->ref_cnt = 1;
+    /* Init page reference count */
+    page->ref_cnt = 1;
 
-        return page_to_virt(page);
+    return page_to_virt(page);
 }
 
 void free_temp_pages(void *addr)
 {
-        struct page *page;
+    struct page *page;
 
-        page = virt_to_page(addr);
-        buddy_free_pages(page->pool, page);
+    page = virt_to_page(addr);
+    buddy_free_pages(page->pool, page);
 }
 
 /* Currently, BUG_ON no available memory. */
 void *temp_kmalloc(size_t size)
 {
-        void *addr;
-        int order;
+    void *addr;
+    int order;
 
-        if (unlikely(size == 0))
-                return ZERO_SIZE_PTR;
+    if (unlikely(size == 0))
+        return ZERO_SIZE_PTR;
 
-        if (size <= SLAB_MAX_SIZE) {
+    if (size <= SLAB_MAX_SIZE) {
 #if TRACK_THREAD_MM == ON
-                if (current_thread)
-                        current_thread->mm_size +=
-                                (1 << size_to_slab_order(size));
+        if (current_thread)
+            current_thread->mm_size += (1 << size_to_slab_order(size));
 #endif
-                addr = alloc_in_temp_slab(size);
-        } else {
-                if (size <= BUDDY_PAGE_SIZE)
-                        order = 0;
-                else
-                        order = size_to_page_order(size);
-                addr = get_temp_pages(order);
-        }
+        addr = alloc_in_temp_slab(size);
+    } else {
+        if (size <= BUDDY_PAGE_SIZE)
+            order = 0;
+        else
+            order = size_to_page_order(size);
+        addr = get_temp_pages(order);
+    }
 
-        BUG_ON(!addr);
-        return addr;
+    BUG_ON(!addr);
+    return addr;
 }
 
 void *temp_kzalloc(size_t size)
 {
-        void *addr;
+    void *addr;
 
-        addr = temp_kmalloc(size);
-        memset(addr, 0, size);
-        return addr;
+    addr = temp_kmalloc(size);
+    memset(addr, 0, size);
+    return addr;
 }
 #endif

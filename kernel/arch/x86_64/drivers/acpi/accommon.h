@@ -5,8 +5,8 @@
  * limitation.
  */
 #define ACPI_FLEX_ARRAY(TYPE, NAME) \
+    struct {                        \
         struct {                    \
-                struct {            \
-                } __Empty_##NAME;   \
-                TYPE NAME[];        \
-        }
+        } __Empty_##NAME;           \
+        TYPE NAME[];                \
+    }

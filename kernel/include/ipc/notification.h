@@ -6,26 +6,26 @@
 #include <posix/time.h>
 
 struct notification {
-	u32 not_delivered_notifc_count;
-	u32 waiting_threads_count;
-	struct list_head waiting_threads;
-	/*
-	 * notifc_lock protects counter and list of waiting threads,
-	 * including the internal states of waiting threads.
-	 */
-	struct lock notifc_lock;
+    u32 not_delivered_notifc_count;
+    u32 waiting_threads_count;
+    struct list_head waiting_threads;
+    /*
+     * notifc_lock protects counter and list of waiting threads,
+     * including the internal states of waiting threads.
+     */
+    struct lock notifc_lock;
 
-	/* For recycling */
+    /* For recycling */
 #define NOTIFIC_INVALID 0
-#define NOTIFIC_VALID 1
-	int state;
+#define NOTIFIC_VALID   1
+    int state;
 };
 
 struct irq_notification;
 
 void init_notific(struct notification *notifc);
 s32 wait_notific(struct notification *notifc, bool is_block,
-		struct timespec *timeout);
+                 struct timespec *timeout);
 s32 signal_notific(struct notification *notifc);
 
 void wait_irq_notific(struct irq_notification *notifc);

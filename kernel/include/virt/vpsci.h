@@ -15,4 +15,4 @@
 #define VPSCI_SUCCESS 0
 
 u64 do_psci_on(struct virt_vm *vm, u64 target_cpu_id, u64 entry_point,
-	       u64 context_id);
+               u64 context_id);

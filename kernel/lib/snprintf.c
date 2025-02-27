@@ -1,7 +1,8 @@
 #include <common/stdarg.h>
 #include <common/util.h>
 
-static void reverse(char *str, int len) {
+static void reverse(char *str, int len)
+{
     int i = 0, j = len - 1;
     while (i < j) {
         char temp = str[i];
@@ -12,7 +13,8 @@ static void reverse(char *str, int len) {
     }
 }
 
-static int intToStr(int x, char str[], int d) {
+static int intToStr(int x, char str[], int d)
+{
     int i = 0;
     bool isNegative = false;
 
@@ -42,7 +44,8 @@ static int intToStr(int x, char str[], int d) {
     return i;
 }
 
-int snprintf(char *str, size_t size, const char *format, ...) {
+int snprintf(char *str, size_t size, const char *format, ...)
+{
     va_list args;
     va_start(args, format);
 
@@ -57,36 +60,36 @@ int snprintf(char *str, size_t size, const char *format, ...) {
             traverse++;
 
             switch (*traverse) {
-                case 'd':
-                    num = va_arg(args, int);
-                    intToStr(num, buffer, 0);
-                    for (s = buffer; *s != '\0'; s++, len++) {
-                        if (len >= size) {
-                            va_end(args);
-                            return len;
-                        }
-                        str[len] = *s;
-                    }
-                    break;
-
-                case 's':
-                    s = va_arg(args, char *);
-                    while (*s != '\0') {
-                        if (len >= size) {
-                            va_end(args);
-                            return len;
-                        }
-                        str[len++] = *s++;
-                    }
-                    break;
-
-                default:
+            case 'd':
+                num = va_arg(args, int);
+                intToStr(num, buffer, 0);
+                for (s = buffer; *s != '\0'; s++, len++) {
                     if (len >= size) {
                         va_end(args);
                         return len;
                     }
-                    str[len++] = *traverse;
-                    break;
+                    str[len] = *s;
+                }
+                break;
+
+            case 's':
+                s = va_arg(args, char *);
+                while (*s != '\0') {
+                    if (len >= size) {
+                        va_end(args);
+                        return len;
+                    }
+                    str[len++] = *s++;
+                }
+                break;
+
+            default:
+                if (len >= size) {
+                    va_end(args);
+                    return len;
+                }
+                str[len++] = *traverse;
+                break;
             }
         } else {
             if (len >= size) {

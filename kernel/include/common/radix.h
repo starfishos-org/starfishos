@@ -8,20 +8,20 @@
 #define RADIX_NODE_BITS (4)
 #define RADIX_NODE_SIZE (1 << (RADIX_NODE_BITS))
 #define RADIX_NODE_MASK (RADIX_NODE_SIZE - 1)
-#define RADIX_MAX_BITS (64)
+#define RADIX_MAX_BITS  (64)
 
 #define RADIX_LEVELS (DIV_ROUND_UP(RADIX_MAX_BITS, RADIX_NODE_BITS))
 
 struct radix_node {
-	union {
-		struct radix_node *children[RADIX_NODE_SIZE];
-		void *values[RADIX_NODE_SIZE];
-	};
+    union {
+        struct radix_node *children[RADIX_NODE_SIZE];
+        void *values[RADIX_NODE_SIZE];
+    };
 };
 struct radix {
-	struct radix_node *root;
-	struct lock radix_lock;
-	void (*value_deleter)(void *);
+    struct radix_node *root;
+    struct lock radix_lock;
+    void (*value_deleter)(void *);
 };
 
 /* interfaces */
@@ -33,12 +33,13 @@ int radix_free(struct radix *radix);
 int radix_del(struct radix *radix, u64 key);
 
 void init_radix_w_deleter(struct radix *radix, void (*value_deleter)(void *));
-int radix_deep_copy(struct radix *src,struct radix *dst,int phy_alloc);
+int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc);
 
 unsigned long radix_checksum(struct radix *tree);
 
 typedef void (*radix_traverse_fn)(vaddr_t va, paddr_t pa);
 void radix_traverse(struct radix *radix, radix_traverse_fn fn);
 
-typedef void* (*radix_complex_traverse_fn)(vaddr_t va, paddr_t pa, void* args);
-void* radix_complex_traverse(struct radix *radix, void* args, radix_complex_traverse_fn fn);
+typedef void *(*radix_complex_traverse_fn)(vaddr_t va, paddr_t pa, void *args);
+void *radix_complex_traverse(struct radix *radix, void *args,
+                             radix_complex_traverse_fn fn);

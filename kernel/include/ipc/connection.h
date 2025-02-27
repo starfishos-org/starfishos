@@ -2,14 +2,10 @@
 
 #include <object/thread.h>
 
-enum config_type {
-	IPC_SERVER_HANDLER = 1,
-	IPC_SERVER_REGISTER_CB,
-	IPC_SERVER
-};
+enum config_type { IPC_SERVER_HANDLER = 1, IPC_SERVER_REGISTER_CB, IPC_SERVER };
 
 struct ipc_config {
-	u64 config_type;
+    u64 config_type;
 };
 
 /*
@@ -17,41 +13,41 @@ struct ipc_config {
  * Note that the ipc_server_handler_thread is used for handling IPC requests.
  */
 struct ipc_server_handler_config {
-	u64 config_type;
-	/* Avoid invoking the same handler_thread concurrently */
-	struct lock ipc_lock;
+    u64 config_type;
+    /* Avoid invoking the same handler_thread concurrently */
+    struct lock ipc_lock;
 
-	/* PC */
-	u64 ipc_routine_entry;
-	/* SP */
-	u64 ipc_routine_stack;
-	/* Entry point of shadow thread exit routine */
-	u64 ipc_exit_routine_entry;
+    /* PC */
+    u64 ipc_routine_entry;
+    /* SP */
+    u64 ipc_routine_stack;
+    /* Entry point of shadow thread exit routine */
+    u64 ipc_exit_routine_entry;
 
-	/*
-	 * Record which connection uses this handler thread now.
-	 * Multiple connection can use the same handler_thread.
-	 */
-	struct ipc_connection *active_conn;
+    /*
+     * Record which connection uses this handler thread now.
+     * Multiple connection can use the same handler_thread.
+     */
+    struct ipc_connection *active_conn;
 };
 
 /*
- * An ipc_server_register_cb_thread has such config which stores its information.
- * This thread is used for handling IPC registration.
+ * An ipc_server_register_cb_thread has such config which stores its
+ * information. This thread is used for handling IPC registration.
  */
 struct ipc_server_register_cb_config {
-	u64 config_type;
-	struct lock register_lock;
-	/* PC */
-	u64 register_cb_entry;
-	/* SP */
-	u64 register_cb_stack;
+    u64 config_type;
+    struct lock register_lock;
+    /* PC */
+    u64 register_cb_entry;
+    /* SP */
+    u64 register_cb_stack;
 
-	/* The caps for the connection currently building */
-	int conn_cap_in_client;
-	/* Not used now (can be exposed to server in future) */
-	int conn_cap_in_server;
-	int shm_cap_in_server;
+    /* The caps for the connection currently building */
+    int conn_cap_in_client;
+    /* Not used now (can be exposed to server in future) */
+    int conn_cap_in_server;
+    int shm_cap_in_server;
 };
 
 /*
@@ -61,12 +57,12 @@ struct ipc_server_register_cb_config {
  * with such ipc_server_thread.
  */
 struct ipc_server_config {
-	u64 config_type;
-	/* Callback_thread for handling client registration */
-	struct thread *register_cb_thread;
+    u64 config_type;
+    /* Callback_thread for handling client registration */
+    struct thread *register_cb_thread;
 
-	/* Record the argument from the server thread */
-	u64 declared_ipc_routine_entry;
+    /* Record the argument from the server thread */
+    u64 declared_ipc_routine_entry;
 };
 
 /*
@@ -75,76 +71,75 @@ struct ipc_server_config {
  * But, client and server can map the PMO_SHM at different addresses.
  */
 struct shm_for_ipc_connection {
-	/*
-	 * The starting address of the shm in the client process's vmspace.
-	 * uaddr: user-level virtual address.
-	 */
-	u64 client_shm_uaddr;
+    /*
+     * The starting address of the shm in the client process's vmspace.
+     * uaddr: user-level virtual address.
+     */
+    u64 client_shm_uaddr;
 
-	/* The starting address of the shm in the server process's vmspace. */
-	u64 server_shm_uaddr;
-	u64 shm_size;
+    /* The starting address of the shm in the server process's vmspace. */
+    u64 server_shm_uaddr;
+    u64 shm_size;
 
-	/* For resource recycle */
-	int shm_cap_in_client;
-	int shm_cap_in_server;
+    /* For resource recycle */
+    int shm_cap_in_client;
+    int shm_cap_in_server;
 };
 
 struct ipc_connection {
-	/*
-	 * current client who uses this connection.
-	 * Note that all threads in the client process can use this connection.
-	 */
-	struct thread *current_client_thread;
+    /*
+     * current client who uses this connection.
+     * Note that all threads in the client process can use this connection.
+     */
+    struct thread *current_client_thread;
 
-	/*
-	 * server_handler_thread is always fixed after establishing the
-	 * connection.
-	 * i.e., ipc_server_handler_thread
-	 */
-	struct thread *server_handler_thread;
+    /*
+     * server_handler_thread is always fixed after establishing the
+     * connection.
+     * i.e., ipc_server_handler_thread
+     */
+    struct thread *server_handler_thread;
 
-	/*
-	 * Identification of the client (cap_group).
-	 * This badge is always fixed with the ipc_connection and
-	 * will be transferred to the server during each IPC.
-	 * Thus, the server can identify different client processes.
-	 *
-	 * NOTE: an connection cannot be shared between multiple clients
-	 * TODO: disable cap_copy on TYPE_CONNECTION.
-	 */
-	u64 client_badge;
+    /*
+     * Identification of the client (cap_group).
+     * This badge is always fixed with the ipc_connection and
+     * will be transferred to the server during each IPC.
+     * Thus, the server can identify different client processes.
+     *
+     * NOTE: an connection cannot be shared between multiple clients
+     * TODO: disable cap_copy on TYPE_CONNECTION.
+     */
+    u64 client_badge;
 
-	/* XXX: for temporary use of return cap from server to client */
-	struct ipc_msg *user_ipc_msg;
+    /* XXX: for temporary use of return cap from server to client */
+    struct ipc_msg *user_ipc_msg;
 
-	struct shm_for_ipc_connection shm;
+    struct shm_for_ipc_connection shm;
 
-	/* For resource recycle */
-	struct lock ownership;
+    /* For resource recycle */
+    struct lock ownership;
 #ifdef CKPT_CONNECTION_LAZY_COPY
-	struct lock copylock;
+    struct lock copylock;
 #endif
 
-	int conn_cap_in_client;
-	int conn_cap_in_server;
-	int is_valid;
+    int conn_cap_in_client;
+    int conn_cap_in_server;
+    int is_valid;
 };
 
 #define INVALID (0)
-#define VALID (1)
+#define VALID   (1)
 
 /*
  * TODO: use uapi for shared data structure declaration
  * between kernel and user space.
  */
 struct ipc_msg {
-	u64 data_len;
-	u64 cap_slot_number;
-	u64 data_offset;
-	u64 cap_slots_offset;
+    u64 data_len;
+    u64 cap_slot_number;
+    u64 data_offset;
+    u64 cap_slots_offset;
 };
-
 
 /* IPC related system calls */
 u64 sys_register_server(u64 ipc_rountine, u64 register_cb_cap);

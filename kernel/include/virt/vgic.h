@@ -6,18 +6,18 @@
 #define VGIC_MAX_IRQS   1024
 
 struct vgic_cpu_ctrl {
-	u32 hcr;
-	u32 vmcr;
-	u32 misr; /* Saved only */
-	u64 eisr; /* Saved only */
-	u64 elrsr; /* Saved only */
-	u32 apr;
-	u32 lr[VGIC_V2_MAX_LRS];
+    u32 hcr;
+    u32 vmcr;
+    u32 misr; /* Saved only */
+    u64 eisr; /* Saved only */
+    u64 elrsr; /* Saved only */
+    u32 apr;
+    u32 lr[VGIC_V2_MAX_LRS];
 };
 
 struct vgic_cpu {
-	u32 nr_lr;
-	struct vgic_cpu_ctrl ctrl_regs;
+    u32 nr_lr;
+    struct vgic_cpu_ctrl ctrl_regs;
 };
 
 struct virt_vm;

@@ -53,118 +53,111 @@ static struct madt_info_t madt_info = {
 
 void parse_madt(struct acpi_table_madt *madt)
 {
-        u8 src;
-        u32 madt_len, mapped;
-        struct acpi_subtable_header *entry;
+    u8 src;
+    u32 madt_len, mapped;
+    struct acpi_subtable_header *entry;
 
-        BUG_ON(!madt);
+    BUG_ON(!madt);
 
-        madt_info.local_apic_addr = (void *)(u64)madt->address;
-        entry = (struct acpi_subtable_header *)GET_TABLE_ENTRY(madt);
-        madt_len = madt->header.length;
-        kdebug("[MADT INFO] local_apic_addr=%lx, entry=%lx, madt=%lx, madt_len=%d\n",
-               (u64)madt_info.local_apic_addr,
-               (u64)((char *)entry),
-               (u64)((char *)madt),
-               madt_len);
+    madt_info.local_apic_addr = (void *)(u64)madt->address;
+    entry = (struct acpi_subtable_header *)GET_TABLE_ENTRY(madt);
+    madt_len = madt->header.length;
+    kdebug("[MADT INFO] local_apic_addr=%lx, entry=%lx, madt=%lx, madt_len=%d\n",
+           (u64)madt_info.local_apic_addr,
+           (u64)((char *)entry),
+           (u64)((char *)madt),
+           madt_len);
 #ifdef USE_SINGLE_NUMA_NODE
-        int real_core_cnt = 0; /* Only use cores on the same NUMA */
+    int real_core_cnt = 0; /* Only use cores on the same NUMA */
 #endif
-        while ((char *)entry + entry->length <= (char *)madt + madt_len) {
-                kdebug("[MADT INFO] entry->type=%d, entry->length=%d\n",
-                       entry->type,
-                       entry->length);
-                if (entry->length == 0)
-                        break;
+    while ((char *)entry + entry->length <= (char *)madt + madt_len) {
+        kdebug("[MADT INFO] entry->type=%d, entry->length=%d\n",
+               entry->type,
+               entry->length);
+        if (entry->length == 0)
+            break;
 
-                switch (entry->type) {
-                case ACPI_MADT_TYPE_LOCAL_APIC: {
-                        struct acpi_madt_local_apic *local_apic =
-                                (struct acpi_madt_local_apic *)entry;
-                        if (local_apic->id == 0xFF)
-                                break;
-                        kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
-                              local_apic->processor_id,
-                              local_apic->id,
-                              local_apic->lapic_flags);
+        switch (entry->type) {
+        case ACPI_MADT_TYPE_LOCAL_APIC: {
+            struct acpi_madt_local_apic *local_apic =
+                    (struct acpi_madt_local_apic *)entry;
+            if (local_apic->id == 0xFF)
+                break;
+            kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
+                   local_apic->processor_id,
+                   local_apic->id,
+                   local_apic->lapic_flags);
 #ifdef USE_SINGLE_NUMA_NODE
-                        if (real_core_cnt % 2 == 0) {
+            if (real_core_cnt % 2 == 0) {
 #endif
-                                madt_info.processor_ids
-                                        [madt_info.processor_count] =
-                                        local_apic->processor_id;
-                                madt_info.local_apic_ids
-                                        [madt_info.processor_count] =
-                                        local_apic->id;
-                                madt_info.processor_count++;
+                madt_info.processor_ids[madt_info.processor_count] =
+                        local_apic->processor_id;
+                madt_info.local_apic_ids[madt_info.processor_count] =
+                        local_apic->id;
+                madt_info.processor_count++;
 #ifdef USE_SINUSE_SINGLE_NUMA_NODE
-                        }
-                        real_core_cnt++;
+            }
+            real_core_cnt++;
 #endif
-                        break;
-                }
-
-                case ACPI_MADT_TYPE_LOCAL_X2APIC: {
-                        struct acpi_madt_local_x2apic *local_x2apic =
-                                (struct acpi_madt_local_x2apic *)entry;
-
-                        if (local_x2apic->local_apic_id == 0xFF)
-                                break;
-
-                        kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
-                               local_x2apic->uid,
-                               local_x2apic->local_apic_id,
-                               local_x2apic->lapic_flags);
-#ifdef USE_SINGLE_NUMA_NODE
-                        if (real_core_cnt % 2 == 0) {
-#endif
-                                madt_info.processor_ids
-                                        [madt_info.processor_count] =
-                                        local_x2apic->uid;
-                                madt_info.local_apic_ids
-                                        [madt_info.processor_count] =
-                                        local_x2apic->local_apic_id;
-                                madt_info.processor_count++;
-#ifdef USE_SINGLE_NUMA_NODE
-                        }
-                        real_core_cnt++;
-#endif
-                        break;
-                }
-
-                case ACPI_MADT_TYPE_IO_APIC: {
-                        struct acpi_madt_io_apic *io_apic =
-                                (struct acpi_madt_io_apic *)entry;
-                        madt_info.io_apic_addrs[madt_info.io_apic_count] =
-                                io_apic->address;
-                        madt_info.io_apic_ids[madt_info.io_apic_count] =
-                                io_apic->id;
-                        madt_info.io_apic_gsi_base[madt_info.io_apic_count] =
-                                io_apic->global_irq_base;
-                        madt_info.io_apic_count++;
-                        break;
-                }
-
-                case ACPI_MADT_TYPE_INTERRUPT_OVERRIDE: {
-                        struct acpi_madt_interrupt_override *source_override =
-                                (struct acpi_madt_interrupt_override *)entry;
-                        src = source_override->source_irq;
-                        mapped = source_override->global_irq;
-                        if (src != mapped)
-                                madt_info.irq_override[src] = mapped;
-                        break;
-                }
-
-                default:
-                        break;
-                }
-                entry = (struct acpi_subtable_header *)((char *)entry
-                                                        + entry->length);
+            break;
         }
+
+        case ACPI_MADT_TYPE_LOCAL_X2APIC: {
+            struct acpi_madt_local_x2apic *local_x2apic =
+                    (struct acpi_madt_local_x2apic *)entry;
+
+            if (local_x2apic->local_apic_id == 0xFF)
+                break;
+
+            kdebug("[MADT INFO] [Local APIC] ProcessorID [%u], APIC ID[%u], flags[%u]\n",
+                   local_x2apic->uid,
+                   local_x2apic->local_apic_id,
+                   local_x2apic->lapic_flags);
+#ifdef USE_SINGLE_NUMA_NODE
+            if (real_core_cnt % 2 == 0) {
+#endif
+                madt_info.processor_ids[madt_info.processor_count] =
+                        local_x2apic->uid;
+                madt_info.local_apic_ids[madt_info.processor_count] =
+                        local_x2apic->local_apic_id;
+                madt_info.processor_count++;
+#ifdef USE_SINGLE_NUMA_NODE
+            }
+            real_core_cnt++;
+#endif
+            break;
+        }
+
+        case ACPI_MADT_TYPE_IO_APIC: {
+            struct acpi_madt_io_apic *io_apic =
+                    (struct acpi_madt_io_apic *)entry;
+            madt_info.io_apic_addrs[madt_info.io_apic_count] = io_apic->address;
+            madt_info.io_apic_ids[madt_info.io_apic_count] = io_apic->id;
+            madt_info.io_apic_gsi_base[madt_info.io_apic_count] =
+                    io_apic->global_irq_base;
+            madt_info.io_apic_count++;
+            break;
+        }
+
+        case ACPI_MADT_TYPE_INTERRUPT_OVERRIDE: {
+            struct acpi_madt_interrupt_override *source_override =
+                    (struct acpi_madt_interrupt_override *)entry;
+            src = source_override->source_irq;
+            mapped = source_override->global_irq;
+            if (src != mapped)
+                madt_info.irq_override[src] = mapped;
+            break;
+        }
+
+        default:
+            break;
+        }
+        entry = (struct acpi_subtable_header *)((char *)entry + entry->length);
+    }
 }
 
 u8 get_cpu_apic_id(u8 cpu_id)
 {
-        BUG_ON(cpu_id < 0 || cpu_id >= madt_info.processor_count);
-        return madt_info.local_apic_ids[cpu_id];
+    BUG_ON(cpu_id < 0 || cpu_id >= madt_info.processor_count);
+    return madt_info.local_apic_ids[cpu_id];
 }

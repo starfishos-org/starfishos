@@ -12,41 +12,41 @@ typedef void (*timer_cb)(struct thread *thread);
 
 /* Every thread has a sleep_state struct */
 struct sleep_state {
-	/* Link sleeping threads on each core */
-	struct list_head sleep_node;
-	/* Time to wake up */
-	u64 wakeup_tick;
-	/* The cpu id where the thread is sleeping */
-	u64 sleep_cpu;
-	/*
-	 * When the timeout is caused during notification wait (with timeout),
-	 * The following field indicates which notification it is waiting for.
-	 * Currently, we record this field for removing the timeout thread from
-	 * the waiting queue of the corresponding notification.
-	 */
-	struct notification *pending_notific;
-	/*
-	 * Currently 2 type of callbacks: notification and sleep.
-	 * If it is NULL, the thread is not waiting for timeout.
-	 */
-	timer_cb cb;
+    /* Link sleeping threads on each core */
+    struct list_head sleep_node;
+    /* Time to wake up */
+    u64 wakeup_tick;
+    /* The cpu id where the thread is sleeping */
+    u64 sleep_cpu;
+    /*
+     * When the timeout is caused during notification wait (with timeout),
+     * The following field indicates which notification it is waiting for.
+     * Currently, we record this field for removing the timeout thread from
+     * the waiting queue of the corresponding notification.
+     */
+    struct notification *pending_notific;
+    /*
+     * Currently 2 type of callbacks: notification and sleep.
+     * If it is NULL, the thread is not waiting for timeout.
+     */
+    timer_cb cb;
 
-	/*
-	 * Get this lock before inserting or removing the thread in or from
-	 * a waiting list, i.e., sleep_list and wait_list of a notification.
-	 */
-	struct lock queue_lock;
+    /*
+     * Get this lock before inserting or removing the thread in or from
+     * a waiting list, i.e., sleep_list and wait_list of a notification.
+     */
+    struct lock queue_lock;
 };
 
-#define NS_IN_S		(1000000000UL)
-#define US_IN_S		(1000000UL)
-#define NS_IN_US	(1000UL)
+#define NS_IN_S  (1000000000UL)
+#define US_IN_S  (1000000UL)
+#define NS_IN_US (1000UL)
 
 extern struct list_head sleep_lists[PLAT_CPU_NUM];
 extern u64 tick_per_us;
 void sleep_state_enqueue(struct sleep_state *sleep_state); // TODO(FN): rename?
 int enqueue_sleeper(struct thread *thread, const struct timespec *timeout,
-		    timer_cb cb);
+                    timer_cb cb);
 bool try_dequeue_sleeper(struct thread *thread);
 
 void timer_init(void);

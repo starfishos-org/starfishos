@@ -5,11 +5,11 @@
 /* Simple/Compact ticket/rwlock impl */
 
 struct lock {
-	volatile u64 slock;
+    volatile u64 slock;
 };
 
 struct rwlock {
-	volatile u32 lock;
+    volatile u32 lock;
 };
 
 int lock_init(struct lock *lock);

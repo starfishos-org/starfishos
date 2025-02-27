@@ -8,22 +8,22 @@ typedef u64 timestamp_t;
 
 #define KVS_SIZE (503)
 
-/* 
-* store ckpt_ws_info in list, sorted by ts
-* use ckpt_id as key to map to ckpt_data
-*/
+/*
+ * store ckpt_ws_info in list, sorted by ts
+ * use ckpt_id as key to map to ckpt_data
+ */
 struct ckpt_ws_info {
-	struct list_head node;
-	struct list_head kvs_val_node;
-	struct ckpt_ws_data *ckpt_data; // ckpt_ws_data ptr
-	timestamp_t ts;
-	u64 name_len;
-	char name[MAX_CKPT_NAME_LEN];
+    struct list_head node;
+    struct list_head kvs_val_node;
+    struct ckpt_ws_data *ckpt_data; // ckpt_ws_data ptr
+    timestamp_t ts;
+    u64 name_len;
+    char name[MAX_CKPT_NAME_LEN];
 };
 
 typedef struct ckpt_ws_info_list {
-	struct list_head list;
-	struct ckpt_ws_info *ckpt_info;
+    struct list_head list;
+    struct ckpt_ws_info *ckpt_info;
 } ckpt_ws_info_list_t;
 
 /* init */

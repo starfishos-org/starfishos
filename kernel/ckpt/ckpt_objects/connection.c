@@ -3,12 +3,13 @@
 
 #ifdef REPORT
 extern u64 eval_obj_time[];
-#endif	
+#endif
 
-int connection_ckpt(struct ipc_connection *conn,struct ckpt_ipc_connection *ckpt_conn, int alloc)
+int connection_ckpt(struct ipc_connection *conn,
+                    struct ckpt_ipc_connection *ckpt_conn, int alloc)
 {
-    struct object *old_client_obj,*old_server_obj;
-    struct ckpt_obj_root *new_client_obj_root,*new_server_obj_root;
+    struct object *old_client_obj, *old_server_obj;
+    struct ckpt_obj_root *new_client_obj_root, *new_server_obj_root;
     int r;
     // BUG_ON(!(conn->server_handler_thread));
     if (conn->current_client_thread) {
@@ -26,9 +27,10 @@ int connection_ckpt(struct ipc_connection *conn,struct ckpt_ipc_connection *ckpt
     }
 
     if (conn->server_handler_thread) {
-        old_server_obj = container_of(conn->server_handler_thread,struct object,opaque);
-        new_server_obj_root = ckpt_obj_root_get(old_server_obj,alloc);
-        if(!new_server_obj_root) {
+        old_server_obj = container_of(
+                conn->server_handler_thread, struct object, opaque);
+        new_server_obj_root = ckpt_obj_root_get(old_server_obj, alloc);
+        if (!new_server_obj_root) {
             BUG_ON(1);
             r = -ENOMEM;
             goto out_fail;
@@ -50,12 +52,14 @@ out_fail:
     return r;
 }
 
-int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map)
-{   
+int connection_restore(struct object *conn_obj,
+                       struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map)
+{
     int r;
     struct ipc_connection *conn = (struct ipc_connection *)conn_obj->opaque;
-    struct ckpt_ipc_connection *ckpt_conn = (struct ckpt_ipc_connection *)ckpt_conn_obj->opaque;
-    struct object *new_client_obj,*new_server_obj;
+    struct ckpt_ipc_connection *ckpt_conn =
+            (struct ckpt_ipc_connection *)ckpt_conn_obj->opaque;
+    struct object *new_client_obj, *new_server_obj;
 
     if (ckpt_conn->current_client_thread_root) {
         new_client_obj = restore_obj_get(ckpt_conn->current_client_thread_root);
@@ -63,7 +67,7 @@ int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_ob
             r = -ENOMEM;
             goto out_fail;
         }
-        conn->current_client_thread = (struct thread*)new_client_obj->opaque;
+        conn->current_client_thread = (struct thread *)new_client_obj->opaque;
     } else {
         conn->current_client_thread = NULL;
     }
@@ -75,7 +79,7 @@ int connection_restore(struct object *conn_obj, struct ckpt_object *ckpt_conn_ob
             goto out_fail;
         }
 
-        conn->server_handler_thread = (struct thread*)new_server_obj->opaque;
+        conn->server_handler_thread = (struct thread *)new_server_obj->opaque;
     } else {
         conn->server_handler_thread = NULL;
     }

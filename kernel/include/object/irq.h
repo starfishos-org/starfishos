@@ -4,16 +4,16 @@
 #include <object/object.h>
 
 struct irq_notification {
-	/* MOK: notifc should be the first field */
-	struct notification notifc;
-	u32 intr_vector;
-	u32 status;
+    /* MOK: notifc should be the first field */
+    struct notification notifc;
+    u32 intr_vector;
+    u32 status;
 
-	/*
-	 * Debugging field: Using this field to avoid re-entry of
-	 * a user-level interrupt handler thread.
-	 */
-	volatile u32 user_handler_ready;
+    /*
+     * Debugging field: Using this field to avoid re-entry of
+     * a user-level interrupt handler thread.
+     */
+    volatile u32 user_handler_ready;
 };
 
 int user_handle_irq(int irq);

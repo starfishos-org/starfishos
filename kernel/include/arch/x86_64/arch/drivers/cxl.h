@@ -75,8 +75,8 @@
 #define CXL_DECODER_F_MASK   GENMASK(5, 0)
 
 enum cxl_decoder_type {
-        CXL_DECODER_DEVMEM = 2,
-        CXL_DECODER_HOSTONLYMEM = 3,
+    CXL_DECODER_DEVMEM = 2,
+    CXL_DECODER_HOSTONLYMEM = 3,
 };
 
 /* RAS Registers CXL 2.0 8.2.5.9 CXL RAS Capability Structure */
@@ -118,9 +118,9 @@ enum cxl_decoder_type {
 #define CXLDEV_EVENT_STATUS_FAIL       BIT(2)
 #define CXLDEV_EVENT_STATUS_FATAL      BIT(3)
 
-#define CXLDEV_EVENT_STATUS_ALL                              \
-        (CXLDEV_EVENT_STATUS_INFO | CXLDEV_EVENT_STATUS_WARN \
-         | CXLDEV_EVENT_STATUS_FAIL | CXLDEV_EVENT_STATUS_FATAL)
+#define CXLDEV_EVENT_STATUS_ALL                          \
+    (CXLDEV_EVENT_STATUS_INFO | CXLDEV_EVENT_STATUS_WARN \
+     | CXLDEV_EVENT_STATUS_FAIL | CXLDEV_EVENT_STATUS_FATAL)
 
 /* CXL rev 3.0 section 8.2.9.2.4; Table 8-52 */
 #define CXLDEV_EVENT_INT_MODE_MASK   GENMASK(1, 0)

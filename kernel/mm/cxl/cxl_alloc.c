@@ -21,74 +21,73 @@ extern struct phys_mem_pool *global_cxl_mem[];
 void *get_cxl_pages(int order)
 {
 #if TRACK_THREAD_MM == ON
-        if (current_thread)
-                current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
+    if (current_thread)
+        current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
 #endif
-        struct page *page = NULL;
-        int i;
+    struct page *page = NULL;
+    int i;
 
-        /* Try to get continous physical memory pages from one physmem pool. */
-        for (i = 0; i < physmem_map_num; ++i) {
-                page = buddy_get_pages(global_cxl_mem[i], order);
-                if (page)
-                        break;
-        }
+    /* Try to get continous physical memory pages from one physmem pool. */
+    for (i = 0; i < physmem_map_num; ++i) {
+        page = buddy_get_pages(global_cxl_mem[i], order);
+        if (page)
+            break;
+    }
 
-        if (unlikely(!page)) {
-                kwarn("[OOM] Cannot get page from any memory pool!\n");
-                return NULL;
-        }
+    if (unlikely(!page)) {
+        kwarn("[OOM] Cannot get page from any memory pool!\n");
+        return NULL;
+    }
 
-        /* Init page reference count */
-        page->ref_cnt = 1;
+    /* Init page reference count */
+    page->ref_cnt = 1;
 
-        return page_to_virt(page);
+    return page_to_virt(page);
 }
 
 void free_cxl_pages(void *addr)
 {
-        struct page *page;
+    struct page *page;
 
-        page = virt_to_page(addr);
-        buddy_free_pages(page->pool, page);
+    page = virt_to_page(addr);
+    buddy_free_pages(page->pool, page);
 }
 
 /* Currently, BUG_ON no available memory. */
 void *cxl_kmalloc(size_t size)
 {
-        void *addr;
-        int order;
+    void *addr;
+    int order;
 
-        // kinfo("before cxl malloc: size: %ld\n", size);
+    // kinfo("before cxl malloc: size: %ld\n", size);
 
-        if (unlikely(size == 0))
-                return ZERO_SIZE_PTR;
+    if (unlikely(size == 0))
+        return ZERO_SIZE_PTR;
 
-        if (size <= SLAB_MAX_SIZE) {
+    if (size <= SLAB_MAX_SIZE) {
 #if TRACK_THREAD_MM == ON
-                if (current_thread)
-                        current_thread->mm_size +=
-                                (1 << size_to_slab_order(size));
+        if (current_thread)
+            current_thread->mm_size += (1 << size_to_slab_order(size));
 #endif
-                addr = alloc_in_cxl_slab(size);
-        } else {
-                if (size <= BUDDY_PAGE_SIZE)
-                        order = 0;
-                else
-                        order = size_to_page_order(size);
-                addr = get_cxl_pages(order);
-        }
+        addr = alloc_in_cxl_slab(size);
+    } else {
+        if (size <= BUDDY_PAGE_SIZE)
+            order = 0;
+        else
+            order = size_to_page_order(size);
+        addr = get_cxl_pages(order);
+    }
 
-        BUG_ON(!addr);
-        // kinfo("cxl malloc: %p, size: %ld\n", addr, size);
-        return addr;
+    BUG_ON(!addr);
+    // kinfo("cxl malloc: %p, size: %ld\n", addr, size);
+    return addr;
 }
 
 void *cxl_kzalloc(size_t size)
 {
-        void *addr;
+    void *addr;
 
-        addr = cxl_kmalloc(size);
-        memset(addr, 0, size);
-        return addr;
+    addr = cxl_kmalloc(size);
+    memset(addr, 0, size);
+    return addr;
 }

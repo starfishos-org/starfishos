@@ -45,7 +45,7 @@ u64 kvs_put_time = 0;
 u64 ckpt_alloc_time = 0;
 u64 vmr_ckpt_time = 0;
 int lazy_obj_count[TYPE_NR];
-u64 track_access_time, track_access_count,track_access_malloc_time;
+u64 track_access_time, track_access_count, track_access_malloc_time;
 u64 migrate_pages_time[PLAT_CPU_NUM];
 u64 eval_obj_time[TYPE_NR];
 u64 get_second_latest_obj_time;
@@ -67,7 +67,7 @@ u64 pf_count;
 u64 pf_tot_time;
 #endif
 
-extern int recycle_create_ckpt(struct ckpt_recycle_data* recycle_data);
+extern int recycle_create_ckpt(struct ckpt_recycle_data *recycle_data);
 
 #ifdef PARALLEL_LOOP
 extern bool check_and_adjust;
@@ -101,7 +101,8 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
     DECLTMR2;
     /* check and adjust hotness setting every 1000 ckpt */
     check_and_adjust = (((CKPT_VERSION_NUMBER) & (CHECK_FREQ - 1)) == 0);
-    if (unlikely(check_and_adjust)) start2();
+    if (unlikely(check_and_adjust))
+        start2();
 #endif
     /* init ckpt */
     if (unlikely(!CKPT_INITIALIZED))
@@ -109,8 +110,10 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
     /* stop all cpus by sending ipis to all remote cpus */
     sys_ipi_stop_all();
 #ifdef REPORT_RUNTIME
-    printk("[ckpt=%llu] pf_count=%llu, pf_avg_time=%llu\n", 
-        CKPT_VERSION_NUMBER, pf_count, pf_count?pf_tot_time/pf_count:0);
+    printk("[ckpt=%llu] pf_count=%llu, pf_avg_time=%llu\n",
+           CKPT_VERSION_NUMBER,
+           pf_count,
+           pf_count ? pf_tot_time / pf_count : 0);
     pf_count = 0;
     pf_tot_time = 0;
 #endif
@@ -124,7 +127,7 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
     prepare_process_active_list();
 #endif
     data = get_ckpt_ws_data();
-    if(!data) {
+    if (!data) {
         r = -ENOMEM;
         goto out_fail;
     }
@@ -133,8 +136,10 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
     /* flip the flip-flag */
     system_current_flip_flag ^= 1;
 
-    current_thread->thread_ctx->tls_base_reg[TLS_FS] = __builtin_ia32_rdfsbase64();
-    root_cap_group_obj_root = ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
+    current_thread->thread_ctx->tls_base_reg[TLS_FS] =
+            __builtin_ia32_rdfsbase64();
+    root_cap_group_obj_root =
+            ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
     kdebug("whole ckpt obj %d\n", root_cap_group_obj_root->obj->type);
     ckpt_obj = ckpt_obj_get(root_cap_group_obj_root, true);
     BUG_ON(!ckpt_obj);
@@ -144,21 +149,21 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len)
     fmap_fault_pool_create_ckpt(&data->ckpt_fmap_fault_pool_list);
 #ifdef HYBRID_MEM
 #ifdef DYN_ADJUST
-	if (unlikely(check_and_adjust))
+    if (unlikely(check_and_adjust))
         ckpt_max_time = stop2();
 #endif
     finish_process_active_list();
 #endif
     r = ckpt_ws_put(data, (char *)ckpt_name, name_len);
     if (!r) {
-	    goto out_fail;
+        goto out_fail;
     }
     /* TODO(MOK): remove the following two lines*/
     second_latest_ws_data = latest_ws_data;
     latest_ws_data = data;
 
     smp_mb();
-        
+
     sys_ipi_start_all();
 
     flush_tlb_all();
@@ -176,15 +181,17 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     struct ckpt_ws_data *data;
     struct ckpt_obj_root *root_cap_group_obj_root;
     int r;
-#if defined (WS_PERF) || defined(REPORT)
+#if defined(WS_PERF) || defined(REPORT)
     memset(eval_obj_count, 0, sizeof eval_obj_count);
-    DECLTMR;start();
+    DECLTMR;
+    start();
 #endif
 #ifdef DYN_ADJUST
     DECLTMR2;
     /* check and adjust hotness setting every 1000 ckpt */
     check_and_adjust = (((CKPT_VERSION_NUMBER) & (CHECK_FREQ - 1)) == 0);
-    if (unlikely(check_and_adjust)) start2();
+    if (unlikely(check_and_adjust))
+        start2();
 #endif
     /* init ckpt */
     if (unlikely(!CKPT_INITIALIZED))
@@ -199,7 +206,7 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     prepare_process_active_list();
 #endif
     data = get_ckpt_ws_data();
-    if(!data) {
+    if (!data) {
         r = -ENOMEM;
         goto out_fail;
     }
@@ -223,8 +230,10 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     set_write_in_pgtbl_time = 0;
     ckpt_vmr_array_reuse_count = 0;
 #endif
-    current_thread->thread_ctx->tls_base_reg[TLS_FS] = __builtin_ia32_rdfsbase64();
-    root_cap_group_obj_root = ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
+    current_thread->thread_ctx->tls_base_reg[TLS_FS] =
+            __builtin_ia32_rdfsbase64();
+    root_cap_group_obj_root =
+            ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
     BUG_ON(!ckpt_obj_get(root_cap_group_obj_root, true));
     data->ckpt_root_obj_root = root_cap_group_obj_root;
 #if defined(REPORT)
@@ -233,28 +242,31 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
 
     recycle_create_ckpt(&data->recycle_data);
 #ifdef REPORT
-    u64 recycle_time = plat_get_mono_time() - timer_start - ipi_time -object_time;
+    u64 recycle_time =
+            plat_get_mono_time() - timer_start - ipi_time - object_time;
 #endif
 
     init_list_head(&data->ckpt_fmap_fault_pool_list);
     fmap_fault_pool_create_ckpt(&data->ckpt_fmap_fault_pool_list);
 #ifdef REPORT
-    u64 fmap_time = plat_get_mono_time() - timer_start - recycle_time - ipi_time -object_time; 
+    u64 fmap_time = plat_get_mono_time() - timer_start - recycle_time - ipi_time
+                    - object_time;
 #endif
 
 #ifdef HYBRID_MEM
 #ifdef DYN_ADJUST
-	if (unlikely(check_and_adjust))
+    if (unlikely(check_and_adjust))
         ckpt_max_time = stop2();
 #endif
     finish_process_active_list();
 #endif
 #ifdef REPORT
-    u64 wait_migrate_finish = plat_get_mono_time() - timer_start - recycle_time - ipi_time - object_time - fmap_time; 
+    u64 wait_migrate_finish = plat_get_mono_time() - timer_start - recycle_time
+                              - ipi_time - object_time - fmap_time;
 #endif
     r = ckpt_ws_put(data, (char *)ckpt_name, name_len);
     if (!r) {
-	    goto out_fail;
+        goto out_fail;
     }
 
     /* TODO(MOK): remove the following two lines*/
@@ -264,8 +276,9 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
 #ifdef REPORT
     u64 ckpt_cost_time = stop();
     int i;
-    if(loop_time % 1 == 0) {       
-        DECLTMR;start();
+    if (loop_time % 1 == 0) {
+        DECLTMR;
+        start();
         printk("\n==================LOG%d==================\n", loop_time);
         printk("ckpt cost time: %lu\n", ckpt_cost_time);
         printk("ckpt start: %lu\n", timer_start);
@@ -273,32 +286,40 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
         case FREE_MEM_LEVEL:
             printk("================MEM LEVEL=================\n");
             // printk("before ckpt free mem size: %lu\n", bef_ckpt_free_mem);
-            // printk("after ckpt free mem size: %lu\n", get_free_mem_size());  
+            // printk("after ckpt free mem size: %lu\n", get_free_mem_size());
         case DETAIL_LEVEL:
 #ifdef DETAIL_REPORT
             printk("================DETAIL LEVEL=================\n");
             // printk("----memcpy time: %lu\n", memcpy_time);
-            // printk("----f: %lu, r: %lu, pp: %lu\n",free_time, radix_time, page_pair_time);
-            // printk("----patch num1: %lu, num2:%lu\n",patch_num1, patch_num2);
+            // printk("----f: %lu, r: %lu, pp: %lu\n",free_time, radix_time,
+            // page_pair_time); printk("----patch num1: %lu,
+            // num2:%lu\n",patch_num1, patch_num2);
             printk("----init_ckpt_vm_time: %lu\n", init_ckpt_vm_time);
             printk("----vmr: %lu\n", vmr_ckpt_time);
             printk("----vmr array reuse: %lu\n", ckpt_vmr_array_reuse_count);
             printk("----pte pool time: %lu\n", pool1_time);
-            printk("--------track access time: %lu, %lu, %lu\n", track_access_count, track_access_malloc_time, track_access_time);
-            printk("----kvs get time: %lu\n",kvs_get_time);
-            printk("----kvs put time: %lu\n",kvs_put_time);
+            printk("--------track access time: %lu, %lu, %lu\n",
+                   track_access_count,
+                   track_access_malloc_time,
+                   track_access_time);
+            printk("----kvs get time: %lu\n", kvs_get_time);
+            printk("----kvs put time: %lu\n", kvs_put_time);
 #endif
         case OBJ_LEVEL:
             printk("================OBJ LEVEL=================\n");
             int tcnt = 0;
             for (i = 0; i < TYPE_NR; i++) {
-                printk("object count %d: %d %d, time: %lu\n", i, eval_obj_count[i],lazy_obj_count[i], eval_obj_time[i]);
+                printk("object count %d: %d %d, time: %lu\n",
+                       i,
+                       eval_obj_count[i],
+                       lazy_obj_count[i],
+                       eval_obj_time[i]);
                 tcnt += eval_obj_count[i];
             }
             printk("tcnt: %d\n", tcnt);
         case PART_LEVEL:
             printk("================PART LEVEL================\n");
-            printk("ipi time: %lu\n",ipi_time);
+            printk("ipi time: %lu\n", ipi_time);
             printk("get second latest obj: %lu\n", get_second_latest_obj_time);
             printk("ckpt object time: %lu\n", object_time);
             printk("recycle cost time: %lu\n", recycle_time);
@@ -315,7 +336,9 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     loop_time++;
 #endif
 #ifdef REPORT_RUNTIME
-    printk("pf_count=%llu, pf_avg_time=%llu\n", pf_count, pf_count?pf_tot_time/pf_count:0);
+    printk("pf_count=%llu, pf_avg_time=%llu\n",
+           pf_count,
+           pf_count ? pf_tot_time / pf_count : 0);
     pf_count = 0;
     pf_tot_time = 0;
 #endif
@@ -323,11 +346,11 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     report_hybrid_mem_and_clear();
 #endif
 #ifdef REPORT
-    memset(lazy_obj_count, 0 ,sizeof lazy_obj_count);
+    memset(lazy_obj_count, 0, sizeof lazy_obj_count);
 #endif
 
 #ifdef WS_PERF
-    printk("\n<wsckpt> %ld %ld\n", , ckpt_cost_time - );
+    printk("\n<wsckpt> %ld %ld\n", , ckpt_cost_time -);
 #endif
 
 #ifdef REPORT
@@ -340,7 +363,7 @@ int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level)
     printk("\n<tcnt> %d\n", tcnt);
 #endif
     smp_mb();
-        
+
     /* continue all cpus by sending ipis to all remote cpus */
     sys_ipi_start_all();
 
@@ -358,16 +381,16 @@ u64 sys_track_pf_begin()
 {
     pf_record = kmalloc(sizeof(u64) * 20000000, __SHARED__);
     track_pf = true;
-    
+
     return 0;
 }
 
 u64 sys_track_pf_end()
 {
     // sys_ipi_stop_all();
-    printk("pf count: %u\n",pf_count);
+    printk("pf count: %u\n", pf_count);
     printk("===================\n");
-    for(int i = 0;i < pf_count; i++) {
+    for (int i = 0; i < pf_count; i++) {
         printk("%d: %lx, %lx\n", i, pf_record[i * 2], pf_record[i * 2 + 1]);
     }
     printk("===================\n");
@@ -375,7 +398,8 @@ u64 sys_track_pf_end()
     return 0;
 }
 
-int sys_ckpt_migrate(u64 ckpt_name) {
+int sys_ckpt_migrate(u64 ckpt_name)
+{
     char *name;
     struct ckpt_object *ckpt_obj;
     struct ckpt_obj_root *root_cap_group_obj_root;
@@ -389,14 +413,16 @@ int sys_ckpt_migrate(u64 ckpt_name) {
     sys_ipi_stop_all();
 
     data = get_ckpt_ws_data();
-        if(!data) {
+    if (!data) {
         r = -ENOMEM;
         goto out_fail;
     }
 
     system_current_flip_flag ^= 1;
-    current_thread->thread_ctx->tls_base_reg[TLS_FS] = __builtin_ia32_rdfsbase64();
-    root_cap_group_obj_root = ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
+    current_thread->thread_ctx->tls_base_reg[TLS_FS] =
+            __builtin_ia32_rdfsbase64();
+    root_cap_group_obj_root =
+            ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
     ckpt_obj = ckpt_obj_get(root_cap_group_obj_root, true);
     BUG_ON(!ckpt_obj);
     data->ckpt_root_obj_root = root_cap_group_obj_root;
@@ -405,21 +431,21 @@ int sys_ckpt_migrate(u64 ckpt_name) {
     fmap_fault_pool_create_ckpt(&data->ckpt_fmap_fault_pool_list);
 #ifdef HYBRID_MEM
 #ifdef DYN_ADJUST
-	if (unlikely(check_and_adjust))
+    if (unlikely(check_and_adjust))
         ckpt_max_time = stop2();
 #endif
     finish_process_active_list();
 #endif
     r = ckpt_ws_put(data, (char *)ckpt_name, strlen(name));
     if (!r) {
-	    goto out_fail;
+        goto out_fail;
     }
     /* TODO(MOK): remove the following two lines*/
     second_latest_ws_data = latest_ws_data;
     latest_ws_data = data;
 
     smp_mb();
-        
+
     sys_ipi_start_all();
 
     flush_tlb_all();
@@ -430,7 +456,8 @@ out_fail:
     return r;
 }
 
-int sys_ckpt_merge_migration() {
+int sys_ckpt_merge_migration()
+{
     struct ckpt_obj_root *root_cap_group_obj_root;
     struct cap_group *cap_group;
     struct ckpt_object *ckpt_obj;
@@ -445,7 +472,7 @@ int sys_ckpt_merge_migration() {
     UNUSED(ckpt_obj);
     UNUSED(target);
     UNUSED(ckpt_thread);
-    
+
     ckpt_obj = (struct ckpt_object *)dsm_dequeue();
     thread_obj = kmalloc(sizeof(struct object), __SHARED__);
     ckpt_thread = (struct ckpt_thread *)ckpt_obj->opaque;

@@ -75,4 +75,6 @@ static inline size_t strlen(const char *src)
 
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 
+int sscanf(const char *str, const char *format, ...);
+
 #endif

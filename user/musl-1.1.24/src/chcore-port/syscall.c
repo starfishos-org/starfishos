@@ -373,3 +373,7 @@ void usys_set_dyn_args(u64 hotness, u64 access_interval)
 {
     chcore_syscall2(CHCORE_SYS_set_dyn_args, hotness, access_interval);
 }
+
+int usys_pcie_control(u64 req_buf) {
+	return chcore_syscall1(CHCORE_SYS_pcie_control, req_buf);
+}

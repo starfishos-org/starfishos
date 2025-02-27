@@ -19,16 +19,16 @@ extern u64 init_ckpt_vm_time;
 static inline void vmr_ckpt(struct vmregion *target_vmr,
                             struct ckpt_vmregion *ckpt_vmr)
 {
-        struct object *old_obj;
-        struct ckpt_obj_root *obj_root;
-        old_obj = container_of(target_vmr->pmo, struct object, opaque);
-        obj_root = ckpt_obj_root_get(old_obj, true);
-        BUG_ON(!obj_root);
+    struct object *old_obj;
+    struct ckpt_obj_root *obj_root;
+    old_obj = container_of(target_vmr->pmo, struct object, opaque);
+    obj_root = ckpt_obj_root_get(old_obj, true);
+    BUG_ON(!obj_root);
 
-        ckpt_vmr->start = target_vmr->start;
-        ckpt_vmr->size = target_vmr->size;
-        ckpt_vmr->pmo_root = obj_root;
-        ckpt_vmr->perm = target_vmr->perm;
+    ckpt_vmr->start = target_vmr->start;
+    ckpt_vmr->size = target_vmr->size;
+    ckpt_vmr->pmo_root = obj_root;
+    ckpt_vmr->perm = target_vmr->perm;
 }
 
 #ifdef DETAIL_REPORT
@@ -42,217 +42,213 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
                  struct ckpt_vmspace *ckpt_vmspace)
 {
 #ifdef REPORT
-        u64 start0, start1, start2, start3;
-        start0 = plat_get_mono_time();
+    u64 start0, start1, start2, start3;
+    start0 = plat_get_mono_time();
 #endif
-        struct vmregion *target_vmr;
-        struct pte_patch_pool *pool, *next_pool;
-        struct ckpt_vmregion *ckpt_vmr_array = NULL;
+    struct vmregion *target_vmr;
+    struct pte_patch_pool *pool, *next_pool;
+    struct ckpt_vmregion *ckpt_vmr_array = NULL;
 
-        target_vmspace->flags |= VM_FLAG_PRESERVE;
+    target_vmspace->flags |= VM_FLAG_PRESERVE;
 
-        int vmr_count = 0;
-        for_each_in_list (target_vmr,
-                          struct vmregion,
-                          list_node,
-                          &(target_vmspace->vmr_list)) {
-                vmr_count++;
-        }
+    int vmr_count = 0;
+    for_each_in_list (target_vmr,
+                      struct vmregion,
+                      list_node,
+                      &(target_vmspace->vmr_list)) {
+        vmr_count++;
+    }
 
-        if (vmr_count == ckpt_vmspace->vmr_count) {
-                /* reuse ckpt vmregion array */
-                ckpt_vmr_array = ckpt_vmspace->ckpt_vmrs;
+    if (vmr_count == ckpt_vmspace->vmr_count) {
+        /* reuse ckpt vmregion array */
+        ckpt_vmr_array = ckpt_vmspace->ckpt_vmrs;
 #ifdef DETAIL_REPORT
-                ckpt_vmr_array_reuse_count++;
+        ckpt_vmr_array_reuse_count++;
 #endif
-        } else {
-                if (ckpt_vmspace->ckpt_vmrs)
-                        kfree(ckpt_vmspace->ckpt_vmrs);
-                ckpt_vmr_array =
-                        kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __DEFAULT__);
-        }
+    } else {
+        if (ckpt_vmspace->ckpt_vmrs)
+            kfree(ckpt_vmspace->ckpt_vmrs);
+        ckpt_vmr_array =
+                kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __DEFAULT__);
+    }
 
-        ckpt_vmspace->user_current_mmap_addr =
-                target_vmspace->user_current_mmap_addr;
-        ckpt_vmspace->pcid = target_vmspace->pcid;
-        ckpt_vmspace->vmr_count = vmr_count;
-        ckpt_vmspace->ckpt_vmrs = ckpt_vmr_array;
+    ckpt_vmspace->user_current_mmap_addr =
+            target_vmspace->user_current_mmap_addr;
+    ckpt_vmspace->pcid = target_vmspace->pcid;
+    ckpt_vmspace->vmr_count = vmr_count;
+    ckpt_vmspace->ckpt_vmrs = ckpt_vmr_array;
 
-        int idx = 0;
+    int idx = 0;
 #ifdef REPORT
-        start1 = plat_get_mono_time();
+    start1 = plat_get_mono_time();
 #endif
-        for_each_in_list (target_vmr,
-                          struct vmregion,
-                          list_node,
-                          &(target_vmspace->vmr_list)) {
+    for_each_in_list (target_vmr,
+                      struct vmregion,
+                      list_node,
+                      &(target_vmspace->vmr_list)) {
 #ifndef OMIT_PF
-                if ((target_vmr->perm & VMR_WRITE) != 0
-                    && !is_external_sync_pmo(target_vmr->pmo) /* do not persist
-                                                                 ext sync pmo
-                                                                 each ckpt */
-                    && !(target_vmspace->pte_patch_pool)) {
-                        /* set page to unwritable */
-                        set_write_in_pgtbl(target_vmspace,
-                                           target_vmr->start,
-                                           target_vmr->size,
-                                           false);
-                }
-#endif
-                /* ckpt vmr */
-                vmr_ckpt(target_vmr, &ckpt_vmr_array[idx]);
-                if (unlikely(target_vmr == target_vmspace->heap_vmr)) {
-                        ckpt_vmspace->heap_vmr_idx = idx;
-                }
-                idx++;
+        if ((target_vmr->perm & VMR_WRITE) != 0
+            && !is_external_sync_pmo(target_vmr->pmo) /* do not persist
+                                                         ext sync pmo
+                                                         each ckpt */
+            && !(target_vmspace->pte_patch_pool)) {
+            /* set page to unwritable */
+            set_write_in_pgtbl(
+                    target_vmspace, target_vmr->start, target_vmr->size, false);
         }
+#endif
+        /* ckpt vmr */
+        vmr_ckpt(target_vmr, &ckpt_vmr_array[idx]);
+        if (unlikely(target_vmr == target_vmspace->heap_vmr)) {
+            ckpt_vmspace->heap_vmr_idx = idx;
+        }
+        idx++;
+    }
 
 #ifdef REPORT
-        start2 = plat_get_mono_time();
+    start2 = plat_get_mono_time();
 #endif
-        if (target_vmspace->pte_patch_pool) {
-                /* Use the pool */
-                pool = target_vmspace->pte_patch_pool;
-                /* Traverse the pte_patch pool */
-                for (;;) {
-                        /*
-                         * A page(pte) might be freed after it is added to the
-                         * pte_patch_pool. For this kind of page, set an invalid
-                         * pte entry entry is harmless, but we should not track
-                         * access of an unallocated page and migrate it later.
-                         */
-                        for (int i = 0; i < pool->count; i++) {
-                                struct pte_patch_pool_entry entry =
-                                        pool->array[i];
+    if (target_vmspace->pte_patch_pool) {
+        /* Use the pool */
+        pool = target_vmspace->pte_patch_pool;
+        /* Traverse the pte_patch pool */
+        for (;;) {
+            /*
+             * A page(pte) might be freed after it is added to the
+             * pte_patch_pool. For this kind of page, set an invalid
+             * pte entry entry is harmless, but we should not track
+             * access of an unallocated page and migrate it later.
+             */
+            for (int i = 0; i < pool->count; i++) {
+                struct pte_patch_pool_entry entry = pool->array[i];
 #ifdef HYBRID_MEM
-                                /* Now page in pte pool might not be really
-                                 * accessed. A page might be marked as active
-                                 * and pre memcpy by
-                                 * `process_sub_active_list`(ckpt/hot_page_tracker).
-                                 * We should check here to see if each page is
-                                 * accessed.
-                                 */
-                                if (page_check_flag(entry.page, PG_allocated)
-                                    && !in_active_list(
-                                            entry.page->track_info)) {
-                                        set_pte_write_flag(entry.pte, 0);
-                                }
-#else
-                                if (page_check_flag(entry.page, PG_allocated)) {
-                                        set_pte_write_flag(entry.pte, 0);
-                                }
-#endif
-                        }
-                        if (pool->next) {
-                                next_pool = pool->next;
-                                free_pages(pool);
-                                pool = next_pool;
-                        } else {
-                                /* Traverse pte pool finish; reinit pool */
-                                pool->count = 0;
-                                pool->next = 0;
-                                target_vmspace->pte_patch_pool = (void *)pool;
-                                break;
-                        }
+                /* Now page in pte pool might not be really
+                 * accessed. A page might be marked as active
+                 * and pre memcpy by
+                 * `process_sub_active_list`(ckpt/hot_page_tracker).
+                 * We should check here to see if each page is
+                 * accessed.
+                 */
+                if (page_check_flag(entry.page, PG_allocated)
+                    && !in_active_list(entry.page->track_info)) {
+                    set_pte_write_flag(entry.pte, 0);
                 }
-        } else {
-                /* No pte_patch_pool for current vmspace; init */
-                target_vmspace->pte_patch_pool = create_patch_pool();
+#else
+                if (page_check_flag(entry.page, PG_allocated)) {
+                    set_pte_write_flag(entry.pte, 0);
+                }
+#endif
+            }
+            if (pool->next) {
+                next_pool = pool->next;
+                free_pages(pool);
+                pool = next_pool;
+            } else {
+                /* Traverse pte pool finish; reinit pool */
+                pool->count = 0;
+                pool->next = 0;
+                target_vmspace->pte_patch_pool = (void *)pool;
+                break;
+            }
         }
+    } else {
+        /* No pte_patch_pool for current vmspace; init */
+        target_vmspace->pte_patch_pool = create_patch_pool();
+    }
 #ifdef REPORT
-        start3 = plat_get_mono_time();
+    start3 = plat_get_mono_time();
 #endif
 #ifdef REPORT
-        vmr_ckpt_time += start2 - start1;
-        pool1_time += start3 - start2;
-        init_ckpt_vm_time += start1 - start0;
+    vmr_ckpt_time += start2 - start1;
+    pool1_time += start3 - start2;
+    init_ckpt_vm_time += start1 - start0;
 #endif
 
-        /* check pgtbl */
+    /* check pgtbl */
 #ifdef CHECK_PCTBL
-        extern bool check_vmspace_unwritable(struct vmspace * vmspace);
-        BUG_ON(!check_vmspace_unwritable(target_vmspace));
+    extern bool check_vmspace_unwritable(struct vmspace * vmspace);
+    BUG_ON(!check_vmspace_unwritable(target_vmspace));
 #endif
-        /* now we don't save pgtable */
+    /* now we don't save pgtable */
 #ifdef COPY_PGTBL
-        pgtbl_deep_copy(target_vmspace->pgtbl, ckpt_vmspace->pgtbl);
+    pgtbl_deep_copy(target_vmspace->pgtbl, ckpt_vmspace->pgtbl);
 #endif
-        return 0;
+    return 0;
 }
 
 static struct vmregion *vmr_restore(struct ckpt_vmregion *ckpt_vmr,
                                     struct kvs *obj_map)
 {
-        struct vmregion *target_vmr;
-        struct object *pmo_obj;
+    struct vmregion *target_vmr;
+    struct object *pmo_obj;
 
-        pmo_obj = restore_obj_get(ckpt_vmr->pmo_root);
-        if (!pmo_obj) {
-                BUG_ON(1);
-        }
-        target_vmr = alloc_vmregion();
-        if (!target_vmr) {
-                kwarn("%s fails\n", __func__);
-                goto out_fail;
-        }
+    pmo_obj = restore_obj_get(ckpt_vmr->pmo_root);
+    if (!pmo_obj) {
+        BUG_ON(1);
+    }
+    target_vmr = alloc_vmregion();
+    if (!target_vmr) {
+        kwarn("%s fails\n", __func__);
+        goto out_fail;
+    }
 
-        target_vmr->start = ckpt_vmr->start;
-        target_vmr->size = ckpt_vmr->size;
-        target_vmr->pmo = (struct pmobject *)pmo_obj->opaque;
-        target_vmr->perm = ckpt_vmr->perm;
+    target_vmr->start = ckpt_vmr->start;
+    target_vmr->size = ckpt_vmr->size;
+    target_vmr->pmo = (struct pmobject *)pmo_obj->opaque;
+    target_vmr->perm = ckpt_vmr->perm;
 #ifdef RMAP_ENABLED
-        pmo_add_reverse_node(target_vmr->pmo, target_vmr);
+    pmo_add_reverse_node(target_vmr->pmo, target_vmr);
 #endif
-        return target_vmr;
+    return target_vmr;
 
 out_fail:
-        return NULL;
+    return NULL;
 }
 
 int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
                     struct kvs *obj_map)
 {
-        int r;
-        struct vmspace *target_vmspace = (struct vmspace *)vm_obj->opaque;
-        struct ckpt_vmspace *ckpt_vmspace =
-                (struct ckpt_vmspace *)ckpt_vm_obj->opaque;
-        struct ckpt_vmregion *ckpt_vmr;
-        struct vmregion *vmr;
-        int vmr_count = ckpt_vmspace->vmr_count;
-        int heap_idx = ckpt_vmspace->heap_vmr_idx;
+    int r;
+    struct vmspace *target_vmspace = (struct vmspace *)vm_obj->opaque;
+    struct ckpt_vmspace *ckpt_vmspace =
+            (struct ckpt_vmspace *)ckpt_vm_obj->opaque;
+    struct ckpt_vmregion *ckpt_vmr;
+    struct vmregion *vmr;
+    int vmr_count = ckpt_vmspace->vmr_count;
+    int heap_idx = ckpt_vmspace->heap_vmr_idx;
 
-        target_vmspace->pcid = ckpt_vmspace->pcid;
-        r = vmspace_init(target_vmspace);
-        if (r) {
-                BUG_ON(1);
+    target_vmspace->pcid = ckpt_vmspace->pcid;
+    r = vmspace_init(target_vmspace);
+    if (r) {
+        BUG_ON(1);
+    }
+
+    for (int i = 0; i < vmr_count; i++) {
+        ckpt_vmr = &ckpt_vmspace->ckpt_vmrs[i];
+        vmr = vmr_restore(ckpt_vmr, obj_map);
+        if (!vmr) {
+            BUG_ON(1);
         }
-
-        for (int i = 0; i < vmr_count; i++) {
-                ckpt_vmr = &ckpt_vmspace->ckpt_vmrs[i];
-                vmr = vmr_restore(ckpt_vmr, obj_map);
-                if (!vmr) {
-                        BUG_ON(1);
-                }
-                add_vmr_to_vmspace(target_vmspace, vmr);
-                if (unlikely(i == heap_idx)) {
-                        target_vmspace->heap_vmr = vmr;
-                }
-                // printk("vmspace:%lx, vmr:%lx\n",target_vmspace, vmr);
+        add_vmr_to_vmspace(target_vmspace, vmr);
+        if (unlikely(i == heap_idx)) {
+            target_vmspace->heap_vmr = vmr;
         }
+        // printk("vmspace:%lx, vmr:%lx\n",target_vmspace, vmr);
+    }
 
-        target_vmspace->user_current_mmap_addr =
-                ckpt_vmspace->user_current_mmap_addr;
-        target_vmspace->pcid = ckpt_vmspace->pcid;
-        target_vmspace->flags |= VM_FLAG_PRESERVE;
-        target_vmspace->pte_patch_pool = create_patch_pool();
+    target_vmspace->user_current_mmap_addr =
+            ckpt_vmspace->user_current_mmap_addr;
+    target_vmspace->pcid = ckpt_vmspace->pcid;
+    target_vmspace->flags |= VM_FLAG_PRESERVE;
+    target_vmspace->pte_patch_pool = create_patch_pool();
 #ifdef CHECK_PCTBL
-        extern bool check_vmspace_unwritable(struct vmspace * vmspace);
-        BUG_ON(!check_vmspace_unwritable(target_vmspace));
+    extern bool check_vmspace_unwritable(struct vmspace * vmspace);
+    BUG_ON(!check_vmspace_unwritable(target_vmspace));
 #endif
 #if COPY_PGTBL
-        r = pgtbl_deep_copy(ckpt_vmspace->pgtbl, target_vmspace->pgtbl);
-        if (r)
-                BUG_ON(1);
+    r = pgtbl_deep_copy(ckpt_vmspace->pgtbl, target_vmspace->pgtbl);
+    if (r)
+        BUG_ON(1);
 #endif
-        return r;
+    return r;
 }

@@ -13,9 +13,9 @@ void free_pages(void *addr);
 #else
 
 enum malloc_type {
-        __DEFAULT__ = 0,
-        __PRIVATE__,
-        __SHARED__,
+    __DEFAULT__ = 0,
+    __PRIVATE__,
+    __SHARED__,
 };
 
 /* sepcial flag for each type of process state */
@@ -66,6 +66,6 @@ void *get_cxl_pages(int order);
 void *temp_kmalloc(unsigned long long size);
 void *get_temp_pages(int order);
 #else
-#define temp_kmalloc(size) kmalloc(size, __DEFAULT__)
+#define temp_kmalloc(size)    kmalloc(size, __DEFAULT__)
 #define get_temp_pages(order) get_pages(order, __DEFAULT__)
 #endif

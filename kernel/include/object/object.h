@@ -8,41 +8,41 @@
 #include <common/kvstore.h>
 
 struct object {
-	u64 type;
-	u64 size;
-	/* Link all slots point to this object */
-	struct list_head copies_head;
-	/* Currently only protect copies list */
-	struct lock copies_lock;
-	/*
-	 * refcount is added when a slot points to it and when get_object is
-	 * called. Object is freed when it reaches 0.
-	 */
-	u64 refcount;
-	/* 
-	 * we use obj_root for checkpoint 
-	 */
-	struct ckpt_obj_root *obj_root;
-	/*
-	 * opaque marks the end of this struct and the real object will be
-	 * stored here. Now its address will be 8-byte aligned.
-	 */
-	u64 opaque[];
+    u64 type;
+    u64 size;
+    /* Link all slots point to this object */
+    struct list_head copies_head;
+    /* Currently only protect copies list */
+    struct lock copies_lock;
+    /*
+     * refcount is added when a slot points to it and when get_object is
+     * called. Object is freed when it reaches 0.
+     */
+    u64 refcount;
+    /*
+     * we use obj_root for checkpoint
+     */
+    struct ckpt_obj_root *obj_root;
+    /*
+     * opaque marks the end of this struct and the real object will be
+     * stored here. Now its address will be 8-byte aligned.
+     */
+    u64 opaque[];
 };
 
 enum object_type {
-	TYPE_CAP_GROUP = 0,
-	TYPE_THREAD,
-	TYPE_CONNECTION,
-	TYPE_NOTIFICATION,
-	TYPE_IRQ,
-	TYPE_PMO,
-	TYPE_VMSPACE,
-	TYPE_NR,
+    TYPE_CAP_GROUP = 0,
+    TYPE_THREAD,
+    TYPE_CONNECTION,
+    TYPE_NOTIFICATION,
+    TYPE_IRQ,
+    TYPE_PMO,
+    TYPE_VMSPACE,
+    TYPE_NR,
 #ifdef CHCORE_KERNEL_VIRT
-	TYPE_VM,
-	TYPE_VCPU,
-	TYPE_IPA_REGION,
+    TYPE_VM,
+    TYPE_VCPU,
+    TYPE_IPA_REGION,
 #endif /* CHCORE_KERNEL_VIRT */
 };
 
@@ -59,9 +59,9 @@ void obj_free(void *obj);
 int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights);
 int cap_free(struct cap_group *cap_group, int slot_id);
 int cap_copy(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,
-	     int src_slot_id);
+             int src_slot_id);
 int cap_move(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,
-	     int src_slot_id);
+             int src_slot_id);
 
 int cap_free_all(struct cap_group *cap_group, int slot_id);
 
@@ -69,10 +69,10 @@ int cap_free_all(struct cap_group *cap_group, int slot_id);
 int sys_cap_copy_to(u64 dest_cap_group_cap, u64 src_slot_id);
 int sys_cap_copy_from(u64 src_cap_group_cap, u64 src_slot_id);
 int sys_transfer_caps(u64 dest_group_cap, u64 src_caps_buf, int nr_caps,
-		      u64 dst_caps_buf);
+                      u64 dst_caps_buf);
 int sys_cap_move(u64 dest_cap_group_cap, u64 src_slot_id);
 int sys_get_all_caps(u64 cap_group_cap);
 int sys_revoke_cap(u64 obj_cap);
 
-int cap_insert(struct cap_group *cap_group, void *obj, u64 rights,int slot_id);
+int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id);
 int cap_replace(struct cap_group *cap_group, void *obj, int slot_id);
