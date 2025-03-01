@@ -11,32 +11,14 @@
 void __fn_pci_info_dev(struct pci_dev *pdev, void *args)
 {
     (void)args;
-    char bus_class_name[32];
-    char vendor_name[32];
-    char device_name[32];
-
-    snprintf(bus_class_name, sizeof(bus_class_name), "%s", pci_class_name(pdev->class));
-    snprintf(vendor_name, sizeof(vendor_name), "%s", pci_vendor_name(pdev->vendor));
-    snprintf(device_name, sizeof(device_name), "%s", pci_device_name(pdev->vendor, pdev->device));
-
-    if (strcmp(bus_class_name, "") == 0) {
-        snprintf(bus_class_name, sizeof(bus_class_name), "Class %d", pdev->class);
-    }
-    if (strcmp(vendor_name, "") == 0) {
-        snprintf(vendor_name, sizeof(vendor_name), "Vendor %d", pdev->vendor);
-    }
-    if (strcmp(device_name, "") == 0) {
-        snprintf(device_name, sizeof(device_name), "Device %d", pdev->device);
-    }
-
     kinfo("%04x:%02x:%02x.%x %s: %s %s [%04x:%04x]\n",
           pdev->bus->domain,
           pdev->bus->number,
           pdev->devfn >> 3,
           pdev->devfn & 0x7,
-          bus_class_name,
-          vendor_name,
-          device_name,
+          pci_class_name(pdev->class),
+          pci_vendor_name(pdev->vendor),
+          pci_device_name(pdev->vendor, pdev->device),
           pdev->vendor,
           pdev->device);
 }
@@ -62,7 +44,7 @@ int pci_device_get_info(struct pci_dev_req *req)
 {
     struct pci_dev *pdev = pci_find_device_by_ids(req->dev_ids);
     if (!pdev) {
-        kinfo("[PCI] device not found\n");
+        pci_info("device %s not found\n", req->dev_path);
         return -ENODEV;
     }
     // copy pdev info to user space
@@ -81,8 +63,6 @@ int sys_pcie_control(u64 usr_req_buf)
     struct pci_dev_req *req;
     int ret = 0;
 
-    kinfo("[PCI] sys_pcie_control called\n");
-
     req = (struct pci_dev_req *)kmalloc(
         sizeof(struct pci_dev_req), __PRIVATE__);
     if (!req) {
@@ -91,7 +71,7 @@ int sys_pcie_control(u64 usr_req_buf)
     }
 
     copy_from_user((char *)req, (char *)usr_req_buf, sizeof(struct pci_dev_req));
-    kinfo("[PCI] req: %s\n", pci_control_type_str[req->req_type]);
+    pci_ioctl_debug("[PCI] sys_pcie_control request is %s\n", pci_control_type_str[req->req_type]);
 
     switch (req->req_type) {
     case PCI_CONTROL_LIST_DEVICES: 
@@ -104,7 +84,7 @@ int sys_pcie_control(u64 usr_req_buf)
         ret = pci_device_map_region(req);
         break;
     default:
-        kinfo("[PCI] No such control type\n");
+        pci_info("No such control type\n");
         break;
     }
 

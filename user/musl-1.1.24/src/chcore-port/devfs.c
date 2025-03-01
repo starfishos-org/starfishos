@@ -20,14 +20,15 @@ int chcore_open_dev(char *path) {
 
 	req = (struct pci_dev_req *)malloc(sizeof(struct pci_dev_req));
 
-	if (sscanf(path, "vfio%x:%x:%x.%x", &segn, &busn, &devn, &funcn) != 4) {
+	// FIXME(FN): currently fixed to "/dev/xxx" pattern
+	if (sscanf(path, "/dev/%x:%x:%x.%x", &segn, &busn, &devn, &funcn) != 4) {
 		goto error;
 	}
 
 	// prepare request args
 	req->req_type = PCI_CONTROL_GET_INFO;
 	strncpy(req->dev_path, path, sizeof(path));
-	snprintf(req->dev_ids, 11, "%04x:%02x:%02x.%01x", segn, busn, devn, funcn);
+	snprintf(req->dev_ids, 13, "%04x:%02x:%02x.%01x", segn, busn, devn, funcn);
 
 	// send request to kernel
 	ret = usys_pcie_control((u64)req);

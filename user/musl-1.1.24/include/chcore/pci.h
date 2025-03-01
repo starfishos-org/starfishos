@@ -17,7 +17,7 @@ enum pci_control_type {
 struct pci_dev_req {
     u8 req_type; // pcie control type
     char dev_path[64]; // e.g. "/dev/pcie0"
-    char dev_ids[11]; // in format of "0000:00:00.0"
+    char dev_ids[13]; // in format of "0000:00:00.0"
     // align to 16 bytes
     char padding[3];
     // mmio region

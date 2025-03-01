@@ -829,7 +829,11 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	/* Hack for devfs */
 	if (IS_DEVFS(full_path)) {
 		/* TODO: check whether this dev exist */
-		chcore_open_dev(full_path);
+		ret = chcore_open_dev(full_path);
+		if (ret < 0) {
+			free(full_path);
+			return ret;
+		}
 		fd_dic[fd]->type = FD_TYPE_DEV;
 		fd_dic[fd]->fd_op = &virtio_file_ops;
 		ret = fd;		/* Return fd if succeed */
