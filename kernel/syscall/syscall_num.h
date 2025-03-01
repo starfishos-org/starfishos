@@ -96,7 +96,7 @@
 #define SYS_set_excepted_connected_client_num 235
 
 /* PCIe BUS */
-#define SYS_pcie_control 236
+#define SYS_pcie_control 237
 
 /* SHUTDOWN */
 #define SYS_shutdown 243

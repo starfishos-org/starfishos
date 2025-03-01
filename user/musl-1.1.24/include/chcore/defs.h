@@ -185,7 +185,7 @@
 #define CHCORE_SYS_set_dyn_args                      236
 
 /* PCIe BUS */
-#define CHCORE_SYS_pcie_control 236
+#define CHCORE_SYS_pcie_control 237
 
 /* Virtualization */
 #define CHCORE_SYS_virt_dispatch 240
