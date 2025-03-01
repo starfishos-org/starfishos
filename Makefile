@@ -25,3 +25,7 @@ ip2c:
 ck: ip2c-kernel
 ip2c-kernel:
 	addr2line -e build/kernel.img -fCi $(IP)
+
+test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/lkl.exp
