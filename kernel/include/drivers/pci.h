@@ -6,51 +6,10 @@
 
 #include "pci_regs.h"
 #include "pci_names.h"
-
-// #define PCI_DEBUG
-
-#define PCI_PREFIX "[pci]"
-
-#define pci_info(fmt, ...)  printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
-#define pci_error(fmt, ...) printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
-#ifdef PCI_DEBUG
-#define pci_debug(fmt, ...) printk(PCI_PREFIX " " fmt, ##__VA_ARGS__)
-#else
-#define pci_debug(fmt, ...)
-#endif
+#include "pci_log.h"
+#include "pci_ioctl.h"
 
 typedef u32 pci_bus_addr_t;
-
-enum pci_control_type {
-    PCI_CONTROL_LIST_DEVICES = 0,
-    PCI_CONTROL_GET_INFO = 1,
-    PCI_CONTROL_MAP_REGION = 2,
-};
-
-static const char *const pci_control_type_str[] = {
-    "LIST DEVICES",
-    "GET_INFO",
-    "MAP_REGION",
-};
-
-struct pci_dev_req {
-    u8 req_type; // pcie control type
-    char dev_path[64]; // e.g. "/dev/pcie0"
-    char dev_ids[11]; // in format of "0000:00:00.0"
-    // align to 16 bytes
-    char padding[3];
-    // mmio region
-    u64 mmio_vaddr;
-    u64 mmio_size;
-    // io region
-    u64 io_vaddr;
-    u64 io_size;
-    // irq region
-    u64 irq_vaddr;
-    u64 irq_size;
-    // return info
-    char ret[128];
-};
 
 struct pci_dev_find_info {
     u16 vendor;
@@ -466,6 +425,3 @@ struct pci_dev *pci_find_device_by_ids(char *ids);
 /* Init pcie devices */
 int pci_setup_device(struct pci_dev *dev);
 void pci_setup_devices();
-
-/* Userspace control syscalls */
-int sys_pcie_control(u64 usr_req_buf);
