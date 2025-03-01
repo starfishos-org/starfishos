@@ -425,3 +425,6 @@ struct pci_dev *pci_find_device_by_ids(char *ids);
 /* Init pcie devices */
 int pci_setup_device(struct pci_dev *dev);
 void pci_setup_devices();
+
+/* ioctl handler for vfio */
+int vfio_handle_ioctl(u32 type, struct pci_dev *pdev, void *args);

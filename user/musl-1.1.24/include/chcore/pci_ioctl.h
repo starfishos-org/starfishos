@@ -1,11 +1,13 @@
 #pragma once
 
-#include <common/types.h>
-#include <common/list.h>
-#include <drivers/resource.h>
+#include <chcore/type.h>
 
 #include "ioctl.h"
 #include "vfio.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define PCI_CONTROL_LIST_DEVICES    (0)
 #define PCI_CONTROL_OPEN_DEVICE     (1)
@@ -20,7 +22,10 @@ struct pci_control_req {
             struct vfio_iommu_type1_dma_map dma_map;
         } _vfio_args;
     };
-}; 
+};
 
-/* Userspace control syscalls */
-int sys_pcie_control(u64 usr_req_buf);
+int usys_pcie_control(u64 req_buf);
+
+#ifdef __cplusplus
+}
+#endif

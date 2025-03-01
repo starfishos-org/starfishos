@@ -2,7 +2,7 @@
 
 #include <sys/types.h>
 #include <string.h>
-#include <chcore/pci.h>
+#include <chcore/pci_ioctl.h>
 
 #include "fd.h"
 
@@ -12,4 +12,4 @@
 extern struct fd_ops virtio_file_ops;
 
 int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg);
-int chcore_open_dev(char *path);
+int chcore_open_dev(int fd, char *path);
