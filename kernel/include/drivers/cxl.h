@@ -1,10 +1,12 @@
 #pragma once
 
-#include "common/list.h"
-#include "common/macro.h"
-#include "drivers/pci.h"
+#include <common/list.h>
+#include <common/macro.h>
+#include <drivers/pci.h>
 #include <common/types.h>
 #include <arch/mm/page_table.h>
+
+#include "pci_cxl.h"
 
 #define CXL_DEBUG
 

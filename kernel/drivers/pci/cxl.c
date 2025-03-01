@@ -6,8 +6,6 @@
 #include <common/errno.h>
 #include <common/bitfield.h>
 #include <drivers/cxl.h>
-#include <drivers/cxl-pci.h>
-#include <drivers/pci-special.h>
 
 static struct cxl_memdev_state *cxl_memdev_state_create(struct pci_dev *pdev)
 {

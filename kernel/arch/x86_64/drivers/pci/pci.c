@@ -3,7 +3,6 @@
 #include <common/util.h>
 #include <common/kprint.h>
 #include <drivers/pci.h>
-#include <drivers/pci-special.h>
 #include <mm/kmalloc.h>
 #include <arch/io.h>
 

@@ -10,7 +10,6 @@
 #include <drivers/pci.h>
 #include <common/errno.h>
 #include <common/bitfield.h>
-#include <drivers/pci-special.h>
 
 struct kvm_ivshmem_device {
     // void * regs;
@@ -57,8 +56,8 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
 
 static void ivshmem_setup_dev(struct pci_dev *pdev, void *args)
 {
-    if (pdev->vendor == PCI_VENDOR_ID_IVSHMEM
-        && pdev->device == PCI_DEVICE_ID_QEMU_IVSHMEM) {
+    if (pdev->vendor == PCI_VENDOR_ID_REDHAT
+        && pdev->device == PCI_DEVICE_ID_IVSHMEM) {
         pci_info("[IVSHMEM] find ivshmem device\n");
         ivshmem_pci_probe(pdev);
     }

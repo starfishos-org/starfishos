@@ -3,7 +3,9 @@
 #include <common/types.h>
 #include <common/list.h>
 #include <drivers/resource.h>
-#include <drivers/pci-regs.h>
+
+#include "pci_regs.h"
+#include "pci_names.h"
 
 // #define PCI_DEBUG
 
@@ -26,9 +28,9 @@ enum pci_control_type {
 };
 
 static const char *const pci_control_type_str[] = {
-        "LIST DEVICES",
-        "GET_INFO",
-        "MAP_REGION",
+    "LIST DEVICES",
+    "GET_INFO",
+    "MAP_REGION",
 };
 
 struct pci_dev_req {
@@ -445,6 +447,10 @@ enum pci_bar_type {
     pci_bar_mem64, /* A 64-bit memory BAR */
 };
 
+const char *pci_class_name(unsigned int class_code);
+const char *pci_vendor_name(int vid);
+const char *pci_device_name(int vid, int did);
+
 /* Probe devices from a region */
 void arch_pci_probe_devices();
 
@@ -462,4 +468,4 @@ int pci_setup_device(struct pci_dev *dev);
 void pci_setup_devices();
 
 /* Userspace control syscalls */
-int sys_pcie_control(char *usr_req_buf);
+int sys_pcie_control(u64 usr_req_buf);

@@ -1126,3 +1126,5 @@
 #define PCI_PL_16GT_LE_CTRL_DSP_TX_PRESET_MASK  0x0000000F
 #define PCI_PL_16GT_LE_CTRL_USP_TX_PRESET_MASK  0x000000F0
 #define PCI_PL_16GT_LE_CTRL_USP_TX_PRESET_SHIFT 4
+
+#define PCI_DEVFN(slot, func) ((((slot) & 0x1f) << 3) | ((func) & 0x07))

@@ -1,6 +1,4 @@
 #include <common/kprint.h>
-#include <drivers/pci-regs.h>
-#include <drivers/pci-special.h>
 #include <drivers/pci.h>
 #include <drivers/io.h>
 #include <drivers/cxl.h>
@@ -118,8 +116,8 @@ static u8 pci_hdr_type(struct pci_dev *dev)
 int pci_cfg_space_size(struct pci_dev *dev)
 {
     kwarn_once("%s: need to check if it is a PCIE device\n", __func__);
-    if (dev->vendor == PCI_VENDOR_ID_IVSHMEM
-        && dev->device == PCI_DEVICE_ID_QEMU_IVSHMEM)
+    if (dev->vendor == PCI_VENDOR_ID_REDHAT
+        && dev->device == PCI_DEVICE_ID_IVSHMEM)
         return PCI_CFG_SPACE_SIZE;
     return PCI_CFG_SPACE_EXP_SIZE;
 }

@@ -1,6 +1,5 @@
 #include <common/kprint.h>
-#include <drivers/pci-regs.h>
-#include <drivers/pci-special.h>
+#include <common/util.h>
 #include <drivers/pci.h>
 #include <drivers/io.h>
 
