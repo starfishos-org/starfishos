@@ -26,6 +26,17 @@ static void reverse(char *str, int len)
     }
 }
 
+static int digit_to_int(char ch) {
+    return ch - '0';
+}
+
+static int hex_to_int(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    return -1;
+}
+
 /*
  * Convert an integer to a string representation
  * @x: The integer to convert
@@ -83,25 +94,25 @@ int sscanf(const char *str, const char *format, ...) {
                 int_val = va_arg(args, int*);
                 *int_val = 0;
                 while (is_digit((unsigned char)*str)) {
-                    *int_val = (*int_val) * 10 + (*str - '0');
+                    *int_val = (*int_val) * 10 + digit_to_int(*str);
                     str++;
-                    items_matched++;
                 }
+                items_matched++;
             } else if (*format == 'x') {
                 int_val = va_arg(args, int*);
                 *int_val = 0;
                 while (is_hex_digit((unsigned char)*str)) {
-                    *int_val = (*int_val) * 16 + (*str - '0');
+                    *int_val = (*int_val) * 16 + hex_to_int(*str);
                     str++;
-                    items_matched++;
                 }
+                items_matched++;
             } else if (*format == 's') {
                 str_val = va_arg(args, char*);
                 while (!is_space((unsigned char)*str) && *str) {
                     *str_val++ = *str++;
-                    items_matched++;
                 }
                 *str_val = '\0';
+                items_matched++;
             }
         } else {
             if (*format != *str) break;
