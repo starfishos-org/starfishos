@@ -5,8 +5,64 @@ int is_digit(char ch) {
     return ch >= '0' && ch <= '9';
 }
 
+int is_hex_digit(char ch) {
+    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+}
+
 int is_space(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r';
+}
+
+
+static void reverse(char *str, int len)
+{
+    int i = 0, j = len - 1;
+    while (i < j) {
+        char temp = str[i];
+        str[i] = str[j];
+        str[j] = temp;
+        i++;
+        j--;
+    }
+}
+
+/*
+ * Convert an integer to a string representation
+ * @x: The integer to convert
+ * @str: The output string buffer
+ * @d: Minimum number of digits (pad with leading zeros if needed)
+ * @base: The base to use (e.g. 10 for decimal, 16 for hex)
+ * Returns: The length of the resulting string
+ */
+static int int_to_str(int x, char str[], int d, int base)
+{
+    int i = 0;
+    bool isNegative = false;
+
+    if (x == 0) {
+        str[i++] = '0';
+    } else {
+        if (x < 0) {
+            isNegative = true;
+            x = -x;
+        }
+
+        while (x) {
+            int rem = x % base;
+            str[i++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
+            x = x / base;
+        }
+
+        if (isNegative)
+            str[i++] = '-';
+    }
+
+    while (i < d)
+        str[i++] = '0';
+
+    reverse(str, i);
+    str[i] = '\0';
+    return i;
 }
 
 int sscanf(const char *str, const char *format, ...) {
@@ -31,6 +87,14 @@ int sscanf(const char *str, const char *format, ...) {
                     str++;
                     items_matched++;
                 }
+            } else if (*format == 'x') {
+                int_val = va_arg(args, int*);
+                *int_val = 0;
+                while (is_hex_digit((unsigned char)*str)) {
+                    *int_val = (*int_val) * 16 + (*str - '0');
+                    str++;
+                    items_matched++;
+                }
             } else if (*format == 's') {
                 str_val = va_arg(args, char*);
                 while (!is_space((unsigned char)*str) && *str) {
@@ -50,49 +114,6 @@ int sscanf(const char *str, const char *format, ...) {
     return items_matched;
 }
 
-static void reverse(char *str, int len)
-{
-    int i = 0, j = len - 1;
-    while (i < j) {
-        char temp = str[i];
-        str[i] = str[j];
-        str[j] = temp;
-        i++;
-        j--;
-    }
-}
-
-static int intToStr(int x, char str[], int d)
-{
-    int i = 0;
-    bool isNegative = false;
-
-    if (x == 0) {
-        str[i++] = '0';
-    } else {
-        if (x < 0) {
-            isNegative = true;
-            x = -x;
-        }
-
-        while (x) {
-            int rem = x % 10;
-            str[i++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
-            x = x / 10;
-        }
-
-        if (isNegative)
-            str[i++] = '-';
-    }
-
-    while (i < d)
-        str[i++] = '0';
-
-    reverse(str, i);
-    str[i] = '\0';
-    return i;
-}
-
 int snprintf(char *str, size_t size, const char *format, ...)
 {
     va_list args;
@@ -110,8 +131,9 @@ int snprintf(char *str, size_t size, const char *format, ...)
 
             switch (*traverse) {
             case 'd':
+            case 'x':
                 num = va_arg(args, int);
-                intToStr(num, buffer, 0);
+                int_to_str(num, buffer, 0, (*traverse == 'd') ? 10 : 16);
                 for (s = buffer; *s != '\0'; s++, len++) {
                     if (len >= size) {
                         va_end(args);
