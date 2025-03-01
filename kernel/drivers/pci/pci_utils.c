@@ -44,17 +44,18 @@ struct pci_dev *pci_find_device_by_vendor_and_device_id(u16 vendor, u16 device)
 struct pci_dev *pci_find_device_by_ids(char *ids)
 {
     struct pci_dev *pdev;
-    char real_ids[11];
+    int segn, busn, devn, funcn, devfn;
 
+    // ids in format of "0000:00:00.0" (segment:bus:device.function)
+    if (sscanf(ids, "%x:%x:%x.%x", &segn, &busn, &devn, &funcn) != 4) {
+        return NULL;
+    }
+    devfn = (devn << 3) | funcn;
+
+    // find the device that matches the ids
     for_each_in_list (pdev, struct pci_dev, bus_list, &pci_root_bus->devices) {
-        snprintf(real_ids,
-                 sizeof(real_ids),
-                 "%04x:%02x:%02x.%01x",
-                 pdev->bus->domain,
-                 pdev->bus->number,
-                 pdev->devfn >> 3,
-                 pdev->devfn & 0x7);
-        if (strncmp(real_ids, ids, 11) == 0) {
+        if (pdev->bus->domain == segn && pdev->bus->number == busn
+            && pdev->devfn == devfn) {
             return pdev;
         }
     }
