@@ -10,12 +10,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 #include "bench.h"
 #include "cpupol.h"
 #include "rdtsc.h"
-
-static struct bench *running_bench;
 
 static uint64_t usec(void)
 {
@@ -52,7 +51,7 @@ struct bench *alloc_bench(int ncpu, int nbg)
         
         /* alloc shared memory using mmap */
         shmem = mmap(0, shmem_size, PROT_READ | PROT_WRITE, 
-                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (shmem == MAP_FAILED)
                 return NULL;
         memset(shmem, 0, shmem_size);
@@ -72,15 +71,10 @@ struct bench *alloc_bench(int ncpu, int nbg)
         return bench;
 }
 
-static void sighandler(int x)
-{
-        running_bench->stop = 1;
-}
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-result"
 
-static void worker_main(void *arg)
+static void *worker_main(void *arg)
 {
         struct worker *worker = (struct worker*)arg;
         struct bench *bench = worker->bench;
@@ -97,38 +91,12 @@ static void worker_main(void *arg)
                 if (err) goto err_out;
         }
 
-        /* wait for start signal */ 
         worker->ready = 1;
-        if (worker->id) {
-                while (!bench->start)
-                        nop_pause();
-        }
-	else {
-		/* are all workers ready? */
-		int i;
-		for (i = 1; i < bench->ncpu; i++) {
-			struct worker *w = &bench->workers[i];
-			while (!w->ready)
-				nop_pause();
-		}
-		/* make things more deterministic */
-		sync();
 
-		/* start performance profiling */
-		if (bench->profile_start_cmd[0])
-			system(bench->profile_start_cmd);
+        /* wait for start signal */ 
+        while (!bench->start)
+                nop_pause();
 
-                /* ok, before running, set timer */
-                if (signal(SIGALRM, sighandler) == SIG_ERR) {
-                        err = errno;
-                        goto err_out;
-                }
-                running_bench = bench;
-                alarm(bench->duration);
-                bench->start = 1;
-                wmb();
-        }
-        
         /* start time */
         s_clk = rdtsc_beg();
         s_us = usec();
@@ -139,14 +107,9 @@ static void worker_main(void *arg)
                 if (err && err != ENOSPC)
                         goto err_out;
         }
-
         /* end time */ 
         e_clk = rdtsc_end();
         e_us = usec();
-
-	/* stop performance profiling */
-        if (!worker->id && bench->profile_stop_cmd[0])
-		system(bench->profile_stop_cmd);
 
         /* post-work */ 
         if (bench->ops.post_work)
@@ -156,37 +119,35 @@ err_out:
         worker->usecs = e_us - s_us;
         wmb();
         worker->clocks = e_clk - s_clk;
-}
-
-static void wait(struct bench *bench)
-{
-        int i;
-        for (i = 0; i < bench->ncpu; i++) {
-                struct worker *w = &bench->workers[i];
-                while (!w->clocks)
-                        nop_pause();
-        }
+        return NULL;
 }
 
 void run_bench(struct bench *bench)
 {
         int i;
-	for (i = 1; i < bench->ncpu; ++i) {
-		/**
-		 * fork() is intentionally used instead of pthread
-		 * to avoid known scalability bottlenecks 
-		 * of linux virtual memory subsystem. 
-		 */ 
-		pid_t p = fork();
-		if (p < 0)
-			bench->workers[i].ret = errno;
-		else if (!p) {
-			worker_main(&bench->workers[i]);
-			exit(0);
-		}
+        pthread_t tid[bench->ncpu];
+	for (i = 0; i < bench->ncpu; ++i) {
+                pthread_create(&tid[i], NULL, worker_main, &bench->workers[i]);
+                if (tid[i] < 0)
+                        bench->workers[i].ret = errno;
 	}
-	worker_main(&bench->workers[0]);
-	wait(bench);
+        int start = 0;
+        while (start < bench->ncpu) {
+                start = 0;
+                for (i = 0; i < bench->ncpu; i++) {
+                        if (bench->workers[i].ready)
+                                start++;
+                }
+        }
+        bench->start = 1;
+
+        sleep(bench->duration);
+        for (i = 0; i < bench->ncpu; i++) {
+                bench->stop = 1;
+        }
+        for (i = 0; i < bench->ncpu; i++) {
+                pthread_join(tid[i], NULL);
+        }
 }
 
 void report_bench(struct bench *bench, FILE *out)
@@ -216,17 +177,6 @@ void report_bench(struct bench *bench, FILE *out)
 
 	/* get profiling result */ 
 	profile_name = profile_data = empty_str;
-	if (bench->profile_stat_file[0]) {
-		FILE *fp = fopen(bench->profile_stat_file, "r");
-		size_t len;
-		
-		if (fp) {
-			profile_name = profile_data = NULL;
-			getline(&profile_name, &len, fp);
-			getline(&profile_data, &len, fp);
-			fclose(fp);
-		}
-	}
 
         fprintf(out, "# ncpu secs works works/sec %s\n", profile_name);
         fprintf(out, "%d %f %f %f %s\n", 

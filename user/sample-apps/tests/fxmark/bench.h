@@ -41,9 +41,6 @@ struct bench {
 	int	directio;
 	struct worker *workers; 
 	struct bench_operations ops;
-	char profile_start_cmd[BENCH_PROFILE_CMD_BYTES];
-	char profile_stop_cmd[BENCH_PROFILE_CMD_BYTES];
-	char profile_stat_file[PATH_MAX];
 	char args[BENCH_ARG_BYTES];
 } CACHELINE_ALIGNED;
 

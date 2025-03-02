@@ -31,23 +31,12 @@ static void set_test_file(struct worker *worker,
 		fx_opt->root, worker->id, file_id);
 }
 
-static void sighandler(int x)
-{
-	stop_pre_work = 1;
-}
-
 static int pre_work(struct worker *worker)
 {
-	struct bench *bench = worker->bench;
+	__attribute__((unused)) struct bench *bench = worker->bench;
 	char path[PATH_MAX];
 	int fd, rc = 0;
 
-	/* perform pre_work for bench->duration */
-	if (signal(SIGALRM, sighandler) == SIG_ERR) {
-		rc = errno;
-		goto err_out;
-	}
-	alarm(bench->duration);
 
 	/* create private directory */
 	set_test_root(worker, path);
@@ -63,6 +52,7 @@ static int pre_work(struct worker *worker)
 			goto err_out;
 		}
 		close(fd);
+		stop_pre_work = 1;
 	}
 out:
 	return rc; 

@@ -21,9 +21,6 @@ struct cmd_opt {
 	int duration;
 	int directio;
 	char *root;
-	char *profile_start_cmd;
-	char *profile_stop_cmd;
-	char *profile_stat_file;
 };
 
 /* benchmarks */ 

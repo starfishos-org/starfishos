@@ -118,9 +118,6 @@ static int parse_option(int argc, char *argv[], struct cmd_opt *opt)
 	};
 	int arg_cnt;
 
-	opt->profile_start_cmd = "";
-	opt->profile_stop_cmd  = "";
-	opt->profile_stat_file = "";
 	for(arg_cnt = 0; 1; ++arg_cnt) {
 		int c, idx = 0;
 		c = getopt_long(argc, argv, 
@@ -151,15 +148,6 @@ static int parse_option(int argc, char *argv[], struct cmd_opt *opt)
 			break;
 		case 'r':
 			opt->root = optarg;
-			break;
-		case 'b':
-			opt->profile_start_cmd = optarg;
-			break;
-		case 'e':
-			opt->profile_stop_cmd = optarg;
-			break;
-		case 'l':
-			opt->profile_stat_file = optarg;
 			break;
 		default:
 			return -EINVAL;
@@ -194,12 +182,6 @@ static void init_bench(struct bench *bench, struct cmd_opt *opt)
 
 	bench->duration = opt->duration;
 	bench->directio = opt->directio;
-	snprintf(bench->profile_start_cmd, BENCH_PROFILE_CMD_BYTES,
-		"%s", opt->profile_start_cmd);
-	snprintf(bench->profile_stop_cmd, BENCH_PROFILE_CMD_BYTES,
-		"%s", opt->profile_stop_cmd);
-	snprintf(bench->profile_stat_file, PATH_MAX,
-		"%s", opt->profile_stat_file);
 	snprintf(fx_opt->root, PATH_MAX,
 		"%s", opt->root);
 	bench->ops = *opt->ops;
