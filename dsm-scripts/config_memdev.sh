@@ -1,6 +1,6 @@
 mode=$1
-memNumaNode=0
-size=8 # 16GB shared memory
+memNumaNode=5
+size=32 # 64GB shared memory
 devName="/dev/shm/ivshmem-$USER"
 
 if [ "$mode" = "cxl-new" ]; then

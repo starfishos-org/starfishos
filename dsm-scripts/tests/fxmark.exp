@@ -1,0 +1,29 @@
+#!/usr/bin/expect
+
+# usage: fxmark.exp <thread_num> <type>
+
+set threads {8}
+
+set types {MWCL DWAL DWOL MWRM DWSL DWOM MWRL DRBL DRBL_bg DRBM DRBM_bg DRBH DRBH_bg MRDL MRDL_bg MRDM MRDM_bg MRPL MRPM MRPM_bg MWCM MRPH}
+
+set skiped {MWUM MWUL DWTL MWRM DWOM DRBM DRBM_bg DRBH DRBH_bg MRDM MRDM_bg MRPL MRPM MRPM_bg MWCM MRPH}
+
+set timeout 30
+
+set thread_num [lindex $argv 0]
+
+set type [lindex $argv 1]
+
+if {[lsearch $types $type] == -1 && [lsearch $skiped $type] == -1} {
+    puts "Error: type $type not found in types or skiped"
+    exit 1
+}
+
+spawn ./build/simulate.sh
+
+expect "Welcome to ChCore shell!"
+
+send -- "fxmark --type $type --ncore $thread_num --nbg 0 --duration 1 --directio 0 --root .\r"
+
+interact
+

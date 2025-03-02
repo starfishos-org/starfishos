@@ -102,7 +102,7 @@ _Noreturn void __pthread_exit(void *result)
 
 	__pthread_tsd_run_dtors();
 
-	__malloc_thread_finalize();
+	// rpmalloc_thread_finalize();
 
 	/* Access to target the exiting thread with syscalls that use
 	 * its kernel tid is controlled by killlock. For detached threads,
@@ -242,7 +242,7 @@ static int start(void *p)
 	lwip_ipc_struct->server_id = NET_MANAGER;
 #endif
 
-	__malloc_thread_init();
+	// rpmalloc_thread_initialize();
 	result = args->start_func(args->start_arg);
 	__pthread_exit(result);
 	return 0;

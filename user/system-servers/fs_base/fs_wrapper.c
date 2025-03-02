@@ -168,6 +168,9 @@ void translate_fd_to_fid(u64 client_badge, struct fs_request *fr)
 	case FS_REQ_PREAD:
 		fr->pread.fd = fs_wrapper_get_server_entry(client_badge, fr->pread.fd);
 		break;
+	case FS_REQ_PWRITE:
+		fr->pwrite.fd = fs_wrapper_get_server_entry(client_badge, fr->pwrite.fd);
+		break;
 	case FS_REQ_WRITE:
 		fr->write.fd = fs_wrapper_get_server_entry(client_badge, fr->write.fd);
 		break;
@@ -257,6 +260,9 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 		break;
 	case FS_REQ_PREAD:
 		ret = fs_wrapper_pread(ipc_msg, fr);
+		break;
+	case FS_REQ_PWRITE:
+		ret = fs_wrapper_pwrite(ipc_msg, fr);
 		break;
 	case FS_REQ_WRITE:
 		ret = fs_wrapper_write(ipc_msg, fr);

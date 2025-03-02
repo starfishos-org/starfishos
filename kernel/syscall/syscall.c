@@ -34,9 +34,9 @@
 #if HOOKING_SYSCALL == ON
 void hook_syscall(long n)
 {
-    if ((n != SYS_putc) && (n != SYS_getc) && (n != SYS_yield)
-        && (n != SYS_handle_brk))
-        kinfo("[SYSCALL TRACING] hook_syscall num: %ld\n", n);
+        if ((n != SYS_putc) && (n != SYS_getc) && (n != SYS_yield)
+            && (n != SYS_handle_brk) && (n != SYS_clock_gettime) && (n != SYS_wait))
+                kinfo("[SYSCALL TRACING] hook_syscall num: %ld\n", n);
 }
 #endif
 

@@ -18,8 +18,8 @@ extern "C" {
 #endif
 
 #if defined(__clang__) || defined(__GNUC__)
-# define RPMALLOC_EXPORT static
-# define RPMALLOC_ALLOCATOR 
+# define RPMALLOC_EXPORT __attribute__((visibility("default")))
+# define RPMALLOC_ALLOCATOR
 # if (defined(__clang_major__) && (__clang_major__ < 4)) || (defined(__GNUC__) && defined(ENABLE_PRELOAD) && ENABLE_PRELOAD)
 # define RPMALLOC_ATTRIB_MALLOC
 # define RPMALLOC_ATTRIB_ALLOC_SIZE(size)
@@ -186,67 +186,70 @@ typedef struct rpmalloc_config_t {
 	//  For Windows, see https://docs.microsoft.com/en-us/windows/desktop/memory/large-page-support
 	//  For Linux, see https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt
 	int enable_huge_pages;
-	int unused;
+	//! Respectively allocated pages and huge allocated pages names for systems
+	//  supporting it to be able to distinguish among anonymous regions.
+	const char *page_name;
+	const char *huge_page_name;
 } rpmalloc_config_t;
 
 //! Initialize allocator with default configuration
-int
+RPMALLOC_EXPORT int
 rpmalloc_initialize(void);
 
 //! Initialize allocator with given configuration
-int
+RPMALLOC_EXPORT int
 rpmalloc_initialize_config(const rpmalloc_config_t* config);
 
 //! Get allocator configuration
-const rpmalloc_config_t*
+RPMALLOC_EXPORT const rpmalloc_config_t*
 rpmalloc_config(void);
 
 //! Finalize allocator
-void
+RPMALLOC_EXPORT void
 rpmalloc_finalize(void);
 
 //! Initialize allocator for calling thread
-void
+RPMALLOC_EXPORT void
 rpmalloc_thread_initialize(void);
 
 //! Finalize allocator for calling thread
-void
+RPMALLOC_EXPORT void
 rpmalloc_thread_finalize(int release_caches);
 
 //! Perform deferred deallocations pending for the calling thread heap
-void
+RPMALLOC_EXPORT void
 rpmalloc_thread_collect(void);
 
 //! Query if allocator is initialized for calling thread
-int
+RPMALLOC_EXPORT int
 rpmalloc_is_thread_initialized(void);
 
 //! Get per-thread statistics
-void
+RPMALLOC_EXPORT void
 rpmalloc_thread_statistics(rpmalloc_thread_statistics_t* stats);
 
 //! Get global statistics
-void
+RPMALLOC_EXPORT void
 rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats);
 
 //! Dump all statistics in human readable format to file (should be a FILE*)
-void
+RPMALLOC_EXPORT void
 rpmalloc_dump_statistics(void* file);
 
 //! Allocate a memory block of at least the given size
-RPMALLOC_ALLOCATOR void*
-rpmalloc(size_t size) RPMALLOC_ATTRIB_ALLOC_SIZE(1);
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
+rpmalloc(size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE(1);
 
 //! Free the given memory block
-void
+RPMALLOC_EXPORT void
 rpfree(void* ptr);
 
 //! Allocate a memory block of at least the given size and zero initialize it
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rpcalloc(size_t num, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE2(1, 2);
 
 //! Reallocate the given block to at least the given size
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rprealloc(void* ptr, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE(2);
 
 //! Reallocate the given block to at least the given size and alignment,
@@ -254,40 +257,44 @@ rprealloc(void* ptr, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_S
 //  Alignment must be a power of two and a multiple of sizeof(void*),
 //  and should ideally be less than memory page size. A caveat of rpmalloc
 //  internals is that this must also be strictly less than the span size (default 64KiB)
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rpaligned_realloc(void* ptr, size_t alignment, size_t size, size_t oldsize, unsigned int flags) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE(3);
 
 //! Allocate a memory block of at least the given size and alignment.
 //  Alignment must be a power of two and a multiple of sizeof(void*),
 //  and should ideally be less than memory page size. A caveat of rpmalloc
 //  internals is that this must also be strictly less than the span size (default 64KiB)
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rpaligned_alloc(size_t alignment, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE(2);
 
 //! Allocate a memory block of at least the given size and alignment, and zero initialize it.
 //  Alignment must be a power of two and a multiple of sizeof(void*),
 //  and should ideally be less than memory page size. A caveat of rpmalloc
 //  internals is that this must also be strictly less than the span size (default 64KiB)
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rpaligned_calloc(size_t alignment, size_t num, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE2(2, 3);
 
 //! Allocate a memory block of at least the given size and alignment.
 //  Alignment must be a power of two and a multiple of sizeof(void*),
 //  and should ideally be less than memory page size. A caveat of rpmalloc
 //  internals is that this must also be strictly less than the span size (default 64KiB)
-RPMALLOC_ALLOCATOR void*
+RPMALLOC_EXPORT RPMALLOC_ALLOCATOR void*
 rpmemalign(size_t alignment, size_t size) RPMALLOC_ATTRIB_MALLOC RPMALLOC_ATTRIB_ALLOC_SIZE(2);
 
 //! Allocate a memory block of at least the given size and alignment.
 //  Alignment must be a power of two and a multiple of sizeof(void*),
 //  and should ideally be less than memory page size. A caveat of rpmalloc
 //  internals is that this must also be strictly less than the span size (default 64KiB)
-int
+RPMALLOC_EXPORT int
 rpposix_memalign(void** memptr, size_t alignment, size_t size);
 
 //! Query the usable size of the given memory block (from given pointer to the end of block)
-size_t
+RPMALLOC_EXPORT size_t
 rpmalloc_usable_size(void* ptr);
+
+//! Dummy empty function for forcing linker symbol inclusion
+RPMALLOC_EXPORT void
+rpmalloc_linker_reference(void);
 
 #if RPMALLOC_FIRST_CLASS_HEAPS
 
@@ -355,11 +362,12 @@ rpmalloc_heap_free_all(rpmalloc_heap_t* heap);
 RPMALLOC_EXPORT void
 rpmalloc_heap_thread_set_current(rpmalloc_heap_t* heap);
 
+//! Returns which heap the given pointer is allocated on
+RPMALLOC_EXPORT rpmalloc_heap_t*
+rpmalloc_get_heap_for_ptr(void* ptr);
+
 #endif
 
-int __malloc_process_init();
-void __malloc_thread_init();
-void __malloc_thread_finalize();
 #ifdef __cplusplus
 }
 #endif

@@ -52,7 +52,7 @@ if(CHCORE_SSI)
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL")
     chcore_generate_emulate_sh(
-      "/opt/qemu-jic23/bin/qemu-system-x86_64"
+      "qemu-6.2-system-x86_64"
       "--enable-kvm -M q35,cxl=on -m 4G \
       -object memory-backend-ram,id=vmem0,share=on,size=1G \
       -device pxb-cxl,bus_nr=12,bus=pcie.0,id=cxl.1 \

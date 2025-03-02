@@ -717,6 +717,43 @@ ssize_t chcore_pread(int fd, void *buf, size_t count, off_t offset)
 	return ret;
 }
 
+ssize_t chcore_pwrite(int fd, const void *buf, size_t count, off_t offset)
+{
+	ipc_msg_t *ipc_msg;
+	ipc_struct_t *_fs_ipc_struct;
+	struct fd_record_extension *fd_ext;
+	struct fs_request *fr_ptr;
+	int ret = 0;
+	int remain = count, cnt;
+
+	if (fd_not_exists(fd))
+		return -EBADF;
+
+	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+
+	BUG_ON(fd_ext->mount_id < 0);
+	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE); // san check
+	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
+	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
+	while (remain > 0) {
+		cnt = MIN(remain, FS_BUF_SIZE);
+		fr_ptr->req = FS_REQ_PWRITE;
+		fr_ptr->pwrite.fd = fd;
+		fr_ptr->pwrite.count = cnt;
+		fr_ptr->pwrite.offset = offset;
+		ipc_set_msg_data(ipc_msg, buf, sizeof(struct fs_request), cnt);
+		ret = ipc_call(_fs_ipc_struct, ipc_msg);
+		buf = (char *)buf + ret;
+		remain -= ret;
+		if (ret != cnt)
+			break;
+	}
+	ret = count - remain;
+	ipc_destroy_msg(ipc_msg);
+	return ret;
+}
+
 /*
  * This function is never being used, all the functionalities
  * are performed by __xstatxx in syscall_dispatcher.c.

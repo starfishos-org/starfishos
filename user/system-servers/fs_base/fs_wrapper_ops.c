@@ -378,6 +378,80 @@ out:
 	return ret;
 }
 
+int fs_wrapper_pwrite(ipc_msg_t *ipc_msg, struct fs_request *fr)
+{
+	int fd;
+	char *buf;
+	size_t size;
+	off_t offset;
+	void *operator;
+	int ret;
+	struct fs_vnode *vnode;
+	char *block_buf;
+	int fptr, page_idx, block_idx, block_off, copy_size;
+
+	ret = 0;
+	fd = fr->pwrite.fd;
+	buf = (void *)fr + sizeof(struct fs_request);
+	fs_debug_trace_fswrapper("entry_id=%d\n", fd);
+
+	pthread_mutex_lock(&server_entrys[fd]->lock);
+	pthread_rwlock_wrlock(&server_entrys[fd]->vnode->rwlock);
+
+	size = (size_t)fr->pwrite.count;
+	offset = (off_t)fr->pwrite.offset;
+	vnode = server_entrys[fd]->vnode;
+	operator = server_entrys[fd]->vnode->private;
+
+	/*
+	* If size == 0, do nothing and return 0
+	* Even the offset is outside of the file, inode size is not changed!
+	*/
+	if (size == 0) {
+		goto out;
+	}
+
+	/*
+	* Server-side write operation should implement like:
+	* - Base: write file and return bytes written
+	* - If offset is outside the file (notice size=0 is handled)
+	*      Filling '\0' until offset pos, then append file
+	*/
+
+	if (!using_page_cache)
+		ret = server_ops.write(operator, offset, size, buf);
+	else {
+		if (offset + size > vnode->size) {
+			vnode->size = offset + size;
+			server_ops.ftruncate(operator, offset + size);
+		}
+		for (fptr = offset; fptr < offset + size; fptr = ROUND_DOWN(fptr, CACHED_BLOCK_SIZE) + CACHED_BLOCK_SIZE) {
+			page_idx = fptr / CACHED_PAGE_SIZE;
+			block_idx = (fptr - ROUND_DOWN(fptr, PAGE_SIZE)) / CACHED_BLOCK_SIZE;
+			block_off = fptr - ROUND_DOWN(fptr, CACHED_BLOCK_SIZE);
+			copy_size = MIN(CACHED_BLOCK_SIZE - block_off, offset + size - fptr);
+
+			/* get-write-put */
+			block_buf = page_cache_get_block_or_page(vnode->page_cache, page_idx, block_idx, WRITE);
+			memcpy(block_buf + block_off, buf + fptr - offset, copy_size);
+			page_cache_put_block_or_page(vnode->page_cache, page_idx, block_idx, WRITE);
+
+			ret += copy_size;
+		}
+	}
+
+	/* Update server_entry and vnode metadata */
+	server_entrys[fd]->offset += ret;
+	if (server_entrys[fd]->offset > server_entrys[fd]->vnode->size) {
+		server_entrys[fd]->vnode->size = server_entrys[fd]->offset;
+	}
+
+out:
+	pthread_rwlock_unlock(&server_entrys[fd]->vnode->rwlock);
+	pthread_mutex_unlock(&server_entrys[fd]->lock);
+	return ret;
+}
+
 int fs_wrapper_write(ipc_msg_t *ipc_msg, struct fs_request *fr)
 {
 	int fd;
