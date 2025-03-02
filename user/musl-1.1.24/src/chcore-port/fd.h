@@ -29,6 +29,8 @@ enum fd_type {
 struct fd_ops {
 	int (*read) (int fd, void *buf, size_t count);
 	int (*write) (int fd, void *buf, size_t count);
+	int (*pread) (int fd, void *buf, size_t count, off_t offset);
+	int (*pwrite) (int fd, void *buf, size_t count, off_t offset);
 	int (*close) (int fd);
 	int (*poll) (int fd, struct pollarg *arg);
 	int (*ioctl) (int fd, unsigned long request, void *arg);

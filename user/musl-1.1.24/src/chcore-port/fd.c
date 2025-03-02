@@ -88,6 +88,14 @@ int chcore_write(int fd, void *buf, size_t count)
 	return fd_dic[fd]->fd_op->write(fd, buf, count);
 }
 
+int chcore_pread(int fd, void *buf, size_t count, off_t offset) {
+	return fd_dic[fd]->fd_op->pread(fd, buf, count, offset);
+}
+
+int chcore_pwrite(int fd, const void *buf, size_t count, off_t offset) {
+	return fd_dic[fd]->fd_op->pwrite(fd, buf, count, offset);
+}
+
 int chcore_close(int fd)
 {
 	if (fd < 0 || fd_dic[fd] == 0)
@@ -239,6 +247,8 @@ static char fd_type[][20] = {
 	"EVENT",
 	"TIMER",
 	"EPOLL",
+	"DEV",
+	"HOSTFS",
 };
 
 static int fd_default_read(int fd, void *buf, size_t size)

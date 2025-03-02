@@ -667,7 +667,7 @@ int chcore_fallocate(int fd, int mode, off_t offset, off_t len)
 	return ret;
 }
 
-ssize_t chcore_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 {
 #if 0
 	ssize_t nread;
@@ -717,7 +717,7 @@ ssize_t chcore_pread(int fd, void *buf, size_t count, off_t offset)
 	return ret;
 }
 
-ssize_t chcore_pwrite(int fd, const void *buf, size_t count, off_t offset)
+ssize_t chcore_file_pwrite(int fd, const void *buf, size_t count, off_t offset)
 {
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
@@ -1164,6 +1164,8 @@ int __xstatxx(int req, int fd, const char *path, int flags,
 struct fd_ops file_ops = {
 	.read = chcore_file_read,
 	.write = chcore_file_write,
+	.pread = chcore_file_pread,
+	.pwrite = chcore_file_pwrite,
 	.close = chcore_file_close,
 	.ioctl = chcore_file_ioctl,
 	.poll = NULL,
