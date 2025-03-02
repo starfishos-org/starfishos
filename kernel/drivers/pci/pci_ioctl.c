@@ -54,7 +54,7 @@ int sys_pcie_control(u64 usr_req_buf)
     }
 
     copy_from_user((char *)req, (char *)usr_req_buf, sizeof(struct pci_control_req));
-    pci_ioctl_debug("[PCI] sys_pcie_control request is %d\n", req->req_type);
+    pci_ioctl_debug("[PCI] sys_pcie_control request is %lx\n", req->req_type);
 
     if (req->req_type == PCI_CONTROL_LIST_DEVICES) {
         ret = pci_list_all_devices(req);
@@ -83,6 +83,7 @@ int sys_pcie_control(u64 usr_req_buf)
     case VFIO_TYPE:
         ret = vfio_handle_ioctl(req->req_type, pdev, 
             (void *)&(req->_vfio_args));
+        copy_to_user((char *)usr_req_buf, (char *)req, sizeof(struct pci_control_req));
         goto out;
     default:
         pci_info("Chcore does not support device type %c\n", device_type);

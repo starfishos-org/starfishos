@@ -1,5 +1,4 @@
-#ifndef	_SYS_IOCTL_H
-#define	_SYS_IOCTL_H
+#pragma once
 
 #include <chcore/type.h>
 
@@ -38,9 +37,9 @@ extern "C" {
  * And this turns out useful to catch old ioctl numbers in header
  * files for us.
  */
-#define _IOC_NONE	1U
-#define _IOC_READ	2U
-#define _IOC_WRITE	4U
+#define _IOC_NONE	0U
+#define _IOC_READ	1U
+#define _IOC_WRITE	2U
 
 #define _IOC(dir,type,nr,size)			\
 	((unsigned int)				\
@@ -76,6 +75,4 @@ extern "C" {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

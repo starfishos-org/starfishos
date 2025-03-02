@@ -13,7 +13,7 @@ extern "C" {
 #define PCI_CONTROL_OPEN_DEVICE     (1)
 
 struct pci_control_req {
-    u32 req_type; // pcie control type
+    u64 req_type; // pcie control type
     char dev_ids[16];
     union {
         union {

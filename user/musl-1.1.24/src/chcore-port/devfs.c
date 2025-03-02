@@ -22,25 +22,47 @@ int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg)
 		return -ENOMEM;
 	}
 
-	switch (request) {
+	req->req_type = request;
+	strncpy(req->dev_ids, fd_dic[fd]->private_data, 
+		sizeof(req->dev_ids));
+	printf("VFIO_IOMMU_MAP_DMA 0x%lx\n", VFIO_IOMMU_MAP_DMA);
+	printf("req->req_type 0x%lx\n", req->req_type);
+
+	switch (req->req_type) {
 		case VFIO_IOMMU_MAP_DMA:
 		{
-			req->req_type = VFIO_IOMMU_MAP_DMA;
-			strncpy(req->dev_ids, fd_dic[fd]->private_data, 
-				sizeof(req->dev_ids));
-
-			// call pcie_control to kernel
+			printf("VFIO_IOMMU_MAP_DMA\n");
+			strncpy(&req->_vfio_args, arg, 
+				sizeof(struct vfio_iommu_type1_dma_map));
+			ret = usys_pcie_control((u64)req);
+			strncpy(arg, &req->_vfio_args, 
+				sizeof(struct vfio_device_info));
+			break;
+		}
+		case VFIO_DEVICE_GET_INFO:
+		{
+			printf("VFIO_DEVICE_GET_INFO\n");
 			ret = usys_pcie_control((u64)req);
 			if (ret < 0) {
 				goto out;
 			}
-
-			// copy return dma_map to arg
-			strncpy(arg, &req->_vfio.dma_map, 
-				sizeof(struct vfio_iommu_type1_dma_map));
+			strncpy(arg, &req->_vfio_args, 
+				sizeof(struct vfio_device_info));
+			break;
+		}
+		case VFIO_DEVICE_GET_REGION_INFO:
+		{
+			printf("VFIO_DEVICE_GET_REGION_INFO\n");
+			ret = usys_pcie_control((u64)req);
+			if (ret < 0) {
+				goto out;
+			}
+			strncpy(arg, &req->_vfio_args, 
+				sizeof(struct vfio_region_info));
 			break;
 		}
 		default:
+			printf("default\n");
 			return -EINVAL;
 	}
 out:
