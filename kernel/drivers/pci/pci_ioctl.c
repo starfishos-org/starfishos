@@ -82,8 +82,7 @@ int sys_pcie_control(u64 usr_req_buf)
     switch (device_type) {
     case VFIO_TYPE:
         ret = vfio_handle_ioctl(req->req_type, pdev, 
-            (void *)&(req->_vfio_args));
-        copy_to_user((char *)usr_req_buf, (char *)req, sizeof(struct pci_control_req));
+            req->arg_ptr, req->arg_sz);
         goto out;
     default:
         pci_info("Chcore does not support device type %c\n", device_type);
