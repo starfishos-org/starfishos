@@ -716,6 +716,9 @@ long __syscall4(long n, long a, long b, long c, long d)
 	case SYS_pread64: {
 		return chcore_pread(a, (void *)b, c, d);
 	}
+	case SYS_pwrite64: {
+		return chcore_pwrite(a, (const void *)b, c, d);
+	}
 	case SYS_futex: {
 		return chcore_futex((int *)a, b, c, (struct timespec *)d, NULL, 0);
 	}

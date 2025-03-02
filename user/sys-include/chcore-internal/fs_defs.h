@@ -128,6 +128,12 @@ struct fs_request {
 		} pread;
 		struct {
 			int fd;
+			size_t count;
+			off_t offset;
+			char write_buff_begin;
+		} pwrite;
+		struct {
+			int fd;
 			off_t offset;
 			int whence;
 		} lseek;

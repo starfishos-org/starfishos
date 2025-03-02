@@ -103,6 +103,7 @@ int fs_wrapper_open(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr)
 int fs_wrapper_close(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_read(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_pread(ipc_msg_t *ipc_msg, struct fs_request *fr);
+int fs_wrapper_pwrite(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_write(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_lseek(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_ftruncate(ipc_msg_t *ipc_msg, struct fs_request *fr);

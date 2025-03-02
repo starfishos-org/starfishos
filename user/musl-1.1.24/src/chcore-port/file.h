@@ -17,6 +17,7 @@ int chcore_renameat(int olddirfd, const char *oldpath,
 int chcore_faccessat(int dirfd, const char *pathname, int amode, int flags);
 int chcore_fallocate(int fd, int mode, off_t offset, off_t len);
 ssize_t chcore_pread(int fd, void *buf, size_t count, off_t offset);
+ssize_t chcore_pwrite(int fd, const void *buf, size_t count, off_t offset);
 int chcore_statx(int dirfd, const char *pathname, int flags,
 		 unsigned int mask, char *buf);
 int chcore_sync(void);
