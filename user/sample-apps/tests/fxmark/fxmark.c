@@ -204,5 +204,7 @@ int main(int argc, char *argv[])
 	run_bench(bench);
 	report_bench(bench, stdout);
 
+	printf("done\n");
+
 	return 0;
 }
