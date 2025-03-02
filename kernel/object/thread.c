@@ -241,7 +241,8 @@ void create_root_thread(void)
                             ROOT_THREAD_STACK_BASE,
                             ROOT_THREAD_STACK_SIZE,
                             VMR_READ | VMR_WRITE,
-                            stack_pmo);
+                            stack_pmo,
+                            NULL);
     BUG_ON(ret != 0);
     /* Allocate the init thread */
     thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __DEFAULT__);
@@ -252,7 +253,8 @@ void create_root_thread(void)
                             ROOT_THREAD_VADDR,
                             pmo->size,
                             VMR_READ | VMR_WRITE | VMR_EXEC,
-                            pmo);
+                            pmo,
+                            NULL);
     BUG_ON(ret < 0);
     stack = ROOT_THREAD_STACK_BASE + ROOT_THREAD_STACK_SIZE;
 

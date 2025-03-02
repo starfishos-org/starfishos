@@ -19,33 +19,8 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
 extern int radix_deep_copy_with_hybird_mem(struct radix *src,
                                            struct radix *dst);
 
-int sys_create_device_pmo(u64 paddr, u64 size)
-{
-    int cap, r;
-    struct pmobject *pmo;
-
-    BUG_ON(size == 0);
-    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __DEFAULT__);
-    if (!pmo) {
-        r = -ENOMEM;
-        goto out_fail;
-    }
-    pmo_init(pmo, PMO_DEVICE, size, paddr);
-    cap = cap_alloc(current_cap_group, pmo, 0);
-    if (cap < 0) {
-        r = cap;
-        goto out_free_obj;
-    }
-
-    return cap;
-out_free_obj:
-    obj_free(pmo);
-out_fail:
-    return r;
-}
-
-int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
-               struct pmobject **new_pmo)
+static int __create_pmo(u64 paddr, u64 size, u64 type, int flags, 
+            struct cap_group *cap_group, struct pmobject **new_pmo)
 {
     int cap, r;
     struct pmobject *pmo;
@@ -56,7 +31,7 @@ int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
         goto out_fail;
     }
 
-    r = pmo_init(pmo, type, size, 0);
+    r = pmo_init(pmo, type, size, paddr);
     if (r)
         goto out_free_obj;
 
@@ -75,6 +50,23 @@ out_free_obj:
     obj_free(pmo);
 out_fail:
     return r;
+}
+
+int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo)
+{
+    return __create_pmo(paddr, size, PMO_DEVICE, __DEFAULT__, 
+            current_cap_group, new_pmo);
+}
+
+int sys_create_device_pmo(u64 paddr, u64 size)
+{
+    return create_device_pmo(paddr, size, NULL);
+}
+
+int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
+               struct pmobject **new_pmo)
+{
+    return __create_pmo(0, size, type, flags, cap_group, new_pmo);
 }
 
 int sys_create_pmo(u64 size, u64 type, int flags)
@@ -494,7 +486,7 @@ int sys_map_pmo(u64 target_cap_group_cap, u64 pmo_cap, u64 addr, u64 perm,
      * - check wheter perm is legal?
      * - check addr validation?
      */
-    r = vmspace_map_range(vmspace, addr, len, perm, pmo);
+    r = vmspace_map_range(vmspace, addr, len, perm, pmo, NULL);
     if (r != 0) {
         r = -EPERM;
         goto out_obj_put_vmspace;
@@ -535,7 +527,7 @@ int map_pmo_in_current_cap_group(u64 pmo_cap, u64 addr, u64 perm)
 
     vmspace = obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
     BUG_ON(vmspace == NULL);
-    r = vmspace_map_range(vmspace, addr, pmo->size, perm, pmo);
+    r = vmspace_map_range(vmspace, addr, pmo->size, perm, pmo, NULL);
     if (r != 0) {
         kinfo("%s failed: addr 0x%lx, pmo->size 0x%lx\n",
               __func__,

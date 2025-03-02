@@ -162,14 +162,41 @@ static int check_vmr_intersect(struct vmspace *vmspace,
     return (res == NULL) ? 0 : 1;
 }
 
+// find a free va for vmr to allocate
+// make sure that the lock is acquired before calling this function
+static vaddr_t find_free_va(struct vmspace *vmspace, size_t size)
+{
+    struct vmregion *vmr = NULL;
+    vaddr_t va_last_high = 0, va_low = 0;
+
+    // [xx, va_last_high) -> [find) -> [va_low, xx)
+    for_each_in_list(vmr, struct vmregion, list_node, &vmspace->vmr_list) {
+        va_low = vmr->start;
+        if (va_low > va_last_high + size) {
+            return va_last_high;
+        }
+        va_last_high = va_low + vmr->size;
+    }
+    return va_last_high;
+}
+
+struct vmspace *get_current_vmspace()
+{
+    return obj_get(current_thread->cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+}
+
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
 {
+    if (vmr->start == -1) {
+        vmr->start = find_free_va(vmspace, vmr->size);
+    }
+
     if (check_vmr_intersect(vmspace, vmr) != 0) {
         kwarn("VM fault: vmr overlap, vmr->va=%llx, ->size=%llx\n",
               vmr->start,
               vmr->size);
         /* TODO: kill the faulting process */
-        BUG_ON(1);
+        // BUG_ON(1);
         return -EINVAL;
     }
 
@@ -265,7 +292,8 @@ struct vmregion *find_vmr_for_va(struct vmspace *vmspace, vaddr_t addr)
 }
 
 int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
-                      vmr_prop_t flags, struct pmobject *pmo)
+                      vmr_prop_t flags, struct pmobject *pmo, 
+                      struct vmregion **out_vmregion)
 {
     struct vmregion *vmr;
     int ret;
@@ -326,6 +354,9 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
     if ((pmo->type == PMO_DATA) || (pmo->type == PMO_DATA_NOCACHE)
         || (pmo->type == PMO_DEVICE) || (pmo->type == PMO_RING_BUFFER))
         fill_page_table(vmspace, vmr);
+
+    if (out_vmregion)
+        *out_vmregion = vmr;
 
     /* On success */
     return 0;

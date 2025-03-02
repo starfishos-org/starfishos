@@ -178,16 +178,19 @@ struct vmregion *alloc_vmregion(void);
 void free_vmregion(struct vmregion *vmr);
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr);
 
+struct vmspace *get_current_vmspace();
 int vmspace_init(struct vmspace *vmspace);
 
 struct cap_group;
 int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
                struct pmobject **new_pmo);
+int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo);
 
 int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo);
 
 int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
-                      vmr_prop_t flags, struct pmobject *pmo);
+                      vmr_prop_t flags, struct pmobject *pmo,
+                      struct vmregion **out_vmr);
 int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len);
 int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo);
 
