@@ -41,7 +41,7 @@ SECTIONS
     .debug_sup      0 : { *(.debug_sup) }
 
     /* Offset 1M is reserved for BIOS code */
-    . = 0xFFFFFFFFC0100000;
+    . = 0xFFFFFFFF80100000;
     PROVIDE(text = .);
 
     .text : AT(0x100000) {

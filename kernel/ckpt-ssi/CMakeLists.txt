@@ -1,18 +1,2 @@
-target_sources(${kernel_target} 
-	PRIVATE ckpt.c
-            restore.c
-			ckpt_ipi.c
-			ckpt_ws.c
-			ckpt_object_pool.c
-			ckpt_page.c
-			ckpt_objects/cap_group.c
-			ckpt_objects/connection.c
-			ckpt_objects/irq.c
-			ckpt_objects/notification.c
-			ckpt_objects/pmobject.c
-			ckpt_objects/thread.c
-			ckpt_objects/vmspace.c
-			hot_pages_tracker.c
-			external_sync.c
-			ckpt_time_traveling.c
-			)
+file(GLOB_RECURSE src "*.c")
+target_sources(${kernel_target} PRIVATE ${src})

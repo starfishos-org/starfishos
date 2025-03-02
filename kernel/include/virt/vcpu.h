@@ -21,53 +21,53 @@
 #define ADAGIO_IRQ_BUF_SIZE 32
 
 struct vcpu_ctx {
-	struct gp_regs gp_regs;
-	struct sys_regs sys_regs;
-	struct hyp_regs hyp_regs;
-	struct vtimer vtimer;
+    struct gp_regs gp_regs;
+    struct sys_regs sys_regs;
+    struct hyp_regs hyp_regs;
+    struct vtimer vtimer;
 
 #ifdef FEAT_VGIC
-	struct vgic_cpu vgic_cpu;
+    struct vgic_cpu vgic_cpu;
 #endif
 };
 
 struct pending_adagio_irq {
-	struct lock lock;
-	u8 irq_buf[ADAGIO_IRQ_BUF_SIZE];
-	u32 irq_buf_append_idx;
-	u32 irq_buf_read_idx;
-	u32 irq_buf_clear_idx;
+    struct lock lock;
+    u8 irq_buf[ADAGIO_IRQ_BUF_SIZE];
+    u32 irq_buf_append_idx;
+    u32 irq_buf_read_idx;
+    u32 irq_buf_clear_idx;
 };
 
 struct virt_vcpu {
-	/* Point to vm struct the vcpu belongs to */
-	struct virt_vm *vm;
-	/* Store vcpu register states */
-	struct vcpu_ctx *vcpu_ctx;
+    /* Point to vm struct the vcpu belongs to */
+    struct virt_vm *vm;
+    /* Store vcpu register states */
+    struct vcpu_ctx *vcpu_ctx;
 
-	struct pending_adagio_irq *pending_adagio_irq;
-	/* link all vcpu in the same vm */
-	struct list_head vcpu_list_node;
+    struct pending_adagio_irq *pending_adagio_irq;
+    /* link all vcpu in the same vm */
+    struct list_head vcpu_list_node;
 
-	int current_phys_cpuid;
+    int current_phys_cpuid;
 
-	/*
-	 * TODO:
-	 * use cpu_state enum rather than a single variable to describe cpu state,
-	 * which should contain VCPU_INIT, VCPU_ON, VCPU_OFF at least.
-	 */
-	bool plugged;
+    /*
+     * TODO:
+     * use cpu_state enum rather than a single variable to describe cpu state,
+     * which should contain VCPU_INIT, VCPU_ON, VCPU_OFF at least.
+     */
+    bool plugged;
 };
 
 struct host_cpu_ctx {
-	struct gp_regs gp_regs;
-	struct sys_regs sys_regs;
-	struct hyp_regs hyp_regs;
+    struct gp_regs gp_regs;
+    struct sys_regs sys_regs;
+    struct hyp_regs hyp_regs;
 };
 
 struct percpu_hyp_state {
-	struct virt_vcpu *current_vcpu;
-	struct host_cpu_ctx *host_cpu_ctx;
+    struct virt_vcpu *current_vcpu;
+    struct host_cpu_ctx *host_cpu_ctx;
 };
 
 extern struct percpu_hyp_state percpu_hyp_states[PLAT_CPU_NUM];
@@ -76,7 +76,7 @@ extern struct percpu_hyp_state percpu_hyp_states[PLAT_CPU_NUM];
 #define get_current_vcpu()      (get_current_hyp_state().current_vcpu)
 
 #define DEFINE(sym, val) \
-	asm volatile("\n.ascii \"->" #sym " %0 " #val "\"" : : "i"(val))
+    asm volatile("\n.ascii \"->" #sym " %0 " #val "\"" : : "i"(val))
 
 #define asmoffsetof(TYPE, MEMBER) ((u64) & ((TYPE *)0)->MEMBER)
 
@@ -86,7 +86,7 @@ extern struct percpu_hyp_state percpu_hyp_states[PLAT_CPU_NUM];
 #define ADAGIO_REG_PREFIX_MASK 0xf000000000000000
 static inline u64 extract_adagio_reg_offset_from_id(u64 reg_id)
 {
-	return reg_id & ~ADAGIO_REG_PREFIX_MASK;
+    return reg_id & ~ADAGIO_REG_PREFIX_MASK;
 }
 
 int vcpu_run(struct virt_vcpu *vcpu);

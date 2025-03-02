@@ -60,7 +60,6 @@ typedef s64 off_t;
 /* Used for process IDs and process group IDs. */
 typedef s64 pid_t;
 
-
 /* Used to identify a thread attribute object. */
 typedef u64 pthread_attr_t;
 

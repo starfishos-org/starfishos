@@ -9,58 +9,57 @@
 
 int rwlock_init(struct rwlock *rwlock)
 {
-	if (rwlock == 0)
-		return -EINVAL;
-	rwlock->lock = 0;
-	return 0;
+    if (rwlock == 0)
+        return -EINVAL;
+    rwlock->lock = 0;
+    return 0;
 }
 
 /* WARN: when there are more than 0x7FFFFFFF readers exist, this function
  * will not function correctly */
 void read_lock(struct rwlock *rwlock)
 {
-	while (atomic_fetch_add_32((s32 *)&rwlock->lock, 1) & 0x80000000) {
-		while(rwlock->lock & 0x80000000)
-			CPU_PAUSE();
-	}
-	COMPILER_BARRIER();
+    while (atomic_fetch_add_32((s32 *)&rwlock->lock, 1) & 0x80000000) {
+        while (rwlock->lock & 0x80000000)
+            CPU_PAUSE();
+    }
+    COMPILER_BARRIER();
 }
 
 int read_try_lock(struct rwlock *rwlock)
 {
-	s32 old;
+    s32 old;
 
-	old = atomic_fetch_add_32((s32 *)&rwlock->lock, 1);
-	COMPILER_BARRIER();
-	return (old & 0x80000000)? -1: 0;
+    old = atomic_fetch_add_32((s32 *)&rwlock->lock, 1);
+    COMPILER_BARRIER();
+    return (old & 0x80000000) ? -1 : 0;
 }
 
 void read_unlock(struct rwlock *rwlock)
 {
-	COMPILER_BARRIER();
-	atomic_fetch_add_32(&rwlock->lock, -1);
+    COMPILER_BARRIER();
+    atomic_fetch_add_32(&rwlock->lock, -1);
 }
 
 void write_lock(struct rwlock *rwlock)
 {
-	while(compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0)
-		CPU_PAUSE();
-	COMPILER_BARRIER();
+    while (compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0)
+        CPU_PAUSE();
+    COMPILER_BARRIER();
 }
 
 int write_try_lock(struct rwlock *rwlock)
 {
-	int ret = 0;
+    int ret = 0;
 
-	if(compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0)
-		ret = -1;
-	COMPILER_BARRIER();
-	return ret;
+    if (compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0)
+        ret = -1;
+    COMPILER_BARRIER();
+    return ret;
 }
-
 
 void write_unlock(struct rwlock *rwlock)
 {
-	COMPILER_BARRIER();
-	rwlock->lock = 0;
+    COMPILER_BARRIER();
+    rwlock->lock = 0;
 }

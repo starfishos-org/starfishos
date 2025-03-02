@@ -1,10 +1,12 @@
 #pragma once
 
-#include "common/list.h"
-#include "common/macro.h"
-#include "drivers/pci.h"
+#include <common/list.h>
+#include <common/macro.h>
+#include <drivers/pci.h>
 #include <common/types.h>
 #include <arch/mm/page_table.h>
+
+#include "pci_cxl.h"
 
 #define CXL_DEBUG
 
@@ -19,25 +21,25 @@
 #endif
 
 struct cxl_reg_map {
-        bool valid;
-        int id;
-        unsigned long offset;
-        unsigned long size;
+    bool valid;
+    int id;
+    unsigned long offset;
+    unsigned long size;
 };
 
 struct cxl_component_reg_map {
-        struct cxl_reg_map hdm_decoder;
-        struct cxl_reg_map ras;
+    struct cxl_reg_map hdm_decoder;
+    struct cxl_reg_map ras;
 };
 
 struct cxl_device_reg_map {
-        struct cxl_reg_map status;
-        struct cxl_reg_map mbox;
-        struct cxl_reg_map memdev;
+    struct cxl_reg_map status;
+    struct cxl_reg_map mbox;
+    struct cxl_reg_map memdev;
 };
 
 struct cxl_pmu_reg_map {
-        struct cxl_reg_map pmu;
+    struct cxl_reg_map pmu;
 };
 
 /**
@@ -52,16 +54,16 @@ struct cxl_pmu_reg_map {
  * @pmu_map: cxl_reg_maps for CXL Performance Monitoring Units
  */
 struct cxl_register_map {
-        struct pci_dev *pdev;
-        void *base;
-        resource_size_t resource;
-        resource_size_t max_size;
-        u8 reg_type;
-        union {
-                struct cxl_component_reg_map component_map;
-                struct cxl_device_reg_map device_map;
-                struct cxl_pmu_reg_map pmu_map;
-        };
+    struct pci_dev *pdev;
+    void *base;
+    resource_size_t resource;
+    resource_size_t max_size;
+    u8 reg_type;
+    union {
+        struct cxl_component_reg_map component_map;
+        struct cxl_device_reg_map device_map;
+        struct cxl_pmu_reg_map pmu_map;
+    };
 };
 
 void cxl_probe_component_regs(struct pci_dev *dev, void *base,
@@ -71,31 +73,31 @@ void cxl_probe_device_regs(struct pci_dev *pdev, void *base,
 
 enum cxl_regloc_type;
 
-#define CXL_RESOURCE_NONE ((resource_size_t)-1)
+#define CXL_RESOURCE_NONE ((resource_size_t) - 1)
 struct cxl_dev_state {
-        struct pci_dev *pci_dev;
-        int cxl_dvsec;
+    struct pci_dev *pci_dev;
+    int cxl_dvsec;
 };
 struct cxl_memdev_state {
-        struct cxl_dev_state *cxlds;
+    struct cxl_dev_state *cxlds;
 };
 
 /* HACK: a fast path */
 int arch_pci_find_cxl_devices(struct list_head *list);
 
 struct cxl_hdm {
-        void *hdm_base;
-        u32 decoder_count;
-        u32 target_count;
-        u32 interleave_mask;
+    void *hdm_base;
+    u32 decoder_count;
+    u32 target_count;
+    u32 interleave_mask;
 };
 
 struct cxl_hdm cxl_hdm;
 
 struct cxl_chbs_context {
-        u64 uid;
-        u64 base;
-        u32 cxl_version;
+    u64 uid;
+    u64 base;
+    u32 cxl_version;
 };
 
 #define MAX_CXL_CHBS_NUM (16)
@@ -105,10 +107,10 @@ int cxl_chbs_ctxs_num;
 
 // CXL TYE3
 struct cxl_mem_dev {
-        u64 devid;
-        u64 start;
-        u64 size;
-        struct pci_dev *device;
+    u64 devid;
+    u64 start;
+    u64 size;
+    struct pci_dev *device;
 
 } __attribute__((packed));
 
@@ -119,14 +121,14 @@ int cxl_mem_dev_num;
 
 inline u64 cxl_get_memdev_start(cxl_mem_dev_t *dev)
 {
-        BUG_ON(!dev);
-        return dev->start;
+    BUG_ON(!dev);
+    return dev->start;
 }
 
 inline u64 cxl_get_memdev_end(cxl_mem_dev_t *dev)
 {
-        BUG_ON(!dev);
-        return dev->start + dev->size;
+    BUG_ON(!dev);
+    return dev->start + dev->size;
 }
 
 void cxl_setup_devices();

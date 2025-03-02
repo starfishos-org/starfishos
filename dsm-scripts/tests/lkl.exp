@@ -1,0 +1,12 @@
+#!/usr/bin/expect  
+
+set timeout 60
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "lkl_virtio_blk -n 0000:00:04.0 -t ext4 \r"
+
+interact

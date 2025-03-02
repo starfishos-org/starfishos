@@ -23,14 +23,13 @@
 #define STAGE2_L3_ENTRY_BITS 3
 #define STAGE2_L3_PTP_BITS   12
 
-#define GET_STAGE2_L0_INDEX(x)                                              \
-	(((x) >> (STAGE2_2M_BLOCK_SHIFT + STAGE2_L1_BITS + STAGE2_L2_BITS)) \
-	 & MASK(STAGE2_L0_BITS))
-#define GET_STAGE2_L1_INDEX(x)                             \
-	(((x) >> (STAGE2_2M_BLOCK_SHIFT + STAGE2_L2_BITS)) \
-	 & MASK(STAGE2_L1_BITS))
+#define GET_STAGE2_L0_INDEX(x)                                          \
+    (((x) >> (STAGE2_2M_BLOCK_SHIFT + STAGE2_L1_BITS + STAGE2_L2_BITS)) \
+     & MASK(STAGE2_L0_BITS))
+#define GET_STAGE2_L1_INDEX(x) \
+    (((x) >> (STAGE2_2M_BLOCK_SHIFT + STAGE2_L2_BITS)) & MASK(STAGE2_L1_BITS))
 #define GET_STAGE2_L2_INDEX(x) \
-	(((x) >> (STAGE2_2M_BLOCK_SHIFT)) & MASK(STAGE2_L2_BITS))
+    (((x) >> (STAGE2_2M_BLOCK_SHIFT)) & MASK(STAGE2_L2_BITS))
 
 /* Secure stage 2 translation output address space */
 #define VSTCR_EL2_SA BIT(30)

@@ -185,14 +185,14 @@ if(CHCORE_DEMOS_ROCKSDB)
   add_custom_target(
     rocksdb ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build
-    COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
+    COMMAND cmake -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CROSSCOMPILING=1
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -S
             ..
-    COMMAND cmake --build . -j12
+    COMMAND cmake --build . -- -j12
     COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
     COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
     COMMAND ls ${build_ramdisk_dir}
@@ -267,10 +267,42 @@ if(CHCORE_DEMOS_GEMM)
     DEPENDS)
   
   add_custom_target(
-    TARGET phoenix
+    TARGET gemm
     POST_BUILD
     COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
   )
+endif()
+
+if(CHCORE_DEMOS_LLAMACPP)
+  add_custom_target(
+    llama-clean
+    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+    COMMAND rm -rf build
+  )
+  list(APPEND _demos_clean_targets llama-clean)
+
+  add_custom_target(
+    llama ALL
+    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+    COMMAND cmake -B build 
+      -DCMAKE_C_COMPILER=${MUSL_CC}
+      -DCMAKE_CXX_COMPILER=${MUSL_CXX}
+      -DCMAKE_CROSSCOMPILING=1 
+      -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
+      -DCMAKE_SKIP_RPATH=ON
+    COMMAND cmake --build build --config Release -- -j
+    COMMENT "Build llama.cpp finished"
+    DEPENDS)
+  list(APPEND _targets llama)
+  add_dependencies(ramdisk llama)
+
+  add_custom_command(
+    TARGET llama
+    POST_BUILD
+    COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+    COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+    COMMENT "Copying llama.cpp files to ramdisk directory"
+    DEPENDS llama)
 endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})

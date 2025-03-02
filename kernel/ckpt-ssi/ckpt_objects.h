@@ -47,7 +47,6 @@ int connection_restore(struct object *, struct ckpt_object *,
 int ckpt_connection_copy(struct ckpt_object *src_obj,
                          struct ckpt_object *dst_obj, struct kvs *obj_map);
 
-
 int notification_ckpt(struct notification *notifc,
                       struct ckpt_notification *ckpt_notifc, int alloc);
 int notification_restore(struct object *, struct ckpt_object *,
@@ -62,10 +61,8 @@ int irq_restore(struct object *, struct ckpt_object *, struct kvs *obj_map,
 int ckpt_irq_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
                   struct kvs *obj_map);
 
-
 int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo);
 int pmo_restore(struct object *, struct ckpt_object *, struct kvs *obj_map,
                 bool time_traveling);
 int ckpt_pmo_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
                   struct kvs *obj_map);
-

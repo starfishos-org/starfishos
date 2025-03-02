@@ -10,4 +10,4 @@
  * bitfield passed in as @_reg by masking and shifting it down.
  */
 #define FIELD_GET(_mask, _reg) \
-        ({ (typeof(_mask))(((_reg) & (_mask)) >> __bf_shf(_mask)); })
+    ({ (typeof(_mask))(((_reg) & (_mask)) >> __bf_shf(_mask)); })

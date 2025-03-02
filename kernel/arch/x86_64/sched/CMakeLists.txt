@@ -1,2 +1,2 @@
-target_sources(${kernel_target} PRIVATE context.c extended_state.c idle.S
-                                        sched.c)
+file(GLOB_RECURSE src "*.c" "*.S")
+target_sources(${kernel_target} PRIVATE ${src})

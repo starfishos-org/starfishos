@@ -43,15 +43,15 @@
 
 /* Our own struct that contains usable data parsed from MADT. */
 struct madt_info_t {
-        void *local_apic_addr;
-        u8 processor_count;
-        u8 processor_ids[MAX_CPUS_SUPPORTED];
-        u8 local_apic_ids[MAX_CPUS_SUPPORTED];
-        u16 io_apic_count;
-        u8 io_apic_ids[32];
-        u32 io_apic_addrs[32];
-        u32 io_apic_gsi_base[32];
-        int irq_override[24];
+    void *local_apic_addr;
+    u8 processor_count;
+    u8 processor_ids[MAX_CPUS_SUPPORTED];
+    u8 local_apic_ids[MAX_CPUS_SUPPORTED];
+    u16 io_apic_count;
+    u8 io_apic_ids[32];
+    u32 io_apic_addrs[32];
+    u32 io_apic_gsi_base[32];
+    int irq_override[24];
 };
 
 u8 get_cpu_apic_id(u8 cpu_id);

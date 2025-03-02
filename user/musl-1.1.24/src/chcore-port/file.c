@@ -11,6 +11,7 @@
 
 #include "fd.h"
 #include "fs_client_defs.h"
+#include "devfs.h"
 
 #define debug(fmt, ...) printf("[DEBUG] " fmt, ##__VA_ARGS__)
 #define warn_once(fmt, ...) do {  \
@@ -823,6 +824,15 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	ret = generate_full_path(dirfd, pathname, &full_path);
 	if (ret)
 		return ret;
+	
+	// TODO: This logic should be moved to a specifical devfs server
+	/* Hack for devfs */
+	if (IS_DEVFS(full_path)) {
+		/* TODO: check whether this dev exist */
+		ret = chcore_open_dev(fd, full_path);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {

@@ -87,6 +87,8 @@ void usys_set_poll_remote();
 void usys_set_excepted_connected_client_num(int expected_num);
 void usys_set_dyn_args(u64, u64);
 
+int usys_pcie_control(u64);
+
 #ifdef __cplusplus
 }
 #endif

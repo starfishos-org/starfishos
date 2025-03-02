@@ -23,6 +23,7 @@ enum fd_type {
 	FD_TYPE_EVENT,
 	FD_TYPE_TIMER,
 	FD_TYPE_EPOLL,
+	FD_TYPE_DEV,
 };
 
 struct fd_ops {

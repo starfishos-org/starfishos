@@ -30,6 +30,7 @@ add_custom_target(
             || echo "No custom ramdisk found, skipping"
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
+    COMMENT "Copying ramdisk files to ramdisk directory"
     )
 # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
@@ -71,5 +72,5 @@ foreach(_target ${_targets})
     list(APPEND _clean_targets ${_target})
   endif()
 endforeach()
-message(STATUS ${_clean_targets})
-add_custom_target(custom-clean DEPENDS demos-clean ${_clean_targets})
+message(STATUS "Clean targets: ${_clean_targets}")
+add_custom_target(custom-clean DEPENDS libraries-clean demos-clean ${_clean_targets})

@@ -9,6 +9,7 @@ add_library(common-lib STATIC
     "spawn.c"
     "syscall.c"
     "thread.c"
+    "devfs.c"
     "../lib/pmu.c"
     "../lib/syscall_arch.c"
     "../lib/spin_lock.c"

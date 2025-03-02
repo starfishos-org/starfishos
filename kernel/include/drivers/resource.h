@@ -3,12 +3,12 @@
 #include <common/types.h>
 
 struct resource {
-        resource_size_t start;
-        resource_size_t end;
-        const char *name;
-        unsigned long flags;
-        unsigned long desc;
-        struct resource *parent, *sibling, *child;
+    resource_size_t start;
+    resource_size_t end;
+    const char *name;
+    unsigned long flags;
+    unsigned long desc;
+    struct resource *parent, *sibling, *child;
 };
 
 /*
@@ -45,12 +45,12 @@ struct resource {
 
 /* IORESOURCE_SYSRAM specific bits. */
 #define IORESOURCE_SYSRAM_DRIVER_MANAGED \
-        0x02000000 /* Always detected via a driver. */
+    0x02000000 /* Always detected via a driver. */
 #define IORESOURCE_SYSRAM_MERGEABLE 0x04000000 /* Resource can be merged. */
 
-#define IORESOURCE_EXCLUSIVE                             \
-        0x08000000 /* Userland may not map this resource \
-                    */
+#define IORESOURCE_EXCLUSIVE                         \
+    0x08000000 /* Userland may not map this resource \
+                */
 
 #define IORESOURCE_DISABLED 0x10000000
 #define IORESOURCE_UNSET    0x20000000 /* No address assigned yet */
@@ -105,7 +105,7 @@ struct resource {
 
 /* PCI ROM control bits (IORESOURCE_BITS) */
 #define IORESOURCE_ROM_ENABLE \
-        (1 << 0) /* ROM is enabled, same as PCI_ROM_ADDRESS_ENABLE */
+    (1 << 0) /* ROM is enabled, same as PCI_ROM_ADDRESS_ENABLE */
 #define IORESOURCE_ROM_SHADOW (1 << 1) /* Use RAM image, not ROM BAR */
 
 /* PCI control bits.  Shares IORESOURCE_BITS with above PCI ROM.  */
@@ -121,22 +121,22 @@ struct resource {
  * Otherwise, resource.desc must be set to IORES_DESC_NONE (0).
  */
 enum {
-        IORES_DESC_NONE = 0,
-        IORES_DESC_CRASH_KERNEL = 1,
-        IORES_DESC_ACPI_TABLES = 2,
-        IORES_DESC_ACPI_NV_STORAGE = 3,
-        IORES_DESC_PERSISTENT_MEMORY = 4,
-        IORES_DESC_PERSISTENT_MEMORY_LEGACY = 5,
-        IORES_DESC_DEVICE_PRIVATE_MEMORY = 6,
-        IORES_DESC_RESERVED = 7,
-        IORES_DESC_SOFT_RESERVED = 8,
-        IORES_DESC_CXL = 9,
+    IORES_DESC_NONE = 0,
+    IORES_DESC_CRASH_KERNEL = 1,
+    IORES_DESC_ACPI_TABLES = 2,
+    IORES_DESC_ACPI_NV_STORAGE = 3,
+    IORES_DESC_PERSISTENT_MEMORY = 4,
+    IORES_DESC_PERSISTENT_MEMORY_LEGACY = 5,
+    IORES_DESC_DEVICE_PRIVATE_MEMORY = 6,
+    IORES_DESC_RESERVED = 7,
+    IORES_DESC_SOFT_RESERVED = 8,
+    IORES_DESC_CXL = 9,
 };
 
 /*
  * Flags controlling ioremap() behavior.
  */
 enum {
-        IORES_MAP_SYSTEM_RAM = BIT(0),
-        IORES_MAP_ENCRYPTED = BIT(1),
+    IORES_MAP_SYSTEM_RAM = BIT(0),
+    IORES_MAP_ENCRYPTED = BIT(1),
 };

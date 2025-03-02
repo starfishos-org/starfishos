@@ -6,9 +6,9 @@
 #include <common/kprint.h>
 
 struct rb_node {
-        unsigned long __parent_color;
-        struct rb_node *right_child;
-        struct rb_node *left_child;
+    unsigned long __parent_color;
+    struct rb_node *right_child;
+    struct rb_node *left_child;
 } __attribute__((aligned(sizeof(long))));
 #define rb_entry(node, type, field) container_of(node, type, field)
 
@@ -26,18 +26,18 @@ struct rb_node {
  * high-level types like mm_struct.
  */
 struct rb_root {
-        struct rb_node *root_node;
+    struct rb_node *root_node;
 };
 
-#define RB_ROOT          \
-        (struct rb_root) \
-        {                \
-                NULL,    \
-        }
+#define RB_ROOT      \
+    (struct rb_root) \
+    {                \
+        NULL,        \
+    }
 
 static inline void init_rb_root(struct rb_root *root)
 {
-        root->root_node = NULL;
+    root->root_node = NULL;
 }
 
 /*
@@ -140,8 +140,8 @@ void rb_replace_node(struct rb_root *this, struct rb_node *old,
  */
 struct rb_node *rb_next(const struct rb_node *node);
 /*
- * rb_prev - return the previous node of @node in rbtree. If @node is the first node,
- * return NULL.
+ * rb_prev - return the previous node of @node in rbtree. If @node is the first
+ * node, return NULL.
  */
 struct rb_node *rb_prev(const struct rb_node *node);
 /*
@@ -153,16 +153,16 @@ struct rb_node *rb_first(const struct rb_root *this);
  */
 struct rb_node *rb_last(const struct rb_root *this);
 /*
- * rb_next_match - return the next node of @node if it matches @key at the same time.
- * Otherwise, return NULL. This function can be used to iterate over all nodes with
- * a given key in rbtree.
+ * rb_next_match - return the next node of @node if it matches @key at the same
+ * time. Otherwise, return NULL. This function can be used to iterate over all
+ * nodes with a given key in rbtree.
  */
 struct rb_node *rb_next_match(const struct rb_node *node, const void *key,
                               comp_key_func cmp);
 
 #define rb_for_each(root, node) \
-        for (node = rb_first(root); node; node = rb_next(node))
+    for (node = rb_first(root); node; node = rb_next(node))
 
-#define rb_key_for_each(root, node, key, cmp)              \
-        for (node = rb_search_first(root, key, cmp); node; \
-             node = rb_next_match(node, key, cmp))
+#define rb_key_for_each(root, node, key, cmp)          \
+    for (node = rb_search_first(root, key, cmp); node; \
+         node = rb_next_match(node, key, cmp))

@@ -2,46 +2,46 @@
 
 /* GPL-2.0 WITH Linux-syscall-note */
 
-#define	EPERM		 1	/* Operation not permitted */
-#define	ENOENT		 2	/* No such file or directory/Entry does not exist */
-#define	ESRCH		 3	/* No such process */
-#define	EINTR		 4	/* Interrupted system call */
-#define	EIO		 5	/* I/O error */
-#define	ENXIO		 6	/* No such device or address */
-#define	E2BIG		 7	/* Argument list too long */
-#define	ENOEXEC		 8	/* Exec format error */
-#define	EBADF		 9	/* Bad file number */
-#define	ECHILD		10	/* No child processes */
-#define	EAGAIN		11	/* Try again */
-#define	ENOMEM		12	/* Out of memory */
-#define	EACCES		13	/* Permission denied */
-#define	EFAULT		14	/* Bad address */
-#define	ENOTBLK		15	/* Block device required */
-#define	EBUSY		16	/* Device or resource busy */
-#define	EEXIST		17	/* File exists */
-#define	EXDEV		18	/* Cross-device link */
-#define	ENODEV		19	/* No such device */
-#define	ENOTDIR		20	/* Not a directory */
-#define	EISDIR		21	/* Is a directory */
-#define	EINVAL		22	/* Invalid argument */
-#define	ENFILE		23	/* File table overflow */
-#define	EMFILE		24	/* Too many open files */
-#define	ENOTTY		25	/* Not a typewriter */
-#define	ETXTBSY		26	/* Text file busy */
-#define	EFBIG		27	/* File too large */
-#define	ENOSPC		28	/* No space left on device */
-#define	ESPIPE		29	/* Illegal seek */
-#define	EROFS		30	/* Read-only file system */
-#define	EMLINK		31	/* Too many links */
-#define	EPIPE		32	/* Broken pipe */
-#define	EDOM		33	/* Math argument out of domain of func */
+#define EPERM   1 /* Operation not permitted */
+#define ENOENT  2 /* No such file or directory/Entry does not exist */
+#define ESRCH   3 /* No such process */
+#define EINTR   4 /* Interrupted system call */
+#define EIO     5 /* I/O error */
+#define ENXIO   6 /* No such device or address */
+#define E2BIG   7 /* Argument list too long */
+#define ENOEXEC 8 /* Exec format error */
+#define EBADF   9 /* Bad file number */
+#define ECHILD  10 /* No child processes */
+#define EAGAIN  11 /* Try again */
+#define ENOMEM  12 /* Out of memory */
+#define EACCES  13 /* Permission denied */
+#define EFAULT  14 /* Bad address */
+#define ENOTBLK 15 /* Block device required */
+#define EBUSY   16 /* Device or resource busy */
+#define EEXIST  17 /* File exists */
+#define EXDEV   18 /* Cross-device link */
+#define ENODEV  19 /* No such device */
+#define ENOTDIR 20 /* Not a directory */
+#define EISDIR  21 /* Is a directory */
+#define EINVAL  22 /* Invalid argument */
+#define ENFILE  23 /* File table overflow */
+#define EMFILE  24 /* Too many open files */
+#define ENOTTY  25 /* Not a typewriter */
+#define ETXTBSY 26 /* Text file busy */
+#define EFBIG   27 /* File too large */
+#define ENOSPC  28 /* No space left on device */
+#define ESPIPE  29 /* Illegal seek */
+#define EROFS   30 /* Read-only file system */
+#define EMLINK  31 /* Too many links */
+#define EPIPE   32 /* Broken pipe */
+#define EDOM    33 /* Math argument out of domain of func */
 
-#define ERANGE          34      /* Math result not representable */
+#define ERANGE          34 /* Math result not representable */
 #define EDEADLK         35
 #define ENAMETOOLONG    36
 #define ENOLCK          37
-#define ENOSYS          38      /* Function not implemented */
-#define ENOTEMPTY       39      /* Dir is not empty */
+#define ENOSYS          38 /* Function not implemented */
+#define ENOTEMPTY       39 /* Dir is not empty */
 #define ELOOP           40
 #define EWOULDBLOCK     EAGAIN
 #define ENOMSG          42
@@ -63,8 +63,8 @@
 #define EDEADLOCK       EDEADLK
 #define EBFONT          59
 #define ENOSTR          60
-#define ENODATA         61      /* No data available */
-#define ETIME           62      /* Timer expired */
+#define ENODATA         61 /* No data available */
+#define ETIME           62 /* Timer expired */
 #define ENOSR           63
 #define ENONET          64
 #define ENOPKG          65
@@ -139,16 +139,15 @@
 #define EHWPOISON       133
 
 /* ChCore specific */
-#define EIPCRETRY       199     /* Retry the IPC call */
-#define ECAPBILITY      200     /* Invalid capability */
-#define ESUPPORT        201     /* Not supported */
-#define EBADSYSCALL     202     /* Bad syscall number */
-#define ENOMAPPING      203     /* No memory mapping in pgtbl */
-#define ESIGBUS         204     /* Bus error */
+#define EIPCRETRY   199 /* Retry the IPC call */
+#define ECAPBILITY  200 /* Invalid capability */
+#define ESUPPORT    201 /* Not supported */
+#define EBADSYSCALL 202 /* Bad syscall number */
+#define ENOMAPPING  203 /* No memory mapping in pgtbl */
+#define ESIGBUS     204 /* Bus error */
 
-#define EMAX            205
-
+#define EMAX 205
 
 #define ERR_PTR(x) ((void *)(s64)(x))
 #define PTR_ERR(x) ((long)(x))
-#define IS_ERR(x) ((((s64)(x)) < 0) && ((s64)(x)) > -EMAX)
+#define IS_ERR(x)  ((((s64)(x)) < 0) && ((s64)(x)) > -EMAX)

@@ -24,3 +24,4 @@
 #define END_DATA(x)			\
 	.size x,			\
 	.-x
+

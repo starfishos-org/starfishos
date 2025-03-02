@@ -20,7 +20,7 @@ void save_fpu_state(struct thread *thread);
 void restore_fpu_state(struct thread *thread);
 
 /* Used when checkpointing a thread */
-void copy_fpu_state(void* dst_fpu_state, void* src_fpu_state);
+void copy_fpu_state(void *dst_fpu_state, void *src_fpu_state);
 
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
 void disable_fpu_usage(void);

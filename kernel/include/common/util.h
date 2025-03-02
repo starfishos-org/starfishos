@@ -1,6 +1,7 @@
 #pragma once
 
 #include <common/types.h>
+#include <common/stdarg.h>
 
 #ifdef CHCORE
 /*
@@ -71,4 +72,9 @@ static inline size_t strlen(const char *src)
 
 	return i;
 }
+
+int snprintf(char *buf, size_t size, const char *fmt, ...);
+
+int sscanf(const char *str, const char *format, ...);
+
 #endif

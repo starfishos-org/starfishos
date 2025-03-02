@@ -22,16 +22,16 @@ void process_sub_active_list(struct list_head *sublist);
 
 /*
  * process_active_list - migrate pages between DRAM and NVM devices
- * 
+ *
  * DRAM - K hotest pages
  * NVM - other pages
- * 
+ *
  * migrate_pages is called during ckpt to aviod conflicts with
  * running theads who acess these migrating pages.
- * 
+ *
  * TODO(FN): now call this in sequence with sys_whole_ckpt
  * should consider how to do this in parallel
- * 
+ *
  */
 void prepare_process_active_list(void);
 void finish_process_active_list(void);

@@ -14,123 +14,124 @@
 
 /* Per-core timer states */
 struct time_state {
-	/* The tick when the next timer irq will occur */
-	u64 next_expire;
-	/*
-	 * Record all sleepers on each core.
-	 * Threads in sleep_list are sorted by the time to wakeup.
-	 * TODO: Should use more efficient data structure (tree)
-	 */
-	struct list_head sleep_list;
-	/* Protect per core sleep_list */
-	struct lock sleep_list_lock;
+    /* The tick when the next timer irq will occur */
+    u64 next_expire;
+    /*
+     * Record all sleepers on each core.
+     * Threads in sleep_list are sorted by the time to wakeup.
+     * TODO: Should use more efficient data structure (tree)
+     */
+    struct list_head sleep_list;
+    /* Protect per core sleep_list */
+    struct lock sleep_list_lock;
 };
 
 struct time_state time_states[PLAT_CPU_NUM];
 
 void timer_init(void)
 {
-	int i;
+    int i;
 
-	if (smp_get_cpu_id() == 0) {
-		for (i = 0; i < PLAT_CPU_NUM; i++) {
-			init_list_head(&time_states[i].sleep_list);
-			lock_init(&time_states[i].sleep_list_lock);
-		}
-	}
+    if (smp_get_cpu_id() == 0) {
+        for (i = 0; i < PLAT_CPU_NUM; i++) {
+            init_list_head(&time_states[i].sleep_list);
+            lock_init(&time_states[i].sleep_list_lock);
+        }
+    }
 
-	/* Per-core timer init */
-	plat_timer_init();
+    /* Per-core timer init */
+    plat_timer_init();
 }
 
 /* Should be called when holding sleep_list_lock */
 static u64 get_next_tick_delta(void)
 {
-	u64 waiting_tick, current_tick;
-	struct list_head *local_sleep_list;
-	struct sleep_state *first_sleeper;
+    u64 waiting_tick, current_tick;
+    struct list_head *local_sleep_list;
+    struct sleep_state *first_sleeper;
 
-	local_sleep_list = &time_states[smp_get_cpu_id()].sleep_list;
+    local_sleep_list = &time_states[smp_get_cpu_id()].sleep_list;
 
-	/* Default tick */
-	waiting_tick = TICK_MS * 1000 * tick_per_us;
-	if (list_empty(local_sleep_list))
-		return waiting_tick;
+    /* Default tick */
+    waiting_tick = TICK_MS * 1000 * tick_per_us;
+    if (list_empty(local_sleep_list))
+        return waiting_tick;
 
-	current_tick = plat_get_current_tick();
-	first_sleeper = list_entry(local_sleep_list->next, struct sleep_state,
-				   sleep_node);
-	/* If a thread will wake up before default tick, update the tick. */
-	if (current_tick + waiting_tick > first_sleeper->wakeup_tick)
-		waiting_tick = first_sleeper->wakeup_tick > current_tick ?
-			       first_sleeper->wakeup_tick - current_tick : 0;
+    current_tick = plat_get_current_tick();
+    first_sleeper =
+            list_entry(local_sleep_list->next, struct sleep_state, sleep_node);
+    /* If a thread will wake up before default tick, update the tick. */
+    if (current_tick + waiting_tick > first_sleeper->wakeup_tick)
+        waiting_tick = first_sleeper->wakeup_tick > current_tick ?
+                               first_sleeper->wakeup_tick - current_tick :
+                               0;
 
-	return waiting_tick;
+    return waiting_tick;
 }
 
 static void sleep_timer_cb(struct thread *thread);
 void handle_timer_irq(void)
 {
-	u64 current_tick, tick_delta;
-	struct time_state *local_time_state;
-	struct list_head *local_sleep_list;
-	struct lock *local_sleep_list_lock;
-	struct sleep_state *iter = NULL, *tmp = NULL;
-	struct thread *wakeup_thread;
+    u64 current_tick, tick_delta;
+    struct time_state *local_time_state;
+    struct list_head *local_sleep_list;
+    struct lock *local_sleep_list_lock;
+    struct sleep_state *iter = NULL, *tmp = NULL;
+    struct thread *wakeup_thread;
 
-	/* Remove the thread to wakeup from sleep list */
-	current_tick = plat_get_current_tick();
-	local_time_state = &time_states[smp_get_cpu_id()];
-	local_sleep_list = &local_time_state->sleep_list;
-	local_sleep_list_lock = &local_time_state->sleep_list_lock;
+    /* Remove the thread to wakeup from sleep list */
+    current_tick = plat_get_current_tick();
+    local_time_state = &time_states[smp_get_cpu_id()];
+    local_sleep_list = &local_time_state->sleep_list;
+    local_sleep_list_lock = &local_time_state->sleep_list_lock;
 
-	lock(local_sleep_list_lock);
-	for_each_in_list_safe(iter, tmp, sleep_node, local_sleep_list) {
-		if (iter->wakeup_tick > current_tick) {
-			break;
-		}
-		
-		wakeup_thread = container_of(iter, struct thread, sleep_state);
+    lock(local_sleep_list_lock);
+    for_each_in_list_safe (iter, tmp, sleep_node, local_sleep_list) {
+        if (iter->wakeup_tick > current_tick) {
+            break;
+        }
 
-		/*
-		 * Grab the thread's queue_lock before operating the
-		 * waiting list (sleep_list and the wait_list of
-		 * timedout notification.
-		 */
-		lock(&wakeup_thread->sleep_state.queue_lock);
+        wakeup_thread = container_of(iter, struct thread, sleep_state);
 
-		list_del(&iter->sleep_node);
+        /*
+         * Grab the thread's queue_lock before operating the
+         * waiting list (sleep_list and the wait_list of
+         * timedout notification.
+         */
+        lock(&wakeup_thread->sleep_state.queue_lock);
 
-		BUG_ON(wakeup_thread->sleep_state.cb == sleep_timer_cb
-				&& wakeup_thread->thread_ctx->state != TS_WAITING);
-		kdebug("wake up t:%p at:%ld\n", wakeup_thread, current_tick);
-		BUG_ON(wakeup_thread->sleep_state.cb == NULL);
+        list_del(&iter->sleep_node);
 
-		wakeup_thread->sleep_state.cb(wakeup_thread);
-		wakeup_thread->sleep_state.cb = NULL;
+        BUG_ON(wakeup_thread->sleep_state.cb == sleep_timer_cb
+               && wakeup_thread->thread_ctx->state != TS_WAITING);
+        kdebug("wake up t:%p at:%ld\n", wakeup_thread, current_tick);
+        BUG_ON(wakeup_thread->sleep_state.cb == NULL);
 
-		unlock(&wakeup_thread->sleep_state.queue_lock);
-	}
+        wakeup_thread->sleep_state.cb(wakeup_thread);
+        wakeup_thread->sleep_state.cb = NULL;
 
-	/* Set when the next timer irq will arrive */
-	tick_delta = get_next_tick_delta();
-	unlock(local_sleep_list_lock);
+        unlock(&wakeup_thread->sleep_state.queue_lock);
+    }
 
-	time_states[smp_get_cpu_id()].next_expire = current_tick + tick_delta;
-	plat_handle_timer_irq(tick_delta);
+    /* Set when the next timer irq will arrive */
+    tick_delta = get_next_tick_delta();
+    unlock(local_sleep_list_lock);
 
-	/* Current running thread in current_threads[cpuid] */
-	if (current_thread) {
-		BUG_ON(!current_thread->thread_ctx->sc);
-		BUG_ON(current_thread->thread_ctx->sc->budget == 0);
-		current_thread->thread_ctx->sc->budget--;
-		/* print debug message */
+    time_states[smp_get_cpu_id()].next_expire = current_tick + tick_delta;
+    plat_handle_timer_irq(tick_delta);
+
+    /* Current running thread in current_threads[cpuid] */
+    if (current_thread) {
+        BUG_ON(!current_thread->thread_ctx->sc);
+        BUG_ON(current_thread->thread_ctx->sc->budget == 0);
+        current_thread->thread_ctx->sc->budget--;
+        /* print debug message */
 #if LOG_LEVEL == DEBUG
-		print_thread(current_thread);
+        print_thread(current_thread);
 #endif
-	} else {
-		kdebug("Timer: system not runnig!\n");
-	}
+    } else {
+        kdebug("Timer: system not runnig!\n");
+    }
 }
 
 /*
@@ -140,181 +141,182 @@ void handle_timer_irq(void)
  */
 int sys_clock_gettime(clockid_t clock, struct timespec *ts)
 {
-	struct timespec ts_k;
-	u64 mono_ns;
+    struct timespec ts_k;
+    u64 mono_ns;
 
-	if (!ts) return -1;
+    if (!ts)
+        return -1;
 
-	copy_from_user((char *)&ts_k, (char *)ts, sizeof(ts_k));
-	mono_ns = plat_get_mono_time();
+    copy_from_user((char *)&ts_k, (char *)ts, sizeof(ts_k));
+    mono_ns = plat_get_mono_time();
 
-	ts_k.tv_sec  = mono_ns / NS_IN_S;
-	ts_k.tv_nsec = mono_ns % NS_IN_S;
+    ts_k.tv_sec = mono_ns / NS_IN_S;
+    ts_k.tv_nsec = mono_ns % NS_IN_S;
 
-	copy_to_user((char *)ts, (char *)&ts_k, sizeof(ts_k));
+    copy_to_user((char *)ts, (char *)&ts_k, sizeof(ts_k));
 
-	return 0;
+    return 0;
 }
 
-void sleep_state_enqueue(struct sleep_state *sleep_state) {
-	struct sleep_state *iter;
+void sleep_state_enqueue(struct sleep_state *sleep_state)
+{
+    struct sleep_state *iter;
 
-	struct list_head *local_sleep_list = &time_states[sleep_state->sleep_cpu].sleep_list;
-	for_each_in_list(iter, struct sleep_state, sleep_node,
-			local_sleep_list) {
-		if (iter->wakeup_tick > sleep_state->wakeup_tick)
-			break;
-	}
+    struct list_head *local_sleep_list =
+            &time_states[sleep_state->sleep_cpu].sleep_list;
+    for_each_in_list (iter, struct sleep_state, sleep_node, local_sleep_list) {
+        if (iter->wakeup_tick > sleep_state->wakeup_tick)
+            break;
+    }
 
-	list_append(&sleep_state->sleep_node, &iter->sleep_node);
+    list_append(&sleep_state->sleep_node, &iter->sleep_node);
 }
 
 int enqueue_sleeper(struct thread *thread, const struct timespec *timeout,
-		    timer_cb cb)
+                    timer_cb cb)
 {
-	u64 s, ns, total_us;
-	u64 wakeup_tick;
-	struct time_state *local_time_state;
-	struct list_head *local_sleep_list;
-	struct lock *local_sleep_list_lock;
-	struct sleep_state *iter;
+    u64 s, ns, total_us;
+    u64 wakeup_tick;
+    struct time_state *local_time_state;
+    struct list_head *local_sleep_list;
+    struct lock *local_sleep_list_lock;
+    struct sleep_state *iter;
 
-	s = timeout->tv_sec;
-	ns = timeout->tv_nsec;
-	total_us = s * 1000 * 1000 + ns / 1000;
+    s = timeout->tv_sec;
+    ns = timeout->tv_nsec;
+    total_us = s * 1000 * 1000 + ns / 1000;
 
-	wakeup_tick = plat_get_current_tick() + total_us * tick_per_us;
-	thread->sleep_state.wakeup_tick = wakeup_tick;
-	thread->sleep_state.sleep_cpu = smp_get_cpu_id();
+    wakeup_tick = plat_get_current_tick() + total_us * tick_per_us;
+    thread->sleep_state.wakeup_tick = wakeup_tick;
+    thread->sleep_state.sleep_cpu = smp_get_cpu_id();
 
-	local_time_state = &time_states[smp_get_cpu_id()];
-	/*
-	 * XXX: The list is sorted by wakeup_tick.
-	 *	Find the position to insert current thread.
-	 *	Replace the list with binary tree in future.
-	 */
-	local_sleep_list = &local_time_state->sleep_list;
-	local_sleep_list_lock = &local_time_state->sleep_list_lock;
+    local_time_state = &time_states[smp_get_cpu_id()];
+    /*
+     * XXX: The list is sorted by wakeup_tick.
+     *	Find the position to insert current thread.
+     *	Replace the list with binary tree in future.
+     */
+    local_sleep_list = &local_time_state->sleep_list;
+    local_sleep_list_lock = &local_time_state->sleep_list_lock;
 
-	lock(local_sleep_list_lock);
-	for_each_in_list(iter, struct sleep_state, sleep_node,
-			 local_sleep_list) {
-		if (iter->wakeup_tick > wakeup_tick)
-			break;
-	}
-	list_append(&thread->sleep_state.sleep_node, &iter->sleep_node);
-	thread->sleep_state.cb = cb;
+    lock(local_sleep_list_lock);
+    for_each_in_list (iter, struct sleep_state, sleep_node, local_sleep_list) {
+        if (iter->wakeup_tick > wakeup_tick)
+            break;
+    }
+    list_append(&thread->sleep_state.sleep_node, &iter->sleep_node);
+    thread->sleep_state.cb = cb;
 
-	unlock(local_sleep_list_lock);
+    unlock(local_sleep_list_lock);
 
+    /*
+     * If the current sleep need to wake up earlier than when next timer
+     * irq occurs, update timer.
+     */
+    kdebug("next tick:%ld current tick:%ld\n",
+           wakeup_tick,
+           time_states[smp_get_cpu_id()].next_expire);
+    if (time_states[smp_get_cpu_id()].next_expire > wakeup_tick) {
+        time_states[smp_get_cpu_id()].next_expire = wakeup_tick;
+        plat_set_next_timer(total_us * tick_per_us);
+    }
 
-	/*
-	 * If the current sleep need to wake up earlier than when next timer
-	 * irq occurs, update timer.
-	 */
-	kdebug("next tick:%ld current tick:%ld\n",
-	       wakeup_tick, time_states[smp_get_cpu_id()].next_expire);
-	if (time_states[smp_get_cpu_id()].next_expire > wakeup_tick) {
-		time_states[smp_get_cpu_id()].next_expire = wakeup_tick;
-		plat_set_next_timer(total_us * tick_per_us);
-	}
-
-	return 0;
+    return 0;
 }
 
 /* Returns true if dequeue successfully, false otherwise */
 bool try_dequeue_sleeper(struct thread *thread)
 {
-	struct time_state *target_time_state;
-	struct lock *target_sleep_list_lock;
-	bool ret = false;
+    struct time_state *target_time_state;
+    struct lock *target_sleep_list_lock;
+    bool ret = false;
 
-	BUG_ON(thread == NULL);
-	target_time_state = &time_states[thread->sleep_state.sleep_cpu];
-	target_sleep_list_lock = &target_time_state->sleep_list_lock;
+    BUG_ON(thread == NULL);
+    target_time_state = &time_states[thread->sleep_state.sleep_cpu];
+    target_sleep_list_lock = &target_time_state->sleep_list_lock;
 
-	/*
-	 * This rountine will be invoked in sys_notify.
-	 * Use try_lock for preventing dead lock. sys_notify can be retried.
-	 */
-	if (try_lock(target_sleep_list_lock) == 0) {
-		BUG_ON(thread->sleep_state.cb == NULL);
+    /*
+     * This rountine will be invoked in sys_notify.
+     * Use try_lock for preventing dead lock. sys_notify can be retried.
+     */
+    if (try_lock(target_sleep_list_lock) == 0) {
+        BUG_ON(thread->sleep_state.cb == NULL);
 
-		list_del(&thread->sleep_state.sleep_node);
-		thread->sleep_state.cb = NULL;
-		ret = true;
+        list_del(&thread->sleep_state.sleep_node);
+        thread->sleep_state.cb = NULL;
+        ret = true;
 
-		unlock(target_sleep_list_lock);
-	}
+        unlock(target_sleep_list_lock);
+    }
 
-	return ret;
+    return ret;
 }
 
 static void sleep_timer_cb(struct thread *thread)
 {
-	thread->thread_ctx->state = TS_INTER;
-	/*
-	 * TODO: directly schedule  to wakeup_thread if the
-	 * thread can be scheduled in current core.
-	 */
-	BUG_ON(sched_enqueue(thread));
+    thread->thread_ctx->state = TS_INTER;
+    /*
+     * TODO: directly schedule  to wakeup_thread if the
+     * thread can be scheduled in current core.
+     */
+    BUG_ON(sched_enqueue(thread));
 }
 
-int sys_clock_nanosleep(clockid_t clk, int flags,
-			const struct timespec *req, struct timespec *rem)
+int sys_clock_nanosleep(clockid_t clk, int flags, const struct timespec *req,
+                        struct timespec *rem)
 {
-	struct timespec ts_k = { 0 };
+    struct timespec ts_k = {0};
 
-	kdebug("sleep clk:%d flag:%x ", clk, flags);
-	kdebug("req:%ld.%ld\n", req ? req->tv_sec:0, req ? req->tv_nsec:0);
+    kdebug("sleep clk:%d flag:%x ", clk, flags);
+    kdebug("req:%ld.%ld\n", req ? req->tv_sec : 0, req ? req->tv_nsec : 0);
 
-	/* TODO: Support remaining time */
-	if (rem != NULL) {
-		// kwarn("nanosleep rem omitted\n");
-		rem = NULL;
-	}
+    /* TODO: Support remaining time */
+    if (rem != NULL) {
+        // kwarn("nanosleep rem omitted\n");
+        rem = NULL;
+    }
 
-	copy_from_user((char *)&ts_k, (char *)req, sizeof(ts_k));
+    copy_from_user((char *)&ts_k, (char *)req, sizeof(ts_k));
 
-	/*
-	 * Note: every operation that inserts/removes one thread into
-	 * a waiting queue (no mater sleep or wait_notific)
-	 * should grab the thread's queue_lock.
-	 *
-	 * If we do not grab the queue_lock here,
-	 * a potential wrong case may happen:
-	 *
-	 * CPU-0: handle_timer_irq -> T is timeout and sched_equeued to CPU-1
-	 *      CPU-1: T starts to run and invokes nanosleep again.
-	 *             Thus, enqueue_sleeper is invoked (cb is set)
-	 * CPU-1: handle_timer_irq -> continues to run and sets cb to NULL,
-	 *                            i.e., override the setted cb.
-	 */
-	lock(&current_thread->sleep_state.queue_lock);
+    /*
+     * Note: every operation that inserts/removes one thread into
+     * a waiting queue (no mater sleep or wait_notific)
+     * should grab the thread's queue_lock.
+     *
+     * If we do not grab the queue_lock here,
+     * a potential wrong case may happen:
+     *
+     * CPU-0: handle_timer_irq -> T is timeout and sched_equeued to CPU-1
+     *      CPU-1: T starts to run and invokes nanosleep again.
+     *             Thus, enqueue_sleeper is invoked (cb is set)
+     * CPU-1: handle_timer_irq -> continues to run and sets cb to NULL,
+     *                            i.e., override the setted cb.
+     */
+    lock(&current_thread->sleep_state.queue_lock);
 
-	enqueue_sleeper(current_thread, &ts_k, sleep_timer_cb);
+    enqueue_sleeper(current_thread, &ts_k, sleep_timer_cb);
 
-	unlock(&current_thread->sleep_state.queue_lock);
+    unlock(&current_thread->sleep_state.queue_lock);
 
-	current_thread->thread_ctx->state = TS_WAITING;
+    current_thread->thread_ctx->state = TS_WAITING;
 
-	/* Set the return value for nanosleep. */
-	arch_set_thread_return(current_thread, 0);
+    /* Set the return value for nanosleep. */
+    arch_set_thread_return(current_thread, 0);
 
-	sched();
-	eret_to_thread(switch_context());
-	BUG("should not reach here\n");
+    sched();
+    eret_to_thread(switch_context());
+    BUG("should not reach here\n");
 
-	return 0;
+    return 0;
 }
 
 /* For system shutdown() */
 void timer_reset(void)
 {
-	for (int i = 0; i < PLAT_CPU_NUM; i++) {
-		init_list_head(&time_states[i].sleep_list);
-		lock_init(&time_states[i].sleep_list_lock);
-	}
-	/* Per-core timer init */
-	plat_timer_init();
+    for (int i = 0; i < PLAT_CPU_NUM; i++) {
+        init_list_head(&time_states[i].sleep_list);
+        lock_init(&time_states[i].sleep_list_lock);
+    }
+    /* Per-core timer init */
+    plat_timer_init();
 }

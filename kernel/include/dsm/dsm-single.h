@@ -22,17 +22,17 @@
 #define dsm_debug(fmt, ...)
 #endif
 
-#define pingpong_info(thread, fmt, ...) \
-if (!strcmp(thread->cap_group->cap_group_name, "/pingpong-pthread.bin")) \
-        printk("[pingpong] " fmt, ##__VA_ARGS__)
+#define pingpong_info(thread, fmt, ...)                                      \
+    if (!strcmp(thread->cap_group->cap_group_name, "/pingpong-pthread.bin")) \
+    printk("[pingpong] " fmt, ##__VA_ARGS__)
 
 /**
  * DSM_STATE
  */
 enum {
-        DSM_CONFIG_STATE_UNINITED = 0,
-        DSM_CONFIG_STATE_MM_INITED,
-        DSM_CONFIG_STATE_SCHED_INITED,
+    DSM_CONFIG_STATE_UNINITED = 0,
+    DSM_CONFIG_STATE_MM_INITED,
+    DSM_CONFIG_STATE_SCHED_INITED,
 } dsm_config_state_type;
 
 #define DSM_STATE (dsm_meta->state)
@@ -51,7 +51,7 @@ enum {
  * machine ID of current machine
  */
 u32 machine_id;
-#define MACHINE_ID      (machine_id)
+#define MACHINE_ID (machine_id)
 
 /**
  * cpu range of current machine
@@ -66,71 +66,71 @@ u32 cpu_range_low, cpu_range_high;
 #define cpuid_l2g(x) ((x) + CPU_RANGE_LOW)
 #endif
 #ifndef cpuid_g2l
-#define cpuid_g2l(x) ((x)-CPU_RANGE_LOW)
+#define cpuid_g2l(x) ((x) - CPU_RANGE_LOW)
 #endif
 
 static bool inline is_local_cpu(u32 cpuid)
 {
-        return ((cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW))
-                || cpuid == NO_AFF;
+    return ((cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW))
+           || cpuid == NO_AFF;
 }
 
 struct shared_queue_meta {
-        struct list_head queue_head;
-        u32 queue_len;
-        struct lock queue_lock;
+    struct list_head queue_head;
+    u32 queue_len;
+    struct lock queue_lock;
 };
 
 typedef struct {
-        u32 cpu_range_low;
-        u32 cpu_range_high;
-        u64 local_mem_start;
-        u64 local_mem_size;
+    u32 cpu_range_low;
+    u32 cpu_range_high;
+    u64 local_mem_start;
+    u64 local_mem_size;
 } dsm_machine_local_metadata_t;
 
 typedef struct {
-        // global configuration
-        u32 cluster_cpu_num;
-        u32 cluster_machine_num;
-        volatile u64 state;
+    // global configuration
+    u32 cluster_cpu_num;
+    u32 cluster_machine_num;
+    volatile u64 state;
 
-        /**
-         * dsm memory layout:
-         * kernel space: 
-         * shm_vaddr                                 max_vaddr
-         *     | SHM | M1 LOCAL MEM | ... | Mn LOCAL MEM |
-         */
-        u64 shm_paddr;
-        u64 shm_size;
-        u64 local_paddr;
-        u64 max_paddr; // vaddr of max local DRAM
+    /**
+     * dsm memory layout:
+     * kernel space:
+     * shm_vaddr                                 max_vaddr
+     *     | SHM | M1 LOCAL MEM | ... | Mn LOCAL MEM |
+     */
+    u64 shm_paddr;
+    u64 shm_size;
+    u64 local_paddr;
+    u64 max_paddr; // vaddr of max local DRAM
 
-        /* local mem kernel addr of each machine */
-        dsm_machine_local_metadata_t local_meta[CLUSTER_MAX_MACHINE_NUM];
+    /* local mem kernel addr of each machine */
+    dsm_machine_local_metadata_t local_meta[CLUSTER_MAX_MACHINE_NUM];
 
-        // after configuration, should be consistent among all machines
-        // buddy system
-        struct phys_mem_pool mem_pool[N_PHYS_MEM_POOLS];
-        // slab system
-        struct slab_pointer slab_pool[SLAB_MAX_ORDER + 1];
-        struct lock slabs_locks[SLAB_MAX_ORDER + 1];
+    // after configuration, should be consistent among all machines
+    // buddy system
+    struct phys_mem_pool mem_pool[N_PHYS_MEM_POOLS];
+    // slab system
+    struct slab_pointer slab_pool[SLAB_MAX_ORDER + 1];
+    struct lock slabs_locks[SLAB_MAX_ORDER + 1];
 
-        // FIXME(FN): remove this ugly tetsing share
-        struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
+    // FIXME(FN): remove this ugly tetsing share
+    struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
 
-        #if defined CHCORE_SSI_SLS
-        /* crash_last_time = 1 means unexpected */
-        bool crash_last_time;
-        /* Checkpoint time stamp */
-        u64 version_number;
-        /* Is doing ckpt (or else is restore) */
-        bool ckpt_initialized;
-        /* Checkpoint data */
-        struct ckpt_ws_table *ckpt_whole_sys_table;
-        struct kvs *ckpt_global_obj_map;
-        struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
-        #endif
-        struct shared_queue_meta ready_to_merge_object_queue;
+#if defined CHCORE_SSI_SLS
+    /* crash_last_time = 1 means unexpected */
+    bool crash_last_time;
+    /* Checkpoint time stamp */
+    u64 version_number;
+    /* Is doing ckpt (or else is restore) */
+    bool ckpt_initialized;
+    /* Checkpoint data */
+    struct ckpt_ws_table *ckpt_whole_sys_table;
+    struct kvs *ckpt_global_obj_map;
+    struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
+#endif
+    struct shared_queue_meta ready_to_merge_object_queue;
 } __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -140,48 +140,48 @@ dsm_metadata_t *dsm_meta;
 
 static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
-        dsm_meta = (dsm_metadata_t *)shm_vaddr;
-        init_list_head(&(dsm_meta->ready_to_merge_object_queue.queue_head));
-        lock_init(&(dsm_meta->ready_to_merge_object_queue.queue_lock));
-        dsm_meta->ready_to_merge_object_queue.queue_len = 0;
+    dsm_meta = (dsm_metadata_t *)shm_vaddr;
+    init_list_head(&(dsm_meta->ready_to_merge_object_queue.queue_head));
+    lock_init(&(dsm_meta->ready_to_merge_object_queue.queue_lock));
+    dsm_meta->ready_to_merge_object_queue.queue_len = 0;
 }
 
 static inline u64 dsm_is_inited()
 {
-        BUG_ON(!dsm_meta);
-        return (DSM_STATE > DSM_CONFIG_STATE_UNINITED);
+    BUG_ON(!dsm_meta);
+    return (DSM_STATE > DSM_CONFIG_STATE_UNINITED);
 }
 
-static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size, 
-                        paddr_t local_paddr)
+static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
+                               paddr_t local_paddr)
 {
 #ifdef DSM_CLEAR_FIRST
-        memset((void *)phys_to_virt(shm_paddr),
-               0, sizeof(dsm_metadata_t));
+    memset((void *)phys_to_virt(shm_paddr), 0, sizeof(dsm_metadata_t));
 #endif
-        /* check and init shm_vaddr */
-        if (dsm_meta->shm_paddr) {
-                /* TODO: should remap shm */
-                if (dsm_meta->shm_paddr != shm_paddr) {
-                        kwarn("[DSM] shm paddr mismatch, expect: %llu, get: %llu\n",
-                              shm_paddr, dsm_meta->shm_paddr);
-                }
-        } else {
-                dsm_meta->shm_paddr = shm_paddr;
-                dsm_meta->shm_size = shm_size;
-                dsm_meta->local_paddr = local_paddr;
-                dsm_meta->max_paddr = local_paddr;
+    /* check and init shm_vaddr */
+    if (dsm_meta->shm_paddr) {
+        /* TODO: should remap shm */
+        if (dsm_meta->shm_paddr != shm_paddr) {
+            kwarn("[DSM] shm paddr mismatch, expect: %llu, get: %llu\n",
+                  shm_paddr,
+                  dsm_meta->shm_paddr);
         }
+    } else {
+        dsm_meta->shm_paddr = shm_paddr;
+        dsm_meta->shm_size = shm_size;
+        dsm_meta->local_paddr = local_paddr;
+        dsm_meta->max_paddr = local_paddr;
+    }
 }
 
 void dsm_add_machine(void);
 
 static int inline cpuid_g2mid(u32 gcpuid)
 {
-        for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
-                if (gcpuid >= dsm_meta->local_meta[i].cpu_range_low &&
-                    gcpuid <= dsm_meta->local_meta[i].cpu_range_high)
-                        return i;
-        }
-        return -1;
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        if (gcpuid >= dsm_meta->local_meta[i].cpu_range_low
+            && gcpuid <= dsm_meta->local_meta[i].cpu_range_high)
+            return i;
+    }
+    return -1;
 }

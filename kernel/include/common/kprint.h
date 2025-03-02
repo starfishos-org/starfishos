@@ -10,14 +10,14 @@
 
 #if LOG_LEVEL >= WARNING
 #define kwarn(fmt, ...) printk("[WARN] file:%s " fmt, __FILE__, ##__VA_ARGS__)
-#define kwarn_once(fmt, ...)               \
-        do {                               \
-                static int __warned = 0;   \
-                if (__warned)              \
-                        break;             \
-                __warned = 1;              \
-                kwarn(fmt, ##__VA_ARGS__); \
-        } while (0)
+#define kwarn_once(fmt, ...)       \
+    do {                           \
+        static int __warned = 0;   \
+        if (__warned)              \
+            break;                 \
+        __warned = 1;              \
+        kwarn(fmt, ##__VA_ARGS__); \
+    } while (0)
 
 #else
 #define kwarn(fmt, ...)

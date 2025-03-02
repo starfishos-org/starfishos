@@ -40,7 +40,17 @@ endif()
 
 if(CHCORE_SSI)
   include(${CMAKE_SOURCE_DIR}/dsm_config.cmake)
-  if("${DSM_SHM_DEVICE}" STREQUAL "CXL")
+  if("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
+    chcore_generate_emulate_sh(
+      "qemu-6.2-system-x86_64"
+      "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
+      -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
+      -device ivshmem-plain,memdev=hostmem \
+      -drive file=\$virtio_file_name,if=none,id=virtio-disk,format=raw \
+      -device virtio-blk-pci,drive=virtio-disk \
+      -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
+    )
+  elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL")
     chcore_generate_emulate_sh(
       "qemu-6.2-system-x86_64"
       "--enable-kvm -M q35,cxl=on -m 4G \
@@ -50,22 +60,6 @@ if(CHCORE_SSI)
       -device cxl-type3,bus=root_port13,volatile-memdev=vmem0,id=cxl-vmem0 \
       -M cxl-fmw.0.targets.0=cxl.1,cxl-fmw.0.size=1G \
       -cpu host -smp 32 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
-    )
-  elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
-  chcore_generate_emulate_sh(
-      "qemu-6.2-system-x86_64"
-      "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
-      -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
-      -device ivshmem-plain,memdev=hostmem \
-      -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
-    )
-  elseif("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM_NUMA")
-    chcore_generate_emulate_sh(
-        "qemu-system-x86_64"
-        "--enable-kvm -M q35 -m 4G \
-        -object memory-backend-file,size=4G,share=on,mem-path=\$ivshmem_dev,id=hostmem,policy=bind,host-nodes=2,prealloc=on,prealloc-threads=8 \
-        -device ivshmem-plain,memdev=hostmem \
-        -cpu host -smp 32 -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL_NUMA")
     chcore_generate_emulate_sh(

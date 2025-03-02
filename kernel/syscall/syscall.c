@@ -27,6 +27,7 @@
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
+#include <drivers/pci.h>
 
 #include "syscall_num.h"
 
@@ -42,12 +43,12 @@ void hook_syscall(long n)
 /* Placeholder for system calls that are not implemented */
 void sys_null_placeholder(long arg)
 {
-        BUG("Invoke non-implemented syscall\n");
+    BUG("Invoke non-implemented syscall\n");
 }
 
 void sys_putc(char ch)
 {
-        uart_send((unsigned int)ch);
+    uart_send((unsigned int)ch);
 #if 0 /* Disable graphic output for chcore on r741 */
 	if (graphic_putc)
 		graphic_putc(ch);
@@ -56,13 +57,13 @@ void sys_putc(char ch)
 
 u32 sys_getc(void)
 {
-        return nb_uart_recv();
+    return nb_uart_recv();
 }
 
 /* A debugging function which can be used for adding trace points in apps */
 void sys_debug_log(long arg)
 {
-        kinfo("%s: %ld\n", __func__, arg);
+    kinfo("%s: %ld\n", __func__, arg);
 }
 
 /* Arch-specific declarations */
@@ -72,26 +73,26 @@ u64 plat_get_current_tick(void);
 /* Helper system calls for user-level drivers to use. */
 int sys_cache_flush(u64 start, s64 len, int op_type)
 {
-        arch_flush_cache(start, len, op_type);
-        return 0;
+    arch_flush_cache(start, len, op_type);
+    return 0;
 }
 
 u64 sys_get_current_tick(void)
 {
-        return plat_get_current_tick();
+    return plat_get_current_tick();
 }
 
 /* Syscalls for perfromance benchmark */
 void sys_perf_start(void)
 {
-        kdebug("Disable TIMER\n");
-        plat_disable_timer();
+    kdebug("Disable TIMER\n");
+    plat_disable_timer();
 }
 
 void sys_perf_end(void)
 {
-        kdebug("Enable TIMER\n");
-        plat_enable_timer();
+    kdebug("Enable TIMER\n");
+    plat_enable_timer();
 }
 
 void sys_debug_va(u64 va);
@@ -103,115 +104,115 @@ int sys_whole_restore_without_ipi(u64 ckpt_name, u64 name_len);
 void handle_shutdown(int reset)
 {
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-        /* set CKPT_INITIALIZED to 0 to enable wait_finish_in_kernel */
-        u64 old_ckpt_initialized = CKPT_INITIALIZED;
-        CKPT_INITIALIZED = 0;
+    /* set CKPT_INITIALIZED to 0 to enable wait_finish_in_kernel */
+    u64 old_ckpt_initialized = CKPT_INITIALIZED;
+    CKPT_INITIALIZED = 0;
 #endif /* CHCORE_SLS */
-        extern void sys_ipi_reset_sched_all();
-        sys_ipi_reset_sched_all();
+    extern void sys_ipi_reset_sched_all();
+    sys_ipi_reset_sched_all();
 
-        u64 value = 0;
-        asm volatile("movq %0, %%gs:%c1"
-                     :
-                     : "r"(value), "i"(OFFSET_CURRENT_FPU_OWNER)
-                     : "memory");
+    u64 value = 0;
+    asm volatile("movq %0, %%gs:%c1"
+                 :
+                 : "r"(value), "i"(OFFSET_CURRENT_FPU_OWNER)
+                 : "memory");
 #ifdef CHCORE_SLS
-        if (reset) { // reset
-                // set nvm flag to 0 means deletes all the ckpts
-                old_ckpt_initialized = 0;
-                nvm_metadata_reset_crash_flag();
-        } else { // restore
-                nvm_metadata_set_crash_flag();
-        }
+    if (reset) { // reset
+        // set nvm flag to 0 means deletes all the ckpts
+        old_ckpt_initialized = 0;
+        nvm_metadata_reset_crash_flag();
+    } else { // restore
+        nvm_metadata_set_crash_flag();
+    }
 #elif defined CHCORE_SSI_SLS
-        if (reset) { // reset
-                // set nvm flag to 0 means deletes all the ckpts
-                old_ckpt_initialized = 0;
-                dsm_metadata_reset_crash_flag();
-        } else { // restore
-                dsm_metadata_set_crash_flag();
-        }
+    if (reset) { // reset
+        // set nvm flag to 0 means deletes all the ckpts
+        old_ckpt_initialized = 0;
+        dsm_metadata_reset_crash_flag();
+    } else { // restore
+        dsm_metadata_set_crash_flag();
+    }
 #endif
-        for (int i = 0; i < PLAT_CPU_NUM; i++) {
-                struct per_cpu_info *info;
-                info = &cpu_info[i];
-                info->fpu_owner = NULL;
-        }
+    for (int i = 0; i < PLAT_CPU_NUM; i++) {
+        struct per_cpu_info *info;
+        info = &cpu_info[i];
+        info->fpu_owner = NULL;
+    }
 
-        extern void arch_interrupt_init();
-        arch_interrupt_init();
+    extern void arch_interrupt_init();
+    arch_interrupt_init();
 
-        extern void timer_reset();
-        timer_reset();
+    extern void timer_reset();
+    timer_reset();
 
-        extern void *get_mb2_mmap();
-        if (reset)
-                mm_init(NULL, true);
-        else
-                mm_init((void *)get_mb2_mmap(), false);
+    extern void *get_mb2_mmap();
+    if (reset)
+        mm_init(NULL, true);
+    else
+        mm_init((void *)get_mb2_mmap(), false);
 
-        sched_init(&rr);
+    sched_init(&rr);
 
-        extern void init_fpu_owner_locks();
-        init_fpu_owner_locks();
+    extern void init_fpu_owner_locks();
+    init_fpu_owner_locks();
 
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
-        extern void disable_fpu_usage();
-        disable_fpu_usage();
+    extern void disable_fpu_usage();
+    disable_fpu_usage();
 #endif
 
-        extern void reset_user_fault_init(void);
-        reset_user_fault_init();
+    extern void reset_user_fault_init(void);
+    reset_user_fault_init();
 
-        current_thread = NULL;
+    current_thread = NULL;
 #ifdef CHCORE_SLS
-        /* Init global metada */
-        if (ckpt_metadata_init()) {
-                BUG("[ChCore] checkpoint metadata init failed\n");
-        }
+    /* Init global metada */
+    if (ckpt_metadata_init()) {
+        BUG("[ChCore] checkpoint metadata init failed\n");
+    }
 
-        init_hybrid_structs();
-        kinfo("[ChCore] init_hybrid_structs done\n");
+    init_hybrid_structs();
+    kinfo("[ChCore] init_hybrid_structs done\n");
 
 /* Restore checkpoint from nvm metadata */
 #ifdef RESTORE_ENABLED
-        /* Create initial thread like init-process in Linux */
-        if (NVM_IS_CRASH) {
-                /* init pre mempcy thread */
-                if (!sys_whole_restore_without_ipi(0, 0)) {
-                        kinfo("[RESTORE] restore from ckpt finished\n");
-                        goto skip_create_root_thread;
-                } else {
-                        kinfo("[ChCore] sys_whole_restore error\n");
-                }
+    /* Create initial thread like init-process in Linux */
+    if (NVM_IS_CRASH) {
+        /* init pre mempcy thread */
+        if (!sys_whole_restore_without_ipi(0, 0)) {
+            kinfo("[RESTORE] restore from ckpt finished\n");
+            goto skip_create_root_thread;
+        } else {
+            kinfo("[ChCore] sys_whole_restore error\n");
         }
-        /* After all finish, set crash flag  */
-        nvm_metadata_set_crash_flag();
-        kinfo("[ChCore] nvm_metadata_set_crash_flag done\n");
+    }
+    /* After all finish, set crash flag  */
+    nvm_metadata_set_crash_flag();
+    kinfo("[ChCore] nvm_metadata_set_crash_flag done\n");
 #else
-        nvm_metadata_reset_crash_flag();
+    nvm_metadata_reset_crash_flag();
 #endif
 #endif /* CHCORE_SLS */
-        create_root_thread();
-        kinfo("[ChCore] root thread created\n");
+    create_root_thread();
+    kinfo("[ChCore] root thread created\n");
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #ifdef RESTORE_ENABLED
 skip_create_root_thread:
 #endif
-        /* start all other cores */
-        sys_ipi_start_all();
+    /* start all other cores */
+    sys_ipi_start_all();
 
-        /* reset ckpt initialized */
-        CKPT_INITIALIZED = old_ckpt_initialized;
+    /* reset ckpt initialized */
+    CKPT_INITIALIZED = old_ckpt_initialized;
 
 #endif /* CHCORE_SLS */
-        extern void flush_tlb_all();
-        flush_tlb_all();
+    extern void flush_tlb_all();
+    flush_tlb_all();
 
-        sched();
-        eret_to_thread(switch_context());
-        BUG("Should never be here!\n");
+    sched();
+    eret_to_thread(switch_context());
+    BUG("Should never be here!\n");
 }
 
 /* flags related to bypass connection */
@@ -221,45 +222,45 @@ bool poll_remote = true;
 
 int sys_get_poll_remote()
 {
-        return poll_remote;
+    return poll_remote;
 }
 
 void sys_set_poll_remote()
 {
-        connected_client_num++;
-        if (connected_client_num >= excepted_connected_client_num) {
-                // printk("sys_set_poll_remote to false\n");
-                poll_remote = false;
-        }
+    connected_client_num++;
+    if (connected_client_num >= excepted_connected_client_num) {
+        // printk("sys_set_poll_remote to false\n");
+        poll_remote = false;
+    }
 }
 
 void sys_set_excepted_connected_client_num(int expected_num)
 {
-        excepted_connected_client_num = expected_num;
+    excepted_connected_client_num = expected_num;
 }
 
 static inline void reset_bypass_connnection_flags()
 {
-        excepted_connected_client_num = __INT_MAX__;
-        connected_client_num = 0;
-        poll_remote = true;
+    excepted_connected_client_num = __INT_MAX__;
+    connected_client_num = 0;
+    poll_remote = true;
 }
 
 void sys_shutdown(int flag)
 {
-        /* switch kernel stack because the mm module will be re-initialized */
-        u32 cpuid = smp_get_cpu_id();
-        u64 tmp_kernel_stack = (u64)shutdown_kernel_stack[cpuid + 1];
-        asm volatile("mov %0, %%rsp" : : "r"(tmp_kernel_stack) :);
+    /* switch kernel stack because the mm module will be re-initialized */
+    u32 cpuid = smp_get_cpu_id();
+    u64 tmp_kernel_stack = (u64)shutdown_kernel_stack[cpuid + 1];
+    asm volatile("mov %0, %%rsp" : : "r"(tmp_kernel_stack) :);
 
-        /* reset some flags */
-        reset_bypass_connnection_flags();
+    /* reset some flags */
+    reset_bypass_connnection_flags();
 #ifdef CHCORE_SLS
-        extern void clear_external_ringbuf();
-        clear_external_ringbuf();
+    extern void clear_external_ringbuf();
+    clear_external_ringbuf();
 #endif
-        /* handle shutdown using the new stack */
-        handle_shutdown(flag);
+    /* handle shutdown using the new stack */
+    handle_shutdown(flag);
 }
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
@@ -362,6 +363,10 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_perf_start] = sys_perf_start,
         [SYS_perf_end] = sys_perf_end,
         [SYS_perf_null] = sys_perf_null,
+
+        /* PCIe BUS */
+        [SYS_pcie_control] = sys_pcie_control,
+
 /* Virtualization */
 #ifdef CHCORE_KERNEL_VIRT
         [SYS_virt_dispatch] = sys_virt_dispatch,

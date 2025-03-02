@@ -5,8 +5,8 @@
 
 #include <irq_num.h>
 
-#define HANDLE_KERNEL	0
-#define HANDLE_USER	1
+#define HANDLE_KERNEL 0
+#define HANDLE_USER   1
 extern u8 irq_handle_type[MAX_IRQ_NUM];
 
 /* TODO: split the plat/arch declaration */
@@ -17,7 +17,7 @@ void arch_enable_irqno(int irqno);
 void arch_disable_irqno(int irqno);
 
 /* XXX: only needed in ARM */
-void plat_handle_irq(void);     /* in arch/xxx/plat/xxx/irq/irq.c */
+void plat_handle_irq(void); /* in arch/xxx/plat/xxx/irq/irq.c */
 void plat_interrupt_init(void); /* in arch/xxx/plat/xxx/irq/irq.c */
 void plat_disable_timer(void);
 void plat_enable_timer(void);

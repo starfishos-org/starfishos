@@ -95,6 +95,9 @@
 #define SYS_set_poll_remote                   234
 #define SYS_set_excepted_connected_client_num 235
 
+/* PCIe BUS */
+#define SYS_pcie_control 237
+
 /* SHUTDOWN */
 #define SYS_shutdown 243
 
@@ -122,6 +125,6 @@
 #define SYS_track_pf_end   251
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-#define SYS_ckpt_migrate              252
-#define SYS_ckpt_merge_migration      253
+#define SYS_ckpt_migrate         252
+#define SYS_ckpt_merge_migration 253
 #endif

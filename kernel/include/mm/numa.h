@@ -6,13 +6,13 @@
 #define MAX_NR_NUMAS (4)
 
 struct numa_node {
-        u64 domain_id;
-        /* memory node */
-        // TODO: support multiple mem
-        u64 base;
-        u64 size;
-        /* cpu list */
-        // TODO
+    u64 domain_id;
+    /* memory node */
+    // TODO: support multiple mem
+    u64 base;
+    u64 size;
+    /* cpu list */
+    // TODO
 };
 
 u8 numa_node_nr;

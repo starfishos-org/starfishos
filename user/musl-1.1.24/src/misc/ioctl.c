@@ -5,7 +5,7 @@
 #include <sys/time.h>
 #include "syscall.h"
 
-int ioctl(int fd, int req, ...)
+int ioctl(int fd, unsigned long req, ...)
 {
 	void *arg;
 	va_list ap;

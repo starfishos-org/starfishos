@@ -4,14 +4,14 @@
 
 extern vaddr_t transform_vaddr(char *user_buf);
 
-// user/musl-1.1.24/src/chcore-port/socket.c 
+// user/musl-1.1.24/src/chcore-port/socket.c
 struct ringbuf_header {
-	char is_delayed_ringbuf;
-	int pos_writer;
-	int pos_reader;
-	int pos_visiable_writer;
+    char is_delayed_ringbuf;
+    int pos_writer;
+    int pos_reader;
+    int pos_visiable_writer;
 };
- 
+
 struct ext_ringbuf {
     struct list_head node;
     struct ringbuf_header *buf; // kernel vaddr of ringbuf start
@@ -31,15 +31,15 @@ int sys_register_external_ringbuf(u64 buffer)
     struct ext_ringbuf *ext_rbuf;
 
     kva = transform_vaddr((char *)buffer);
-    
+
     ext_rbuf = (struct ext_ringbuf *)kmalloc(sizeof(*ext_rbuf), __DEFAULT__);
     if (!ext_rbuf) {
         return -ENOMEM;
     }
 
     if (!ext_ringbuf_list) {
-        ext_ringbuf_list =
-            (struct list_head *)kmalloc(sizeof(*ext_ringbuf_list), __DEFAULT__);
+        ext_ringbuf_list = (struct list_head *)kmalloc(
+                sizeof(*ext_ringbuf_list), __DEFAULT__);
         if (!ext_ringbuf_list) {
             return -ENOMEM;
         }
@@ -49,7 +49,7 @@ int sys_register_external_ringbuf(u64 buffer)
     ext_rbuf->buf = (struct ringbuf_header *)kva;
     ext_rbuf->buf->is_delayed_ringbuf = 1;
     ext_rbuf->buf->pos_visiable_writer = ext_rbuf->buf->pos_writer;
-    
+
     list_add(&(ext_rbuf->node), ext_ringbuf_list);
 
     return 0;
@@ -65,8 +65,7 @@ int sys_unregister_external_ringbuf(u64 buffer)
 
     kva = transform_vaddr((char *)buffer);
 
-    for_each_in_list_safe(ext_rbuf, tmp, node, ext_ringbuf_list)
-    {
+    for_each_in_list_safe (ext_rbuf, tmp, node, ext_ringbuf_list) {
         if ((vaddr_t)(ext_rbuf->buf) == kva) {
             list_del(&(ext_rbuf->node));
             kfree(ext_rbuf);
@@ -85,8 +84,7 @@ void update_external_ringbufs()
         return;
 
     /* update visiable writer pointer of each ringbuf */
-    for_each_in_list_safe(ext_rbuf, tmp, node, ext_ringbuf_list)
-    {
+    for_each_in_list_safe (ext_rbuf, tmp, node, ext_ringbuf_list) {
         ext_rbuf->buf->pos_visiable_writer = ext_rbuf->buf->pos_writer;
     }
 }
@@ -95,8 +93,7 @@ bool is_in_ringbuf_list(vaddr_t kva)
 {
     struct ext_ringbuf *ext_rbuf, *tmp;
 
-    for_each_in_list_safe(ext_rbuf, tmp, node, ext_ringbuf_list)
-    {
+    for_each_in_list_safe (ext_rbuf, tmp, node, ext_ringbuf_list) {
         if ((vaddr_t)(ext_rbuf->buf) == kva) {
             return true;
         }
@@ -121,8 +118,7 @@ void clear_external_ringbuf()
     struct ext_ringbuf *ext_rbuf, *tmp;
 
     if (ext_ringbuf_list) {
-        for_each_in_list_safe(ext_rbuf, tmp, node, ext_ringbuf_list)
-        {
+        for_each_in_list_safe (ext_rbuf, tmp, node, ext_ringbuf_list) {
             list_del(&(ext_rbuf->node));
             kfree(ext_rbuf);
         }

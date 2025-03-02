@@ -3,10 +3,10 @@
 #include <common/types.h>
 
 struct vtimer {
-	/* timer registers for a VCPU */
-	u32 cntv_ctl_el0;
-	u32 cntv_tval_el0;
-	u64 cntvct_el0; /* save-only, used to calculate cntvoff_el2 */
+    /* timer registers for a VCPU */
+    u32 cntv_ctl_el0;
+    u32 cntv_tval_el0;
+    u64 cntvct_el0; /* save-only, used to calculate cntvoff_el2 */
 };
 
 void vtimer_init(struct vtimer *);

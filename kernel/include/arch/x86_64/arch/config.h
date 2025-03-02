@@ -7,4 +7,4 @@
 #define LBR_ENABLED 0
 
 /* Set MPK_ENABLED to 1 to enable Intel MPK */
-#define MPK_ENABLED  0
+#define MPK_ENABLED 0

@@ -21,17 +21,17 @@
  * the related vmas can be easily linked or unlinked.
  */
 struct virtual_vmregion {
-        /* W: modification, R: walking the list */
-        struct lock lock;
-        /* Interval tree of private "related" vmrs */
+    /* W: modification, R: walking the list */
+    struct lock lock;
+    /* Interval tree of private "related" vmrs */
 #ifdef ENABLE_SPLIT_AND_MERGE
-        u64 vmr_count;
-        struct vmr_list {
-                void *vmr;
-                struct vmr_list *next;
-        } list;
-#else
+    u64 vmr_count;
+    struct vmr_list {
         void *vmr;
+        struct vmr_list *next;
+    } list;
+#else
+    void *vmr;
 #endif
 };
 
@@ -50,68 +50,68 @@ struct virtual_vmregion {
  * may changed and the index is invalid.
  */
 struct reverse_node {
-        struct list_head node; /* As one node of pmo->reverse_list */
+    struct list_head node; /* As one node of pmo->reverse_list */
 
-        /*
-         * Currently, chcore do not allow split/merge vmregion
-         * But vmregion can be free, still use virtual vmr to track
-         */
-        // struct virtual_vmregion *virt_vmr;
-        struct vmregion *vmr;
+    /*
+     * Currently, chcore do not allow split/merge vmregion
+     * But vmregion can be free, still use virtual vmr to track
+     */
+    // struct virtual_vmregion *virt_vmr;
+    struct vmregion *vmr;
 };
 
 struct vmregion {
-        struct list_head list_node; /* As one node of the vmr_list */
-        struct rb_node tree_node; /* As one node of the vmr_tree */
+    struct list_head list_node; /* As one node of the vmr_list */
+    struct rb_node tree_node; /* As one node of the vmr_tree */
 
-        /* virtual vmr this vmregion belong to */
-        // struct virtual_vmregion *virtual_vmr;
+    /* virtual vmr this vmregion belong to */
+    // struct virtual_vmregion *virtual_vmr;
 
-        /* vmspace belongs to */
-        void *vmspace;
+    /* vmspace belongs to */
+    void *vmspace;
 
-        vaddr_t start;
-        size_t size;
-        vmr_prop_t perm;
-        struct pmobject *pmo;
+    vaddr_t start;
+    size_t size;
+    vmr_prop_t perm;
+    struct pmobject *pmo;
 };
 
 #define VM_FLAG_PRESERVE \
-        1 /* pages in the vmspace are referenced by some checkpoints */
+    1 /* pages in the vmspace are referenced by some checkpoints */
 
 struct vmspace {
-        /* List head of vmregion (vmr_list) */
-        struct list_head vmr_list;
-        /* rbtree root node of vmregion (vmr_tree) */
-        struct rb_root vmr_tree;
+    /* List head of vmregion (vmr_list) */
+    struct list_head vmr_list;
+    /* rbtree root node of vmregion (vmr_tree) */
+    struct rb_root vmr_tree;
 
-        /* Root page table */
-        void *pgtbl;
+    /* Root page table */
+    void *pgtbl;
 
-        u64 pcid;
+    u64 pcid;
 
-        /* The lock for manipulating vmregions */
-        struct rwlock vmspace_lock;
-        /* The lock for manipulating the page table */
-        struct lock pgtbl_lock;
+    /* The lock for manipulating vmregions */
+    struct rwlock vmspace_lock;
+    /* The lock for manipulating the page table */
+    struct lock pgtbl_lock;
 
 /*
  * For TLB flushing:
  * Record the all the CPU that a vmspace ran on.
  */
 #ifdef CHCORE
-        u8 history_cpus[PLAT_CPU_NUM];
+    u8 history_cpus[PLAT_CPU_NUM];
 #endif
 
-        struct vmregion *heap_vmr;
+    struct vmregion *heap_vmr;
 
-        /* For the virtual address of mmap */
-        vaddr_t user_current_mmap_addr;
+    /* For the virtual address of mmap */
+    vaddr_t user_current_mmap_addr;
 #if defined(CHCORE_SLS) || defined(CHCORE_SSI_SLS)
-        /* Track all modified pages('s pte) */
-        void *pte_patch_pool;
+    /* Track all modified pages('s pte) */
+    void *pte_patch_pool;
 #endif
-        u64 flags;
+    u64 flags;
 };
 
 typedef u64 pmo_type_t;
@@ -129,10 +129,10 @@ typedef u64 pmo_type_t;
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 struct page_patch {
-        // unsigned char type;
-        struct list_head list_node;
-        u64 offset;
-        // void *page_data;
+    // unsigned char type;
+    struct list_head list_node;
+    u64 offset;
+    // void *page_data;
 };
 
 enum page_patch_type { PPATCH_NEW, PPATCH_MODIFY };
@@ -146,30 +146,30 @@ extern struct vmspace *ycsb_vmspace;
 #endif /* CHCORE_SLS */
 
 struct pmobject {
-        // #ifdef CHCORE_SLS
-        union {
-                struct radix *radix;
-                struct dram_cache {
-                        u64 *array;
-                        struct lock lock;
-                } dram_cache;
-        };
-        // #else
-        //      struct radix *radix;
-        // #endif /* CHCORE_SLS */
-        paddr_t start;
-        size_t size;
-        pmo_type_t type;
+    // #ifdef CHCORE_SLS
+    union {
+        struct radix *radix;
+        struct dram_cache {
+            u64 *array;
+            struct lock lock;
+        } dram_cache;
+    };
+    // #else
+    //      struct radix *radix;
+    // #endif /* CHCORE_SLS */
+    paddr_t start;
+    size_t size;
+    pmo_type_t type;
 
-        /*
-         * 'private' depends on 'type'.
-         * PMO_FILE: it points to fmap_fault_pool
-         * others: NULL
-         */
-        void *private;
+    /*
+     * 'private' depends on 'type'.
+     * PMO_FILE: it points to fmap_fault_pool
+     * others: NULL
+     */
+    void *private;
 #ifdef RMAP_ENABLED
-        struct list_head reverse_list;
-        struct lock reverse_list_lock;
+    struct list_head reverse_list;
+    struct lock reverse_list_lock;
 #endif /* RMAP_ENABLED */
 };
 

@@ -7,21 +7,21 @@
 
 /* User ring buffer node */
 struct user_fault_msg {
-        u64 fault_badge;
-        vaddr_t fault_va;
+    u64 fault_badge;
+    vaddr_t fault_va;
 };
 
 /**
  * Save pending thread, and enqueue them when user mapping finished
  */
 struct fault_pending_thread {
-        /* Use (fault_badge, fault_va) as key to find the pending thread */
-        u64 fault_badge;
-        vaddr_t fault_va;
+    /* Use (fault_badge, fault_va) as key to find the pending thread */
+    u64 fault_badge;
+    vaddr_t fault_va;
 
-        struct thread *thread;
+    struct thread *thread;
 
-        struct list_head node;
+    struct list_head node;
 };
 
 /**
@@ -31,15 +31,15 @@ struct fault_pending_thread {
  * and add to fmap_fault_pool_list.
  */
 struct fmap_fault_pool {
-        u64 cap_group_badge;
-        struct notification *notific;
-        struct ring_buffer *msg_buffer_kva; // TODO(FN): changed field
+    u64 cap_group_badge;
+    struct notification *notific;
+    struct ring_buffer *msg_buffer_kva; // TODO(FN): changed field
 
-        /* fault pending thread list */
-        struct list_head pending_threads;
+    /* fault pending thread list */
+    struct list_head pending_threads;
 
-        struct lock lock;
-        struct list_head node;
+    struct lock lock;
+    struct list_head node;
 };
 
 extern struct lock fmap_fault_pool_list_lock;

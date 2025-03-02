@@ -1,2 +1,2 @@
-target_sources(${kernel_target} PRIVATE sched.c context.c policy_pbrr.c
-                                        policy_rr.c)
+file(GLOB_RECURSE src "*.c")
+target_sources(${kernel_target} PRIVATE ${src})

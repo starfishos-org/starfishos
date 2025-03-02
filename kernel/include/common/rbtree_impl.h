@@ -14,33 +14,33 @@
 #define rb_is_black(node)   (__rb_is_black(node->__parent_color))
 #define rb_is_red(node)     (__rb_is_red(node->__parent_color))
 #define rb_red_parent(node) ((struct rb_node*)node->__parent_color)
-#define rb_has_red_child(node)                             \
-        ((node->left_child && rb_is_red(node->left_child)) \
-         || (node->right_child && rb_is_red(node->right_child)))
+#define rb_has_red_child(node)                         \
+    ((node->left_child && rb_is_red(node->left_child)) \
+     || (node->right_child && rb_is_red(node->right_child)))
 
 /*
  * set parent and color helpers
  * Due to malloc/kmalloc 4-bytes alignment, and alignment attributes specified
  * in the defination of rb_node, we can use a compressed layout to store parent
  * rb_node pointer and color of a node in one field, saving 1 byte per rb_node.
- * 
+ *
  * Thanks to alignment, at least the leftmost 3 bits of a rb_node pointer would
- * be 0. We leverage MLB of __parent_color to store color of a node. 0 represents
- * a red node, and 1 represents a black one. This also indicates that a new node
- * is naturally red, which is desired in rbtree.
+ * be 0. We leverage MLB of __parent_color to store color of a node. 0
+ * represents a red node, and 1 represents a black one. This also indicates that
+ * a new node is naturally red, which is desired in rbtree.
  */
 static inline void rb_set_parent(struct rb_node* this, struct rb_node* parent)
 {
-        this->__parent_color = (unsigned long)parent | rb_color(this);
+    this->__parent_color = (unsigned long)parent | rb_color(this);
 }
 
 static inline void rb_set_color(struct rb_node* this, int color)
 {
-        this->__parent_color = (unsigned long)rb_parent(this) | (color);
+    this->__parent_color = (unsigned long)rb_parent(this) | (color);
 }
 
 static inline void rb_set_parent_color(struct rb_node* this,
                                        struct rb_node* parent, int color)
 {
-        this->__parent_color = (unsigned long)parent | (color & 3);
+    this->__parent_color = (unsigned long)parent | (color & 3);
 }

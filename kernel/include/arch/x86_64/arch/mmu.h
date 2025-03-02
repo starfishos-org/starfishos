@@ -21,22 +21,21 @@ int unmap_range_in_pgtbl(void *pgtbl, vaddr_t va, size_t len);
 #define KBASE 0xFFFFFF0000000000
 #endif
 
-
 #ifdef CHCORE
 
 #define phys_to_virt(x) ((vaddr_t)((paddr_t)x + KBASE))
 
 #ifndef KCODE
-#define KCODE 0xFFFFFFFFC0000000
+#define KCODE 0xFFFFFFFF80000000
 #endif
 
 static inline paddr_t virt_to_phys(void *va)
 {
-	u64 x;
-	x = (u64)va;
-	BUG_ON((x < KBASE) || (x >= KCODE));
+    u64 x;
+    x = (u64)va;
+    BUG_ON((x < KBASE) || (x >= KCODE));
 
-	return x - KBASE;
+    return x - KBASE;
 }
 
 #endif
