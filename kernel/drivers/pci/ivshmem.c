@@ -222,7 +222,7 @@ int pci_hostfs_open(void *args)
     copy_from_user((void *)&info, (void *)req->arg_ptr, 
         sizeof(struct pci_hostfs_req_info));
 
-    kinfo("open file %s\n", info.file_name);
+    // kinfo("open file %s\n", info.file_name);
     dev_file_info = find_hostfs_dev_file_info(info.file_name);
     if (dev_file_info == NULL) {
         pci_ioctl_debug("file %s not found\n", req->arg_ptr);
@@ -233,7 +233,7 @@ int pci_hostfs_open(void *args)
     file_sz = dev_file_info->file_size;
     info.file_size = file_sz;
 
-    pci_info("[IVSHMEM] open file %s, size %llx\n",
+    pci_info("[HOSTFS] open file %s, size %llx\n",
             info.file_name,
             file_sz);
     

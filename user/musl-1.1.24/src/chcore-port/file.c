@@ -1185,7 +1185,7 @@ u64 chcore_file_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_
 			return -ENOMEM;
 		}
 	}
-	debug("%s: addr=0x%lx, size=%0x%lx\n", __func__, vaddr, length);
+	// debug("%s: addr=0x%lx, size=%0x%lx\n", __func__, vaddr, length);
 
 	fr.req = FS_REQ_FMAP;
 	fr.mmap.addr = (void *)vaddr;

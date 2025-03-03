@@ -39,7 +39,7 @@ int chcore_hostfs_write(int fd, void *buf, size_t count) {
 
 long chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
 {
-	printf("chcore_hostfs_mmap: %lx, %lx, %d, %d, %d, %lx\n", vaddr, length, prot, flags, fd, offset);
+	// printf("chcore_hostfs_mmap: %lx, %lx, %d, %d, %d, %lx\n", vaddr, length, prot, flags, fd, offset);
 	struct hostfs_file_info *info = 
 			(struct hostfs_file_info *)fd_dic[fd]->private_data;
 	struct pci_control_req *req = malloc(sizeof(struct pci_control_req));
@@ -72,7 +72,7 @@ long chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, o
 }
 
 int chcore_hostfs_open(int fd, char *path) {
-	printf("chcore_hostfs_open: %s\n", path);
+	// printf("chcore_hostfs_open: %s\n", path);
 	struct pci_control_req *req;
 	struct hostfs_file_info *info;
 	struct pci_hostfs_req_info *req_info;
@@ -132,15 +132,12 @@ off_t chcore_hostfs_lseek(int fd, off_t offset, int whence) {
 	switch (whence) {
 		case SEEK_SET:
 			info->fd_offset = offset;
-			printf("chcore_hostfs_lseek: SEEK_SET ret=%lx\n", info->fd_offset);
 			break;
 		case SEEK_CUR:
 			info->fd_offset += offset;
-			printf("chcore_hostfs_lseek: SEEK_CUR ret=%lx\n", info->fd_offset);
 			break;
 		case SEEK_END:
 			info->fd_offset = info->file_size + offset;
-			printf("chcore_hostfs_lseek: SEEK_END ret=%lx\n", info->fd_offset);
 			break;
 		default:
 			printf("chcore_hostfs_lseek: invalid whence %d\n", whence);
@@ -150,7 +147,7 @@ off_t chcore_hostfs_lseek(int fd, off_t offset, int whence) {
 }
 
 int chcore_hostfs_close(int fd) {
-	printf("chcore_hostfs_close\n");
+	// printf("chcore_hostfs_close\n");
 	free(fd_dic[fd]->private_data);
 	fd_dic[fd]->private_data = NULL;
 	return 0;

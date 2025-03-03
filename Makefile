@@ -29,3 +29,6 @@ ip2c-kernel:
 test:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/llama-bench.exp
+
+prepare_hostfs:
+	python3 ./dsm-scripts/prepare_hostfs.py
