@@ -747,6 +747,10 @@ long __syscall4(long n, long a, long b, long c, long d)
 		warn("SYS_utimensat is implemented.\n");
 		return 0;
 	}
+	case SYS_fadvise64: {
+		warn("SYS_fadvise is implemented.\n");
+		return 0;
+	}
 	default:
 		dead(n);
 		// chcore_syscall4(n, a, b, c, d);
