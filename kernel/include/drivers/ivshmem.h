@@ -3,5 +3,7 @@
  */
 void ivshmem_setup_devices(void);
 
-int pci_ivshmem_open(void *req);
-int pci_ivshmem_close(void *args);
+int pci_hostfs_open(void *req);
+int pci_hostfs_mmap(void *args);
+int pci_hostfs_unmap(void *args);
+int pci_hostfs_list(void *args);

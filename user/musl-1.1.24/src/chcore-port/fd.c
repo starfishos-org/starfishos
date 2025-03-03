@@ -218,6 +218,11 @@ off_t chcore_lseek(int fd, off_t offset, int whence)
     return fd_dic[fd]->fd_op->lseek(fd, offset, whence);
 }
 
+long chcore_fd_mmap(long vaddr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+	return fd_dic[fd]->fd_op->mmap(vaddr, length, prot, flags, fd, offset);
+}
+
 int dup_fd_content(int fd, int arg)
 {
 	int type, new_fd;
