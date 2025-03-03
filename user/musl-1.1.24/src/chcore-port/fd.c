@@ -213,7 +213,7 @@ int chcore_writev(int fd, const struct iovec *iov, int iovcnt)
 	return byte_written;
 }
 
-int chcore_lseek(int fd, off_t offset, int whence)
+off_t chcore_lseek(int fd, off_t offset, int whence)
 {
     return fd_dic[fd]->fd_op->lseek(fd, offset, whence);
 }
