@@ -49,13 +49,17 @@ with open(shm_device_path, 'r+b') as shm_fd:
             if file_offset + file_size > shm_file_size:
                 print("file_offset + file_size > shm_file_size")
                 break
-            # shm.write(file_content, file_offset)
+            
+            # write file content to offset
+            shm.seek(file_offset)
+            source_file.seek(0)
+
+            print("Writing file %s offset: %x size: %x" % (source_file_path, file_offset, file_size))
+            shm.write(source_file.read(file_size))
 
             # 更新offset
             offset += round_up(file_size, PAGE_SIZE)
             file_num += 1
-
-            source_file.close()
     
     # 写入magic
     shm.seek(0)
@@ -75,6 +79,7 @@ with open(shm_device_path, 'r+b') as shm_fd:
     #         char file_name[128];
     #     } file_info_list[];
     # } __attribute__((packed, aligned(16)));
+
     for file_info in file_info_list:
         print(file_info)
     # 计算file_info_list的起始位置
@@ -108,4 +113,4 @@ with open(shm_device_path, 'r+b') as shm_fd:
     # 关闭映射
     shm.close()
 
-print("File has been copied to shared memory.")
+print("All files have been copied to shared memory.")
