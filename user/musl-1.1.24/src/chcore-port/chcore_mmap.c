@@ -172,11 +172,10 @@ static void add_node_in_order(struct pmo_node *node)
 /* TODO: Take the lock before allocating and mapping/free and unmapping
  * address.*/
 void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
-                  off_t off)
+                  off_t off, int pmo_cap)
 {
         struct pmo_node *node;
         void *map_addr;
-        int pmo_cap;
         int ret;
 
         if (fd != -1) {
@@ -207,10 +206,12 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         pthread_once(&init_mmap_once, initial_mmap);
 
         /* pmo create */
-        if (flags & MAP_CXL) {
-                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
-        } else {
-                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+        if (pmo_cap == 0) {
+                if (flags & MAP_CXL) {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
+                } else {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+                }
         }
         
         if (pmo_cap <= 0) {

@@ -9,13 +9,14 @@
 #define PCI_CONTROL_LIST_DEVICES    (0)
 #define PCI_CONTROL_OPEN_DEVICE     (1)
 
-#define HOSTFS_TYPE 0x10
-#define PCI_CONTROL_IVSHMEM_OPEN    _IO(HOSTFS_TYPE, 0)
-#define PCI_CONTROL_IVSHMEM_MMAP    _IO(HOSTFS_TYPE, 1)
-#define PCI_CONTROL_IVSHMEM_UNMAP   _IO(HOSTFS_TYPE, 2)
-#define PCI_CONTROL_IVSHMEM_LIST    _IO(HOSTFS_TYPE, 3)
+#define HOSTFS_TYPE	('h')
+#define HOSTFS_BASE	100
+#define PCI_CONTROL_IVSHMEM_OPEN    _IO(HOSTFS_TYPE, HOSTFS_BASE + 0)
+#define PCI_CONTROL_IVSHMEM_MMAP    _IO(HOSTFS_TYPE, HOSTFS_BASE + 1)
+#define PCI_CONTROL_IVSHMEM_UNMAP   _IO(HOSTFS_TYPE, HOSTFS_BASE + 2)
+#define PCI_CONTROL_IVSHMEM_LIST    _IO(HOSTFS_TYPE, HOSTFS_BASE + 3)
 
-struct pci_control_req {
+ struct pci_control_req {
     u64 req_type; // pcie control type
     char dev_ids[16];
     u64 arg_sz;

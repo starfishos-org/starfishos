@@ -62,9 +62,17 @@ struct hostfs_dev_header {
 
 #define HOSTFS_PREFIX "/host/"
 
+struct pci_hostfs_req_info {
+    u64 file_size;
+    char file_name[128];
+    u64 pmo_cap;
+};
+
+// fd_dic private data
 struct hostfs_file_info {
     u64 file_size;
     char file_name[128];
+    u64 pmo_cap;
     u64 mmap_vaddr;
     u64 mmap_size;
     u64 mmap_prot;
@@ -138,12 +146,12 @@ void ivshmem_setup_devices()
     pci_buses_traverse_all(ivshmem_setup_dev, NULL);
 }
 
-static struct hostfs_dev_header *parse_hostfs_file_info() {
+static struct hostfs_dev_header *parse_pci_hostfs_req_info() {
     return (struct hostfs_dev_header *)hostfs_dev->iova;
 }
 
-void list_hostfs_file_info() {
-    struct hostfs_dev_header *header = parse_hostfs_file_info();
+void list_pci_hostfs_req_info() {
+    struct hostfs_dev_header *header = parse_pci_hostfs_req_info();
     pci_info("[HOSTFS] /host/: file_num=%llx\n", header->file_num);
     for (int i = 0; i < header->file_num; i++) {
         struct hostfs_dev_file_info *file_info = &header->file_info_list[i];
@@ -168,7 +176,7 @@ struct hostfs_dev_file_info *find_hostfs_dev_file_info(char *file_name) {
     }
     file_name += strlen(HOSTFS_PREFIX);
 
-    struct hostfs_dev_header *header = parse_hostfs_file_info();
+    struct hostfs_dev_header *header = parse_pci_hostfs_req_info();
     for (int i = 0; i < header->file_num; i++) {
         struct hostfs_dev_file_info *file_info = &header->file_info_list[i];
         if (strncmp(file_info->file_name, file_name, strlen(file_name)) == 0) {
@@ -194,143 +202,64 @@ static u64 file_offset_to_iopa(u64 file_offset) {
 }
 
 int pci_hostfs_mmap(void *args) {
-    struct pci_control_req *req = (struct pci_control_req *)args;
-    struct hostfs_file_info info;
-    struct hostfs_dev_file_info *dev_file_info;
-    struct vmspace *vmspace = NULL;
-    struct vmregion *vmr;
-    struct pmobject *pmo;
-    int ret;
-    u64 io_pa = 0, io_sz = 0, file_sz = 0;
-
-    // in: mmap_vaddr, mmap_size, mmap_prot
-    copy_from_user((void *)&info, (void *)req->arg_ptr, 
-        sizeof(struct hostfs_file_info));
-
-    dev_file_info = find_hostfs_dev_file_info(info.file_name);
-    if (dev_file_info == NULL) {
-        pci_ioctl_debug("file %s not found\n", req->arg_ptr);
-        return -ENOENT;
-    }
-
-    io_pa = file_offset_to_iopa(dev_file_info->file_offset);
-    file_sz = dev_file_info->file_size;
-    io_sz = ROUND_UP(file_sz, PAGE_SIZE);
-
-    // mmap region to user space
-    ret = create_device_pmo(io_pa, io_sz, &pmo);
-    if (ret < 0) {
-        return ret;
-    }
-
-    // map to user space
-    vmspace = get_current_vmspace();
-    ret = vmspace_map_range(vmspace, 
-            info.mmap_vaddr, 
-            info.mmap_size, 
-            info.mmap_prot, 
-            pmo, 
-            &vmr);
-    if (ret < 0) {
-        pci_ioctl_debug("vmspace_map_range failed\n");
-        goto fail;
-    }
-
-    info.mmap_vaddr = vmr->start;
-    info.mmap_size = io_sz;
-
-    pci_info("[IVSHMEM] open file at dev[%d] mapped to %llx, size %llx\n",
-            kvm_ivshmem_dev_num,
-            info.mmap_vaddr,
-            info.mmap_size);
-
-    copy_to_user((void *)req->arg_ptr, (void *)&info, 
-        sizeof(struct hostfs_file_info));
-
     return 0;
-
-fail:
-    pci_ioctl_debug("vmspace_map_range failed\n");
-    return ret;
 }
 
 int pci_hostfs_unmap(void *args) {
-    struct pci_control_req *req = (struct pci_control_req *)args;
-    struct hostfs_file_info info;
-    int ret;
-
-    copy_from_user((void *)&info, (void *)req->arg_ptr, 
-        sizeof(struct hostfs_file_info));
-
-    if (info.is_mapped == 0) {
-        return 0;
-    }
-
-    pci_info("[IVSHMEM] unmap file %s, size %llx\n",
-            info.file_name,
-            info.mmap_size);
-    
-    ret = vmspace_unmap_range(get_current_vmspace(), 
-        info.mmap_vaddr, info.mmap_size);
-    if (ret < 0) {
-        pci_ioctl_debug("vmspace_unmap_range failed\n");
-        return ret;
-    }
-
     return 0;
 }
 
 int pci_hostfs_open(void *args)
 {
     struct pci_control_req *req = (struct pci_control_req *)args;
-    struct hostfs_file_info info;
+    struct pci_hostfs_req_info info;
     struct hostfs_dev_file_info *dev_file_info;
-    u64 file_sz = 0;
+    struct pmobject *pmo;
+    int ret;
+    u64 io_pa = 0, io_sz = 0, file_sz = 0;
 
     // in: filename
     copy_from_user((void *)&info, (void *)req->arg_ptr, 
-        sizeof(struct hostfs_file_info));
+        sizeof(struct pci_hostfs_req_info));
 
+    kinfo("open file %s\n", info.file_name);
     dev_file_info = find_hostfs_dev_file_info(info.file_name);
     if (dev_file_info == NULL) {
         pci_ioctl_debug("file %s not found\n", req->arg_ptr);
         return -ENOENT;
     }
 
+    // get file size
     file_sz = dev_file_info->file_size;
+    info.file_size = file_sz;
 
     pci_info("[IVSHMEM] open file %s, size %llx\n",
             info.file_name,
             file_sz);
+    
+    io_pa = file_offset_to_iopa(dev_file_info->file_offset);
+    io_sz = ROUND_UP(file_sz, PAGE_SIZE);
+
+    // get pmo_cap
+    info.pmo_cap = create_device_pmo(io_pa, io_sz, &pmo);
+    if (info.pmo_cap < 0) {
+        return ret;
+    }
 
     // out: file_size
     copy_to_user((void *)req->arg_ptr, (void *)&info, 
-        sizeof(struct hostfs_file_info));
+        sizeof(struct pci_hostfs_req_info));
 
     return 0;
 }
 
 int pci_ivshmem_close(void *args)
 {
-    struct pci_control_req *req = (struct pci_control_req *)args;
-    struct hostfs_file_info info;
-    struct vmspace *vmspace = get_current_vmspace();
-    int ret;
-
-    copy_from_user((void *)&info, (void *)req->arg_ptr, 
-        sizeof(struct hostfs_file_info));
-
-    ret = vmspace_unmap_range(vmspace, info.mmap_vaddr, info.mmap_size);
-    if (ret < 0) {
-        pci_ioctl_debug("vmspace_unmap_range failed\n");
-        return ret;
-    }
-
     return 0;
 }
 
 int pci_hostfs_list(void *args) {
     kinfo("list hostfs file info\n");
-    list_hostfs_file_info();
+    list_pci_hostfs_req_info();
     return 0;
 }

@@ -816,7 +816,7 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 		if (e != -1) {
 			return (long)chcore_fd_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f);
 		}
-		return (long)chcore_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f);
+		return (long)chcore_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f, 0);
 	}
 	case SYS_fsync: {
 		return chcore_fsync(a);

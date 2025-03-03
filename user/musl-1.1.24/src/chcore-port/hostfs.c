@@ -37,27 +37,92 @@ int chcore_hostfs_write(int fd, void *buf, size_t count) {
 	return -1;
 }
 
-int chcore_hostfs_open(int fd, char *path) {
-	printf("chcore_hostfs_open: %s\n", path);
+long chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+	printf("chcore_hostfs_mmap: %lx, %lx, %d, %d, %d, %lx\n", vaddr, length, prot, flags, fd, offset);
+	struct hostfs_file_info *info = 
+			(struct hostfs_file_info *)fd_dic[fd]->private_data;
 	struct pci_control_req *req = malloc(sizeof(struct pci_control_req));
-	struct hostfs_file_info *info = malloc(sizeof(struct hostfs_file_info));
-	int ret;
+	u64 mmap_size = 0;
+	int ret = 0;
+	
+	if (info->is_mapped) {
+		return (long)info->mmap_vaddr + offset;
+	}
 
-	// open file
-	req->req_type = PCI_CONTROL_IVSHMEM_OPEN;
+	// prepare info
+	info->mmap_vaddr = vaddr;
+	info->mmap_size = ROUND_UP(length, PAGE_SIZE);
+	info->mmap_prot = prot;
+
+	// mmap file
+	req->req_type = PCI_CONTROL_IVSHMEM_MMAP;
 	req->arg_ptr = (u64)info;
 	req->arg_sz = sizeof(struct hostfs_file_info);
 
 	ret = usys_pcie_control((u64)req);
 	if (ret < 0) {
 		free(req);
-		free(info);
 		return ret;
 	}
+
+	info->is_mapped = 1;
+
+	return (long)info->mmap_vaddr + offset;
+}
+
+int chcore_hostfs_open(int fd, char *path) {
+	printf("chcore_hostfs_open: %s\n", path);
+	struct pci_control_req *req;
+	struct hostfs_file_info *info;
+	struct pci_hostfs_req_info *req_info;
+	int ret;
+	u64 map_addr;
+	// prepare info
+	req = malloc(sizeof(struct pci_control_req));
+	req_info = malloc(sizeof(struct pci_hostfs_req_info));
+
+	strcpy(req_info->file_name, path);
+	req->req_type = PCI_CONTROL_IVSHMEM_OPEN;
+	req->arg_ptr = (u64)req_info;
+	req->arg_sz = sizeof(struct pci_hostfs_req_info);
+
+	ret = usys_pcie_control((u64)req);
+	if (ret < 0) {
+		printf("chcore_hostfs_open: failed to open file\n");
+		free(req);
+		free(req_info);
+		return ret;
+	}
+
+	info = malloc(sizeof(struct hostfs_file_info));
+	info->file_size = req_info->file_size;
+	strcpy(info->file_name, req_info->file_name);
+	info->pmo_cap = req_info->pmo_cap;
+	info->fd_offset = 0;
+	info->is_mapped = 0;
 
 	fd_dic[fd]->type = FD_TYPE_HOSTFS;
 	fd_dic[fd]->fd_op = &hostfs_ops;
 	fd_dic[fd]->private_data = info;
+
+	// currently, open with mmap
+	info->mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
+	info->mmap_flags = MAP_ANONYMOUS | MAP_PRIVATE;
+	info->mmap_prot = PROT_READ;
+	map_addr = chcore_mmap(0,
+				info->mmap_size,
+				info->mmap_prot,
+				info->mmap_flags,
+				-1,
+				0,
+				info->pmo_cap);
+	if (map_addr == (u64)-1) {
+		printf("chcore_hostfs_open: failed to mmap\n");
+		return -1;
+	}
+	info->mmap_vaddr = map_addr;
+	info->is_mapped = 1;
 
 	return fd;
 }
@@ -89,42 +154,6 @@ int chcore_hostfs_close(int fd) {
 	free(fd_dic[fd]->private_data);
 	fd_dic[fd]->private_data = NULL;
 	return 0;
-}
-
-long chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
-{
-	printf("chcore_hostfs_mmap: %lx, %lx, %d, %d, %d, %lx\n", vaddr, length, prot, flags, fd, offset);
-	struct hostfs_file_info *info = 
-			(struct hostfs_file_info *)fd_dic[fd]->private_data;
-	struct pci_control_req *req = malloc(sizeof(struct pci_control_req));
-	u64 mmap_size = 0;
-	int ret = 0;
-	
-	if (info->is_mapped) {
-		return (long)info->mmap_vaddr + offset;
-	}
-
-	// prepare info
-	mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
-	info->mmap_vaddr = chcore_alloc_vaddr(mmap_size);
-	info->mmap_size = mmap_size;
-	info->mmap_prot = prot;
-
-	// mmap file
-	req->req_type = PCI_CONTROL_IVSHMEM_MMAP;
-	req->arg_ptr = (u64)info;
-	req->arg_sz = sizeof(struct hostfs_file_info);
-
-	ret = usys_pcie_control((u64)req);
-	if (ret < 0) {
-		free(req);
-		free(info);
-		return ret;
-	}
-
-	info->is_mapped = 1;
-
-	return (long)info->mmap_vaddr + offset;
 }
 
 struct fd_ops hostfs_ops = {

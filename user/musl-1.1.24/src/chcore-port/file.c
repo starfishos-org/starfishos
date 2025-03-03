@@ -860,20 +860,18 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	if (IS_DEVFS(full_path)) {
 		/* TODO: check whether this dev exist */
 		ret = chcore_open_dev(fd, full_path);
-		free(full_path);
-		return ret;
+		goto out_full_path_destroy;
 	}
 
 	if (IS_HOSTFS(full_path)) {
 		ret = chcore_hostfs_open(fd, full_path);
-		free(full_path);
-		return ret;
+		goto out_full_path_destroy;
 	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
-		free(full_path);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_full_path_destroy;
 	}
 
 	/* Send IPC to fs_server */
@@ -908,8 +906,9 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 		free_fd(fd);
 	}
 
-	free(full_path);
 	ipc_destroy_msg(ipc_msg);
+out_full_path_destroy:
+	free(full_path);
 
 	return ret;
 }

@@ -63,7 +63,7 @@ int hostfs_handle_ioctl(struct pci_control_req *req)
 int sys_pcie_control(u64 usr_req_buf)
 {
     struct pci_control_req *req;
-    u64 device_type;
+    char device_type;
     int ret = 0;
 
     req = (struct pci_control_req *)kmalloc(
@@ -95,7 +95,8 @@ int sys_pcie_control(u64 usr_req_buf)
 
     switch (device_type) {
     case HOSTFS_TYPE: {
-        return hostfs_handle_ioctl(req);
+        ret = hostfs_handle_ioctl(req);
+        break;
     }
     case VFIO_TYPE: {
         struct pci_dev *pdev = pci_find_device_by_ids(req->dev_ids);
@@ -106,7 +107,7 @@ int sys_pcie_control(u64 usr_req_buf)
         }
         ret = vfio_handle_ioctl(req->req_type, pdev, 
             req->arg_ptr, req->arg_sz);
-        goto out;
+        break;
     }
 
     default:
