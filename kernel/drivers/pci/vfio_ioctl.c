@@ -106,14 +106,12 @@ int vfio_handle_ioctl(u32 req_type, struct pci_dev *pdev, u64 arg_ptr, u64 arg_s
     switch (req_type) {
     case VFIO_IOMMU_MAP_DMA:
     {
-        pci_ioctl_debug("vfio_iommu_map_dma\n");
         ret = vfio_iommu_type1_map_dma(pdev, 
             (struct vfio_iommu_type1_dma_map *)kargs);
         break;
     } 
     case VFIO_DEVICE_GET_INFO:
     {
-        pci_ioctl_debug("vfio_device_get_info\n");
         struct vfio_device_info *info = (struct vfio_device_info *)kargs;
         info->flags = VFIO_DEVICE_FLAGS_PCI;
         info->num_regions = 9;
@@ -122,7 +120,6 @@ int vfio_handle_ioctl(u32 req_type, struct pci_dev *pdev, u64 arg_ptr, u64 arg_s
     }
     case VFIO_DEVICE_GET_REGION_INFO:
     {
-        pci_ioctl_debug("vfio_device_get_region_info\n");
         struct vfio_region_info *info = (struct vfio_region_info *)kargs;
         info->flags = VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE;
         info->index = 0;

@@ -12,6 +12,7 @@
 #include "fd.h"
 #include "fs_client_defs.h"
 #include "devfs.h"
+#include "hostfs.h"
 
 #define debug(fmt, ...) printf("[DEBUG] " fmt, ##__VA_ARGS__)
 #define warn_once(fmt, ...) do {  \
@@ -206,7 +207,7 @@ int chcore_ftruncate(int fd, off_t length)
 	return ret;
 }
 
-int chcore_lseek(int fd, off_t offset, int whence)
+int chcore_file_lseek(int fd, off_t offset, int whence)
 {
 	ipc_msg_t *ipc_msg = 0;
 	ipc_struct_t *_fs_ipc_struct;
@@ -669,15 +670,6 @@ int chcore_fallocate(int fd, int mode, off_t offset, off_t len)
 
 ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 {
-#if 0
-	ssize_t nread;
-	/* FIXME(FN): this is not efficient now, use on ipc to pread in the future */
-    if ((chcore_lseek(fd, offset, SEEK_SET) == -1) || ((nread = chcore_read(fd, buf, count)) == -1)) {
-        printf("Failed to read file\n");
-        return -1;
-    }
-	return nread;
-#endif
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
 	struct fd_record_extension *fd_ext;
@@ -867,6 +859,12 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	if (IS_DEVFS(full_path)) {
 		/* TODO: check whether this dev exist */
 		ret = chcore_open_dev(fd, full_path);
+		free(full_path);
+		return ret;
+	}
+
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_open(fd, full_path);
 		free(full_path);
 		return ret;
 	}
@@ -1170,4 +1168,5 @@ struct fd_ops file_ops = {
 	.ioctl = chcore_file_ioctl,
 	.poll = NULL,
 	.fcntl = chcore_file_fcntl,
+	.lseek = chcore_file_lseek,
 };

@@ -28,4 +28,4 @@ ip2c-kernel:
 
 test:
 	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/lkl.exp
+	./dsm-scripts/tests/llama-bench.exp

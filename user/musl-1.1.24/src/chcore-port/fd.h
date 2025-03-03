@@ -24,6 +24,7 @@ enum fd_type {
 	FD_TYPE_TIMER,
 	FD_TYPE_EPOLL,
 	FD_TYPE_DEV,
+	FD_TYPE_HOSTFS,
 };
 
 struct fd_ops {
@@ -35,6 +36,7 @@ struct fd_ops {
 	int (*poll) (int fd, struct pollarg *arg);
 	int (*ioctl) (int fd, unsigned long request, void *arg);
 	int (*fcntl) (int fd, int cmd, int arg);
+	off_t (*lseek) (int fd, off_t offset, int whence);
 };
 
 extern struct fd_ops epoll_ops;

@@ -47,7 +47,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
          * Note that kmalloc(>2048) returns continous physical pages.
          */
         void *new_va = kmalloc(len, flags);
-        kinfo("new_va: %lx\n", (u64)new_va);
+        // kinfo("new_va: %lx\n", (u64)new_va);
         pmo->start = (paddr_t)virt_to_phys(new_va);
 
 #if defined(CHCORE_SLS) && defined(RMAP_ENABLED)

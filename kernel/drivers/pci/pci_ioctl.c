@@ -4,6 +4,7 @@
 #include <mm/kmalloc.h>
 #include <common/errno.h>
 #include <common/util.h>
+#include <drivers/ivshmem.h>
 
 /* syscall for userspace */
 /* functions for pci control */
@@ -54,7 +55,7 @@ int sys_pcie_control(u64 usr_req_buf)
     }
 
     copy_from_user((char *)req, (char *)usr_req_buf, sizeof(struct pci_control_req));
-    pci_ioctl_debug("[PCI] sys_pcie_control request is %lx\n", req->req_type);
+    // pci_ioctl_debug("[PCI] sys_pcie_control request is %lx\n", req->req_type);
 
     if (req->req_type == PCI_CONTROL_LIST_DEVICES) {
         ret = pci_list_all_devices(req);
@@ -67,6 +68,16 @@ int sys_pcie_control(u64 usr_req_buf)
             pci_info("device %s not found\n", req->dev_ids);
             ret = -ENODEV;
         }
+        goto out;
+    }
+
+    if (req->req_type == PCI_CONTROL_IVSHMEM_OPEN) {
+        ret = pci_ivshmem_open(req);
+        goto out;
+    }
+
+    if (req->req_type == PCI_CONTROL_IVSHMEM_CLOSE) {
+        ret = pci_ivshmem_close(req);
         goto out;
     }
     
