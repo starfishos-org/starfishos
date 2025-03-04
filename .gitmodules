@@ -6,3 +6,7 @@
 	path = user/demos/ligra
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/ligra.git
   branch = master
+[submodule "user/demos/dbx1000"]
+	path = user/demos/dbx1000
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/dbx1000.git
+  branch = chcore
