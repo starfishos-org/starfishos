@@ -1,6 +1,14 @@
 IP = '0x0'
 P = 'libc.so'
 
+help:
+	@echo "make b: build the system without cleaning"
+	@echo "make build-all / ba: build the whole system"
+	@echo "make run / r: start the qemu"
+	@echo "make clean / c: clean the system"
+	@echo "make test: run tests under the directory ./dsm-scripts/tests"
+	@echo "make prepare: prepare the system (only need to run once after the first clone)"
+
 b: build-wo-clean
 build-wo-clean:
 	./chbuild build
