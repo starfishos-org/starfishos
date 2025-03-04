@@ -280,6 +280,8 @@ int chcore_munmap(void *start, size_t length)
         while (length != 0) {
                 pthread_spin_lock(&va2pmo_lock);
                 node = get_next_pmo_node((void *)addr, length, prev_node);
+                if (prev_node)
+                        list_del(&prev_node->list_node);
                 if (node == NULL) {
                         pthread_spin_unlock(&va2pmo_lock);
                         if (prev_node)
@@ -292,7 +294,7 @@ int chcore_munmap(void *start, size_t length)
                 addr = node->va;
 
                 hlist_del(&node->hash_node);
-                list_del(&node->list_node);
+                // Delay delete the node from the list next round
                 pthread_spin_unlock(&va2pmo_lock);
                 if (prev_node)
                         free_pmo_node(prev_node);
@@ -306,6 +308,7 @@ int chcore_munmap(void *start, size_t length)
                 prev_node = node;
         }
 
+        list_del(&node->list_node);
         free_pmo_node(node);
         return ret;
 }
