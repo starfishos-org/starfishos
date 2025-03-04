@@ -825,7 +825,7 @@ done_mapping:
 		dso->tls.image = laddr(dso, tls_image);
 	}
 #if CHCORE_GDB_AUTO_LOAD_LIB
-	// printf("map library base:0x%lx\n", base);
+	printf("map library base:0x%lx\n", base);
 #endif
 
 	free(allocated_buf);
@@ -1147,7 +1147,7 @@ static struct dso *load_library(const char *name, struct dso *needed_by)
 		}
 	}
 #if CHCORE_GDB_AUTO_LOAD_LIB
-	// printf("load library name:%s\n", name);
+	printf("load library name:%s\n", name);
 #endif
 	map = noload ? 0 : map_library(fd, &temp_dso);
 	close(fd);
@@ -1905,7 +1905,7 @@ void __dls3(size_t *sp)
 			_exit(1);
 		}
 #if CHCORE_GDB_AUTO_LOAD_LIB
-		// printf("load library name:%s\n", argv[0]);
+		printf("load library name:%s\n", argv[0]);
 #endif
 		Ehdr *ehdr = (void *)map_library(fd, &app);
 		if (!ehdr) {
