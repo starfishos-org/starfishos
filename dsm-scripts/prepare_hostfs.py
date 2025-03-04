@@ -8,7 +8,9 @@ source_file_list = [
 ]
 
 # 共享内存设备文件路径
-shm_device_path = '/dev/shm/ivshmem-conn-wfn'
+# get current user name
+user_name = os.getenv('USER')
+shm_device_path = f'/dev/shm/ivshmem-conn-{user_name}'
 
 # 头部信息，格式为
 file_info_list= []

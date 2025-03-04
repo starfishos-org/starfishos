@@ -300,6 +300,7 @@ if(CHCORE_DEMOS_LLAMACPP)
     TARGET llama
     POST_BUILD
     COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+    COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/llama-cli ${build_ramdisk_dir}/llama-cli
     COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
     COMMENT "Copying llama.cpp files to ramdisk directory"
     DEPENDS llama)

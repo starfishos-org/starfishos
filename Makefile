@@ -1,8 +1,8 @@
 IP = '0x0'
 P = 'libc.so'
 
-b: build
-build:
+b: build-wo-clean
+build-wo-clean:
 	./chbuild build
 
 ba: build-all
@@ -18,17 +18,26 @@ ra: run-all
 run-all:
 	./dsm-scripts/simulate_4clusters.sh
 
-c: ip2c
+prepare:
+	./dsm-scripts/config_memdev.sh cxl-new
+	python3 ./dsm-scripts/prepare_hostfs.py
+	./quick-build.sh
+
+c: clean
+clean:
+	./dsm-scripts/clean_memdev.sh
+
 ip2c:
 	addr2line -e user/build/ramdisk/$(P) -fCi $(IP)
 
-ck: ip2c-kernel
 ip2c-kernel:
 	addr2line -e build/kernel.img -fCi $(IP)
 
-test:
+test: llama-bench
+llama-bench:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/llama-bench.exp
 
-prepare_hostfs:
-	python3 ./dsm-scripts/prepare_hostfs.py
+llama-cli:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/llama-cli.exp
