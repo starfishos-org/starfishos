@@ -1,0 +1,13 @@
+#!/usr/bin/expect  
+
+set timeout 60
+
+# start
+spawn ./dsm-scripts/config.sh cxl
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "rundb.bin & \r"
+
+interact
