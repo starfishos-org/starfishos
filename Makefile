@@ -22,9 +22,23 @@ run:
 	./dsm-scripts/config_memdev.sh cxl
 	./build/simulate.sh
 
-ra: run-all
-run-all:
+r2: run-2clusters
+run-2clusters:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_2clusters.sh
+
+r4: run-4clusters
+run-4clusters:
+	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/simulate_4clusters.sh
+
+r2-perf:
+	./dsm-scripts/config.sh
+	make r2
+
+r4-perf:
+	./dsm-scripts/config.sh
+	make r4
 
 prepare:
 	./dsm-scripts/config_memdev.sh cxl-new

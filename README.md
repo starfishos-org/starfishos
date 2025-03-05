@@ -15,28 +15,45 @@ git clone https://ipads.se.sjtu.edu.cn:1312/opensource/treesls.git
 cd treesls
 ```
 
+After first clone, you need to run the following command to prepare the environment:
+
+```shell
+make prepare
+```
+
 To build the OS, you can use:
 
-``` 
-./quick-build.sh
-```
-or use 
 ```shell
-./chbuild defconfig x86_64 # x86_64 can be changed to other platforms, but treesls is now only implemented on x86_64
-./chbuild build
-``` 
+make b # build without clean
+```
+
+or 
+
+```shell
+make ba # fisrt clean all and then build
+```
 
 ### Run in QEMU
 
 ```shell
-./qemu.exp # with a clean NVM backend
+make r
 ```
 
-or
+To run several clusters, you can use:
 
 ```shell
-./build/simulate.sh # with the old NVM backend
+make r2 # 2 clusters
+make r4 # 4 clusters
 ```
+
+After running, you are expected to see the following output:
+
+![Image](./dsm-scripts/screen-output.png)
+
+To quit, you can use `<tmux-prefix> + :kill-session` to kill the whole tmux session.
+
+Or bind `C-q` to kill the whole tmux session in `~/.tmux.conf`.
+
 
 ### Docker
 
