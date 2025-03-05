@@ -84,7 +84,7 @@ find_cap_group_in_cap_tree(struct cap_group *start_cap_group, char *pname)
                 struct found_cg *result = (struct found_cg *)kmalloc(
                         sizeof(struct found_cg), __PRIVATE__);
                 result->cap_group = cap_group;
-                list_add(&result->list_node, &_cap_group_list);
+                list_append(&result->list_node, &_cap_group_list);
             }
         }
     }
