@@ -203,8 +203,9 @@
 #define CHCORE_SYS_ipi_test_kernel      248
 
 /* track pf */
-#define CHCORE_SYS_track_pf_begin       250
-#define CHCORE_SYS_track_pf_end         251
+#define CHCORE_SYS_track_pf_begin       249
+#define CHCORE_SYS_track_pf_end         250
 
-#define CHCORE_SYS_ckpt_migrate         252
-#define CHCORE_SYS_ckpt_merge_migration 253
+#define CHCORE_SYS_cfork_prepare 251
+#define CHCORE_SYS_cfork_ckpt    252
+#define CHCORE_SYS_cfork_restore 253

@@ -21,8 +21,10 @@ int sys_whole_ckpt(u64 ckpt_name, u64 name_len);
 int sys_whole_ckpt_for_test(u64 ckpt_name, u64 name_len, u64 log_level);
 int sys_whole_restore(u64 ckpt_name, u64 name_len);
 int sys_copy_time_traveling_data();
-int sys_ckpt_migrate(u64 ckpt_name);
-int sys_ckpt_merge_migration();
+
+int sys_cfork_prepare(u64 pname_ptr, u64 pname_len);
+int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len);
+int sys_cfork_restore(u64 pname_ptr, u64 pname_len);
 
 void sys_ipi_stop_all();
 void sys_ipi_start_all();

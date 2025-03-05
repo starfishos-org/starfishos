@@ -306,13 +306,19 @@ int usys_register_external_ringbuf(u64 buffer)
 	return chcore_syscall1(CHCORE_SYS_register_external_ringbuf, buffer);
 }
 
-int usys_ckpt_migrate(char *ckpt_name)
+int usys_cfork_prepare(char *pname, u64 pname_len)
 {
-	return chcore_syscall1(CHCORE_SYS_ckpt_migrate, (u64)ckpt_name);
+	return chcore_syscall2(CHCORE_SYS_cfork_prepare, (u64)pname, pname_len);
 }
-int usys_ckpt_merge_migration()
+
+int usys_cfork_ckpt(char *pname, u64 pname_len)
 {
-	return chcore_syscall0(CHCORE_SYS_ckpt_merge_migration);
+	return chcore_syscall2(CHCORE_SYS_cfork_ckpt, (u64)pname, pname_len);
+}
+
+int usys_cfork_restore(char *pname, u64 pname_len)
+{
+	return chcore_syscall2(CHCORE_SYS_cfork_restore, (u64)pname, pname_len);
 }
 
 void usys_ipi_stop_all()
