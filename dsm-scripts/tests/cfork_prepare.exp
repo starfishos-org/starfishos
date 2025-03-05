@@ -1,0 +1,13 @@
+#!/usr/bin/expect  
+
+set timeout 60
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "test_cfork_hello.bin & \r"
+send -- "test_cfork_prepare.bin & \r"
+
+interact

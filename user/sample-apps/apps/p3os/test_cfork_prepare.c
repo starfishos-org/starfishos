@@ -10,10 +10,10 @@ int main(int argc, char *argv[], char *envp[])
 {
 	int ret;
 	char *pname = "test_cfork_hello.bin";
-	char *argv1[] = {pname};
+	// char *argv1[] = {pname};
 
 	// create a new process "hello.bin"
-	chcore_new_process(sizeof(argv1) / sizeof(*argv1), argv1, 0);
+	// chcore_new_process(sizeof(argv1) / sizeof(*argv1), argv1, 0);
 
 	// prepare the checkpoint
 	ret = usys_cfork_prepare(pname, strlen(pname));
