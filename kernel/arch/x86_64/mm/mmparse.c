@@ -106,7 +106,8 @@ void fill_kernel_page_table_range(u64 mem_start, u64 mem_size)
     u64 idx_start, idx_end;
 
     idx_start = mem_start / SIZE_1G;
-    idx_end = (mem_start + mem_size) / SIZE_1G + 1;
+    idx_end = ((mem_start + mem_size) / SIZE_1G) + 
+        ((mem_start + mem_size) % SIZE_1G ? 1 : 0);
 
     __fill_kernel_page_table_range(idx_start, idx_end);
 
@@ -146,7 +147,7 @@ static void refill_kernel_page_table(u64 mem_end)
      */
 
     /* We map the available physical memory here. 0~1G has been mapped. */
-    __fill_kernel_page_table_range(1, ((mem_end / SIZE_1G) + 1));
+    __fill_kernel_page_table_range(1, ((mem_end / SIZE_1G) + (mem_end % SIZE_1G ? 1 : 0)));
 
     /* Flush TLB: SMP is not enabled for now. */
     flush_boot_tlb();
