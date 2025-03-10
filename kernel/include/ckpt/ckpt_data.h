@@ -307,6 +307,15 @@ struct ckpt_obj_root {
 #if OBJ_OVERWRITE == 1
     struct ckpt_object *ckpt_objs[2];
 #endif
+#ifdef CHCORE_SSI_SLS
+    struct ckpt_object *cfork_ckpt_obj;
+    /**
+     * a flag to indicate whether the object is cross shared
+     * if the object is cross shared, we do not need to allocate
+     * a new object on the target machine.
+     */
+    bool cross_shared;
+#endif
     bool cow;
     int flip_flag;
     u64 refcnt;

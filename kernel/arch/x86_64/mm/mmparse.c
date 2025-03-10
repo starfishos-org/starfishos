@@ -417,7 +417,6 @@ void parse_cxlmem_map()
 {
     // fill kernel page table for cxl mem devices
     u64 dev_start = 0, dev_size = 0;
-    u64 max_paddr = 0;
     cxlmem_map_num = 0;
 
 /* simulate dev use ivshmem or real cxl device */
@@ -430,11 +429,6 @@ void parse_cxlmem_map()
     /* on spr2, shm device is simulated as NUMA node */
     real_cxl_numa_mode_setup_mem(&dev_start, &dev_size);
 #endif
-    /* refill page table */
-    max_paddr = dev_start + dev_size;
-    if (max_paddr >= MAX_KERNEL_PG_PADDR)
-        BUG("[CXL] CXL memdev base exceed paddr limitation\n");
-    refill_kernel_page_table(max_paddr);
 
     cxlmem_map[cxlmem_map_num][0] = dev_start + sizeof(dsm_metadata_t);
     cxlmem_map[cxlmem_map_num][1] = dev_start + dev_size;

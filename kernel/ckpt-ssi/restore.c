@@ -5,7 +5,7 @@
 #include <arch/mmu.h>
 #include <object/cap_group.h>
 #include <mm/mm.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <mm/kmalloc.h>
 #include <mm/uaccess.h>
 #include <ckpt/ckpt.h>
@@ -81,7 +81,7 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
 
     ckpt_obj_root = data->ckpt_root_obj_root;
 
-    obj_map = new_kvs(KVS_SIZE);
+    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
     if (!obj_map) {
         r = -ENOMEM;
         goto out_fail;
@@ -92,7 +92,7 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
     sched_clear();
 
     /* restore root_cap_group obj */
-    obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, true);
+    obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, FLAGS_ALLOC);
 
     root_cap_group_obj_for_ckpt = obj;
     root_cap_group = (struct cap_group *)(obj->opaque);
@@ -181,7 +181,7 @@ int sys_whole_restore_without_ipi(u64 ckpt_name, u64 name_len)
     ckpt_obj_root = data->ckpt_root_obj_root;
     // ckpt_obj_map = data->map;
 
-    obj_map = new_kvs(KVS_SIZE);
+    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
     if (!obj_map) {
         r = -ENOMEM;
         goto out_fail;

@@ -1,8 +1,10 @@
 #include <common/radix.h>
-#include "ckpt_page.h"
 #include <mm/mm.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt.h>
 #include <common/list.h>
+#include <mm/page.h>
+
+#include "ckpt_page.h"
 
 inline struct ckpt_page *
 get_ckpt_page_with_version(struct ckpt_page_pair *page_pair, u64 version_number)

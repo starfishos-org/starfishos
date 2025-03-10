@@ -396,7 +396,7 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
             ckpt_pt->fault_badge = pt->fault_badge;
             ckpt_pt->fault_va = pt->fault_va;
             ckpt_pt->ckpt_thread_obj_root = ckpt_obj_root_get(
-                    container_of(pt->thread, struct object, opaque), false);
+                    container_of(pt->thread, struct object, opaque), 0);
             list_add(&ckpt_pt->node,
                      &ckpt_pool_iter->ckpt_fault_pending_thread_list);
         }
@@ -406,7 +406,7 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
 
         ckpt_pool_iter->cap_group_badge = pool_iter->cap_group_badge;
         ckpt_pool_iter->ckpt_notifc_obj_root = ckpt_obj_root_get(
-                container_of(pool_iter->notific, struct object, opaque), false);
+                container_of(pool_iter->notific, struct object, opaque), 0);
         ckpt_pool_iter->fmap_fault_pool = (vaddr_t)pool_iter;
         list_add(&ckpt_pool_iter->node, ckpt_fmap_fault_pool_list);
     }

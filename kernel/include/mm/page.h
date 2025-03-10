@@ -1,3 +1,5 @@
+#pragma once
+
 #include <common/types.h>
 #include <arch/mm/page_table.h>
 

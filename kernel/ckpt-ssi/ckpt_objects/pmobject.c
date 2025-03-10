@@ -362,15 +362,13 @@ extern inline void clear_ckpt_page(struct ckpt_page_pair *page_pair, int idx);
 static int __radix_pmo_restore(struct pmobject *pmo,
                                struct radix_node *page_node,
                                struct radix_node *ckpt_page_node,
-                               int node_level, u64 prefix, bool time_traveling)
+                               int node_level, u64 prefix, int flags)
 {
     int err;
     int i;
     struct radix_node *new;
     struct ckpt_page_pair *page_pair;
     paddr_t pa;
-    vaddr_t va;
-    u64 current_version = get_current_ckpt_version();
 
     prefix <<= RADIX_NODE_BITS;
 
@@ -379,73 +377,14 @@ static int __radix_pmo_restore(struct pmobject *pmo,
             page_pair = ckpt_page_node->values[i];
             /* ckpt radix or runtime radix have value */
             if (page_pair || page_node->values[i]) {
-                /* meta */
-                pa = (paddr_t)page_node->values[i];
-                BUG_ON(!pa);
-                va = (vaddr_t)phys_to_virt(pa);
-                struct page *page = virt_to_page((void *)va);
-                page_type_t type = get_page_type(page);
-                /* set page info */
-                page->track_info = NULL;
-
                 /* restore page */
-                /* case 1: restore from time traveling */
-                if (time_traveling) {
+                if (flags & FLAGS_CFORK) {
                     /* use page_pair[0] to restore */
-                    if (page_pair) {
-                        pagecpy((void *)va, (void *)page_pair->pages[0].va);
-                    }
-                    /* clear runtime page */
-                    else if (!page_pair && va) {
-                        kfree((void *)va);
-                        page_node->values[i] = 0;
+                    pa = (paddr_t)page_node->values[i];
+                    if (!pa) { // runtime does not have this page
+                        page_node->values[i] = (void *)page_pair->pages[0].va;
                     }
                     return 0;
-                }
-
-                /* case 2: restore from normal NVM page */
-                if (type == NVM_PAGE) {
-                    if (page_pair) {
-                        // int idx = choose_ckpt_page_idx(page_pair);
-                        int idx = choose_nvm_ckpt_page_idx(page_pair);
-                        int stale_idx = 1 - idx;
-
-                        clear_ckpt_page(page_pair, stale_idx);
-
-                        BUG_ON(page_pair->pages[stale_idx].va
-                               == page_pair->pages[idx].va);
-                        // BUG_ON(va != page_pair->pages[stale_idx].va);
-
-                        if (page_pair->pages[idx].version_number
-                            == current_version) {
-                            pagecpy((void *)va,
-                                    (void *)page_pair->pages[idx].va);
-                        }
-                    } else {
-#ifdef PMO_CHECKSUM
-                        struct page *page =
-                                virt_to_page((void *)phys_to_virt(pa));
-                        if (page->ckpt_version_number > current_version) {
-                            page_node->values[i] = NULL;
-                            kfree((void *)phys_to_virt(pa));
-                        }
-#endif
-                    }
-                } else {
-                    BUG_ON(!page_pair);
-
-                    int idx = choose_ckpt_page_idx(page_pair);
-                    int stale_idx = 1 - idx;
-
-                    /* Use page_pair->pages[stale_idx] as runtime memory and
-                     * page_pair->pages[idx] as backup */
-
-                    BUG_ON(page_pair->pages[idx].version_number == 0);
-
-                    va = page_pair->pages[stale_idx].va;
-                    clear_ckpt_page(page_pair, stale_idx);
-                    pagecpy((void *)va, (void *)page_pair->pages[idx].va);
-                    page_node->values[i] = (void *)virt_to_phys((void *)va);
                 }
             }
         }
@@ -473,7 +412,7 @@ static int __radix_pmo_restore(struct pmobject *pmo,
                                       ckpt_page_node->children[i],
                                       node_level + 1,
                                       prefix | i,
-                                      time_traveling);
+                                      flags);
             if (err)
                 return err;
         }
@@ -483,15 +422,23 @@ static int __radix_pmo_restore(struct pmobject *pmo,
 }
 
 int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
-                      bool time_traveling)
+                      int flags)
 {
     int r = 0;
     struct radix *pmo_radix = pmo->radix;
     struct radix *ckpt_page_radix = ckpt_pmo->radix;
-
     struct radix_node *new_node;
+
+    if (!pmo_radix) {
+        pmo_radix = new_radix();
+    }
+
+    lock_init(&pmo_radix->radix_lock);
+
+    /* FIXME: why lock? */
     lock(&pmo_radix->radix_lock);
     lock(&ckpt_page_radix->radix_lock);
+
     if (!ckpt_page_radix->root) {
         new_node = kzalloc(sizeof(*new_node), __SHARED__);
         if (IS_ERR(new_node)) {
@@ -507,8 +454,10 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
         }
         pmo_radix->root = new_node;
     }
+
     r = __radix_pmo_restore(
-            pmo, pmo_radix->root, ckpt_page_radix->root, 0, 0, time_traveling);
+            pmo, pmo_radix->root, ckpt_page_radix->root, 0, 0, flags);
+
     unlock(&ckpt_page_radix->radix_lock);
     unlock(&pmo_radix->radix_lock);
     return r;
@@ -517,15 +466,13 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
 static int __continuous_pmo_restore(struct pmobject *pmo,
                                     struct radix_node *ckpt_page_node,
                                     int node_level, u64 prefix,
-                                    bool time_traveling)
+                                    int flags)
 {
-    int err, i, idx, stale_idx;
+    int err, i;
     struct ckpt_page_pair *page_pair;
     paddr_t pa;
     vaddr_t va;
     u64 index;
-    u64 current_version = get_current_ckpt_version();
-    struct page *page;
 
     prefix <<= RADIX_NODE_BITS;
 
@@ -536,53 +483,13 @@ static int __continuous_pmo_restore(struct pmobject *pmo,
                 index = prefix | i;
                 pa = (paddr_t)(pmo->start + index * PAGE_SIZE);
                 va = (vaddr_t)phys_to_virt(pa);
-                /* set page info */
-                page = virt_to_page((void *)va);
-                page->track_info = NULL;
 
                 /**
-                 * case 1: time traveling
-                 * always use the first page to restore
+                 * case cfork: always use the first page to restore
                  */
-                if (time_traveling) {
+                if (flags & FLAGS_CFORK) {
                     pagecpy((void *)va, (void *)page_pair->pages[0].va);
                     return 0;
-                }
-
-                /* case 2: non-time traveling */
-                idx = choose_ckpt_page_idx(page_pair);
-                stale_idx = 1 - idx;
-                clear_ckpt_page(page_pair, stale_idx);
-                if (pmo->dram_cache.array == NULL
-                    || pmo->dram_cache.array[index] == 0) {
-                    /**
-                     * case 2.1: page type == NVM
-                     * Figure 6(a): va is the newest page unless
-                     * page_pair->pages[idx].version_number == current_version
-                     */
-                    BUG_ON(page_pair->pages[stale_idx].va
-                           == page_pair->pages[idx].va);
-                    BUG_ON(va == page_pair->pages[idx].va
-                           || va != page_pair->pages[stale_idx].va);
-                    if (page_pair->pages[idx].version_number
-                        == current_version) {
-                        pagecpy((void *)va, (void *)page_pair->pages[idx].va);
-                    }
-                } else {
-                    /**
-                     * case 2.2: page type == DRAM
-                     * this page must be checkpointed, page_pair has the newest
-                     * page Figure 6(b) DRAM-to-NVM:
-                     *  1. copy two page_pair as the same
-                     *  2. clear the stale page
-                     */
-                    pagecpy((void *)page_pair->pages[stale_idx].va,
-                            (void *)page_pair->pages[idx].va);
-                    if (va == page_pair->pages[idx].va) {
-                        page_pair->pages[stale_idx].version_number =
-                                current_version;
-                        clear_ckpt_page(page_pair, idx);
-                    }
                 }
             }
         }
@@ -595,7 +502,7 @@ static int __continuous_pmo_restore(struct pmobject *pmo,
                                            ckpt_page_node->children[i],
                                            node_level + 1,
                                            prefix | i,
-                                           time_traveling);
+                                           flags);
             if (err)
                 return err;
         }
@@ -605,7 +512,7 @@ static int __continuous_pmo_restore(struct pmobject *pmo,
 }
 
 int continuous_pmo_restore(struct pmobject *pmo, struct radix *ckpt_page_radix,
-                           bool time_traveling)
+                           int flags)
 {
     int r = 0;
     struct radix_node *new_node;
@@ -619,7 +526,7 @@ int continuous_pmo_restore(struct pmobject *pmo, struct radix *ckpt_page_radix,
     }
 
     r = __continuous_pmo_restore(
-            pmo, ckpt_page_radix->root, 0, 0, time_traveling);
+            pmo, ckpt_page_radix->root, 0, 0, flags);
     unlock(&ckpt_page_radix->radix_lock);
     return r;
 }
@@ -689,20 +596,16 @@ int init_ckpt_page_radix(struct ckpt_pmobject *ckpt_pmo, struct pmobject *pmo)
 
     /* copy all pages in pmo to ckpt page in ckpt pmo*/
     if (use_radix(pmo)) {
-        // lock(&pmo_radix->radix_lock);
-        // lock(&ckpt_page_radix->radix_lock);
         r = __init_ckpt_page_radix(pmo_radix->root, ckpt_page_radix->root, 0);
-        // unlock(&ckpt_page_radix->radix_lock);
-        // unlock(&pmo_radix->radix_lock);
     }
 
     return r;
 }
 
-int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
+int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
 {
     /*Step 1: init ckpt pmo */
-    int r;
+    int r = 0;
     u64 current_ckpt_version = get_current_ckpt_version();
     struct ckpt_obj_root *pmo_root;
     struct ckpt_object *latest_ckpt_obj;
@@ -712,12 +615,19 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
     ckpt_pmo->size = pmo->size;
     ckpt_pmo->type = pmo->type;
 
+    if (flags & FLAGS_CFORK) {
+        if (!ckpt_pmo->radix) {
+            r = init_ckpt_page_radix(ckpt_pmo, pmo);
+        }
+        return r;
+    }
+
     if (use_continuous_pages(pmo) || use_radix(pmo)) {
         if (unlikely(!ckpt_pmo->radix)) {
             /* If the radix tree is not created, try to reuse the
              * previous version of the radix tree */
             pmo_root = ckpt_obj_root_get(
-                    container_of(pmo, struct object, opaque), false);
+                    container_of(pmo, struct object, opaque), flags & ~FLAGS_ALLOC);
             latest_ckpt_obj =
                     get_latest_ckpt_obj(pmo_root, current_ckpt_version);
             if (pmo_root && latest_ckpt_obj) {
@@ -764,7 +674,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
 }
 
 int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
-                struct kvs *obj_map, bool time_traveling)
+                struct kvs *obj_map, int flags)
 {
     int r = 0;
     struct ckpt_pmobject *ckpt_pmo =
@@ -774,14 +684,12 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
     DECLTMR;
     start();
 #endif
-    kdebug("[pmo_restore] pmo:%p, start:%lx, start_va:%lx, size:%lx, type:%d\n",
+    kinfo("[pmo_restore] pmo:%p, start:%lx, start_va:%lx, size:%lx, type:%d\n",
            pmo,
            pmo->start,
            phys_to_virt(pmo->start),
            pmo->size,
            pmo->type);
-
-    lock_init(&ckpt_pmo->lock);
 
     /* restore pmo's field */
     pmo->private = ckpt_pmo->private;
@@ -795,12 +703,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
 #endif
 
     if (use_continuous_pages(pmo)) {
-        continuous_pmo_restore(pmo, ckpt_pmo->radix, time_traveling);
-        /* clear dram cache */
-        if (pmo->dram_cache.array) {
-            clear_dram_cache(pmo);
-        }
-        lock_init(&pmo->dram_cache.lock);
+        continuous_pmo_restore(pmo, ckpt_pmo->radix, flags);
 #ifdef PMO_CHECKSUM
         if (pmo_checksum(pmo) != ckpt_pmo->checksum
             && !is_external_sync_pmo(pmo)) {
@@ -820,8 +723,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
 #endif
     } else if (use_radix(pmo)) {
         /* restore radix tree */
-        lock_init(&pmo->radix->radix_lock);
-        r = radix_pmo_restore(pmo, ckpt_pmo, time_traveling);
+        r = radix_pmo_restore(pmo, ckpt_pmo, flags);
 
 #ifdef PMO_CHECKSUM
         if (!is_external_sync_pmo(pmo)) {

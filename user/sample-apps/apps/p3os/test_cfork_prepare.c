@@ -9,7 +9,7 @@
 int main(int argc, char *argv[], char *envp[])
 {
 	int ret;
-	char *pname = "test_cfork_hello.bin";
+	char *pname = "test_cfork_hello.bin\0";
 	// char *argv1[] = {pname};
 
 	// create a new process "hello.bin"
@@ -17,11 +17,11 @@ int main(int argc, char *argv[], char *envp[])
 
 	// prepare the checkpoint
 	ret = usys_cfork_prepare(pname, strlen(pname));
-	printf("ret: %d\n", ret);
+	printf("usys_cfork_prepare ret: %d\n", ret);
 
 	// checkpoint
 	ret = usys_cfork_ckpt(pname, strlen(pname));
-	printf("ret: %d\n", ret);
+	printf("usys_cfork_ckpt ret: %d\n", ret);
 
 	return 0;
 }

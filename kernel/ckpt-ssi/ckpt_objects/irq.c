@@ -6,17 +6,17 @@ extern u64 eval_obj_time[];
 #endif
 
 int irq_ckpt(struct irq_notification *irq_notifc,
-             struct ckpt_irq_notification *ckpt_irq_notifc, int alloc)
+             struct ckpt_irq_notification *ckpt_irq_notifc, int flags)
 {
     ckpt_irq_notifc->intr_vector = irq_notifc->intr_vector;
     ckpt_irq_notifc->status = irq_notifc->status;
     ckpt_irq_notifc->user_handler_ready = irq_notifc->user_handler_ready;
     return notification_ckpt(
-            &irq_notifc->notifc, &ckpt_irq_notifc->notifc, alloc);
+            &irq_notifc->notifc, &ckpt_irq_notifc->notifc, flags);
 }
 
 int irq_restore(struct object *irq_obj, struct ckpt_object *ckpt_irq_obj,
-                struct kvs *obj_map, bool time_traveling)
+                struct kvs *obj_map, int flags)
 {
     int i, r;
     struct irq_notification *irq_notifc =

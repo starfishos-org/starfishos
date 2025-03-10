@@ -24,17 +24,14 @@ struct kvs_key_node {
 struct kvs {
     unsigned int size;
     struct kvs_node *buckets[0];
+    int type;
 };
 
 typedef struct kvs_node *kvs_list_t;
 
-inline static void *kvs_alloc(unsigned int size)
+inline static void *kvs_alloc(unsigned int size, int type)
 {
-#ifdef CHCORE_SSI_SLS
-    return kmalloc(size, __DEFAULT__);
-#else
-    return kmalloc(size, __SHARED__);
-#endif
+    return kmalloc(size, type);
 }
 
 inline static void kvs_free(void *ptr)
@@ -52,16 +49,17 @@ inline static unsigned int kvs_hash(const kvs_key_t *key)
     return (unsigned int)(((u64)*key) >> 5) * P;
 }
 
-inline static struct kvs *new_kvs(unsigned int size)
+inline static struct kvs *new_kvs(unsigned int size, int type)
 {
     /* Alloc memory for the hash table */
     struct kvs *kv =
-            (struct kvs *)kvs_alloc(sizeof(struct kvs) + size * sizeof(void *));
+            (struct kvs *)kvs_alloc(sizeof(struct kvs) + size * sizeof(void *), type);
     BUG_ON(!kv);
 
     /* Initialize */
     kv->size = size;
     memset(kv->buckets, 0, size * sizeof(void *));
+    kv->type = type;
 
     return kv;
 }
@@ -78,7 +76,7 @@ inline static int kvs_put(struct kvs *kv, const kvs_key_t *key,
     DECLTMR;
     start();
 #endif
-    struct kvs_node *node = (struct kvs_node *)kvs_alloc(sizeof(*node));
+    struct kvs_node *node = (struct kvs_node *)kvs_alloc(sizeof(*node), kv->type);
     if (!node) {
         return 1;
     }

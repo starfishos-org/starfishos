@@ -21,6 +21,7 @@ static inline wait_node_t *add_to_waiting_list(struct list_head *list, void *dat
 
 static inline void remove_from_waiting_list(struct list_head *list, wait_node_t *node)
 {
+    BUG_ON(!node);
     list_del(&node->list);
     kfree(node);
 }

@@ -55,9 +55,17 @@ ip2c:
 ip2c-kernel:
 	addr2line -e build/kernel.img -fCi $(IP)
 
-test: 
+test: cfork
+cfork:
+	./dsm-scripts/config.sh
+	./dsm-scripts/simulate_cfork.sh
+
+cfork-prepare:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/cfork_prepare.exp
+
+cfork-restore:
+	./dsm-scripts/tests/cfork_restore.exp
 
 llama-bench:
 	./dsm-scripts/config_memdev.sh cxl

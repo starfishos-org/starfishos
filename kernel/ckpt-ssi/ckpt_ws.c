@@ -1,8 +1,9 @@
 #include <common/errno.h>
 #include <common/list.h>
 #include <common/util.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <mm/uaccess.h>
+#include <ckpt/ckpt-dsm.h>
 
 #include "ckpt_ws.h"
 
@@ -40,7 +41,7 @@ int ckpt_ws_init(void)
     }
 
     /* Create info->data kvs */
-    CKPT_WS_TABLE->ckpt_ws_kvs = new_kvs(KVS_SIZE);
+    CKPT_WS_TABLE->ckpt_ws_kvs = new_kvs(KVS_SIZE, __SHARED__);
     if (!CKPT_WS_TABLE->ckpt_ws_kvs) {
         kinfo("[CKPT WS] can not alloc ckpt_ws_kvs\n");
         ret = -ENOMEM;
@@ -48,7 +49,7 @@ int ckpt_ws_init(void)
     }
 
     /* Create name kvs */
-    CKPT_WS_TABLE->name_kvs = new_kvs(KVS_SIZE);
+    CKPT_WS_TABLE->name_kvs = new_kvs(KVS_SIZE, __SHARED__);
     if (!CKPT_WS_TABLE->name_kvs) {
         kinfo("[CKPT WS] can not alloc name_kvs\n");
         ret = -ENOMEM;

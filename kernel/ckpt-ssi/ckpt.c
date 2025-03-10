@@ -6,7 +6,7 @@
 #include <object/cap_group.h>
 #include <object/user_fault.h>
 #include <mm/mm.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <mm/kmalloc.h>
 #include <ckpt/ckpt.h>
 #include <sched/context.h>
@@ -21,19 +21,25 @@
 
 void flush_tlb_all(void);
 
-int ckpt_metadata_init(void)
+int ssi_ckpt_init(void)
 {
     int ret = 0;
+    
+    if (DSM_STATE >= DSM_CONFIG_STATE_CKPT_INITED) {
+        return 0;
+    }
 
     /* init ckpt whole system metadata */
-    if ((ret = ckpt_ws_init()) != 0)
-        goto out_fail;
+    if ((ret = ckpt_ws_init()) != 0) {
+        return ret;
+    }
 
-    /* init ckpt object pool */
-    if ((ret = ckpt_obj_map_init()) != 0)
-        goto out_fail;
+    CKPT_INITIALIZED = false;
+    CKPT_VERSION_NUMBER = 0;
+    CKPT_CG_KVS = new_kvs(19, __SHARED__);
 
-out_fail:
+    DSM_STATE = DSM_CONFIG_STATE_CKPT_INITED;
+
     return ret;
 }
 

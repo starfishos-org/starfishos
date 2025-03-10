@@ -3,11 +3,10 @@
 set timeout 60
 
 # start
-spawn ./build/simulate.sh 0
+spawn ./build/simulate.sh 1
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "test_cfork_hello.bin & \r"
-send -- "test_cfork_prepare.bin & \r"
+send -- "test_cfork_restore.bin & \r"
 
 interact

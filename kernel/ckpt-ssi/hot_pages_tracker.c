@@ -3,7 +3,7 @@
 #include <common/vars.h>
 #include <mm/kmalloc.h>
 #include <mm/buddy.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <mm/vmspace.h>
 #include <object/cap_group.h>
 #include <sched/context.h>

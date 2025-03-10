@@ -102,39 +102,13 @@ void main(u64 mbmagic, paddr_t mbaddr)
     disable_fpu_usage();
 #endif
 
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-    /* Init global metada */
-    if (ckpt_metadata_init()) {
-        BUG("[ChCore] checkpoint metadata init failed\n");
-    }
-    kinfo("[ChCore] ckpt_metadata_init done\n");
+#ifdef CHCORE_SLS
+    sls_ckpt_init();
+#elif defined CHCORE_SSI_SLS
+    ssi_ckpt_init();
+#endif
+    kdebug("[ChCore] ckpt init finished\n");
 
-    init_hybrid_structs();
-    kinfo("[ChCore] init_hybrid_structs done\n");
-
-    /* Restore checkpoint from nvm metadata */
-#ifdef RESTORE_ENABLED
-    /* Create initial thread like init-process in Linux */
-    if (NVM_IS_CRASH) {
-        /* init pre mempcy thread */
-        if (!sys_whole_restore(0, 0)) {
-            kinfo("[RESTORE] restore from ckpt\n");
-            goto skip_create_root_thread;
-        } else {
-            kinfo("[ChCore] sys_whole_restore error\n");
-        }
-    }
-    /* After all finish, set crash flag  */
-    nvm_metadata_set_crash_flag();
-    kinfo("[ChCore] nvm_metadata_set_crash_flag done\n");
-#else
-#ifdef CHCORE_SSI_SLS
-    dsm_metadata_reset_crash_flag();
-#else
-    nvm_metadata_reset_crash_flag();
-#endif
-#endif
-#endif
     /* Flush all tlbs during boot (kernel uses the lower addresses at boot
      * time) */
     flush_tlb_all();

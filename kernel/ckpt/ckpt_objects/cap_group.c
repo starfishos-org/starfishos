@@ -97,9 +97,9 @@ out_free_prev_obj:
 
 /*
  * cap_ckpt only copy pmo object,
- * but cap_group_copy_ckpt should copy all objects
+ * but cap_group_ckpt should copy all objects
  */
-int cap_group_copy_ckpt(struct cap_group *cap_group,
+int cap_group_ckpt(struct cap_group *cap_group,
                         struct ckpt_cap_group *ckpt_cap_group)
 {
     kdebug("ckpt cap group %lx: size %u, badge %lx, name %s\n",
@@ -150,7 +150,7 @@ int slot_table_restore(struct cap_group *cap_group,
 #ifdef RESTORE_REPORT
         stop();
 #endif
-        new_obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, true);
+        new_obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, FLAGS_ALLOC);
 #ifdef RESTORE_REPORT
         start();
 #endif

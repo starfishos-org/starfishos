@@ -35,6 +35,38 @@ out_fail:
     return ret;
 }
 
+int sls_ckpt_init(void)
+{
+    /* Init global metada */
+    if (ckpt_metadata_init()) {
+        BUG("[ChCore] checkpoint metadata init failed\n");
+    }
+    kinfo("[ChCore] ckpt_metadata_init done\n");
+
+    init_hybrid_structs();
+    kinfo("[ChCore] init_hybrid_structs done\n");
+
+    /* Restore checkpoint from nvm metadata */
+#ifdef RESTORE_ENABLED
+    /* Create initial thread like init-process in Linux */
+    if (NVM_IS_CRASH) {
+        /* init pre mempcy thread */
+        if (!sys_whole_restore(0, 0)) {
+            kinfo("[RESTORE] restore from ckpt\n");
+            goto skip_create_root_thread;
+        } else {
+            kinfo("[ChCore] sys_whole_restore error\n");
+        }
+    }
+    /* After all finish, set crash flag  */
+    nvm_metadata_set_crash_flag();
+    kinfo("[ChCore] nvm_metadata_set_crash_flag done\n");
+#else
+    nvm_metadata_reset_crash_flag();
+    kinfo("[ChCore] nvm_metadata_reset_crash_flag done\n");
+#endif
+}
+
 #ifdef REPORT
 extern u64 patch_page_num;
 u64 loop_time = 0;

@@ -2,7 +2,6 @@
 #include <sched/sched.h>
 #include "../ckpt_objects.h"
 #include "../ckpt_object_pool.h"
-#include "../ckpt_ws.h"
 
 void ckpt_ipc_config_copy(void *src_ipc_config, void *dst_ipc_config,
                           int config_type, struct kvs *obj_map)
@@ -122,7 +121,7 @@ void thread_sleep_state_ckpt(struct ckpt_sleep_state *ckpt_sleep_state,
     ckpt_sleep_state->wakeup_tick = sleep_state->wakeup_tick;
 }
 
-void ipc_config_ckpt(void *config, void *ckpt_config, int config_type)
+void ipc_config_ckpt(void *config, void *ckpt_config, int config_type, int flags)
 {
     switch (config_type) {
     case IPC_SERVER_REGISTER_CB: {
@@ -155,7 +154,7 @@ void ipc_config_ckpt(void *config, void *ckpt_config, int config_type)
         if (ipc_config->active_conn) {
             old_conn_obj = container_of(
                     ipc_config->active_conn, struct object, opaque);
-            ckpt_conn_obj_root = ckpt_obj_root_get(old_conn_obj, true);
+            ckpt_conn_obj_root = ckpt_obj_root_get(old_conn_obj, flags);
             BUG_ON(ckpt_conn_obj_root == NULL);
             ckpt_ipc_config->active_conn_root = ckpt_conn_obj_root;
         } else {
@@ -179,7 +178,7 @@ void ipc_config_ckpt(void *config, void *ckpt_config, int config_type)
         if (ipc_config->register_cb_thread) {
             old_thread_obj = container_of(
                     ipc_config->register_cb_thread, struct object, opaque);
-            ckpt_thread_obj_root = ckpt_obj_root_get(old_thread_obj, true);
+            ckpt_thread_obj_root = ckpt_obj_root_get(old_thread_obj, flags);
             BUG_ON(ckpt_thread_obj_root == NULL);
             ckpt_ipc_config->register_cb_thread_root = ckpt_thread_obj_root;
         } else {
@@ -193,8 +192,22 @@ void ipc_config_ckpt(void *config, void *ckpt_config, int config_type)
     }
 }
 
-int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
+#ifdef OMIT_BENCHMARK
+static bool is_benchmark_thread(struct thread *target)
 {
+    char *name =
+            ((struct thread *)target->opaque)->cap_group->cap_group_name;
+    return !strcmp(name, "/ycsbc") || !strcmp(name, "/redis_benchmark")
+        || !strcmp(name, "/memcachetest");
+}
+#endif
+
+int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread, int flags)
+{
+#ifdef OMIT_BENCHMARK
+    if (is_benchmark_thread(target))
+        return 0;
+#endif
     /* Copy thread_ctx data */
     thread_ctx_ckpt(&ckpt_thread->thread_ctx, target->thread_ctx);
 
@@ -220,7 +233,7 @@ int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
             ckpt_config = alloc_ckpt_ipc_config(config_type);
         }
 
-        ipc_config_ckpt(target->general_ipc_config, ckpt_config, config_type);
+        ipc_config_ckpt(target->general_ipc_config, ckpt_config, config_type, flags);
         ckpt_thread->general_ipc_config = ckpt_config;
     } else {
         if (ckpt_thread->general_ipc_config) {
@@ -230,9 +243,9 @@ int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
     }
     /* Ckpt thread->cap_group */
     ckpt_thread->cap_group_root = ckpt_obj_root_get(
-            container_of(target->cap_group, struct object, opaque), true);
+            container_of(target->cap_group, struct object, opaque), flags);
     ckpt_thread->vmspace_root = ckpt_obj_root_get(
-            container_of(target->vmspace, struct object, opaque), true);
+            container_of(target->vmspace, struct object, opaque), flags);
 
     kinfo("ckpt thread %lx from %s, fpu owner=%d, type=%u, rip=%lx, state=%u, cpuid=%u, kernel_stack_state=%u, id=%lx\n",
           target,
@@ -244,7 +257,7 @@ int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
           target->thread_ctx->cpuid,
           target->thread_ctx->kernel_stack_state,
           ckpt_obj_root_get(container_of(target, struct object, opaque),
-                            false));
+                            flags));
     return 0;
 }
 
@@ -302,7 +315,7 @@ void thread_sleep_state_restore(struct ckpt_sleep_state *ckpt_sleep_state,
 
 int thread_restore(struct object *thread_obj,
                    struct ckpt_object *ckpt_thread_obj, struct kvs *obj_map,
-                   bool time_traveling)
+                   int flags)
 {
     struct ckpt_thread *ckpt_thread =
             (struct ckpt_thread *)ckpt_thread_obj->opaque;
@@ -421,7 +434,7 @@ int thread_restore(struct object *thread_obj,
            target->thread_ctx->cpuid,
            target->thread_ctx->kernel_stack_state,
            ckpt_obj_root_get(container_of(target, struct object, opaque),
-                             false));
+                             flags & ~FLAGS_ALLOC));
 
     target->prev_thread = NULL;
     switch (target->thread_ctx->state) {
@@ -431,9 +444,6 @@ int thread_restore(struct object *thread_obj,
         BUG_ON(1);
         break;
     }
-    case TS_WAITING: {
-        break;
-    }
     case TS_RUNNING:
     case TS_READY: {
         target->thread_ctx->state = TS_INTER;
@@ -441,11 +451,7 @@ int thread_restore(struct object *thread_obj,
         BUG_ON(sched_enqueue(target));
         break;
     }
-    case TS_EXIT: {
-        break;
-    }
     default: {
-        BUG_ON(1);
         break;
     }
     }
