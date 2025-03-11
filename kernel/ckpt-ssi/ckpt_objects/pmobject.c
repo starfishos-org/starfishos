@@ -439,8 +439,9 @@ int continuous_pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
         return 0;
     } else {
         // allocate a new region of shared memory
-        ckpt_pmo->start = (paddr_t)get_pages(pmo->size, __SHARED__);
-        memcpy((void *)ckpt_pmo->start, (void *)pmo->start, pmo->size);
+        vaddr_t ckpt_va = (vaddr_t)kmalloc(pmo->size, __SHARED__);
+        ckpt_pmo->start = virt_to_phys((void *)ckpt_va);
+        memcpy((void *)ckpt_va, (void *)phys_to_virt(pmo->start), pmo->size);
     }
 
     return 0;
