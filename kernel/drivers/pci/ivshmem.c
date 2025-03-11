@@ -121,7 +121,7 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
     if (strncmp(header->magic, "hostfs", 8) == 0) {
         pci_info("[IVSHMEM] [%d] magic \"match hostfs\"\n", kvm_ivshmem_dev_num);
         hostfs_dev = dev;
-    } else {
+    } else if (strncmp(header->magic, "cxlmem", 6) == 0) {
         cxl_shm_dev = dev;
     }
 

@@ -101,6 +101,9 @@ typedef struct {
  * 5. checkpoint data
  */
 typedef struct {
+    /* magic number */
+    char magic[8]; // "cxlmem" or "hostfs"
+
     /**
      * 1. global configuration
      */

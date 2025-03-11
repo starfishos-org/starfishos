@@ -12,6 +12,5 @@ if [ "$mode" = "cxl-new" ]; then
 fi
 
 if [ "$mode" = "cxl" ]; then
-	numactl --membind=$memNumaNode dd if=/dev/zero of=$devName bs=1024 count=4 conv=notrunc
-	echo "Set first 4KB of Shared Memory (on NUMA $memNumaNode) to 0"
+	python3 dsm-scripts/prepare_cxlmem.py
 fi

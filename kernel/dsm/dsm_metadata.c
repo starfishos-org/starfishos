@@ -26,9 +26,12 @@ void dsm_add_machine()
     // u64 lmem_old_start,
     u64 lmem_new_start, lmem_size = SIZE_4G;
 
-    // lmem_old_start = physmem_map[0][0];
-    // lmem_size = physmem_map[0][1] - physmem_map[0][0];
-    lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), SIZE_4G);
+    lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);
+    kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
+          MACHINE_ID,
+          lmem_new_start,
+          lmem_new_start + lmem_size);
+
     /* local memory range exceed shm range */
     BUG_ON(dsm_meta->max_paddr > dsm_meta->shm_paddr);
 
