@@ -146,7 +146,6 @@ extern struct vmspace *ycsb_vmspace;
 #endif /* CHCORE_SLS */
 
 struct pmobject {
-    // #ifdef CHCORE_SLS
     union {
         struct radix *radix;
         struct dram_cache {
@@ -154,9 +153,7 @@ struct pmobject {
             struct lock lock;
         } dram_cache;
     };
-    // #else
-    //      struct radix *radix;
-    // #endif /* CHCORE_SLS */
+
     paddr_t start;
     size_t size;
     pmo_type_t type;

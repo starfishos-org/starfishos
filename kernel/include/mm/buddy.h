@@ -63,11 +63,6 @@ struct page {
     /* page's page pair in checkpoint */
     u64 page_pair;
     u64 index;
-
-    // #ifdef HYBRID_MEM
-    /* Page track info */
-    struct page_track_info *track_info;
-    // #endif
 #endif
 
 #if defined CHCORE_SLS
@@ -88,6 +83,11 @@ struct page {
 // #endif
 #endif
 };
+
+#define IS_SHM_PAGE(page) (page->pool->type == CXL_MEM_PAGE)
+#define IS_SHM_PADDR(paddr) ( \
+    paddr >= dsm_meta->shm_paddr \
+    && paddr < dsm_meta->shm_paddr + dsm_meta->shm_size)
 
 struct free_list {
     struct list_head free_list;
