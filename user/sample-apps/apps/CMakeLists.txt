@@ -1,4 +1,6 @@
-add_link_options(-static)
+if (CHCORE_USER_STATIC)
+    add_link_options(-static)
+endif()
 
 add_executable(client.bin client.c)
 add_executable(server.bin server.c)
