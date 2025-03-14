@@ -1,8 +1,9 @@
-add_link_options(-static)
+if (CHCORE_USER_STATIC)
+    add_link_options(-static)
+endif()
 
-file(GLOB UTILS_SOURCES "*.c")
-
-foreach(SOURCE_FILE ${UTILS_SOURCES})
-    get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
-    add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
-endforeach()
+add_executable(cat cat.c)
+add_executable(diff diff.c)
+add_executable(mount mount.c)
+add_executable(export export.c)
+add_executable(write write.c)

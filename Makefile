@@ -29,3 +29,11 @@ ip2c-kernel:
 test:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/lkl.exp
+
+cxl-new:
+	./dsm-scripts/config_memdev.sh cxl-new
+
+
+remote-fs:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/remote_fs.sh

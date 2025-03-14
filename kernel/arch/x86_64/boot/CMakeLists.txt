@@ -46,8 +46,6 @@ if(CHCORE_SSI)
       "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
       -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
-      -drive file=\$virtio_file_name,if=none,id=virtio-disk,format=raw \
-      -device virtio-blk-pci,drive=virtio-disk \
       -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL")
