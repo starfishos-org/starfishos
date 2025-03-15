@@ -232,9 +232,13 @@ struct fsm_request {
 	/* Response */
 	int mount_id;
 	int new_cap_flag;
+	int target_machine_id;
 	
 	unsigned long parentBagde; // for finish_fork
 };
+
+#define MAX_MOUNT_ID 32
+#define MAX_REMOTE_MACHINE_NUM 16
 
 
 #ifdef __cplusplus

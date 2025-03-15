@@ -3,8 +3,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <rpmalloc.h>
-
+#include <chcore/type.h>
 #pragma GCC push_options
 #pragma GCC optimize ("O0")
 int main(int argc, char *argv[])

@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <chcore-internal/fs_debug.h>
+#include <chcore-internal/fs_defs.h>
 #include <pthread.h>
 
 #include "fs_client_defs.h"
@@ -16,7 +17,7 @@ char cwd_path[MAX_CWD_BUF_LEN];
 int cwd_len;
 
 /* For client side mounted fs metadata */
-int mounted_fs_cap[MAX_MOUNT_ID] = { -1 };
+int mounted_fs_cap[MAX_MOUNT_ID + MAX_REMOTE_MACHINE_NUM] = { -1 };
 pthread_key_t mounted_fs_key;
 
 ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id)
@@ -27,17 +28,21 @@ ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id)
 	/* Get thread local  */
 	mounted_fs_ipc_struct = pthread_getspecific(mounted_fs_key);
 	if (!mounted_fs_ipc_struct) {
-		mounted_fs_ipc_struct = calloc(1, MAX_MOUNT_ID * sizeof(ipc_struct_t *));
+		mounted_fs_ipc_struct = calloc(1, (MAX_MOUNT_ID + MAX_REMOTE_MACHINE_NUM) * sizeof(ipc_struct_t *));
 		BUG_ON(!mounted_fs_ipc_struct);
 		pthread_setspecific(mounted_fs_key, mounted_fs_ipc_struct);
 	}
 
 	/* Find thread local ipc struct, register one if it's not existed */
-	if (!mounted_fs_ipc_struct[mount_id]) {
+	if (mount_id >= MAX_MOUNT_ID) {
+		mounted_fs_ipc_struct[mount_id] =
+			ipc_register_fs_client(mount_id - MAX_MOUNT_ID);
+	} else if (!mounted_fs_ipc_struct[mount_id]) {
 		mounted_fs_ipc_struct[mount_id] =
 			ipc_register_client(mounted_fs_cap[mount_id]);
-		BUG_ON(!mounted_fs_ipc_struct[mount_id]);
 	}
+
+	BUG_ON(!mounted_fs_ipc_struct[mount_id]);
 
 	res = mounted_fs_ipc_struct[mount_id];
 
@@ -184,16 +189,17 @@ struct fsm_request *fsm_parse_path_forward(ipc_msg_t *ipc_msg, const char *full_
 
 	/* Bind mount_id and cap. */
 	mount_id = fsm_req->mount_id;
-	if (fsm_req->new_cap_flag) {
-		assert(mount_id >= 0 && mount_id < MAX_MOUNT_ID);
-		mounted_fs_cap[mount_id] = ipc_get_msg_cap(ipc_msg, 0);
+	if (fsm_req->mount_id < MAX_MOUNT_ID) {
+		if (fsm_req->new_cap_flag) {
+			assert(mount_id >= 0 && mount_id < MAX_MOUNT_ID);
+			mounted_fs_cap[mount_id] = ipc_get_msg_cap(ipc_msg, 0);
+		}
+
+		assert(mounted_fs_cap[mount_id] > 0);
+
+		/* Call this for initialize tls ipc data, and we don't need return value */
+		get_ipc_struct_by_mount_id(mount_id);
 	}
-
-	assert(mounted_fs_cap[mount_id] > 0);
-
-	/* Call this for initialize tls ipc data, and we don't need return value */
-	get_ipc_struct_by_mount_id(mount_id);
-
 	return fsm_req;
 }
 

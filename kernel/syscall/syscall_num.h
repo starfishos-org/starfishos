@@ -1,6 +1,6 @@
 #pragma once
 
-#define NR_SYSCALL 256
+#define NR_SYSCALL 512
 
 /* Character */
 #define SYS_putc 0
@@ -128,3 +128,9 @@
 #define SYS_ckpt_migrate         252
 #define SYS_ckpt_merge_migration 253
 #endif
+
+#define SYS_get_machine_id 254
+
+#define SYS_register_fs_client 255
+
+#define SYS_register_fs_server 256

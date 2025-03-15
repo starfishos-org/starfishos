@@ -44,6 +44,7 @@
 #include <sched/context.h>
 #include <irq/irq.h>
 #include <ckpt/ckpt.h>
+#include <dsm/dsm-single.h>
 
 /*
  * An extern declaration.
@@ -402,11 +403,8 @@ u64 sys_register_server(u64 ipc_routine, u64 register_thread_cap)
     return register_server(current_thread, ipc_routine, register_thread_cap);
 }
 
-u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
+u32 sys_register_client_helper(struct thread *client, struct thread *server, u64 shm_config_ptr, bool free_server) 
 {
-    struct thread *client;
-    struct thread *server;
-
     /*
      * No need to initialize actually.
      * However, fbinfer will complain without zeroing because
@@ -420,9 +418,6 @@ u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
     struct thread *register_cb_thread;
     struct ipc_server_register_cb_config *register_cb_config;
 
-    client = current_thread;
-
-    server = obj_get(current_cap_group, server_cap, TYPE_THREAD);
     if (!server) {
         r = -ECAPBILITY;
         goto out_fail;
@@ -495,6 +490,7 @@ u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
                             register_cb_config->register_cb_entry);
     arch_set_thread_arg0(register_cb_thread,
                          server_config->declared_ipc_routine_entry);
+    if (free_server)
     obj_put(server);
 
     /* Pass the scheduling context */
@@ -511,9 +507,41 @@ out_fail:
     /* Maybe EAGAIN */
     kdebug("%s failed\n", __func__);
 
-    if (server)
+    if (server && free_server)
         obj_put(server);
     return r;
+}
+
+u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
+{
+    struct thread *client;
+    struct thread *server;
+
+    client = current_thread;
+
+    server = obj_get(current_cap_group, server_cap, TYPE_THREAD);
+
+    return sys_register_client_helper(client, server ,shm_config_ptr, true);
+}
+
+u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
+{
+    struct thread *client;
+    struct thread *server;
+
+    client = current_thread;
+
+    server = dsm_meta->tmpfs_thread[target_machine_id];
+
+    return sys_register_client_helper(client, server, shm_config_ptr, false);
+}
+
+u32 sys_register_fs_server(u32 fs_cap)
+{
+    struct thread *tmpfs_thread = obj_get(current_cap_group, fs_cap, TYPE_THREAD);
+    dsm_meta->tmpfs_thread[MACHINE_ID] = tmpfs_thread;
+    obj_put(tmpfs_thread);
+    return 0;
 }
 
 // TODO (tmac): why 8?

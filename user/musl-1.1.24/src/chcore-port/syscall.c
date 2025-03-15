@@ -377,3 +377,18 @@ void usys_set_dyn_args(u64 hotness, u64 access_interval)
 int usys_pcie_control(u64 req_buf) {
 	return chcore_syscall1(CHCORE_SYS_pcie_control, req_buf);
 }
+
+int usys_get_machine_id()
+{
+	return (int)chcore_syscall0(CHCORE_SYS_get_machine_id);
+}
+
+u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
+{
+	return chcore_syscall2(CHCORE_SYS_register_fs_client, target_machine_id, shm_config_ptr);
+}
+
+u32 usys_register_fs_server(u32 fs_cap)
+{
+	return chcore_syscall1(CHCORE_SYS_register_fs_server, fs_cap);
+}

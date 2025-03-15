@@ -208,3 +208,8 @@
 
 #define CHCORE_SYS_ckpt_migrate         252
 #define CHCORE_SYS_ckpt_merge_migration 253
+
+#define CHCORE_SYS_get_machine_id       254
+
+#define CHCORE_SYS_register_fs_client   255
+#define CHCORE_SYS_register_fs_server   256

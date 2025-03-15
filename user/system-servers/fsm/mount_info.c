@@ -3,7 +3,7 @@
 struct list_head mount_point_infos;
 
 /* Insert new mount_point at BEGINNING */
-struct mount_point_info_node *set_mount_point(const char *path, int path_len, int fs_cap)
+struct mount_point_info_node *set_mount_point(const char *path, int path_len, int fs_cap, int target_machine_id)
 {
 	struct mount_point_info_node *n;
 	n = (struct mount_point_info_node *)malloc(sizeof(*n));
@@ -14,7 +14,8 @@ struct mount_point_info_node *set_mount_point(const char *path, int path_len, in
 	n->path[path_len] = '\0';
 	n->path_len = path_len;
 	n->fs_cap = fs_cap;
-
+	n->target_machine_id = target_machine_id;
+	
 	list_add(&n->node, &mount_point_infos);
 	return n;
 }

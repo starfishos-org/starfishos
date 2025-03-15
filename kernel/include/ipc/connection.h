@@ -144,6 +144,8 @@ struct ipc_msg {
 /* IPC related system calls */
 u64 sys_register_server(u64 ipc_rountine, u64 register_cb_cap);
 u32 sys_register_client(u32 server_cap, u64 vm_config_ptr);
+u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
+u32 sys_register_fs_server(u32 fs_cap);
 void sys_ipc_register_cb_return(u64, u64, u64);
 
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg, u64 cap_num);

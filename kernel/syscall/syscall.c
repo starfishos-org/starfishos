@@ -263,6 +263,11 @@ void sys_shutdown(int flag)
     handle_shutdown(flag);
 }
 
+u32 sys_get_machine_id(void)
+{
+    return machine_id;
+}
+
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 void sys_ipi_stop_all();
 void sys_ipi_start_all();
@@ -398,4 +403,7 @@ const void *syscall_table[NR_SYSCALL] = {
 #endif
         [SYS_shutdown] = sys_shutdown,
 
+        [SYS_get_machine_id] = sys_get_machine_id,
+        [SYS_register_fs_client] = sys_register_fs_client,
+        [SYS_register_fs_server] = sys_register_fs_server,
 };
