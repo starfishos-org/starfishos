@@ -5,14 +5,14 @@ import os
 user_name = os.getenv('USER')
 shm_device_path = f'/dev/shm/ivshmem-{user_name}'
 
-# 1MB
-SIZE_1M = 1024 * 1024
+# 4K
+SIZE_4K = 4096
 
 # 打开共享内存设备文件
 with open(shm_device_path, 'r+b') as shm_fd:
     # 将前1M设置为0
     shm_fd.seek(0)
-    shm_fd.write(b"\0" * SIZE_1M)
+    shm_fd.write(b"\0" * SIZE_4K)
 
     # 写入magic
     shm_fd.seek(0)
