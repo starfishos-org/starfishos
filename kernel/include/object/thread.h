@@ -55,22 +55,17 @@ struct thread {
     /* Record the thread cap for quick thread recycle. */
     u64 cap;
 
-    /*
+    /**
      * Only exists for threads in a server process.
      * If not NULL, it points to one of the three config types.
+     * 1. @struct ipc_server_config server_config
+     *    If the thread declares an IPC service by invoking "register_server"
+     * 2. @struct ipc_server_register_cb_config server_register_cb_config
+     *    If the thread is TYPE_SHADOW and is used as ipc_server_register_cb_thread
+     * 3. @struct ipc_server_handler_config server_handler_config
+     *    If the thread is TYPE_SHADOW and is used as ipc_server_handler_thread
      */
     void *general_ipc_config;
-
-#if 0 /* Comments for general_ipc_config */
-	union general_ipc_config {
-		/* If the thread declares an IPC service by invoking "register_server" */
-		struct ipc_server_config server_config;
-		/* If the thread is TYPE_SHADOW and is used as ipc_server_register_cb_thread */
-		struct ipc_server_register_cb_config server_register_cb_config;
-		/* If the thread is TYPE_SHADOW and is used as ipc_server_handler_thread */
-		struct ipc_server_handler_config server_handler_config;
-	};
-#endif
 
 #if TRACK_THREAD_MM == ON
     u64 mm_size;

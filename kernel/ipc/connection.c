@@ -233,9 +233,6 @@ static int client_connection(struct thread *client, struct thread *server,
     conn->shm.shm_cap_in_server = shm_cap_server;
     lock_init(&conn->ownership);
 
-#ifdef CKPT_CONNECTION_LAZY_COPY
-    lock_init(&conn->copylock);
-#endif
     /* Initialize the connection (end) */
 
     /* After initializing the object,
@@ -440,7 +437,7 @@ u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
      * for finishing the registration.
      *
      * The whole registration procedure:
-     * client thread -> server register_cb_thread -> client threrad
+     * client thread -> server register_cb_thread -> client thread
      */
     register_cb_thread = server_config->register_cb_thread;
     register_cb_config = (struct ipc_server_register_cb_config

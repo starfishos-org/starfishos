@@ -156,7 +156,7 @@ typedef struct {
     /* A KVS to accelerate the lookup of ckpt cap_group */
     struct kvs *ckpt_cg_kvs;
 #endif
-} __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
+} __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
 
