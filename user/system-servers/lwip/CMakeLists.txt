@@ -23,3 +23,5 @@ target_compile_options(tcp_example.bin PRIVATE ${LWIP_COMPILER_FLAGS})
 target_compile_definitions(tcp_example.bin PRIVATE ${LWIP_DEFINITIONS})
 target_link_libraries(tcp_example.bin PRIVATE lwipcore)
 chcore_copy_all_targets_to_ramdisk()
+
+target_link_options(lwip.srv PRIVATE -static)

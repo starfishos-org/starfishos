@@ -1,5 +1,4 @@
 # All system servers are statically linked by default
-add_link_options(-static)
 
 # Process Manager
 add_subdirectory(procmgr)
@@ -36,4 +35,3 @@ endif()
 if(CHCORE_SERVER_POSIX_SHM)
     add_subdirectory(posix_shm)
 endif()
-
