@@ -5,9 +5,5 @@ chcore_config(CHCORE_USER_STATIC BOOL OFF "Build statically linked user-level li
 
 chcore_config_include(libraries/config.cmake)
 chcore_config_include(system-servers/config.cmake)
-if (CHCORE_BUILD_SAMPLE_APPS)
-	chcore_config_include(sample-apps/config.cmake)
-endif()
-if (CHCORE_BUILD_DEMO_APPS)
-	chcore_config_include(demos/config.cmake)
-endif()
+chcore_config_include(sample-apps/config.cmake)
+chcore_config_include(demos/config.cmake)

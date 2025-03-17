@@ -43,18 +43,6 @@ cluster:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/simulate_4clusters.sh
 
-rocksdb:
+leveldb:
 	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/rocksdb.exp 0
-
-remote-fs:
-	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/remote_fs.sh
-
-fs:
-	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/remote_fs.exp
-
-mmap:
-	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/mmap.sh
+	./dsm-scripts/leveldb.sh
