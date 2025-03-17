@@ -116,6 +116,8 @@ if(CHCORE_SSI)
   target_compile_definitions(${kernel_target} PRIVATE DSM_PGTABLE_MODE_${DSM_PGTABLE_MODE})
   # stack configuration
   target_compile_definitions(${kernel_target} PRIVATE DSM_STACK_MODE_${DSM_STACK_MODE})
+  # thread context configuration
+  target_compile_definitions(${kernel_target} PRIVATE DSM_THREADCTX_MODE_${DSM_THREADCTX_MODE})
 endif()
 
 # SLS Basic Configruations

@@ -132,7 +132,7 @@ typedef struct {
 #endif
     struct shared_queue_meta ready_to_merge_object_queue;
 
-
+    // TODO(yjs): struct
     struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
 } __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
 

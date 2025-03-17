@@ -84,6 +84,8 @@ struct thread {
 #endif
 
     struct sleep_state sleep_state;
+
+    u32 machine_id;
 };
 
 void create_root_thread(void);

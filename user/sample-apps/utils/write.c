@@ -17,8 +17,6 @@ int main(int argc, char *argv[])
         (void)path;
         (void)content;
 
-        fprintf(stderr, "write path: %s\n", path);
-
         int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd < 0) {
                 perror("failed to open file");
@@ -26,6 +24,7 @@ int main(int argc, char *argv[])
         }
         write(fd, content, strlen(content));
         close(fd);
+        fprintf(stderr, "write success\n");
         return 0;
 }
 #pragma GCC pop_options

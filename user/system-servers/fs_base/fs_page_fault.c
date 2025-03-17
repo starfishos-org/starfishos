@@ -72,6 +72,9 @@ static int handle_one_fault(u64 fault_badge, vaddr_t fault_va)
 	/* Find mapping area info */
 	ret = fmap_area_find(
 		fault_badge, fault_va, &area_off, &vnode, &file_offset, &flags);
+		
+	// TODO(yjs) handle error here (handle_one_fault to wrong machine)
+
 	if (ret < 0) {
 		/* TODO: handle errors */
 		fs_debug_error("ret = %d\n", ret);
@@ -152,14 +155,12 @@ void *user_fault_handler(void *args)
 		usys_wait(notific_cap, 1 /* Block */, NULL);
 		while (get_one_msg(fault_msg_buffer, &msg)) {
 			fs_debug_trace_fswrapper(
-				"fault_msg_slot: 0x%lx | 0x%lx | 0x%lx\n",
-				(vaddr_t)fault_msg_buffer,
-				(u64)msg,
-				(vaddr_t)((void *)fault_msg_buffer + END_OFFSET));
+				"fault_msg_slot: 0x%lx\n",
+				(vaddr_t)fault_msg_buffer);
 			/* Handle msg */
 			ret = handle_one_fault(msg.fault_badge, msg.fault_va);
 			if (ret) {
-				fs_debug_error("ret = %d\n", ret);
+				fs_debug_error("ret = %d \n", ret);
 			}
 		}
 	}

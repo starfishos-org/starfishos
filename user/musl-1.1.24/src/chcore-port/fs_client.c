@@ -34,12 +34,13 @@ ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id)
 	}
 
 	/* Find thread local ipc struct, register one if it's not existed */
-	if (mount_id >= MAX_MOUNT_ID) {
-		mounted_fs_ipc_struct[mount_id] =
-			ipc_register_fs_client(mount_id - MAX_MOUNT_ID);
-	} else if (!mounted_fs_ipc_struct[mount_id]) {
-		mounted_fs_ipc_struct[mount_id] =
-			ipc_register_client(mounted_fs_cap[mount_id]);
+
+	if (!mounted_fs_ipc_struct[mount_id]) {
+		if (mount_id >= MAX_MOUNT_ID) {
+			mounted_fs_ipc_struct[mount_id] = ipc_register_fs_client(mount_id - MAX_MOUNT_ID);
+		} else {
+			mounted_fs_ipc_struct[mount_id] = ipc_register_client(mounted_fs_cap[mount_id]);
+		}
 	}
 
 	BUG_ON(!mounted_fs_ipc_struct[mount_id]);

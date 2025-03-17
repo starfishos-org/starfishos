@@ -371,6 +371,10 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 #endif
 
     /* Switch to the target thread */
+    // TODO(yjs)
+    extern void flush_tlb_all(void);
+    flush_tlb_all();
+
     sched_to_thread(target);
 
     /* Function never return */
@@ -540,6 +544,7 @@ u32 sys_register_fs_server(u32 fs_cap)
 {
     struct thread *tmpfs_thread = obj_get(current_cap_group, fs_cap, TYPE_THREAD);
     dsm_meta->tmpfs_thread[MACHINE_ID] = tmpfs_thread;
+    tmpfs_thread->machine_id = MACHINE_ID;
     obj_put(tmpfs_thread);
     return 0;
 }

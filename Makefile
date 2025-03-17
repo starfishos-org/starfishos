@@ -1,6 +1,8 @@
 IP = '0x0'
 P = 'libc.so'
 
+.PHONY: build build-all
+
 b: build
 build:
 	./chbuild build
@@ -33,6 +35,17 @@ test:
 cxl-new:
 	./dsm-scripts/config_memdev.sh cxl-new
 
+cluster:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_cluster.sh
+
+4cluster:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_4clusters.sh
+
+rocksdb:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/rocksdb.exp 0
 
 remote-fs:
 	./dsm-scripts/config_memdev.sh cxl
@@ -41,3 +54,7 @@ remote-fs:
 fs:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/remote_fs.exp
+
+mmap:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/mmap.sh

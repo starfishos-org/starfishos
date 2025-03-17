@@ -5,8 +5,6 @@ if [ "$1" == "build" ]; then
 	./chbuild build
 fi
 
-./dsm-scripts/config_memdev.sh cxl
-
 session_name=$USER-qemu
 window_name="window0"
 
@@ -17,12 +15,17 @@ tmux new -d -s $session_name -n $window_name
 tmux split-window -v -t $session_name:$window_name
 
 ## Run the ROS programs sequentially.
-tmux send -t $session_name:$window_name.0 "./build/simulate.sh 0 > exec_log.ans | tee exec_log1.ans" ENTER
-sleep 3
-tmux send -t $session_name:$window_name.1 "./build/simulate.sh 1 > exec_log.ans | tee exec_log2.ans" ENTER
-sleep 3
-tmux send -t $session_name:$window_name.0 "write /0/0 Hello0" ENTER
-tmux send -t $session_name:$window_name.1 "write /1/1 Hello1" ENTER
+tmux send -t $session_name:$window_name.0 "./build/simulate.sh 0 | tee exec_log1.ans" ENTER
+
+sleep 2
+
+tmux send -t $session_name:$window_name.1 "./build/simulate.sh 1 | tee exec_log2.ans" ENTER
+
+sleep 2
+
+tmux send -t $session_name:$window_name.1 "write /1/1 Hello1\r" ENTER
+
+# tmux send -t $session_name:$window_name.0 "leveldb-dbbench --benchmarks=fillbatch --num=1000000 --db=/1/tmp &" ENTER
 
 tmux select-pane -t $session_name:$window_name.0
 
