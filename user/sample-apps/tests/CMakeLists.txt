@@ -1,5 +1,3 @@
-add_link_options(-static)
-
 add_executable(perf_libc_malloc.bin perf_libc_malloc.c)
 
 target_compile_options(perf_libc_malloc.bin PRIVATE -O2)

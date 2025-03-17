@@ -7,5 +7,6 @@ add_executable(fat32.srv diskio.c ff_server.c ffsystem.c fat32_ops.c
 target_link_libraries(fat32.srv PRIVATE fs_base fat32_3rd_party)
 
 target_link_options(fat32.srv PRIVATE -static)
+add_dependencies(fat32.srv libc)
 
 chcore_copy_all_targets_to_ramdisk()
