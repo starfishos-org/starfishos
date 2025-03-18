@@ -37,9 +37,15 @@ extern "C" {
  * And this turns out useful to catch old ioctl numbers in header
  * files for us.
  */
+#ifndef _IOC_NONE
 #define _IOC_NONE	0U
+#endif
+#ifndef _IOC_READ
 #define _IOC_READ	1U
+#endif
+#ifndef _IOC_WRITE
 #define _IOC_WRITE	2U
+#endif
 
 #define _IOC(dir,type,nr,size)			\
 	((unsigned int)				\
