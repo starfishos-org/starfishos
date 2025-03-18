@@ -1,6 +1,3 @@
-# All system servers are statically linked by default
-add_link_options(-static)
-
 # Process Manager
 add_subdirectory(procmgr)
 

@@ -4,6 +4,7 @@ set(MUSL_CC ${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc)
 set(MUSL_CXX ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)
 
 set(_demos_clean_targets)
+chcore_get_nproc(_nproc)
 
 if(CHCORE_DEMOS_LIGRA)
   add_custom_target(
@@ -19,6 +20,7 @@ list(APPEND _demos_clean_targets ligra-clean)
     COMMAND cp ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
     # COMMAND cp ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
     DEPENDS)
+  add_dependencies(ramdisk ligra)
 endif()
 
 if(CHCORE_DEMOS_REDIS)
@@ -31,11 +33,12 @@ list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-cli ${build_ramdisk_dir}/
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-server ${build_ramdisk_dir}/
     COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-benchmark ${build_ramdisk_dir}/
     DEPENDS)
+  add_dependencies(ramdisk redis)
 endif()
 
 if(CHCORE_DEMOS_YCSB)
@@ -68,6 +71,7 @@ list(APPEND _demos_clean_targets ycsb-clean)
     COMMAND cp ${build_demos_dir}/YCSB-C/workloads/*.spec .
     WORKING_DIRECTORY ${build_ramdisk_dir}
     DEPENDS)
+  add_dependencies(ramdisk ycsb)
 endif()
 
 # libevent is already installed in docker images
@@ -79,7 +83,8 @@ if(CHCORE_DEMOS_LIBEVENT)
     COMMAND ./configure --disable-openssl --disable-debug-mode --disable-samples -prefix=/usr/libevent
     COMMAND CC=${MUSL_CC} -s &> /dev/null
     COMMAND make install
-)
+  )
+  add_dependencies(ramdisk libevent)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
@@ -88,7 +93,7 @@ if(CHCORE_DEMOS_MEMCACHED)
     WORKING_DIRECTORY ${build_demos_dir}/memcached
     COMMAND ./autogen.sh
             && ./configure --disable-coverage -with-libevent=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j12
+            && make CC=${MUSL_CC} -s -j$(_nproc)
     COMMAND cp ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
     DEPENDS)
     list(APPEND _demos_clean_targets memcached-clean)
@@ -97,6 +102,7 @@ if(CHCORE_DEMOS_MEMCACHED)
     COMMAND make maintainer-clean-local
     WORKING_DIRECTORY ${build_demos_dir}/memcached
     )
+    add_dependencies(ramdisk memcached)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
@@ -111,9 +117,10 @@ if(CHCORE_DEMOS_MEMCACHETEST)
     WORKING_DIRECTORY ${build_demos_dir}/memcachetest
     COMMAND ./config/autorun.sh
             && ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j12
+            && make CC=${MUSL_CC} -s -j$(_nproc)
     COMMAND cp ${build_demos_dir}/memcachetest/memcachetest ${build_ramdisk_dir}/
     DEPENDS)
+  add_dependencies(ramdisk memcachetest)
 endif()
 
 if(CHCORE_DEMOS_SQLITE)
@@ -122,11 +129,11 @@ if(CHCORE_DEMOS_SQLITE)
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
     COMMAND make clean
 )
-list(APPEND _demos_clean_targets ycsb-clean)
+list(APPEND _demos_clean_targets sqlite-clean)
   add_custom_target(
     sqlite ALL
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
     COMMAND cp ${build_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
     DEPENDS)
 endif()
@@ -137,19 +144,20 @@ if(CHCORE_DEMOS_LEVELDB)
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND rm -rf ./build
     )
-    list(APPEND _demos_clean_targets ycsb-clean)
+    list(APPEND _demos_clean_targets leveldb-clean)
   add_custom_target(
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND mkdir -p build && cd build &&
-         cmake -j12 -DCMAKE_BUILD_TYPE=Release
+         cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . -j12
+            && cmake --build . -j$(_nproc)
     COMMAND cp ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
+  add_dependencies(ramdisk leveldb)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
@@ -163,7 +171,7 @@ if(CHCORE_DEMOS_ROCKSDB)
   add_custom_target(
     gflags ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
-    COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
+    COMMAND cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CXX_FLAGS=-fPIC
             -DCMAKE_CROSSCOMPILING=1
@@ -171,7 +179,7 @@ if(CHCORE_DEMOS_ROCKSDB)
             # -DBUILD_SHARED_LIBS=OFF
             -DBUILD_TESTING=OFF
             -S ..
-            && cmake --build . -j12
+            && cmake --build . -j$(_nproc)
     # COMMAND cp ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
     COMMAND cp ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
     DEPENDS)
@@ -185,19 +193,20 @@ if(CHCORE_DEMOS_ROCKSDB)
   add_custom_target(
     rocksdb ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build
-    COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
+    COMMAND cmake -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CROSSCOMPILING=1
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -S
             ..
-    COMMAND cmake --build . -j12
+    COMMAND cmake --build . -- -j$(_nproc)
     COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
     COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
-    COMMAND ls ${build_ramdisk_dir}
+    COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/simple_example ${build_ramdisk_dir}/rocksdb-simple_example
     DEPENDS)
   add_dependencies(rocksdb gflags)
+  add_dependencies(ramdisk rocksdb)
 endif()
 
 if(CHCORE_DEMOS_PHOENIX)
@@ -249,6 +258,7 @@ if(CHCORE_DEMOS_PHOENIX)
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
   )
+  add_dependencies(ramdisk phoenix)
 endif()
 
 if(CHCORE_DEMOS_GEMM)
@@ -267,10 +277,11 @@ if(CHCORE_DEMOS_GEMM)
     DEPENDS)
   
   add_custom_target(
-    TARGET phoenix
+    TARGET gemm
     POST_BUILD
     COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
   )
+  add_dependencies(ramdisk gemm)
 endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})

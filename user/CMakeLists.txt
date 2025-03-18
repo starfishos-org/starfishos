@@ -12,6 +12,9 @@ set(build_demos_dir ${CMAKE_CURRENT_SOURCE_DIR}/demos)
 file(REMOVE_RECURSE ${build_ramdisk_dir})
 file(MAKE_DIRECTORY ${build_ramdisk_dir})
 
+add_library(libc STATIC IMPORTED)
+set_property(TARGET libc PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.a)
+
 add_custom_target(
     ramdisk ALL
     WORKING_DIRECTORY ${build_ramdisk_dir}
@@ -30,26 +33,12 @@ add_custom_target(
             || echo "No custom ramdisk found, skipping"
     # archive ramdisk into ramdisk.cpio
     COMMAND find . | cpio -o -H newc > ${CMAKE_CURRENT_BINARY_DIR}/ramdisk.cpio
+    COMMENT "Copying ramdisk files to ramdisk directory"
     )
 # FIXME: ramdisk should wait for all things being copied, add more to DEPENDS.
 
 include(CommonTools)
 include(UserTools)
-
-set(_targets)
-chcore_get_all_targets(_targets)
-foreach(_target ${_targets})
-  get_property(_installed GLOBAL PROPERTY ${_target}_INSTALLED)
-  if(${_installed})
-      continue()
-  endif()
-  get_target_property(_target_type ${_target} TYPE)
-  if(${_target_type} STREQUAL SHARED_LIBRARY OR ${_target_type} STREQUAL
-                                                EXECUTABLE)
-      add_dependencies(ramdisk ${_target})
-  endif()
-endforeach()
-unset(_targets)
 
 chcore_dump_cmake_vars()
 
@@ -62,8 +51,12 @@ include_directories(sys-include)
 
 add_subdirectory(libraries)
 add_subdirectory(system-servers)
-add_subdirectory(sample-apps)
-add_subdirectory(demos)
+if (CHCORE_BUILD_SAMPLE_APPS)
+	add_subdirectory(sample-apps)
+endif()
+if (CHCORE_BUILD_DEMO_APPS)
+	add_subdirectory(demos)
+endif()
 
 set(_clean_targets)
 foreach(_target ${_targets})
@@ -71,5 +64,5 @@ foreach(_target ${_targets})
     list(APPEND _clean_targets ${_target})
   endif()
 endforeach()
-message(STATUS ${_clean_targets})
-add_custom_target(custom-clean DEPENDS demos-clean ${_clean_targets})
+message(STATUS "Clean targets: ${_clean_targets}")
+add_custom_target(custom-clean DEPENDS libraries-clean demos-clean ${_clean_targets})

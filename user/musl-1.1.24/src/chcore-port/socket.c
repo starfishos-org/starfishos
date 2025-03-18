@@ -1130,7 +1130,7 @@ int chcore_sendto(int fd, const void *buf, size_t len, int flags,
 			printf("We don't support this!\n");
 			BUG_ON(1);
 		}
-		return local_socket_write(fd, buf, len);
+		return local_socket_write(fd, (void *)buf, len);
 	}
 
 	ipc_msg =
