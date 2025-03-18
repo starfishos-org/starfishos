@@ -372,8 +372,10 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 
     /* Switch to the target thread */
     // TODO(yjs)
-    extern void flush_tlb_all(void);
-    flush_tlb_all();
+    if (strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
+        extern void flush_tlb_all(void);
+        flush_tlb_all();
+    }
 
     sched_to_thread(target);
 
@@ -407,7 +409,7 @@ u64 sys_register_server(u64 ipc_routine, u64 register_thread_cap)
     return register_server(current_thread, ipc_routine, register_thread_cap);
 }
 
-u32 sys_register_client_helper(struct thread *client, struct thread *server, u64 shm_config_ptr, bool free_server) 
+u32 sys_register_client_helper(struct thread *client, struct thread *server, u64 shm_config_ptr, bool trans_machine) 
 {
     /*
      * No need to initialize actually.
@@ -478,6 +480,8 @@ u32 sys_register_client_helper(struct thread *client, struct thread *server, u64
         goto out_fail;
     }
 
+    res.conn->trans_machine = trans_machine;
+
     /* Record the connection cap of the client process */
     register_cb_config->conn_cap_in_client = res.client_conn_cap;
     register_cb_config->conn_cap_in_server = res.server_conn_cap;
@@ -494,8 +498,8 @@ u32 sys_register_client_helper(struct thread *client, struct thread *server, u64
                             register_cb_config->register_cb_entry);
     arch_set_thread_arg0(register_cb_thread,
                          server_config->declared_ipc_routine_entry);
-    if (free_server)
-    obj_put(server);
+    if (!trans_machine)
+        obj_put(server);
 
     /* Pass the scheduling context */
     register_cb_thread->thread_ctx->sc = current_thread->thread_ctx->sc;
@@ -511,7 +515,7 @@ out_fail:
     /* Maybe EAGAIN */
     kdebug("%s failed\n", __func__);
 
-    if (server && free_server)
+    if (server && !trans_machine)
         obj_put(server);
     return r;
 }
@@ -525,7 +529,7 @@ u32 sys_register_client(u32 server_cap, u64 shm_config_ptr)
 
     server = obj_get(current_cap_group, server_cap, TYPE_THREAD);
 
-    return sys_register_client_helper(client, server ,shm_config_ptr, true);
+    return sys_register_client_helper(client, server ,shm_config_ptr, false);
 }
 
 u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
@@ -537,7 +541,7 @@ u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
 
     server = dsm_meta->tmpfs_thread[target_machine_id];
 
-    return sys_register_client_helper(client, server, shm_config_ptr, false);
+    return sys_register_client_helper(client, server, shm_config_ptr, true);
 }
 
 u32 sys_register_fs_server(u32 fs_cap)

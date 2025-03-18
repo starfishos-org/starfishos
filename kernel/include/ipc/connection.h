@@ -125,6 +125,8 @@ struct ipc_connection {
     int conn_cap_in_client;
     int conn_cap_in_server;
     int is_valid;
+    
+    bool trans_machine;
 };
 
 #define INVALID (0)
