@@ -167,6 +167,23 @@ if(CHCORE_SLS)
     target_compile_definitions(${kernel_target} PRIVATE OMIT_BENCHMARK)
   endif()
 endif()
+
+if(CHCORE_IPC_PERF)
+  include(ipc_perf_config.cmake)
+  if("${IPC_PERF_TRAP}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE IPC_PERF_TRAP)
+  endif()
+  if("${IPC_PERF_LOGIC}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE IPC_PERF_LOGIC)
+  endif()
+  if("${IPC_PERF_PROCESS_SWITCH}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE IPC_PERF_PROCESS_SWITCH)
+  endif()
+  if("${IPC_PERF_RESTORE}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE IPC_PERF_RESTORE)
+  endif()
+endif()
+
 # correctness check
 # target_compile_definitions(${kernel_target} PRIVATE PMO_CHECKSUM)
 
