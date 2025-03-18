@@ -55,10 +55,18 @@ extern "C" {
 	  ((size) << _IOC_SIZESHIFT)))
 
 /* used to create numbers */
+#ifndef _IO
 #define _IO(type,nr)		_IOC(_IOC_NONE,(type),(nr),0)
+#endif
+#ifndef _IOR
 #define _IOR(type,nr,size)	_IOC(_IOC_READ,(type),(nr),sizeof(size))
+#endif
+#ifndef _IOW
 #define _IOW(type,nr,size)	_IOC(_IOC_WRITE,(type),(nr),sizeof(size))
+#endif
+#ifndef _IOWR
 #define _IOWR(type,nr,size)	_IOC(_IOC_READ|_IOC_WRITE,(type),(nr),sizeof(size))
+#endif
 
 
 /* Used to decode ioctl numbers in drivers despite the leading underscore... */
