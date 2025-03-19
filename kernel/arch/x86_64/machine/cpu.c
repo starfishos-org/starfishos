@@ -264,7 +264,8 @@ void arch_cpu_init(void)
     set_cr4(cr4);
 
     x86_xsetbv(0,
-               X86_XSAVE_STATE_X87 | X86_XSAVE_STATE_SSE | X86_XSAVE_STATE_AVX);
+               X86_XSAVE_STATE_X87 | X86_XSAVE_STATE_SSE | 
+               X86_XSAVE_STATE_AVX | XFEATURE_MASK_AVX512);
 
     cr0 = get_cr0();
     cr4 = get_cr4();
