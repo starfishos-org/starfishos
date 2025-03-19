@@ -21,6 +21,10 @@
 #include "pthread_impl.h"
 #include "fs_client_defs.h"
 
+#ifdef IPC_PERF_ENABLED
+#include <chcore/perf.h>
+#endif
+
 /*
  * **fsm_ipc_struct** is an address that points to the per-thread
  * system_ipc_fsm in the pthread_t struct.
@@ -404,8 +408,18 @@ s64 ipc_call(ipc_struct_t *icb, ipc_msg_t *ipc_msg)
 	}
 
 	do {
+		#ifdef IPC_PERF_ENABLED
+        if (ipc_perf_enabled) {        
+            ipc_perf_time_p1[ipc_perf_count_p1++] = rdtsc();
+        }
+		#endif
 		ret = usys_ipc_call(icb->conn_cap, (u64)ipc_msg,
 			    ipc_msg->cap_slot_number);
+		#ifdef IPC_PERF_ENABLED
+				if (ipc_perf_enabled) {        
+						ipc_perf_time_p6[ipc_perf_count_p6++] = rdtsc();
+				}
+		#endif
 	} while (ret == -EIPCRETRY);
 
 	return ret;

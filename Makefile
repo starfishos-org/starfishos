@@ -46,3 +46,7 @@ cluster:
 leveldb:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/leveldb.sh
+
+perf-ipc:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/perf_ipc.exp /tmp.txt | tee log/ipc/perf.log

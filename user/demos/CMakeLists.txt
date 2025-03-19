@@ -149,7 +149,7 @@ if(CHCORE_DEMOS_LEVELDB)
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND mkdir -p build && cd build &&
-         cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
+         cmake -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -158,6 +158,7 @@ if(CHCORE_DEMOS_LEVELDB)
     COMMAND cp ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
   add_dependencies(ramdisk leveldb)
+  add_dependencies(leveldb libstdc++)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
@@ -244,19 +245,25 @@ if(CHCORE_DEMOS_PHOENIX)
   #     )
   # endforeach()
 
+  # add_custom_command(
+  #   TARGET phoenix
+  #   POST_BUILD
+  #   COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
+  #   COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
+  # )
+  # Copy additional data files
+  # add_custom_command(
+  #     TARGET phoenix
+  #     POST_BUILD
+  #     # COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
+  #     COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
+  #     COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
+  # )
   add_custom_command(
     TARGET phoenix
     POST_BUILD
-    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
-    COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
-  )
-  # Copy additional data files
-  add_custom_command(
-      TARGET phoenix
-      POST_BUILD
-      # COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
-      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
-      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
+    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/pca && make MALLOC=libc CC=${MUSL_CC} -j4
+    COMMAND cp ${PHOENIX_TESTS_DIR}/pca/pca ${build_ramdisk_dir}/pca.bin
   )
   add_dependencies(ramdisk phoenix)
 endif()

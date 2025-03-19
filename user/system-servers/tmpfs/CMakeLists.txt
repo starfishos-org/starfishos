@@ -11,4 +11,8 @@ target_link_libraries(tmpfs.srv PRIVATE fs_base)
 
 add_dependencies(tmpfs.srv libc)
 
+if(CHCORE_IPC_PERF_ENABLED)
+    target_compile_definitions(tmpfs.srv PRIVATE IPC_PERF_ENABLED)
+endif()
+
 target_link_options(tmpfs.srv PRIVATE -static)

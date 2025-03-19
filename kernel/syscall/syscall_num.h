@@ -134,3 +134,8 @@
 #define SYS_register_fs_client 255
 
 #define SYS_register_fs_server 256
+
+#ifdef IPC_PERF_ENABLED
+#define SYS_ipc_perf_start 257
+#define SYS_ipc_perf_end 258
+#endif

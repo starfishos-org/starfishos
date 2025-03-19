@@ -392,3 +392,15 @@ u32 usys_register_fs_server(u32 fs_cap)
 {
 	return chcore_syscall1(CHCORE_SYS_register_fs_server, fs_cap);
 }
+
+#ifdef IPC_PERF_ENABLED
+void usys_ipc_perf_start(void)
+{
+	chcore_syscall0(CHCORE_SYS_ipc_perf_start);
+}
+
+void usys_ipc_perf_end(void)
+{
+	chcore_syscall0(CHCORE_SYS_ipc_perf_end);
+}
+#endif

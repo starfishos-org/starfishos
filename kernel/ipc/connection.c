@@ -46,6 +46,20 @@
 #include <ckpt/ckpt.h>
 #include <dsm/dsm-single.h>
 
+#ifdef IPC_PERF_ENABLED
+#include <arch/machine/pmu.h>
+#define IPC_PERF_TIME_SIZE 10240
+volatile bool ipc_perf_enabled;
+volatile u64 ipc_perf_count_p2;
+volatile u64 ipc_perf_count_p3;
+volatile u64 ipc_perf_count_p7;
+volatile u64 ipc_perf_count_p8;
+u64 ipc_perf_time_p2[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p3[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p7[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p8[IPC_PERF_TIME_SIZE];
+#endif
+
 /*
  * An extern declaration.
  * Here it is used for mapping ipc_shm.
@@ -371,12 +385,20 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 #endif
 
     /* Switch to the target thread */
-    // TODO(yjs)
-    if (strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
-        extern void flush_tlb_all(void);
-        flush_tlb_all();
-    }
-
+    // TODO(yjs): check whether the target is tmpfs thread
+    // if (strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
+    //     extern void flush_tlb_all(void);
+    //     flush_tlb_all();
+    // }
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p3;
+            extern u64 ipc_perf_time_p3[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p3[ipc_perf_count_p3++] = rdtsc();
+        }
+    #endif
     sched_to_thread(target);
 
     /* Function never return */
@@ -391,6 +413,15 @@ static void thread_migrate_to_client(struct thread *client, u64 ret_value)
     arch_set_thread_return(client, ret_value);
 
     /* Switch to the client thread */
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p7;
+            extern u64 ipc_perf_time_p7[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p7[ipc_perf_count_p7++] = rdtsc();
+        }
+    #endif
     sched_to_thread(client);
 
     /* Function never return */
@@ -657,6 +688,16 @@ static void ipc_send_cap_to_client(struct ipc_connection *conn, u64 cap_num)
 /* Issue an IPC request */
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg_in_client, u64 cap_num)
 {
+    // TODO: 
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p2;
+            extern u64 ipc_perf_time_p2[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p2[ipc_perf_count_p2++] = rdtsc();
+        }
+    #endif
     struct ipc_connection *conn;
     u64 ipc_msg_in_server;
     int r = 0;

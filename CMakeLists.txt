@@ -48,7 +48,9 @@ chcore_add_subproject(
     CONFIGURE_COMMAND
         ./configure --prefix=<INSTALL_DIR> --syslibdir=<INSTALL_DIR>/lib
         $<$<BOOL:${CHCORE_USER_DEBUG}>:--enable-debug>
-        CROSS_COMPILE=${CHCORE_CROSS_COMPILE} $<$<BOOL:${CHCORE_ENABLE_FMAP}>:CFLAGS=-DCHCORE_ENABLE_FMAP>
+        CROSS_COMPILE=${CHCORE_CROSS_COMPILE} 
+        $<$<BOOL:${CHCORE_ENABLE_FMAP}>:CFLAGS=-DCHCORE_ENABLE_FMAP>
+        $<$<BOOL:${CHCORE_IPC_PERF_ENABLED}>:CFLAGS=-DIPC_PERF_ENABLED>
     BUILD_COMMAND make -j${_nproc}
     INSTALL_COMMAND make install)
 

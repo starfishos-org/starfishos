@@ -95,6 +95,11 @@ int usys_get_machine_id();
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
 u32 usys_register_fs_server(u32 fs_cap);
 
+#ifdef IPC_PERF_ENABLED
+void usys_ipc_perf_start(void);
+void usys_ipc_perf_end(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

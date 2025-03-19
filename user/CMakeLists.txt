@@ -15,6 +15,9 @@ file(MAKE_DIRECTORY ${build_ramdisk_dir})
 add_library(libc STATIC IMPORTED)
 set_property(TARGET libc PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.a)
 
+add_library(libstdc++ SHARED IMPORTED)
+set_property(TARGET libstdc++ PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6)
+
 add_custom_target(
     ramdisk ALL
     WORKING_DIRECTORY ${build_ramdisk_dir}

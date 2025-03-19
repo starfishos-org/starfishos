@@ -65,7 +65,11 @@ enum fs_req_type {
 	
 	FS_CHILD_FINISH_FORK,
 	
-	FS_REQ_MAX
+#ifdef IPC_PERF_ENABLED
+	FS_REQ_IPC_PERF,
+#endif
+
+	FS_REQ_MAX,
 
 };
 

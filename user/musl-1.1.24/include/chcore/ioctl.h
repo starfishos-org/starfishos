@@ -47,13 +47,14 @@ extern "C" {
 #define _IOC_WRITE	2U
 #endif
 
+#ifndef _IOC
 #define _IOC(dir,type,nr,size)			\
 	((unsigned int)				\
 	 (((dir)  << _IOC_DIRSHIFT) |		\
 	  ((type) << _IOC_TYPESHIFT) |		\
 	  ((nr)   << _IOC_NRSHIFT) |		\
 	  ((size) << _IOC_SIZESHIFT)))
-
+#endif
 /* used to create numbers */
 #ifndef _IO
 #define _IO(type,nr)		_IOC(_IOC_NONE,(type),(nr),0)

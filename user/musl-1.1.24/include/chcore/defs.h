@@ -213,3 +213,8 @@
 
 #define CHCORE_SYS_register_fs_client   255
 #define CHCORE_SYS_register_fs_server   256
+
+#ifdef IPC_PERF_ENABLED
+#define CHCORE_SYS_ipc_perf_start       257
+#define CHCORE_SYS_ipc_perf_end         258
+#endif
