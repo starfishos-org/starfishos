@@ -1,9 +1,10 @@
+#include <stdio.h>
+#ifdef IPC_PERF_ENABLED
 #include <chcore/launcher.h>
 #include <chcore/perf.h>
 #include <chcore/proc.h>
 #include <chcore/syscall.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -71,3 +72,12 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
+
+#else
+
+int main(int argc, char *argv[]) {
+  printf("IPC_PERF_ENABLED is not defined\n");
+  return 0;
+}
+
+#endif
