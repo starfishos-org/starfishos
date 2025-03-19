@@ -1,4 +1,4 @@
-ile(GLOB UTILS_SOURCES "*.c")
+file(GLOB UTILS_SOURCES "*.c")
 
 foreach(SOURCE_FILE ${UTILS_SOURCES})
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
