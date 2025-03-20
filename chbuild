@@ -211,7 +211,7 @@ _docker_run() {
 		$@
 	else
 		test -t 1 && use_tty="-t"
-		docker run -i $use_tty \
+		docker run -i $use_tty --rm \
 			-u $(id -u ${USER}):$(id -g ${USER}) \
 			-v $(pwd):/$(pwd) -w $(pwd) \
 			promisivia/treesls_chcore_builder:v3.2 \
