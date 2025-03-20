@@ -25,11 +25,11 @@
 #define CHECK_FREE_COUNT_IN_SLAB ON
 
 /*
- * When BACKTRACE_FUNC is ON,
+ * When ENABLE_BACKTRACE_FUNC is ON,
  * You can use the backtrace function to trace the invoking pipe line.
  * Please refer to kernel/arch/aarch64/backtrace/backtrace.c.
  */
-#define BACKTRACE_FUNC ON
+#define ENABLE_BACKTRACE_FUNC OFF
 
 /*
  * When TRACK_THREAD_MM is ON,
