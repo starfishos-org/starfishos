@@ -16,8 +16,8 @@ list(APPEND _demos_clean_targets ligra-clean)
     ligra ALL
     WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
     COMMAND make MALLOC=libc OPENMP=1 PCC=${MUSL_CXX}
-    COMMAND cp ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    # COMMAND cp ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
+    COMMAND rsync -a ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
+    # COMMAND rsync -a ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
@@ -31,10 +31,10 @@ list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
-    COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-cli ${build_ramdisk_dir}/
-    COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-server ${build_ramdisk_dir}/
-    COMMAND cp ${build_demos_dir}/redis-6.0.8/src/redis-benchmark ${build_ramdisk_dir}/
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
+    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-cli ${build_ramdisk_dir}/
+    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-server ${build_ramdisk_dir}/
+    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-benchmark ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
@@ -63,9 +63,9 @@ list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_command(
     TARGET ycsb
     POST_BUILD
-    COMMAND cp /usr/local/lib/libhiredis.so.0.13 . # already builded in docker
-    COMMAND cp ${build_demos_dir}/YCSB-C/ycsbc .
-    COMMAND cp ${build_demos_dir}/YCSB-C/workloads/*.spec .
+    COMMAND rsync -a /usr/local/lib/libhiredis.so.0.13 . # already builded in docker
+    COMMAND rsync -a ${build_demos_dir}/YCSB-C/ycsbc .
+    COMMAND rsync -a ${build_demos_dir}/YCSB-C/workloads/*.spec .
     WORKING_DIRECTORY ${build_ramdisk_dir}
     DEPENDS)
 endif()
@@ -88,8 +88,8 @@ if(CHCORE_DEMOS_MEMCACHED)
     WORKING_DIRECTORY ${build_demos_dir}/memcached
     COMMAND ./autogen.sh
             && ./configure --disable-coverage -with-libevent=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j12
-    COMMAND cp ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
+            && make CC=${MUSL_CC} -s -j$(_nproc)
+    COMMAND rsync -a ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
     DEPENDS)
     list(APPEND _demos_clean_targets memcached-clean)
   add_custom_target(
@@ -111,8 +111,8 @@ if(CHCORE_DEMOS_MEMCACHETEST)
     WORKING_DIRECTORY ${build_demos_dir}/memcachetest
     COMMAND ./config/autorun.sh
             && ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j12
-    COMMAND cp ${build_demos_dir}/memcachetest/memcachetest ${build_ramdisk_dir}/
+            && make CC=${MUSL_CC} -s -j$(_nproc)
+    COMMAND rsync -a ${build_demos_dir}/memcachetest/memcachetest ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
@@ -126,8 +126,8 @@ list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     sqlite ALL
     WORKING_DIRECTORY ${build_demos_dir}/sqlite
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j12 -s
-    COMMAND cp ${build_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
+    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
+    COMMAND rsync -a ${build_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
@@ -142,13 +142,13 @@ if(CHCORE_DEMOS_LEVELDB)
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND mkdir -p build && cd build &&
-         cmake -j12 -DCMAKE_BUILD_TYPE=Release
+         cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . -j12
-    COMMAND cp ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
+            && cmake --build . -j$(_nproc)
+    COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
 endif()
 
@@ -163,7 +163,7 @@ if(CHCORE_DEMOS_ROCKSDB)
   add_custom_target(
     gflags ALL
     WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
-    COMMAND cmake -j12 -DCMAKE_BUILD_TYPE=Release
+    COMMAND cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CXX_FLAGS=-fPIC
             -DCMAKE_CROSSCOMPILING=1
@@ -171,9 +171,9 @@ if(CHCORE_DEMOS_ROCKSDB)
             # -DBUILD_SHARED_LIBS=OFF
             -DBUILD_TESTING=OFF
             -S ..
-            && cmake --build . -j12
-    # COMMAND cp ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
-    COMMAND cp ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
+            && cmake --build . -j$(_nproc)
+    # COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
+    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
     DEPENDS)
 
   file(MAKE_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build)
@@ -192,9 +192,9 @@ if(CHCORE_DEMOS_ROCKSDB)
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -S
             ..
-    COMMAND cmake --build . -- -j12
-    COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
-    COMMAND cp ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
+    COMMAND cmake --build . -- -j$(_nproc)
+    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
+    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
     COMMAND ls ${build_ramdisk_dir}
     DEPENDS)
   add_dependencies(rocksdb gflags)
@@ -231,7 +231,7 @@ if(CHCORE_DEMOS_PHOENIX)
   #         TARGET phoenix
   #         POST_BUILD
   #         COMMAND cd ${PHOENIX_TESTS_DIR}/${test} && make MALLOC=libc CC=${MUSL_CC} -j4
-  #         COMMAND cp ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
+  #         COMMAND rsync -a ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
   #     )
   # endforeach()
 
@@ -239,15 +239,15 @@ if(CHCORE_DEMOS_PHOENIX)
     TARGET phoenix
     POST_BUILD
     COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
-    COMMAND cp ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
+    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
   )
   # Copy additional data files
   add_custom_command(
       TARGET phoenix
       POST_BUILD
-      # COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
-      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
-      COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
+      # COMMAND rsync -a ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
+      COMMAND rsync -a ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
+      COMMAND rsync -a ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
   )
 endif()
 
@@ -263,13 +263,13 @@ if(CHCORE_DEMOS_GEMM)
     gemm ALL
     WORKING_DIRECTORY ${build_demos_dir}/GEMM
     COMMAND make MALLOC=libc CC=${MUSL_CC}
-    COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+    COMMAND rsync -a ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
     DEPENDS)
   
   add_custom_target(
     TARGET gemm
     POST_BUILD
-    COMMAND cp ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+    COMMAND rsync -a ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
   )
 endif()
 
@@ -299,8 +299,8 @@ if(CHCORE_DEMOS_LLAMACPP)
   add_custom_command(
     TARGET llama
     POST_BUILD
-    COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
-    COMMAND cp ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+    COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+    COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
     COMMENT "Copying llama.cpp files to ramdisk directory"
     DEPENDS llama)
 endif()
@@ -331,8 +331,8 @@ if(CHCORE_DEMOS_DBX1000)
   add_custom_command(
     TARGET dbx1000
     POST_BUILD
-    COMMAND cp ${build_demos_dir}/dbx1000/rundb ${build_ramdisk_dir}/rundb.bin
-    COMMAND cp ${build_demos_dir}/dbx1000/benchmarks/*.txt ${build_ramdisk_dir}/
+    COMMAND rsync -a ${build_demos_dir}/dbx1000/rundb ${build_ramdisk_dir}/rundb.bin
+    COMMAND rsync -a ${build_demos_dir}/dbx1000/benchmarks/*.txt ${build_ramdisk_dir}/
   )
   add_dependencies(ramdisk dbx1000)
 endif()
@@ -344,9 +344,9 @@ if (CHCORE_DEMOS_CPYTHON)
       add_custom_target(
         cpython
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
-        COMMAND cp python ${build_ramdisk_dir}/python
-        COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND cp -r example/* ${build_ramdisk_dir}/
+        COMMAND rsync -a python ${build_ramdisk_dir}/python
+        COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
+        COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
         DEPENDS libffi zlib
       )
     else()
@@ -355,8 +355,8 @@ if (CHCORE_DEMOS_CPYTHON)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
         COMMAND make clean
         COMMAND ./configure
-            CXX=${MUSL_CXX} 
-            CC=${MUSL_CC} 
+            CXX=${MUSL_CXX}
+            CC=${MUSL_CC}
             LDFLAGS="-L${libc_install_dir}/lib"
             CPPFLAGS="-I${libc_install_dir}/include"
             --host=x86_64-linux-musl
@@ -371,8 +371,8 @@ if (CHCORE_DEMOS_CPYTHON)
         COMMAND make -j$(_nproc)
         COMMAND make install
         COMMAND ./configure 
-            CXX=${MUSL_CXX} 
-            CC=${MUSL_CC} 
+            CXX=${MUSL_CXX}
+            CC=${MUSL_CC}
             LDFLAGS="-L${libc_install_dir}/lib"
             CPPFLAGS="-I${libc_install_dir}/include"
             --host=x86_64-linux-musl
@@ -385,9 +385,9 @@ if (CHCORE_DEMOS_CPYTHON)
             ac_cv_file__dev_ptmx=no
             ac_cv_file__dev_ptc=no
         COMMAND make -j$(_nproc)
-        COMMAND cp python ${build_ramdisk_dir}/python
-        COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND cp -r example/* ${build_ramdisk_dir}/
+        COMMAND rsync -a python ${build_ramdisk_dir}/python
+        COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
+        COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
         DEPENDS libffi zlib
       )
     endif()
