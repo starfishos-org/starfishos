@@ -24,8 +24,6 @@ else()
   add_custom_target(
     libffi
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
-    COMMAND make -j$(_nproc)
-    COMMAND make install
     DEPENDS
   )
 endif()
@@ -50,8 +48,6 @@ else()
 add_custom_target(
     zlib
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
-    COMMAND make -j$(_nproc) CC=${MUSL_CC} CXX=${MUSL_CXX}
-    COMMAND make install
     DEPENDS
   )
 endif()

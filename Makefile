@@ -34,3 +34,11 @@ test:
 
 cxl-new:
 	./dsm-scripts/config_memdev.sh cxl-new
+
+json-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp json_test.py json/english.json
+
+float-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp float_operation.py 1000000
