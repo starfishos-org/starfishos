@@ -1,0 +1,21 @@
+#!/usr/bin/expect  
+
+set default_program "hello"
+
+array set program_names {
+    "hello" "test_cfork_hello.bin"
+    "leveldb" "leveldb-dbbench"
+    # ...
+}
+
+array set program_args {
+    "hello" ""
+    "leveldb" "--benchmarks=fillbatch --num=1000000"
+    # ...
+}
+
+array set program_expects {
+    "hello" "[1] hello"
+    "leveldb" "version 1.23"
+    # ...
+}

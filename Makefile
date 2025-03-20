@@ -57,11 +57,10 @@ ip2c-kernel:
 
 test: cfork
 cfork:
-	./dsm-scripts/config.sh
-	./dsm-scripts/simulate_cfork.sh
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_cfork.sh leveldb
 
 cfork-prepare:
-	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/cfork_prepare.exp
 
 cfork-restore:
