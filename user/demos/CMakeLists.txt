@@ -346,13 +346,14 @@ if (CHCORE_DEMOS_CPYTHON)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
         COMMAND cp python ${build_ramdisk_dir}/python
         COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND cp example/*.py ${build_ramdisk_dir}/
+        COMMAND cp -r example/* ${build_ramdisk_dir}/
         DEPENDS libffi zlib
       )
     else()
       add_custom_target(
         cpython
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
+        COMMAND make clean
         COMMAND ./configure
             CXX=${MUSL_CXX} 
             CC=${MUSL_CC} 
@@ -386,12 +387,13 @@ if (CHCORE_DEMOS_CPYTHON)
         COMMAND make -j$(_nproc)
         COMMAND cp python ${build_ramdisk_dir}/python
         COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND cp example/*.py ${build_ramdisk_dir}/
+        COMMAND cp -r example/* ${build_ramdisk_dir}/
         DEPENDS libffi zlib
       )
     endif()
     add_dependencies(ramdisk cpython)
-    unset(cpython_tmp_dir)
+
+    unset(cpython_install_dir)
 endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
