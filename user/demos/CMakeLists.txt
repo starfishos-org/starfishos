@@ -137,7 +137,7 @@ if(CHCORE_DEMOS_LEVELDB)
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND rm -rf ./build
     )
-    list(APPEND _demos_clean_targets ycsb-clean)
+    list(APPEND _demos_clean_targets leveldb-clean)
   add_custom_target(
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
@@ -150,6 +150,7 @@ if(CHCORE_DEMOS_LEVELDB)
             && cmake --build . -j12
     COMMAND cp ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
+  add_dependencies(ramdisk leveldb)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
