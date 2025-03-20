@@ -40,10 +40,9 @@ int irq_restore(struct object *irq_obj, struct ckpt_object *ckpt_irq_obj,
     notifc->waiting_threads_count = ckpt_notifc->waiting_threads_count;
     for (i = 0; i < notifc->waiting_threads_count; i++) {
         ckpt_obj_root = ckpt_notifc->waiting_thread_roots[i];
-        new_obj = restore_obj_get(ckpt_obj_root);
+        new_obj = restore_obj_get(ckpt_obj_root, flags);
         if (!new_obj) {
             r = -ENOMEM;
-            BUG_ON(1);
             goto out_fail;
         }
         new_thread = (struct thread *)new_obj->opaque;

@@ -10,17 +10,17 @@ int connection_ckpt(struct ipc_connection *conn,
 {
     struct object *old_client_obj, *old_server_obj;
     struct ckpt_obj_root *new_client_obj_root, *new_server_obj_root;
-    int r;
-    // BUG_ON(!(conn->server_handler_thread));
+    int r = 0;
+
     if (conn->current_client_thread) {
         old_client_obj = container_of(
                 conn->current_client_thread, struct object, opaque);
         new_client_obj_root = ckpt_obj_root_get(old_client_obj, flags);
         if (!new_client_obj_root) {
-            BUG_ON(1);
             r = -ENOMEM;
             goto out_fail;
         }
+        BUG_ON(!ckpt_obj_get(new_client_obj_root, flags));
         ckpt_conn->current_client_thread_root = new_client_obj_root;
     } else {
         ckpt_conn->current_client_thread_root = NULL;
@@ -31,10 +31,10 @@ int connection_ckpt(struct ipc_connection *conn,
                 conn->server_handler_thread, struct object, opaque);
         new_server_obj_root = ckpt_obj_root_get(old_server_obj, flags);
         if (!new_server_obj_root) {
-            BUG_ON(1);
             r = -ENOMEM;
             goto out_fail;
         }
+        BUG_ON(!ckpt_obj_get(new_server_obj_root, flags));
         ckpt_conn->server_handler_thread_root = new_server_obj_root;
     } else {
         ckpt_conn->server_handler_thread_root = NULL;
@@ -47,14 +47,14 @@ int connection_ckpt(struct ipc_connection *conn,
     ckpt_conn->conn_cap_in_client = conn->conn_cap_in_client;
     ckpt_conn->conn_cap_in_server = conn->conn_cap_in_server;
     ckpt_conn->is_valid = conn->is_valid;
-    return 0;
+
 out_fail:
     return r;
 }
 
 int connection_restore(struct object *conn_obj,
-                       struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map,
-                       int flags)
+                       struct ckpt_object *ckpt_conn_obj, 
+                       struct kvs *obj_map, int flags)
 {
     int r;
     struct ipc_connection *conn = (struct ipc_connection *)conn_obj->opaque;
@@ -62,8 +62,12 @@ int connection_restore(struct object *conn_obj,
             (struct ckpt_ipc_connection *)ckpt_conn_obj->opaque;
     struct object *new_client_obj, *new_server_obj;
 
+    CFORK_LOG_DEBUG("%s: conn_obj: %p, ckpt_conn_obj: %p\n", 
+        __func__, conn_obj, ckpt_conn_obj);
+
     if (ckpt_conn->current_client_thread_root) {
-        new_client_obj = restore_obj_get(ckpt_conn->current_client_thread_root);
+        new_client_obj = restore_obj_get_by_cap_group(
+            ckpt_conn->current_client_thread_root, obj_map, flags);
         if (!new_client_obj) {
             r = -ENOMEM;
             goto out_fail;
@@ -74,7 +78,8 @@ int connection_restore(struct object *conn_obj,
     }
 
     if (ckpt_conn->server_handler_thread_root) {
-        new_server_obj = restore_obj_get(ckpt_conn->server_handler_thread_root);
+        new_server_obj = restore_obj_get_by_cap_group(
+            ckpt_conn->server_handler_thread_root, obj_map, flags);
         if (!new_server_obj) {
             r = -ENOMEM;
             goto out_fail;

@@ -8,7 +8,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type);
 
 struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *obj_root, int flags);
 
-struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root);
+struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags);
 
 struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
                                             struct kvs *obj_map, int flags);

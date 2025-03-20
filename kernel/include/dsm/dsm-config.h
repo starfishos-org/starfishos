@@ -14,3 +14,26 @@ inline static bool is_system_services(struct cap_group *cg)
 
     return false;
 }
+
+inline static bool is_system_services_thread(struct thread *thread)
+{
+    // if (!thread->general_ipc_config) {
+    //     return false;
+    // }
+    // struct ipc_config *ipc_config = (struct ipc_config *)thread->general_ipc_config;
+    // return (ipc_config->config_type == IPC_SERVER);
+    return (thread->general_ipc_config != NULL);
+}
+
+inline static bool is_cross_shared_obj(struct object *obj)
+{
+    switch (obj->type) {
+        case TYPE_CAP_GROUP:
+            return is_system_services((struct cap_group *)obj->opaque);
+        case TYPE_THREAD:
+            return is_system_services_thread((struct thread *)obj->opaque);
+        default:
+            break;
+    }
+    return false;
+}

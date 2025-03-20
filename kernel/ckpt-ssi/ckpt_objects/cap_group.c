@@ -18,6 +18,9 @@ int slot_table_ckpt(struct cap_group *cap_group,
     unsigned long map;
     int ckpt_table_size;
     int r, i, offset, count;
+    struct ckpt_object *new_ckpt_obj;
+    struct ckpt_obj_root *new_obj_root;
+    u64 slot_id;
 
     slot_table = &cap_group->slot_table;
     bmp_long_count = BITS_TO_LONGS(slot_table->slots_size);
@@ -51,9 +54,6 @@ int slot_table_ckpt(struct cap_group *cap_group,
             __SHARED__);
 
     count = 0;
-    struct ckpt_object *new_ckpt_obj;
-    struct ckpt_obj_root *new_obj_root;
-    u64 slot_id;
     for (i = 0; i < bmp_long_count; i++) {
         /* Skip 1st cap (cap group itself)*/
         map = i == 0 ? slot_table->slots_bmp[i] >> 1 : slot_table->slots_bmp[i];
@@ -73,8 +73,7 @@ int slot_table_ckpt(struct cap_group *cap_group,
 #ifdef REPORT
                 start();
 #endif
-
-                if (!new_ckpt_obj) {
+                if (!new_ckpt_obj && !((flags & FLAGS_CFORK) && new_obj_root->cross_shared)) {
                     r = -ENOMEM;
                     kwarn("ckpt_obj_get_error\n");
                     goto out_free_prev_obj;
@@ -153,13 +152,10 @@ int slot_table_restore(struct cap_group *cap_group,
     for (i = 0; i < ckpt_table_size; i++) {
         slot_id = ckpt_cap_group->slots[i].slot_id;
         ckpt_obj_root = ckpt_cap_group->slots[i].obj_root;
-        CFORK_LOG_DEBUG("slot_id: %llu, ckpt_obj_root: %p, type: %d\n", 
-            slot_id, ckpt_obj_root, ckpt_obj_root->obj->type);
 #ifdef RESTORE_REPORT
         stop();
 #endif
-        new_obj = restore_obj_get_by_cap_group(
-            ckpt_obj_root, obj_map, flags);
+        new_obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, flags);
 #ifdef RESTORE_REPORT
         start();
 #endif
@@ -168,7 +164,6 @@ int slot_table_restore(struct cap_group *cap_group,
             goto out_free_prev_obj;
         }
         cap = cap_insert(cap_group, new_obj->opaque, 0, slot_id);
-        CFORK_LOG_DEBUG("2 cap_insert: cap: %d\n", cap);
         if (cap < 0) {
             r = cap;
             BUG("insert cap error\n");
@@ -178,9 +173,6 @@ int slot_table_restore(struct cap_group *cap_group,
 #ifdef RESTORE_REPORT
     eval_restore_obj_time[TYPE_CAP_GROUP] += stop();
 #endif
-    CFORK_LOG_DEBUG("cap group: %lx, vm: %lx\n",
-           cap_group,
-           obj_get(cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE));
     return 0;
 out_free_prev_obj:
 out_fail:

@@ -173,7 +173,7 @@ int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group 
         return -EINVAL;
     }
 
-    CFORK_LOG_INFO("Restored the object: %p", obj);
+    CFORK_LOG_DEBUG("restored the object: %p", obj);
 
     // destroy the tmp obj_map
     // FIXME(FN): kvs_destroy? will cause a NULL pointer dereference

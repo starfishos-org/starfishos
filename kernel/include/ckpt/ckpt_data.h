@@ -304,6 +304,10 @@ struct ckpt_object {
 
 struct ckpt_obj_root {
     struct object *obj;
+#ifdef CHCORE_SSI_SLS
+    struct object *obj_src;
+    struct object *obj_dst;
+#endif
 #if OBJ_OVERWRITE == 1
     struct ckpt_object *ckpt_objs[2];
 #endif

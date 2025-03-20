@@ -179,12 +179,14 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
 }
 
 static struct vmregion *vmr_restore(struct ckpt_vmregion *ckpt_vmr,
-                                    struct kvs *obj_map)
+                                    struct kvs *obj_map,
+                                    int flags)
 {
     struct vmregion *target_vmr;
     struct object *pmo_obj;
 
-    pmo_obj = restore_obj_get(ckpt_vmr->pmo_root);
+    pmo_obj = restore_obj_get_by_cap_group(
+            ckpt_vmr->pmo_root, obj_map, flags);
     if (!pmo_obj) {
         BUG_ON(1);
     }
@@ -227,7 +229,7 @@ int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
 
     for (int i = 0; i < vmr_count; i++) {
         ckpt_vmr = &ckpt_vmspace->ckpt_vmrs[i];
-        vmr = vmr_restore(ckpt_vmr, obj_map);
+        vmr = vmr_restore(ckpt_vmr, obj_map, flags);
         if (!vmr) {
             BUG_ON(1);
         }
@@ -235,7 +237,6 @@ int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
         if (unlikely(i == heap_idx)) {
             target_vmspace->heap_vmr = vmr;
         }
-        // printk("vmspace:%lx, vmr:%lx\n",target_vmspace, vmr);
     }
 
     target_vmspace->user_current_mmap_addr =

@@ -19,7 +19,7 @@ static inline char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
     char *pname = (char *)kmalloc(pname_len + 1, __PRIVATE__);
     copy_from_user(pname, (void *)pname_ptr, pname_len);
     pname[pname_len] = '\0';
-    CFORK_LOG_INFO("pname: %s, pname_len: %d", pname, pname_len);
+    CFORK_LOG_DEBUG("pname: %s, pname_len: %d", pname, pname_len);
     return pname;
 }
 
@@ -79,7 +79,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
-    cap_group = (struct cap_group *)(ckpt_obj_root->obj->opaque);
+    cap_group = (struct cap_group *)(ckpt_obj_root->obj_src->opaque);
 
     // remove the process from the cap tree
     ret = cfork_stop_threads(&(cap_group->thread_list));

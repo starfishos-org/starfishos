@@ -69,7 +69,10 @@ enum thread_type {
     TYPE_SHADOW = 3, /* SHADOW thread is used to achieve migrate IPC */
     /* Use as the IPC register callback threads (for recycling) */
     TYPE_REGISTER = 4,
-    TYPE_TESTS = 5 /* TESTS thread is used by kernel tests */
+    TYPE_TESTS = 5, /* TESTS thread is used by kernel tests */
+#ifdef DSM_ENABLED
+    TYPE_CROSS_SHARED = 6, /* Cross-shared thread is shared between machines */
+#endif
 };
 
 typedef struct sched_cont {

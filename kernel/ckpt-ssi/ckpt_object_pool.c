@@ -23,7 +23,21 @@ static u64 obj_size[TYPE_NR] = {
         [TYPE_NOTIFICATION] = sizeof(struct notification),
         [TYPE_IRQ] = sizeof(struct irq_notification),
         [TYPE_PMO] = sizeof(struct pmobject),
-        [TYPE_VMSPACE] = sizeof(struct vmspace)};
+        [TYPE_VMSPACE] = sizeof(struct vmspace)
+};
+
+#if CFORK_LOG_LEVEL >= CFORK_LOG_LEVEL_DEBUG
+static char* obj_name[TYPE_NR] = {
+        [0 ... TYPE_NR - 1] = 0,
+        [TYPE_CAP_GROUP] = "cap group",
+        [TYPE_THREAD] = "thread",
+        [TYPE_CONNECTION] = "connection",
+        [TYPE_NOTIFICATION] = "notification",
+        [TYPE_IRQ] = "irq notification",
+        [TYPE_PMO] = "pmobject",
+        [TYPE_VMSPACE] = "vmspace"
+};
+#endif
 
 static u64 ckpt_obj_size[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = 0,
@@ -134,16 +148,28 @@ struct ckpt_obj_root *ckpt_obj_root_alloc(int flags)
 
 struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int flags)
 {
+    struct ckpt_obj_root *root;
+
     if (!obj) {
         BUG("the global object map or the obj is NULL");
         return NULL;
     }
 
-    struct ckpt_obj_root *root = obj->obj_root;
+    if (flags & FLAGS_CFORK) {
+        /* always allocate a new object */
+        root = obj->obj_root;
+        if (!root) {
+            root = ckpt_obj_root_alloc(flags);
+            obj->obj_root = root;
+        }
+        root->obj_src = obj;
+        return root;
+    }
+
+    root = obj->obj_root;
     if (!root && (flags & FLAGS_ALLOC)) {
         root = ckpt_obj_root_alloc(flags);
         obj->obj_root = root;
-        root->obj = obj;
     }
 
     return root;
@@ -231,34 +257,32 @@ static int __ckpt_obj_common(struct object *obj,
 struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
 {
     int r = 0;
-    struct object *obj = ckpt_obj_root->obj;
+    struct object *obj;
     struct ckpt_object *ckpt_obj = NULL;
     int current_ckpt_verison = get_current_ckpt_version();
 
-    BUG_ON(!obj);
-
     /* Fast pathes */
     if (flags & FLAGS_CFORK) {
+        obj = ckpt_obj_root->obj_src;
+        /* check whether the object has been checkpointed */
         if (ckpt_obj_root->flip_flag == cfork_current_flip_flag) {
             BUG_ON(!ckpt_obj_root->cfork_ckpt_obj);
-            return ckpt_obj_root->cfork_ckpt_obj;
+            ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
+            goto out;
         }
+        /* get the ckpt_obj */
+        ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
     } else {
+        obj = ckpt_obj_root->obj;
         /* check whether the object has been checkpointed */
         if (system_current_flip_flag == ckpt_obj_root->flip_flag) {
             /* this object has been checkpointed */
             /* TODO(MOK): if we use COW method, we should get latest ckpt obj */
             ckpt_obj = get_second_latest_ckpt_obj(ckpt_obj_root,
                     current_ckpt_verison);
-            BUG_ON(!ckpt_obj);
-            return ckpt_obj;
+            goto out;
         }
-    }
-
-    /* get the ckpt_obj */
-    if (flags & FLAGS_CFORK) {
-        ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
-    } else {
+        /* get the ckpt_obj */
         ckpt_obj = get_second_latest_ckpt_obj(
                 ckpt_obj_root, current_ckpt_verison);
     }
@@ -278,26 +302,21 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
         }
     }
 
-    /* skip checkpointing shared cap_group */
-    // if (obj->type == TYPE_CAP_GROUP && 
-    //     is_system_services((struct cap_group *)obj->opaque)) {
-    //     CFORK_LOG_DEBUG("ckpt_obj_get: skip checkpointing shared cap_group\n");
-    //     ckpt_obj_root->cross_shared = true;
-    //     return ckpt_obj;
-    // }
+    /* skip checkpointing shared objects */
+    if ((flags & FLAGS_CFORK) && is_cross_shared_obj(obj)) {
+        ckpt_obj_root->cross_shared = true;
+        /* for cross-shared object, we have the same obj_dst and obj_src */
+        ckpt_obj_root->obj_dst = obj;
+        goto out;
+    }
 
-    /* set ckpt_obj_root->ckpt_objs to obj */
+    /* set ckpt_obj_root->ckpt_objs and flip_flag */
     if (flags & FLAGS_CFORK) {
         ckpt_obj_root->cfork_ckpt_obj = ckpt_obj;
+        ckpt_obj_root->flip_flag = cfork_current_flip_flag;
     } else {
         set_second_latest_ckpt_obj(
             ckpt_obj_root, current_ckpt_verison, ckpt_obj);
-    }
-
-    /* set flip_flag */
-    if (flags & FLAGS_CFORK) {
-        ckpt_obj_root->flip_flag = cfork_current_flip_flag;
-    } else {
         ckpt_obj_root->flip_flag = system_current_flip_flag;
     }
 
@@ -319,12 +338,21 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
         eval_obj_time[obj->type] += plat_get_mono_time() - object_time_begin;
     }
 #endif
+out:
+    BUG_ON(!ckpt_obj);
+    CFORK_LOG_DEBUG("%s: ckpt_obj_root: %p obj: %p, type: %s, cross-shared: %d\n", 
+        __func__, ckpt_obj_root, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
     return ckpt_obj;
 }
 
-inline struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root)
+inline struct object *
+restore_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
 {
-    return ckpt_obj_root->obj;
+    if (flags & FLAGS_CFORK) {
+        return ckpt_obj_root->obj_dst;
+    } else {
+        return ckpt_obj_root->obj;
+    }
 }
 
 /*
@@ -342,35 +370,35 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     if (obj_value) {
         /* object is already allocated */
         obj = *obj_value;
-        return obj;
+        goto out;
     }
 
     // get ckpt obj
     if (flags & FLAGS_TIME_TRAVELING) {
         ckpt_obj = ckpt_obj_root->ckpt_objs[0];
+        obj = ckpt_obj_root->obj;
     } else if (flags & FLAGS_CFORK) {
         ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
+        obj = ckpt_obj_root->obj_dst;
     } else {
         ckpt_obj = get_second_latest_ckpt_obj(
             ckpt_obj_root, get_current_ckpt_version());
+        obj = ckpt_obj_root->obj;
     }
-
-    // get obj
-    BUG_ON(!ckpt_obj);
-    obj = ckpt_obj_root->obj;
 
     // allocate object
     if (flags & FLAGS_CFORK) {
         // a object that is cross-shared not do requie allocation
         if (ckpt_obj_root->cross_shared == true) {
             BUG_ON(!obj);
-            return obj;
+            goto out;
         } else {
             // always allocate a new object for CFORK
+            BUG_ON(!ckpt_obj);
             obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
             BUG_ON(!obj);
             obj->obj_root = ckpt_obj_root;
-            ckpt_obj_root->obj = obj;
+            ckpt_obj_root->obj_dst = obj;
         }
     } else {
         // allocate object if not allocated
@@ -381,9 +409,6 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
             ckpt_obj_root->obj = obj;
         }
     }
-
-    CFORK_LOG_DEBUG("%s: obj: %p, type: %d, cross-shared: %d\n", 
-        __func__, obj, obj->type, ckpt_obj_root->cross_shared);
 
     // put obj into obj map
     kvs_put(obj_map, (kvs_key_t *)&ckpt_obj_root, (kvs_value_t *)(&obj));
@@ -399,8 +424,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     if (func) {
         BUG_ON(func(obj, ckpt_obj, obj_map, flags));
     } else {
-        CFORK_LOG_ERR("obj restore func is NULL");
-        BUG_ON(1);
+        BUG("obj restore func is NULL");
     }
 
 #ifdef RESTORE_REPORT
@@ -409,6 +433,9 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     eval_restore_obj_count[obj->type]++;
 #endif
 
+out:
+    CFORK_LOG_DEBUG("%s: obj: %p, type: %s, cross-shared: %d\n", 
+        __func__, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
     return obj;
 }
 

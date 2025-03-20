@@ -34,6 +34,7 @@ int notification_ckpt(struct notification *notifc,
             r = -ENOMEM;
             goto out_fail;
         }
+        BUG_ON(!(ckpt_obj_get(ckpt_obj_root, flags)));
         ckpt_notifc->waiting_thread_roots[count] = ckpt_obj_root;
         count++;
     }
@@ -57,6 +58,9 @@ int notification_restore(struct object *notifc_obj,
     struct object *new_obj;
     struct ckpt_obj_root *ckpt_obj_root;
 
+    CFORK_LOG_DEBUG("%s: notifc_obj: %p, ckpt_notifc_obj: %p\n", 
+        __func__, notifc_obj, ckpt_notifc_obj);
+
     lock_init(&notifc->notifc_lock);
     init_list_head(&notifc->waiting_threads);
     notifc->not_delivered_notifc_count =
@@ -64,7 +68,7 @@ int notification_restore(struct object *notifc_obj,
     notifc->waiting_threads_count = ckpt_notifc->waiting_threads_count;
     for (i = 0; i < notifc->waiting_threads_count; i++) {
         ckpt_obj_root = ckpt_notifc->waiting_thread_roots[i];
-        new_obj = restore_obj_get(ckpt_obj_root);
+        new_obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, flags);
         if (!new_obj) {
             r = -ENOMEM;
             BUG_ON(1);

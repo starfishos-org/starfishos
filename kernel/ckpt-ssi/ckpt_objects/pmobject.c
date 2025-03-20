@@ -344,7 +344,6 @@ static int __radix_pmo_restore(struct pmobject *pmo,
     int i;
     struct radix_node *new;
     struct ckpt_page_pair *page_pair;
-    paddr_t pa;
 
     prefix <<= RADIX_NODE_BITS;
 
@@ -356,11 +355,10 @@ static int __radix_pmo_restore(struct pmobject *pmo,
                 /* restore page */
                 if (flags & FLAGS_CFORK) {
                     /* use page_pair[0] to restore */
-                    pa = (paddr_t)page_node->values[i];
-                    if (!pa) { // runtime does not have this page
-                        page_node->values[i] = (void *)page_pair->pages[0].va;
-                    }
-                    return 0;
+                    page_node->values[i] = (void *)virt_to_phys(
+                                        (void *)page_pair->pages[0].va);
+                } else {
+                    // TODO: origin logic to restore pmo
                 }
             }
         }
@@ -407,6 +405,7 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
 
     if (!pmo_radix) {
         pmo_radix = new_radix();
+        pmo->radix = pmo_radix;
     }
 
     lock_init(&pmo_radix->radix_lock);
@@ -436,12 +435,12 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
 int continuous_pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
 {
     if (IS_SHM_PADDR(pmo->start)) {
-        return 0;
+        ckpt_pmo->start = pmo->start;
     } else {
         // allocate a new region of shared memory
         vaddr_t ckpt_va = (vaddr_t)kmalloc(pmo->size, __SHARED__);
+        memcpy((void *)ckpt_va, (void *)ckpt_va, pmo->size);
         ckpt_pmo->start = virt_to_phys((void *)ckpt_va);
-        memcpy((void *)ckpt_va, (void *)phys_to_virt(pmo->start), pmo->size);
     }
 
     return 0;
@@ -449,8 +448,7 @@ int continuous_pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
 
 static int __continuous_pmo_restore(struct pmobject *pmo,
                                     struct radix_node *ckpt_page_node,
-                                    int node_level, u64 prefix,
-                                    int flags)
+                                    int node_level, u64 prefix, int flags)
 {
     int err, i;
     struct ckpt_page_pair *page_pair;
@@ -488,16 +486,19 @@ static int __continuous_pmo_restore(struct pmobject *pmo,
     return 0;
 }
 
-int continuous_pmo_restore(struct pmobject *pmo, struct radix *ckpt_page_radix,
-                           int flags)
+int continuous_pmo_restore(struct pmobject *pmo, 
+                           struct ckpt_pmobject *ckpt_pmo, int flags)
 {
     int r = 0;
-    struct radix_node *new_node;
 
     if (flags & FLAGS_CFORK) {
         // for cfork, we must copy all pages to continuous space
+        pmo->start = ckpt_pmo->start;
         return 0;
     }
+
+    struct radix_node *new_node;
+    struct radix *ckpt_page_radix = ckpt_pmo->radix;
 
     if (!ckpt_page_radix->root) {
         new_node = kzalloc(sizeof(*new_node), __SHARED__);
@@ -611,21 +612,17 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
     struct ckpt_pmobject *latest_ckpt_pmo;
 
     ckpt_pmo->private = pmo->private;
+    ckpt_pmo->start = pmo->start;
     ckpt_pmo->size = pmo->size;
     ckpt_pmo->type = pmo->type;
 
     if (flags & FLAGS_CFORK) {
         if (use_radix(pmo)) {
-            if (!ckpt_pmo->radix) {
-                r = init_ckpt_page_radix(ckpt_pmo, pmo);
-            }
+            r = init_ckpt_page_radix(ckpt_pmo, pmo);
         } else if (use_continuous_pages(pmo)) {
             r = continuous_pmo_ckpt(pmo, ckpt_pmo);
         }
-        return r;
-    }
-
-    if (use_continuous_pages(pmo) || use_radix(pmo)) {
+    } else if (use_continuous_pages(pmo) || use_radix(pmo)) {
         if (unlikely(!ckpt_pmo->radix)) {
             /* If the radix tree is not created, try to reuse the
              * previous version of the radix tree */
@@ -687,13 +684,6 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
     DECLTMR;
     start();
 #endif
-    kinfo("[pmo_restore] pmo:%p, start:%lx, start_va:%lx, size:%lx, type:%d\n",
-           pmo,
-           pmo->start,
-           phys_to_virt(pmo->start),
-           pmo->size,
-           pmo->type);
-
     /* restore pmo's field */
     pmo->private = ckpt_pmo->private;
     pmo->size = ckpt_pmo->size;
@@ -706,7 +696,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
 #endif
 
     if (use_continuous_pages(pmo)) {
-        continuous_pmo_restore(pmo, ckpt_pmo->radix, flags);
+        continuous_pmo_restore(pmo, ckpt_pmo, flags);
 #ifdef PMO_CHECKSUM
         if (pmo_checksum(pmo) != ckpt_pmo->checksum
             && !is_external_sync_pmo(pmo)) {
@@ -738,6 +728,12 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
 #ifdef RESTORE_REPORT
     eval_restore_obj_time[TYPE_PMO] += stop();
 #endif
+    CFORK_LOG_DEBUG("[pmo_restore] pmo:%p, start:%lx, start_va:%lx, size:%lx, type:%d\n",
+           pmo,
+           pmo->start,
+           phys_to_virt(pmo->start),
+           pmo->size,
+           pmo->type);
     return r;
 }
 
