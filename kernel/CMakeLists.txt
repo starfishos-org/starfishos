@@ -17,7 +17,7 @@ list(APPEND _compile_options -Werror)
 
 # Generic compile settings
 list(APPEND _compile_definitions)
-list(APPEND _compile_options -nostdinc -ffreestanding -fPIC)
+list(APPEND _compile_options -nostdinc -ffreestanding -fPIC -fno-omit-frame-pointer)
 list(APPEND _asm_compile_definitions __ASM__)
 list(APPEND _asm_compile_options)
 list(APPEND _c_compile_definitions)
@@ -116,6 +116,10 @@ if(CHCORE_SSI)
   target_compile_definitions(${kernel_target} PRIVATE DSM_PGTABLE_MODE_${DSM_PGTABLE_MODE})
   # stack configuration
   target_compile_definitions(${kernel_target} PRIVATE DSM_STACK_MODE_${DSM_STACK_MODE})
+  # thread configuration
+  target_compile_definitions(${kernel_target} PRIVATE DSM_THREAD_MODE_${DSM_THREAD_MODE})
+  # thread ctx configuration
+  target_compile_definitions(${kernel_target} PRIVATE DSM_THREADCTX_MODE_${DSM_THREADCTX_MODE})
 endif()
 
 # SLS Basic Configruations

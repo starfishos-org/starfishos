@@ -839,6 +839,7 @@ paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index)
 
     if (use_radix(pmo)) {
         /* The radix interfaces are thread-safe */
+        BUG_ON(!pmo->radix);
         pa = (paddr_t)radix_get(pmo->radix, index);
     } else if (use_continuous_pages(pmo)) {
 #if defined(CHCORE_SLS) && defined(HYBRID_MEM)

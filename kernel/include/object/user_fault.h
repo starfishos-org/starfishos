@@ -33,7 +33,7 @@ struct fault_pending_thread {
 struct fmap_fault_pool {
     u64 cap_group_badge;
     struct notification *notific;
-    struct ring_buffer *msg_buffer_kva; // TODO(FN): changed field
+    struct ring_buffer *msg_buffer_kva;
 
     /* fault pending thread list */
     struct list_head pending_threads;

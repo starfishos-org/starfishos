@@ -22,10 +22,10 @@ void lock(struct lock *l)
     struct lock_impl *lock = (struct lock_impl *)l;
     u32 lockval = 0;
 
+    BUG_ON(!lock);
     lockval = atomic_fetch_add_32(&lock->next, 1);
     while (lockval != lock->owner)
         CPU_PAUSE();
-    BUG_ON(!lock);
     COMPILER_BARRIER();
 }
 

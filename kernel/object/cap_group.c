@@ -217,7 +217,7 @@ void obj_put(void *obj)
     object = container_of(obj, struct object, opaque);
     old_refcount = atomic_fetch_sub_64(&object->refcount, 1);
 
-    if (old_refcount == 1) {
+    if (unlikely(old_refcount == 1)) {
         extern void __free_object(struct object *);
         __free_object(object);
     }

@@ -1,4 +1,5 @@
-if(CHCORE_SAMPLE_STATIC)
+if(CHCORE_SAMPLE_APP)
+    add_compile_options(-fno-omit-frame-pointer)
     add_subdirectory(apps)
     add_subdirectory(utils)
     add_subdirectory(tests)

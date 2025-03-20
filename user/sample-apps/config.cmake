@@ -1,1 +1,1 @@
-chcore_config(CHCORE_SAMPLE_STATIC BOOL ON "Build statically linked sample apps?")
+chcore_config(CHCORE_SAMPLE_APP BOOL ON "Build sample apps?")
