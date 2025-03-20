@@ -64,18 +64,6 @@ cfork:
 
 cfork-prepare:
 	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/lkl.exp
-
-cxl-new:
-	./dsm-scripts/config_memdev.sh cxl-new
-
-json-test:
-	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/python.exp json_test.py json/english.json
-
-float-test:
-	./dsm-scripts/config_memdev.sh cxl
-	./dsm-scripts/tests/python.exp float_operation.py 1000000
 	./dsm-scripts/tests/cfork_prepare.exp
 
 cfork-restore:
@@ -88,3 +76,14 @@ llama-bench:
 llama-cli:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/llama-cli.exp
+
+cxl-new:
+	./dsm-scripts/config_memdev.sh cxl-new
+
+json-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp json_test.py json/english.json
+
+float-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp float_operation.py 1000000
