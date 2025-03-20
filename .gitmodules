@@ -10,3 +10,15 @@
 	path = user/demos/dbx1000
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/dbx1000.git
   branch = chcore
+[submodule "user/demos/cpython"]
+	path = user/demos/cpython
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/cpython.git
+  branch = 3.12
+[submodule "user/libraries/libffi"]
+	path = user/libraries/libffi
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/libraries/libffi.git
+  branch = dev
+[submodule "user/libraries/zlib"]
+	path = user/libraries/zlib
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/libraries/zlib.git
+	branch = master

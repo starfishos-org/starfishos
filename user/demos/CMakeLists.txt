@@ -338,5 +338,60 @@ if(CHCORE_DEMOS_DBX1000)
 endif()
 
 
+if (CHCORE_DEMOS_CPYTHON)
+    set(cpython_install_dir ${CMAKE_CURRENT_BINARY_DIR}/cpython)
+    if (EXISTS ${cpython_install_dir})
+      add_custom_target(
+        cpython
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
+        COMMAND cp python ${build_ramdisk_dir}/python
+        COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
+        COMMAND cp example/*.py ${build_ramdisk_dir}/
+        DEPENDS libffi zlib
+      )
+    else()
+      add_custom_target(
+        cpython
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
+        COMMAND ./configure
+            CXX=${MUSL_CXX} 
+            CC=${MUSL_CC} 
+            LDFLAGS="-L${libc_install_dir}/lib"
+            CPPFLAGS="-I${libc_install_dir}/include"
+            --host=x86_64-linux-musl
+            --build=x86_64-linux
+            --disable-ipv6
+            --with-build-python
+            --with-ensurepip=no
+            --prefix=${cpython_install_dir}
+            --exec-prefix=${cpython_install_dir}
+            ac_cv_file__dev_ptmx=no
+            ac_cv_file__dev_ptc=no
+        COMMAND make -j$(_nproc)
+        COMMAND make install
+        COMMAND ./configure 
+            CXX=${MUSL_CXX} 
+            CC=${MUSL_CC} 
+            LDFLAGS="-L${libc_install_dir}/lib"
+            CPPFLAGS="-I${libc_install_dir}/include"
+            --host=x86_64-linux-musl
+            --build=x86_64-linux
+            --disable-ipv6
+            --with-build-python
+            --with-ensurepip=no
+            --prefix=/
+            --exec-prefix=/
+            ac_cv_file__dev_ptmx=no
+            ac_cv_file__dev_ptc=no
+        COMMAND make -j$(_nproc)
+        COMMAND cp python ${build_ramdisk_dir}/python
+        COMMAND cp -r ${cpython_install_dir}/lib ${build_ramdisk_dir}/
+        COMMAND cp example/*.py ${build_ramdisk_dir}/
+        DEPENDS libffi zlib
+      )
+    endif()
+    add_dependencies(ramdisk cpython)
+    unset(cpython_tmp_dir)
+endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})

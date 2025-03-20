@@ -1,6 +1,8 @@
 IP = '0x0'
 P = 'libc.so'
 
+.PHONY: build build-all
+
 b: build
 build:
 	./chbuild build
@@ -29,3 +31,6 @@ ip2c-kernel:
 test:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/lkl.exp
+
+cxl-new:
+	./dsm-scripts/config_memdev.sh cxl-new

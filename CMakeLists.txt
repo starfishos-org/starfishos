@@ -81,7 +81,7 @@ chcore_add_subproject(
     CMAKE_ARGS
         ${_common_args}
         -DCHCORE_MUSL_LIBC_INSTALL_DIR=${_libc_install_dir} # used by user.cmake toolchain to find `musl-gcc`
-        -DCHCORE_MUSL_CROSS_MAKE_INSTALL_DIR=/home/musl-cross-make/install/
+        -DCHCORE_MUSL_CROSS_MAKE_INSTALL_DIR=/home/musl-cross-make/install
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
         -DCMAKE_TOOLCHAIN_FILE=${_cmake_script_dir}/Toolchains/user.cmake
     CMAKE_CACHE_ARGS ${_cache_args}
