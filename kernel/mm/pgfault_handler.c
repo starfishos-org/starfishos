@@ -69,13 +69,6 @@ void add_pte_patch_to_pool(struct vmspace *vmspace, pte_t *pte,
     }
 }
 
-#ifdef OMIT_BENCHMARK
-static inline bool need_omit(struct vmspace *vmspace)
-{
-    return vmspace == redis_benchmark_vmspace || vmspace == memcachetest_vmspace
-           || vmspace == ycsb_vmspace;
-}
-#endif
 #ifdef REPORT
 u64 patch_page_num = 0;
 #endif
@@ -219,8 +212,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             if (is_external_sync_pmo(pmo))
                 break;
 #ifdef OMIT_BENCHMARK
-            /* omit track page fault of redis-benchmark */
-            if (need_omit(vmspace)) {
+            /* omit track page fault of benchmarks */
+            if (is_benchmark_vmspace(vmspace)) {
                 break;
             }
 #endif
@@ -365,7 +358,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #ifndef OMIT_PF
 #ifdef OMIT_BENCHMARK
             /* omit track page fault of benchmarks */
-            if (need_omit(vmspace)) {
+            if (is_benchmark_vmspace(vmspace)) {
                 break;
             }
 #endif

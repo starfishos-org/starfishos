@@ -37,12 +37,6 @@ static void remove_vmr_from_virt_vmregion(struct vmregion *vmr)
 }
 #endif
 
-#ifdef OMIT_BENCHMARK
-struct vmspace *redis_benchmark_vmspace = NULL;
-struct vmspace *memcachetest_vmspace = NULL;
-struct vmspace *ycsb_vmspace = NULL;
-#endif
-
 struct vmregion *alloc_vmregion(void)
 {
     struct vmregion *vmr;

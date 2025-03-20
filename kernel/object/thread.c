@@ -1,4 +1,3 @@
-#include "sched/sched.h"
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/types.h>
@@ -10,6 +9,7 @@
 #include <object/thread.h>
 #include <object/recycle.h>
 #include <sched/context.h>
+#include <sched/sched.h>
 #include <arch/machine/registers.h>
 #include <arch/machine/smp.h>
 #include <arch/time.h>
@@ -22,6 +22,7 @@
 
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
+#include <dsm/dsm-config.h>
 #endif
 
 #ifndef DSM_ENABLED
@@ -33,14 +34,7 @@
 extern const char binary_procmgr_bin_start;
 extern const char binary_procmgr_bin_size;
 
-/*
- * local functions
- */
-#ifdef CHCORE
-static int thread_init(struct thread *thread, struct cap_group *cap_group,
-#else /* For unit test */
 int thread_init(struct thread *thread, struct cap_group *cap_group,
-#endif
                        u64 stack, u64 pc, u32 prio, u32 type, s32 aff)
 {
     if (prio >= PRIO_NUM) {
@@ -57,19 +51,7 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
     obj_put(thread->vmspace);
 
 #ifdef OMIT_BENCHMARK
-    // printk("cap_group_name=%s\n", thread->cap_group->cap_group_name);
-    if (!strcmp(thread->cap_group->cap_group_name, "/redis-benchmark")) {
-        redis_benchmark_vmspace = thread->vmspace;
-        // printk("redis_benchmark_vmspace=%p\n",
-        // redis_benchmark_vmspace);
-    }
-    if (!strcmp(thread->cap_group->cap_group_name, "/memcachetest")) {
-        memcachetest_vmspace = thread->vmspace;
-        // printk("memcachetest_vmspace=%p\n", memcachetest_vmspace);
-    }
-    if (!strcmp(thread->cap_group->cap_group_name, "/ycsbc")) {
-        ycsb_vmspace = thread->vmspace;
-    }
+    set_benchmark_vmspace(thread, vmspace);
 #endif
     /* Thread context is used as the kernel stack for that thread */
     thread->thread_ctx = create_thread_ctx(type);
@@ -306,9 +288,6 @@ void create_root_thread(void)
 static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
                          u64 arg, u32 prio, u32 type, u64 tls)
 {
-#ifdef CKPT_CAP_GROUP_LAZY_COPY
-    cap_group_lazy_copy_ckpt(cap_group);
-#endif
     struct thread *thread;
     int cap, ret = 0;
 
@@ -316,7 +295,8 @@ static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
         ret = -ECAPBILITY;
         goto out_fail;
     }
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __STACK_MALLOC_TYPE__);
+
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __THREAD_MALLOC_TYPE__);
     if (!thread) {
         ret = -ENOMEM;
         goto out_obj_put;
@@ -365,7 +345,6 @@ static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
         cap = cap_copy(cap_group, current_cap_group, cap);
     if (type == TYPE_USER) {
         thread->thread_ctx->state = TS_INTER;
-        dsm_debug("%s: sched_enqueue\n", __func__);
         BUG_ON(sched_enqueue(thread));
     } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
         thread->thread_ctx->state = TS_WAITING;

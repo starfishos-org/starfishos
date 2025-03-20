@@ -10,3 +10,6 @@ set(DSM_MALLOC_MODE "CXL")
 set(DSM_THREADCTX_MODE "DRAM")
 set(DSM_PGTABLE_MODE "DRAM")
 set(DSM_STACK_MODE "DRAM")
+
+# Now: always use CXL for thread
+set(DSM_THREAD_MODE "CXL")

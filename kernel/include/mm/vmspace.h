@@ -136,13 +136,6 @@ struct page_patch {
 };
 
 enum page_patch_type { PPATCH_NEW, PPATCH_MODIFY };
-
-#ifdef OMIT_BENCHMARK
-extern struct vmspace *redis_benchmark_vmspace;
-extern struct vmspace *memcachetest_vmspace;
-extern struct vmspace *ycsb_vmspace;
-#endif
-
 #endif /* CHCORE_SLS */
 
 struct pmobject {

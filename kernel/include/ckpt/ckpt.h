@@ -60,3 +60,45 @@ void ckpt_dram_cached_page(struct pmobject *pmo, void *kva, u64 index);
 
 u64 sys_track_pf_begin();
 u64 sys_track_pf_end();
+
+#ifdef OMIT_BENCHMARK
+static char *benchmark_name_list[3] = {
+    "/redis-benchmark",
+    "/memcachetest",
+    "/ycsbc",
+};
+
+static struct vmspace *benchmark_vmspace_list[3];
+
+static inline bool is_benchmark_thread(struct thread *target)
+{
+    char *name = target->cap_group->cap_group_name;
+    for (int i = 0; i < sizeof(benchmark_name_list) / sizeof(benchmark_name_list[0]); i++) {
+        if (!strcmp(name, benchmark_name_list[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline bool is_benchmark_vmspace(struct vmspace *vmspace)
+{
+    for (int i = 0; i < sizeof(benchmark_vmspace_list) / sizeof(benchmark_vmspace_list[0]); i++) {
+        if (vmspace == benchmark_vmspace_list[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline bool set_benchmark_vmspace(struct thread *target, struct vmspace *vmspace)
+{
+    for (int i = 0; i < sizeof(benchmark_vmspace_list) / sizeof(benchmark_vmspace_list[0]); i++) {
+        if (benchmark_vmspace_list[i] == NULL) {
+            benchmark_vmspace_list[i] = vmspace;
+            return true;
+        }
+    }
+    return false;
+}
+#endif

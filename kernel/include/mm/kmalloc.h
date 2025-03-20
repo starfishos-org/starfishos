@@ -43,6 +43,14 @@ enum malloc_type {
 #define __THREADCTX_MALLOC_TYPE__ __DEFAULT__
 #endif
 
+#ifdef DSM_THREAD_MODE_CXL
+#define __THREAD_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_THREAD_MODE_DRAM
+#define __THREAD_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __THREAD_MALLOC_TYPE__ __DEFAULT__
+#endif
+
 void *kmalloc(unsigned long long size, int flags);
 void *kzalloc(unsigned long long size, int flags);
 void kfree(void *ptr);
