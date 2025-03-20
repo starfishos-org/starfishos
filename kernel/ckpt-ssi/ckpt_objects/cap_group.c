@@ -6,7 +6,8 @@ extern u64 eval_obj_time[];
 #endif
 
 int slot_table_ckpt(struct cap_group *cap_group,
-                    struct ckpt_cap_group *ckpt_cap_group)
+                    struct ckpt_cap_group *ckpt_cap_group,
+                    int flags)
 {
 #ifdef REPORT
     DECLTMR;
@@ -63,12 +64,12 @@ int slot_table_ckpt(struct cap_group *cap_group,
                 /* The bit is present */
                 slot_id = i * BITS_PER_LONG + offset;
                 new_obj_root = ckpt_obj_root_get(
-                        slot_table->slots[slot_id]->object, true);
+                        slot_table->slots[slot_id]->object, flags);
                 BUG_ON(!new_obj_root);
 #ifdef REPORT
                 stop();
 #endif
-                new_ckpt_obj = ckpt_obj_get(new_obj_root, true);
+                new_ckpt_obj = ckpt_obj_get(new_obj_root, flags);
 #ifdef REPORT
                 start();
 #endif
@@ -98,31 +99,35 @@ out_free_prev_obj:
 
 /*
  * cap_ckpt only copy pmo object,
- * but cap_group_copy_ckpt should copy all objects
+ * but cap_group_ckpt should copy all objects
  */
-int cap_group_copy_ckpt(struct cap_group *cap_group,
-                        struct ckpt_cap_group *ckpt_cap_group)
+int cap_group_ckpt(struct cap_group *cap_group,
+                    struct ckpt_cap_group *ckpt_cap_group, 
+                    int flags)
 {
     kdebug("ckpt cap group %lx: size %u, badge %lx, name %s\n",
            cap_group,
            cap_group->slot_table.slots_size,
            cap_group->badge,
            cap_group->cap_group_name);
-    /* Copy properties */
+
+    /* copy properties */
     ckpt_cap_group->badge = cap_group->badge;
     ckpt_cap_group->notify_recycler = cap_group->notify_recycler;
-    if (ckpt_cap_group->cap_group_name[0] == 0)
-        memcpy(ckpt_cap_group->cap_group_name,
-               cap_group->cap_group_name,
+    /* copy name if cap_group_name is empty */
+    if (ckpt_cap_group->cap_group_name[0] == 0) {
+        memcpy(ckpt_cap_group->cap_group_name, cap_group->cap_group_name,
                MAX_GROUP_NAME_LEN);
+    }
 
     /* Copy slot table */
-    return slot_table_ckpt(cap_group, ckpt_cap_group);
+    return slot_table_ckpt(cap_group, ckpt_cap_group, flags);
 }
 
 int slot_table_restore(struct cap_group *cap_group,
                        struct ckpt_cap_group *ckpt_cap_group,
-                       struct kvs *obj_map)
+                       struct kvs *obj_map,
+                       int flags)
 {
     struct ckpt_obj_root *ckpt_obj_root;
     struct object *new_obj;
@@ -148,10 +153,13 @@ int slot_table_restore(struct cap_group *cap_group,
     for (i = 0; i < ckpt_table_size; i++) {
         slot_id = ckpt_cap_group->slots[i].slot_id;
         ckpt_obj_root = ckpt_cap_group->slots[i].obj_root;
+        CFORK_LOG_DEBUG("slot_id: %llu, ckpt_obj_root: %p, type: %d\n", 
+            slot_id, ckpt_obj_root, ckpt_obj_root->obj->type);
 #ifdef RESTORE_REPORT
         stop();
 #endif
-        new_obj = restore_obj_get_by_cap_group(ckpt_obj_root, obj_map, true);
+        new_obj = restore_obj_get_by_cap_group(
+            ckpt_obj_root, obj_map, flags);
 #ifdef RESTORE_REPORT
         start();
 #endif
@@ -160,6 +168,7 @@ int slot_table_restore(struct cap_group *cap_group,
             goto out_free_prev_obj;
         }
         cap = cap_insert(cap_group, new_obj->opaque, 0, slot_id);
+        CFORK_LOG_DEBUG("2 cap_insert: cap: %d\n", cap);
         if (cap < 0) {
             r = cap;
             BUG("insert cap error\n");
@@ -169,7 +178,7 @@ int slot_table_restore(struct cap_group *cap_group,
 #ifdef RESTORE_REPORT
     eval_restore_obj_time[TYPE_CAP_GROUP] += stop();
 #endif
-    kdebug("cap group: %lx, vm: %lx\n",
+    CFORK_LOG_DEBUG("cap group: %lx, vm: %lx\n",
            cap_group,
            obj_get(cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE));
     return 0;
@@ -182,13 +191,13 @@ extern int cap_group_init(struct cap_group *cap_group, unsigned int size,
                           u64 badge);
 int cap_group_restore(struct object *cap_group_obj,
                       struct ckpt_object *ckpt_cap_group_obj,
-                      struct kvs *obj_map, bool time_traveling)
+                      struct kvs *obj_map, int flags)
 {
     struct cap_group *cap_group = (struct cap_group *)cap_group_obj->opaque;
     struct ckpt_cap_group *ckpt_cap_group =
             (struct ckpt_cap_group *)ckpt_cap_group_obj->opaque;
 
-    kdebug("restore cap group%lx: size %u, badge %lx, name %s\n",
+    CFORK_LOG_DEBUG("restore cap group %p: size %u, badge %lx, name %s\n",
            cap_group,
            ckpt_cap_group->slots_size,
            ckpt_cap_group->badge,
@@ -203,7 +212,7 @@ int cap_group_restore(struct object *cap_group_obj,
     cap_group->notify_recycler = ckpt_cap_group->notify_recycler;
 
     /* Restore slot table */
-    return slot_table_restore(cap_group, ckpt_cap_group, obj_map);
+    return slot_table_restore(cap_group, ckpt_cap_group, obj_map, flags);
 }
 
 int ckpt_slot_table_copy(struct ckpt_object_slot *src_slots,

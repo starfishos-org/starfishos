@@ -172,11 +172,10 @@ static void add_node_in_order(struct pmo_node *node)
 /* TODO: Take the lock before allocating and mapping/free and unmapping
  * address.*/
 void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
-                  off_t off)
+                  off_t off, int pmo_cap)
 {
         struct pmo_node *node;
         void *map_addr;
-        int pmo_cap;
         int ret;
 
         if (fd != -1) {
@@ -207,10 +206,12 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         pthread_once(&init_mmap_once, initial_mmap);
 
         /* pmo create */
-        if (flags & MAP_CXL) {
-                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
-        } else {
-                pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+        if (pmo_cap == 0) {
+                if (flags & MAP_CXL) {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
+                } else {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+                }
         }
         
         if (pmo_cap <= 0) {
@@ -279,6 +280,8 @@ int chcore_munmap(void *start, size_t length)
         while (length != 0) {
                 pthread_spin_lock(&va2pmo_lock);
                 node = get_next_pmo_node((void *)addr, length, prev_node);
+                if (prev_node)
+                        list_del(&prev_node->list_node);
                 if (node == NULL) {
                         pthread_spin_unlock(&va2pmo_lock);
                         if (prev_node)
@@ -291,7 +294,7 @@ int chcore_munmap(void *start, size_t length)
                 addr = node->va;
 
                 hlist_del(&node->hash_node);
-                list_del(&node->list_node);
+                // Delay delete the node from the list next round
                 pthread_spin_unlock(&va2pmo_lock);
                 if (prev_node)
                         free_pmo_node(prev_node);
@@ -305,6 +308,7 @@ int chcore_munmap(void *start, size_t length)
                 prev_node = node;
         }
 
+        list_del(&node->list_node);
         free_pmo_node(node);
         return ret;
 }

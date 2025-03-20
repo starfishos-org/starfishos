@@ -313,7 +313,7 @@ void trap_c(struct arch_exec_cont *ec)
             kinfo("General Protection Fault\n");
             kinfo("Faulting Address: 0x%lx\n", get_fault_addr());
             kinfo("Current thread %p\n", current_thread);
-            kinfo("Trap from 0x%lx EC %d Trap No. %d\n",
+            kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
                   ec->reg[RIP],
                   errorcode,
                   trapno);
@@ -344,7 +344,7 @@ void trap_c(struct arch_exec_cont *ec)
     if ((trapno != IRQ_TIMER) && (trapno != T_PF) && (trapno != IRQ_IPI_TLB)
         && (trapno != IRQ_IPI_RESCHED) && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
         && (trapno != IRQ_IPI_RESET_SCHED) && (trapno != T_NM)) {
-        kinfo("Trap from 0x%lx EC %d Trap No. %d\n",
+        kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
               ec->reg[RIP],
               errorcode,
               trapno);

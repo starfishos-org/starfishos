@@ -45,7 +45,7 @@ int init_async_copying_task(struct ckpt_obj_root *src_root_obj, u64 ckpt_name,
         goto out_fail;
     }
 
-    latest_node->obj_map = new_kvs(KVS_SIZE);
+    latest_node->obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
     if (!latest_node->obj_map) {
         r = -ENOMEM;
         goto out_fail_free_ckpt;
@@ -111,7 +111,7 @@ struct ckpt_obj_root *get_copied_obj_root(struct ckpt_obj_root *ckpt_obj_root,
                 get_latest_ckpt_obj(ckpt_obj_root, latest_node->version_number);
         BUG_ON(!src_obj);
 
-        copied_obj_root = ckpt_obj_root_alloc();
+        copied_obj_root = ckpt_obj_root_alloc(FLAGS_TIME_TRAVELING);
         BUG_ON(!copied_obj_root);
         copied_obj_root->obj = ckpt_obj_root->obj;
         dst_obj = ckpt_obj_alloc(src_obj->type);

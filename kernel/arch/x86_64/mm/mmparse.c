@@ -45,7 +45,81 @@ extern char CHCORE_PUD_CODE_Mapping[];
 // currently, kernel page table can not map address above KBASE
 #define MAX_KERNEL_PG_PADDR (~KBASE)
 
-static void refill_kernel_page_table(u64 mem_size)
+#define FIRST_PUD_MAPPING_IDX_START     (0)
+#define FIRST_PUD_MAPPING_IDX_END       (511)
+#define SECOND_PUD_MAPPING_IDX_START    (512)
+#define SECOND_PUD_MAPPING_IDX_END      (1021)
+// 1022 and 1023 are reserved for kernel code
+
+extern void flush_boot_tlb(void);
+
+static void __fill_kernel_page_table_range(int idx_start, int idx_end)
+{
+    u64 *direct_mapping;
+    bool need_map_first_pud = false;
+    bool need_map_second_pud = false;
+    u64 idx = 0, _idx_start, _idx_end;
+
+    kinfo("fill kernel page table range: %lx - %lx\n", idx_start, idx_end);
+
+    if (idx_start <= (int)(FIRST_PUD_MAPPING_IDX_END)) {
+        need_map_first_pud = true;
+    }
+    
+    if (idx_end >= (int)(SECOND_PUD_MAPPING_IDX_START)) {
+        need_map_second_pud = true;
+    }
+
+    if (need_map_first_pud) {
+        direct_mapping = (u64 *)CHCORE_PUD_Direct_Mapping;
+        _idx_start = MAX(idx_start, FIRST_PUD_MAPPING_IDX_START);
+        _idx_end = MIN(idx_end, FIRST_PUD_MAPPING_IDX_END);
+
+        for (idx = _idx_start; idx <= _idx_end; idx++) {
+            *(direct_mapping + idx) = (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping, idx);
+        }
+    }
+
+    if (need_map_second_pud) {
+        direct_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
+        _idx_start = MAX(idx_start, SECOND_PUD_MAPPING_IDX_START);
+        _idx_end = MIN(idx_end, SECOND_PUD_MAPPING_IDX_END);
+
+        for (idx = _idx_start; idx <= _idx_end; idx++) {
+            *(direct_mapping + idx - SECOND_PUD_MAPPING_IDX_START) 
+                = (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping, idx);
+        }
+    }
+
+    kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end * SIZE_1G);
+}
+
+/**
+ * fill_kernel_page_table_range -- fill the kernel page table range
+ * @mem_start: paddr of the memory to be mapped
+ * @mem_size: size of the memory to be mapped
+ */
+void fill_kernel_page_table_range(u64 mem_start, u64 mem_size)
+{
+    u64 idx_start, idx_end;
+
+    idx_start = mem_start / SIZE_1G;
+    idx_end = ((mem_start + mem_size) / SIZE_1G) + 
+        ((mem_start + mem_size) % SIZE_1G ? 1 : 0);
+
+    __fill_kernel_page_table_range(idx_start, idx_end);
+
+    /* Flush TLB: SMP is not enabled for now. */
+    flush_boot_tlb();
+}
+
+/*
+ * refill_kernel_page_table -- refill the kernel page table
+ * @mem_end: end address of the memory to be mapped
+ */
+static void refill_kernel_page_table(u64 mem_end)
 {
     u64 *direct_mapping;
     u64 idx;
@@ -73,34 +147,9 @@ static void refill_kernel_page_table(u64 mem_size)
      */
 
     /* We map the available physical memory here. 0~1G has been mapped. */
-    idx = 0;
-    while (mem_size > SIZE_1G && idx < 511 /* 0, 1 to 511 */) {
-        direct_mapping += 1;
-        idx += 1;
-
-        /* Add mapping for 1G, 2G, 3G ... */
-        *direct_mapping =
-                (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
-        kdebug("set direct mapping (%p) to idx %d\n", direct_mapping, idx);
-        mem_size -= SIZE_1G;
-    }
-
-    idx += 1;
-    /* Re-setup the direct mapping for all the physical memory */
-    direct_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
-    while (mem_size > SIZE_1G) {
-        /* Can not map to the last 1GB, mapped tyo kernel code */
-        BUG_ON(idx == 1023);
-        /* Add mapping for 1G, 2G, 3G ... */
-        *direct_mapping =
-                (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
-        mem_size -= SIZE_1G;
-        direct_mapping += 1;
-        idx += 1;
-    }
+    __fill_kernel_page_table_range(1, ((mem_end / SIZE_1G) + (mem_end % SIZE_1G ? 1 : 0)));
 
     /* Flush TLB: SMP is not enabled for now. */
-    extern void flush_boot_tlb(void);
     flush_boot_tlb();
 }
 
@@ -368,7 +417,6 @@ void parse_cxlmem_map()
 {
     // fill kernel page table for cxl mem devices
     u64 dev_start = 0, dev_size = 0;
-    u64 max_paddr = 0;
     cxlmem_map_num = 0;
 
 /* simulate dev use ivshmem or real cxl device */
@@ -381,11 +429,6 @@ void parse_cxlmem_map()
     /* on spr2, shm device is simulated as NUMA node */
     real_cxl_numa_mode_setup_mem(&dev_start, &dev_size);
 #endif
-    /* refill page table */
-    max_paddr = dev_start + dev_size;
-    if (max_paddr >= MAX_KERNEL_PG_PADDR)
-        BUG("[CXL] CXL memdev base exceed paddr limitation\n");
-    refill_kernel_page_table(max_paddr);
 
     cxlmem_map[cxlmem_map_num][0] = dev_start + sizeof(dsm_metadata_t);
     cxlmem_map[cxlmem_map_num][1] = dev_start + dev_size;

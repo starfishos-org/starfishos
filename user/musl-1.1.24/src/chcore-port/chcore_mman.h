@@ -34,6 +34,6 @@ struct pmo_node {
 	struct hlist_node hash_node;
 };
 
-void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd, off_t off);
+void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd, off_t off, int pmo_cap);
 int chcore_munmap(void *start, size_t length);
 vaddr_t chcore_unmapself(void *start, size_t length);

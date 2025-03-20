@@ -88,6 +88,14 @@ int chcore_write(int fd, void *buf, size_t count)
 	return fd_dic[fd]->fd_op->write(fd, buf, count);
 }
 
+int chcore_pread(int fd, void *buf, size_t count, off_t offset) {
+	return fd_dic[fd]->fd_op->pread(fd, buf, count, offset);
+}
+
+int chcore_pwrite(int fd, const void *buf, size_t count, off_t offset) {
+	return fd_dic[fd]->fd_op->pwrite(fd, buf, count, offset);
+}
+
 int chcore_close(int fd)
 {
 	if (fd < 0 || fd_dic[fd] == 0)
@@ -205,6 +213,16 @@ int chcore_writev(int fd, const struct iovec *iov, int iovcnt)
 	return byte_written;
 }
 
+off_t chcore_lseek(int fd, off_t offset, int whence)
+{
+    return fd_dic[fd]->fd_op->lseek(fd, offset, whence);
+}
+
+long chcore_fd_mmap(long vaddr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+	return fd_dic[fd]->fd_op->mmap(vaddr, length, prot, flags, fd, offset);
+}
+
 int dup_fd_content(int fd, int arg)
 {
 	int type, new_fd;
@@ -239,6 +257,8 @@ static char fd_type[][20] = {
 	"EVENT",
 	"TIMER",
 	"EPOLL",
+	"DEV",
+	"HOSTFS",
 };
 
 static int fd_default_read(int fd, void *buf, size_t size)

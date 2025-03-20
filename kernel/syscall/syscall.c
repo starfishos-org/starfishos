@@ -1,11 +1,5 @@
 #include <common/types.h>
 #include <common/vars.h>
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-#include <ckpt/ckpt.h>
-#include <ckpt/hot_pages_tracker.h>
-#include <ckpt/external_sync.h>
-#include <ckpt/hybird_mem.h>
-#endif /* CHCORE_SLS */
 #include <io/uart.h>
 #include <mm/uaccess.h>
 #include <mm/kmalloc.h>
@@ -24,10 +18,22 @@
 #include <ipc/connection.h>
 #include <irq/timer.h>
 #include <irq/irq.h>
+#include <drivers/pci.h>
+
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
-#include <drivers/pci.h>
+
+#ifdef CHCORE_SLS
+#include <ckpt/ckpt.h>
+#include <ckpt/hot_pages_tracker.h>
+#include <ckpt/external_sync.h>
+#include <ckpt/hybird_mem.h>
+#endif /* CHCORE_SLS */
+
+#ifdef CHCORE_SSI_SLS
+#include <ckpt/ckpt.h>
+#endif
 
 #include "syscall_num.h"
 
@@ -267,7 +273,6 @@ void sys_shutdown(int flag)
 void sys_ipi_stop_all();
 void sys_ipi_start_all();
 void sys_ipi_test_kernel(int cpuid);
-void sys_set_dyn_args(u64, u64);
 #endif
 
 const void *syscall_table[NR_SYSCALL] = {
@@ -371,20 +376,21 @@ const void *syscall_table[NR_SYSCALL] = {
 #ifdef CHCORE_KERNEL_VIRT
         [SYS_virt_dispatch] = sys_virt_dispatch,
 #endif /* CHCORE_KERNEL_VIRT */
+
+#ifdef CHCORE_SLS
         [SYS_get_poll_remote] = sys_get_poll_remote,
         [SYS_set_poll_remote] = sys_set_poll_remote,
         [SYS_set_excepted_connected_client_num] =
                 sys_set_excepted_connected_client_num,
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         [SYS_set_dyn_args] = sys_set_dyn_args,
+        [SYS_register_external_ringbuf] = sys_register_external_ringbuf,
+#endif
 
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* Checkpoint */
         [SYS_whole_ckpt] = sys_whole_ckpt,
         [SYS_whole_restore] = sys_whole_restore,
         [SYS_whole_ckpt_for_test] = sys_whole_ckpt_for_test,
-        [SYS_register_external_ringbuf] = sys_register_external_ringbuf,
-        [SYS_ckpt_migrate] = sys_ckpt_migrate,
-        [SYS_ckpt_merge_migration] = sys_ckpt_merge_migration,
 
         /* IPI */
         [SYS_ipi_stop_all] = sys_ipi_stop_all,
@@ -396,6 +402,14 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_track_pf_end] = sys_track_pf_end,
 
 #endif
+
+#ifdef CHCORE_SSI_SLS
+        /* Checkpoint */
+        [SYS_cfork_prepare] = sys_cfork_prepare,
+        [SYS_cfork_ckpt] = sys_cfork_ckpt,
+        [SYS_cfork_restore] = sys_cfork_restore,
+#endif
+
         [SYS_shutdown] = sys_shutdown,
 
 };

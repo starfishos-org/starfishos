@@ -42,6 +42,8 @@ enum thread_state {
     TS_WAITING, /* Waiting IPC or etc */
 #ifdef DSM_ENABLED
     TS_MIGRATING, /* migrating to remote */
+    TS_STOPPING, /* being stopped by cfork */
+    TS_STOPPED, /* has been stopped */
 #endif
 };
 

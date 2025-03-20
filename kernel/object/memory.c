@@ -14,10 +14,119 @@
 
 #include "mmap.h"
 
-static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
-                    paddr_t paddr);
 extern int radix_deep_copy_with_hybird_mem(struct radix *src,
                                            struct radix *dst);
+
+/*
+ * Initialize an allocated pmobject.
+ * @paddr is only used when @type == PMO_DEVICE.
+ */
+static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
+                    paddr_t paddr, int flags)
+{
+    int ret = 0;
+
+    memset((void *)pmo, 0, sizeof(*pmo));
+
+    len = ROUND_UP(len, PAGE_SIZE);
+    pmo->size = len;
+    pmo->type = type;
+
+#ifdef RMAP_ENABLED
+    /* reverse list */
+    init_list_head(&pmo->reverse_list);
+    lock_init(&pmo->reverse_list_lock);
+#endif
+    switch (type) {
+    case PMO_DATA:
+    case PMO_DATA_NOCACHE:
+    case PMO_RING_BUFFER: {
+        /*
+         * For PMO_DATA, the user will use it soon (we expect).
+         * So, we directly allocate the physical memory.
+         * Note that kmalloc(>2048) returns continous physical pages.
+         */
+        void *new_va = kmalloc(len, flags);
+        // kinfo("new_va: %lx\n", (u64)new_va);
+        pmo->start = (paddr_t)virt_to_phys(new_va);
+
+#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
+        lock_init(&(pmo->dram_cache.lock));
+        /* init first page's PMO info */
+        struct page *page = virt_to_page(new_va);
+        init_page_info(page, pmo, 0);
+#endif
+        break;
+    }
+    case PMO_FILE: {
+#ifdef CHCORE_ENABLE_FMAP
+        /*
+         * PMO backed by a file.
+         * We store PMO_FILE metadata in fmap_fault_pool in
+         * pmo->private, and pmo->private is initialized NULL by memset.
+         */
+        struct fmap_fault_pool *pool_iter;
+        u64 badge;
+        badge = current_cap_group->badge;
+        lock(&fmap_fault_pool_list_lock);
+        for_each_in_list (pool_iter,
+                          struct fmap_fault_pool,
+                          node,
+                          &fmap_fault_pool_list) {
+            if (pool_iter->cap_group_badge == badge) {
+                pmo->private = pool_iter;
+                break;
+            }
+        }
+        unlock(&fmap_fault_pool_list_lock);
+        if (pmo->private == NULL) {
+            /* fmap_fault_pool not registered */
+            ret = -EINVAL;
+            break;
+        }
+        pmo->radix = new_radix();
+        init_radix(pmo->radix);
+#else
+        kwarn("fmap is not implemented, we should not use PMO_FILE\n");
+        ret = -EINVAL;
+#endif
+        break;
+    }
+    case PMO_ANONYM:
+    case PMO_SHM:
+#ifdef USE_CXL_MEM
+    case PMO_CROSS_SHM:
+#endif
+    case PMO_RING_BUFFER_RADIX: {
+        /*
+         * For PMO_ANONYM (e.g., stack and heap) or PMO_SHM,
+         * we do not allocate the physical memory at once.
+         */
+        pmo->radix = new_radix();
+        init_radix(pmo->radix);
+        break;
+    }
+    case PMO_DEVICE: {
+        /*
+         * For device memory (e.g., for DMA).
+         * We must ensure the range [paddr, paddr+len) is not
+         * in the main memory region.
+         */
+        pmo->start = paddr;
+        break;
+    }
+    case PMO_FORBID: {
+        /* This type marks the corresponding area cannot be accessed */
+        break;
+    }
+    default: {
+        kinfo("Unsupported pmo type: %d\n", type);
+        BUG_ON(1);
+        break;
+    }
+    }
+    return ret;
+}
 
 static int __create_pmo(u64 paddr, u64 size, u64 type, int flags, 
             struct cap_group *cap_group, struct pmobject **new_pmo)
@@ -31,9 +140,10 @@ static int __create_pmo(u64 paddr, u64 size, u64 type, int flags,
         goto out_fail;
     }
 
-    r = pmo_init(pmo, type, size, paddr);
-    if (r)
+    r = pmo_init(pmo, type, size, paddr, flags);
+    if (r) {
         goto out_free_obj;
+    }
 
     cap = cap_alloc(cap_group, pmo, 0);
     if (cap < 0) {
@@ -664,115 +774,6 @@ fail2:
 fail1:
     obj_put(pmo);
 
-    return ret;
-}
-
-/*
- * Initialize an allocated pmobject.
- * @paddr is only used when @type == PMO_DEVICE.
- */
-static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
-                    paddr_t paddr)
-{
-    int ret = 0;
-
-    memset((void *)pmo, 0, sizeof(*pmo));
-
-    len = ROUND_UP(len, PAGE_SIZE);
-    pmo->size = len;
-    pmo->type = type;
-
-#ifdef RMAP_ENABLED
-    /* reverse list */
-    init_list_head(&pmo->reverse_list);
-    lock_init(&pmo->reverse_list_lock);
-#endif
-    switch (type) {
-    case PMO_DATA:
-    case PMO_DATA_NOCACHE:
-    case PMO_RING_BUFFER: {
-        /*
-         * For PMO_DATA, the user will use it soon (we expect).
-         * So, we directly allocate the physical memory.
-         * Note that kmalloc(>2048) returns continous physical pages.
-         */
-        void *new_va = kmalloc(len, __DEFAULT__);
-        pmo->start = (paddr_t)virt_to_phys(new_va);
-        lock_init(&(pmo->dram_cache.lock));
-#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
-        /* init first page's PMO info */
-        struct page *page = virt_to_page(new_va);
-        init_page_info(page, pmo, 0);
-#endif
-        break;
-    }
-    case PMO_FILE: {
-#ifdef CHCORE_ENABLE_FMAP
-        /*
-         * PMO backed by a file.
-         * We store PMO_FILE metadata in fmap_fault_pool in
-         * pmo->private, and pmo->private is initialized NULL by memset.
-         */
-        struct fmap_fault_pool *pool_iter;
-        u64 badge;
-        badge = current_cap_group->badge;
-        lock(&fmap_fault_pool_list_lock);
-        for_each_in_list (pool_iter,
-                          struct fmap_fault_pool,
-                          node,
-                          &fmap_fault_pool_list) {
-            if (pool_iter->cap_group_badge == badge) {
-                pmo->private = pool_iter;
-                break;
-            }
-        }
-        unlock(&fmap_fault_pool_list_lock);
-        if (pmo->private == NULL) {
-            /* fmap_fault_pool not registered */
-            ret = -EINVAL;
-            break;
-        }
-        pmo->radix = new_radix();
-        init_radix(pmo->radix);
-#else
-        kwarn("fmap is not implemented, we should not use PMO_FILE\n");
-        ret = -EINVAL;
-#endif
-        break;
-    }
-    case PMO_ANONYM:
-    case PMO_SHM:
-#ifdef USE_CXL_MEM
-    case PMO_CROSS_SHM:
-#endif
-    case PMO_RING_BUFFER_RADIX: {
-        /*
-         * For PMO_ANONYM (e.g., stack and heap) or PMO_SHM,
-         * we do not allocate the physical memory at once.
-         */
-        pmo->radix = new_radix();
-        init_radix(pmo->radix);
-        break;
-    }
-    case PMO_DEVICE: {
-        /*
-         * For device memory (e.g., for DMA).
-         * We must ensure the range [paddr, paddr+len) is not
-         * in the main memory region.
-         */
-        pmo->start = paddr;
-        break;
-    }
-    case PMO_FORBID: {
-        /* This type marks the corresponding area cannot be accessed */
-        break;
-    }
-    default: {
-        kinfo("Unsupported pmo type: %d\n", type);
-        BUG_ON(1);
-        break;
-    }
-    }
     return ret;
 }
 

@@ -164,20 +164,19 @@ static int check_vmr_intersect(struct vmspace *vmspace,
 
 // find a free va for vmr to allocate
 // make sure that the lock is acquired before calling this function
+// FIXME(FN): Currently, we directly use max va to allocate vmr
+// [xx, va_last_high) -> [find) -> [va_low, xx)
 static vaddr_t find_free_va(struct vmspace *vmspace, size_t size)
 {
     struct vmregion *vmr = NULL;
-    vaddr_t va_last_high = 0, va_low = 0;
+    vaddr_t max_va = 0;
 
-    // [xx, va_last_high) -> [find) -> [va_low, xx)
     for_each_in_list(vmr, struct vmregion, list_node, &vmspace->vmr_list) {
-        va_low = vmr->start;
-        if (va_low > va_last_high + size) {
-            return va_last_high;
+        if (max_va < vmr->start + vmr->size) {
+            max_va = vmr->start + vmr->size;
         }
-        va_last_high = va_low + vmr->size;
     }
-    return va_last_high;
+    return max_va;
 }
 
 struct vmspace *get_current_vmspace()
@@ -187,7 +186,7 @@ struct vmspace *get_current_vmspace()
 
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
 {
-    if (vmr->start == -1) {
+    if (vmr->start == 0) {
         vmr->start = find_free_va(vmspace, vmr->size);
     }
 

@@ -6,5 +6,11 @@
 
 int main(int argc, char *argv[], char *envp[])
 {
-	usys_ckpt_merge_migration();
+	int cnt = 0;
+	
+	while (1) {
+		printf("[%d] hello world\n", cnt);
+		cnt++;
+		sleep(1);
+	}
 }

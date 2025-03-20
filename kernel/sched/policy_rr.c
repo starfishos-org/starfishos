@@ -147,6 +147,12 @@ int __rr_sched_migrate_from_shared_queue()
     struct thread *thread;
     int ret = 0;
 
+    /* Fast path: fast check queue_len */
+    /* Mostly, the shared queue is empty */
+    if (likely(rr_cur_shared_queue.queue_len == 0)) {
+        return 0;
+    }
+
     /* check shared queue of current machine */
     /*
      * FIXME(PERFORMANCE):
@@ -417,6 +423,13 @@ int rr_sched(void)
         case TS_MIGRATING:
             /* schedule migrate thread to remote */
             rr_sched_migrate_to_remote(old);
+            break;
+        case TS_STOPPING:
+            /* If the thread is being asked to stop, set it to TS_STOPPED */
+            old->thread_ctx->state = TS_STOPPED;
+            break;
+        case TS_STOPPED:
+            /* do nothing */
             break;
 #endif
         case TS_WAITING:

@@ -41,6 +41,14 @@ endif()
 if(CHCORE_SSI)
   include(${CMAKE_SOURCE_DIR}/dsm_config.cmake)
   if("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
+    # chcore_generate_emulate_sh(
+    #   "qemu-6.2-system-x86_64"
+    #   "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
+    #   -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
+    #   -device ivshmem-plain,memdev=hostmem \
+    #   -drive file=\$virtio_file_name,if=none,id=virtio-disk,format=raw \
+    #   -device virtio-blk-pci,drive=virtio-disk \
+    #   -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     chcore_generate_emulate_sh(
       "qemu-6.2-system-x86_64"
       "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \

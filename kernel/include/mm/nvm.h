@@ -53,7 +53,6 @@ struct nvm_metadata {
 };
 
 struct nvm_metadata *nvm_metadata;
-int system_current_flip_flag; // used to check if a object is checkpointed
 
 extern struct ckpt_ws_data *latest_ws_data;
 extern struct ckpt_ws_data *second_latest_ws_data;
@@ -90,63 +89,6 @@ inline static void nvm_metadata_get_slabs_data(u64 order,
 {
     ptr->current_slab = nvm_metadata->slabs[order].current_slab;
     ptr->partial_slab_list = nvm_metadata->slabs[order].partial_slab_list;
-}
-
-inline static u64 get_current_ckpt_version()
-{
-    return CKPT_VERSION_NUMBER;
-}
-
-inline static void set_current_ckpt_version(u64 version_number)
-{
-    CKPT_VERSION_NUMBER = version_number;
-}
-
-#elif defined CHCORE_SSI_SLS
-
-#define NVM_IS_CRASH        (dsm_meta->crash_last_time)
-#define CKPT_INITIALIZED    (dsm_meta->ckpt_initialized)
-#define CKPT_GLOBAL_OBJ_MAP (dsm_meta->ckpt_global_obj_map)
-#define CKPT_WS_TABLE       (dsm_meta->ckpt_whole_sys_table)
-#define CKPT_VERSION_NUMBER (dsm_meta->version_number)
-
-#define SLAB_POOLS_PTR ((struct slab_pointer *)&(dsm_meta->slabs))
-
-extern struct ckpt_ws_data *latest_ws_data;
-extern struct ckpt_ws_data *second_latest_ws_data;
-
-inline static void dsm_metadata_reset(void)
-{
-    CKPT_GLOBAL_OBJ_MAP = NULL;
-    CKPT_WS_TABLE = NULL;
-    latest_ws_data = NULL;
-    second_latest_ws_data = NULL;
-    CKPT_INITIALIZED = false;
-    CKPT_VERSION_NUMBER = 0;
-}
-
-inline static void dsm_metadata_set_crash_flag(void)
-{
-    dsm_meta->crash_last_time = 1;
-}
-
-inline static void dsm_metadata_reset_crash_flag(void)
-{
-    dsm_meta->crash_last_time = 0;
-}
-
-inline static void dsm_metadata_set_slabs_data(u64 order,
-                                               struct slab_pointer *ptr)
-{
-    dsm_meta->slabs[order].current_slab = ptr->current_slab;
-    dsm_meta->slabs[order].partial_slab_list = ptr->partial_slab_list;
-}
-
-inline static void dsm_metadata_get_slabs_data(u64 order,
-                                               struct slab_pointer *ptr)
-{
-    ptr->current_slab = dsm_meta->slabs[order].current_slab;
-    ptr->partial_slab_list = dsm_meta->slabs[order].partial_slab_list;
 }
 
 inline static u64 get_current_ckpt_version()

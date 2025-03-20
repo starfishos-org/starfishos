@@ -545,7 +545,7 @@ int recycle_create_ckpt(struct ckpt_recycle_data *recycle_data)
 
     BUG_ON(!recycle_notification);
     recycle_data->recycle_notification_obj_root = ckpt_obj_root_get(
-            container_of(recycle_notification, struct object, opaque), false);
+            container_of(recycle_notification, struct object, opaque), 0);
     return 0;
 }
 

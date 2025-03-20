@@ -8,12 +8,32 @@
 #include <object/cap_group.h>
 #include <mm/mm.h>
 #include <mm/kmalloc.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <dsm/dsm-single.h>
+#include <dsm/dsm-config.h>
 
 #include "ckpt_object_pool.h"
 #include "ckpt_objects.h"
-#include "ckpt_ws.h"
+
+static u64 obj_size[TYPE_NR] = {
+        [0 ... TYPE_NR - 1] = 0,
+        [TYPE_CAP_GROUP] = sizeof(struct cap_group),
+        [TYPE_THREAD] = sizeof(struct thread),
+        [TYPE_CONNECTION] = sizeof(struct ipc_connection),
+        [TYPE_NOTIFICATION] = sizeof(struct notification),
+        [TYPE_IRQ] = sizeof(struct irq_notification),
+        [TYPE_PMO] = sizeof(struct pmobject),
+        [TYPE_VMSPACE] = sizeof(struct vmspace)};
+
+static u64 ckpt_obj_size[TYPE_NR] = {
+        [0 ... TYPE_NR - 1] = 0,
+        [TYPE_CAP_GROUP] = sizeof(struct ckpt_cap_group),
+        [TYPE_THREAD] = sizeof(struct ckpt_thread),
+        [TYPE_CONNECTION] = sizeof(struct ckpt_ipc_connection),
+        [TYPE_NOTIFICATION] = sizeof(struct ckpt_notification),
+        [TYPE_IRQ] = sizeof(struct ckpt_irq_notification),
+        [TYPE_PMO] = sizeof(struct ckpt_pmobject),
+        [TYPE_VMSPACE] = sizeof(struct ckpt_vmspace)};
 
 const obj_restore_func obj_restore_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
@@ -65,29 +85,6 @@ out_fail:
     return NULL;
 }
 
-int ckpt_obj_map_init(void)
-{
-    if (CKPT_GLOBAL_OBJ_MAP) {
-        return 0;
-    }
-
-    CKPT_GLOBAL_OBJ_MAP = new_kvs(KVS_SIZE);
-    if (!CKPT_GLOBAL_OBJ_MAP) {
-        kinfo("[CKPT OBJ MAP] can not alloc global_obj_map\n");
-        return -ENOMEM;
-    }
-
-    return 0;
-}
-
-static u64 ckpt_obj_size[TYPE_NR] = {sizeof(struct ckpt_cap_group),
-                                     sizeof(struct ckpt_thread),
-                                     sizeof(struct ckpt_ipc_connection),
-                                     sizeof(struct ckpt_notification),
-                                     sizeof(struct ckpt_irq_notification),
-                                     sizeof(struct ckpt_pmobject),
-                                     sizeof(struct ckpt_vmspace)};
-
 struct ckpt_object *ckpt_obj_alloc(u64 type)
 {
     u64 total_size;
@@ -106,7 +103,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
     return object;
 }
 
-struct ckpt_obj_root *ckpt_obj_root_alloc()
+struct ckpt_obj_root *ckpt_obj_root_alloc(int flags)
 {
     struct ckpt_obj_root *root;
     root = kmalloc(sizeof(*root), __SHARED__);
@@ -117,23 +114,34 @@ struct ckpt_obj_root *ckpt_obj_root_alloc()
     root->ckpt_objs[0] = NULL;
     root->ckpt_objs[1] = NULL;
 #endif
-    root->cow = false;
+#ifdef CHCORE_SSI_SLS
+    if (flags & FLAGS_CFORK) {
+        root->cfork_ckpt_obj = NULL;
+    }
+#endif
+    
+    root->cow = flags & FLAGS_COW;
     root->refcnt = 0;
-    root->flip_flag = system_current_flip_flag ^ 1;
+
+    if (flags & FLAGS_CFORK) {
+        root->flip_flag = cfork_current_flip_flag ^ 1;
+    } else {
+        root->flip_flag = system_current_flip_flag ^ 1;
+    }
 
     return root;
 }
 
-struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int alloc)
+struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int flags)
 {
-    if (!CKPT_GLOBAL_OBJ_MAP || !obj) {
+    if (!obj) {
         BUG("the global object map or the obj is NULL");
         return NULL;
     }
 
     struct ckpt_obj_root *root = obj->obj_root;
-    if (!root && alloc) {
-        root = ckpt_obj_root_alloc();
+    if (!root && (flags & FLAGS_ALLOC)) {
+        root = ckpt_obj_root_alloc(flags);
         obj->obj_root = root;
         root->obj = obj;
     }
@@ -148,155 +156,170 @@ extern int eval_obj_count[];
 extern u64 eval_obj_time[];
 extern u64 get_second_latest_obj_time;
 #endif
+
+/**
+ * ckpt_obj_common: the common checkpoint function for all objects.
+ * @param obj: the object to be checkpointed
+ * @param ckpt_obj: the checkpoint object
+ * @param flags: the flags
+ * @return 0 if success, otherwise the error code
+ */
+static int __ckpt_obj_common(struct object *obj, 
+        struct ckpt_object *ckpt_obj, int flags)
+{
+    int r = 0;
+
+    switch (obj->type) {
+    case TYPE_PMO: {
+        r = pmo_ckpt((struct pmobject *)obj->opaque,
+                     (struct ckpt_pmobject *)ckpt_obj->opaque,
+                     flags);
+        break;
+    }
+    case TYPE_CAP_GROUP: {
+        r = cap_group_ckpt((struct cap_group *)obj->opaque,
+                            (struct ckpt_cap_group *)ckpt_obj->opaque,
+                            flags);
+        break;
+    }
+    case TYPE_THREAD: {
+        r = thread_ckpt((struct thread *)obj->opaque,
+                        (struct ckpt_thread *)ckpt_obj->opaque,
+                        flags);
+        break;
+    }
+    case TYPE_CONNECTION: {
+        r = connection_ckpt((struct ipc_connection *)obj->opaque,
+                            (struct ckpt_ipc_connection *)ckpt_obj->opaque,
+                            flags);
+        break;
+    }
+    case TYPE_NOTIFICATION: {
+        r = notification_ckpt((struct notification *)obj->opaque,
+                              (struct ckpt_notification *)ckpt_obj->opaque,
+                              flags);
+        break;
+    }
+    case TYPE_IRQ: {
+        r = irq_ckpt((struct irq_notification *)obj->opaque,
+                     (struct ckpt_irq_notification *)ckpt_obj->opaque,
+                     flags);
+        break;
+    }
+    case TYPE_VMSPACE: {
+        r = vmspace_ckpt((struct vmspace *)obj->opaque,
+                         (struct ckpt_vmspace *)ckpt_obj->opaque,
+                         flags);
+        break;
+    }
+    default:
+        /* Shouldn't reach here */
+        BUG("Unsupported object type: %d", obj->type);
+    }
+
+    if (r) {
+        kinfo("ckpt_obj_get: obj type: %d, r: %d\n", obj->type, r);
+        return r;
+    }
+
+    return 0;
+}
+
 /*
  * if alloc == true, we will checkpoint the object
  */
-struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int alloc)
+struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
 {
-    int r;
-    struct object *obj = NULL;
+    int r = 0;
+    struct object *obj = ckpt_obj_root->obj;
     struct ckpt_object *ckpt_obj = NULL;
     int current_ckpt_verison = get_current_ckpt_version();
 
-    /* check the flip-flag first */
-    if (system_current_flip_flag == ckpt_obj_root->flip_flag) {
-        /* this object has been checkpointed */
-        /* TODO(MOK): if we use COW method, we should get latest ckpt obj */
-        BUG_ON(!(ckpt_obj = get_second_latest_ckpt_obj(ckpt_obj_root,
-                                                       current_ckpt_verison)));
-        return ckpt_obj;
-    }
+    BUG_ON(!obj);
 
-    if (likely(alloc)) {
-#ifdef REPORT
-        DECLTMR;
-        start();
-#endif
-        ckpt_obj_root->flip_flag = system_current_flip_flag;
-        obj = ckpt_obj_root->obj;
-#ifdef REPORT
-        eval_obj_count[obj->type]++;
-#endif
-        if (ckpt_obj_root->cow == true) {
-            BUG_ON(1);
-            /* reuse the latest object because it has not been modified */
-            ckpt_obj = get_latest_ckpt_obj(ckpt_obj_root, current_ckpt_verison);
-
-            /* TODO: add the reference count of object node
-             * if it is referenced by multiple checkpoints.
-             * if we use only one checkpoint,
-             * the reference count is useless.
-             */
-
-            ckpt_obj_root->refcnt++;
+    /* Fast pathes */
+    if (flags & FLAGS_CFORK) {
+        if (ckpt_obj_root->flip_flag == cfork_current_flip_flag) {
+            BUG_ON(!ckpt_obj_root->cfork_ckpt_obj);
+            return ckpt_obj_root->cfork_ckpt_obj;
+        }
+    } else {
+        /* check whether the object has been checkpointed */
+        if (system_current_flip_flag == ckpt_obj_root->flip_flag) {
+            /* this object has been checkpointed */
+            /* TODO(MOK): if we use COW method, we should get latest ckpt obj */
+            ckpt_obj = get_second_latest_ckpt_obj(ckpt_obj_root,
+                    current_ckpt_verison);
+            BUG_ON(!ckpt_obj);
             return ckpt_obj;
         }
-
-        /* we may reuse the second latest object node for checkpoint */
-        if (!(ckpt_obj = get_second_latest_ckpt_obj(ckpt_obj_root,
-                                                    current_ckpt_verison))) {
-            ckpt_obj = ckpt_obj_alloc(obj->type);
-            if (!ckpt_obj) {
-                goto out_fail;
-            }
-            set_second_latest_ckpt_obj(
-                    ckpt_obj_root, current_ckpt_verison, ckpt_obj);
-        }
-
-        ckpt_obj_root->refcnt++;
-#ifdef REPORT
-        u64 object_time_begin = plat_get_mono_time();
-        get_second_latest_obj_time += object_time_begin - timer_start;
-#endif
-        char *ckpt_name = "/test_hello.bin";
-        switch (obj->type) {
-        case TYPE_PMO: {
-            pmo_ckpt((struct pmobject *)obj->opaque,
-                     (struct ckpt_pmobject *)ckpt_obj->opaque);
-            break;
-        }
-        case TYPE_CAP_GROUP: {
-            r = cap_group_copy_ckpt((struct cap_group *)obj->opaque,
-                                    (struct ckpt_cap_group *)ckpt_obj->opaque);
-            if (r) {
-                goto out_fail;
-            }
-            break;
-        }
-        case TYPE_THREAD: {
-#ifdef OMIT_BENCHMARK
-            char *name =
-                    ((struct thread *)obj->opaque)->cap_group->cap_group_name;
-            if (!strcmp(name, "/ycsbc") || !strcmp(name, "/redis_benchmark")
-                || !strcmp(name, "/memcachetest"))
-                break;
-#endif
-            struct thread *thread = (struct thread *)obj->opaque;
-            if (strcmp(thread->cap_group->cap_group_name, ckpt_name) == 0) {
-                thread->thread_ctx->state = TS_WAITING;
-                sched();
-            }
-            thread_ckpt((struct thread *)obj->opaque,
-                        (struct ckpt_thread *)ckpt_obj->opaque);
-
-            if (strcmp(thread->cap_group->cap_group_name, ckpt_name) == 0) {
-                kdebug("[%s] thread %s enqueue\n",
-                       __func__,
-                       thread->cap_group->cap_group_name);
-                dsm_enqueue(ckpt_obj);
-            }
-            break;
-        }
-        case TYPE_CONNECTION: {
-            r = connection_ckpt((struct ipc_connection *)obj->opaque,
-                                (struct ckpt_ipc_connection *)ckpt_obj->opaque,
-                                true);
-            if (r) {
-                goto out_fail;
-            }
-            break;
-        }
-        case TYPE_NOTIFICATION: {
-            r = notification_ckpt((struct notification *)obj->opaque,
-                                  (struct ckpt_notification *)ckpt_obj->opaque,
-                                  true);
-            if (r) {
-                goto out_fail;
-            }
-            break;
-        }
-        case TYPE_IRQ: {
-            r = irq_ckpt((struct irq_notification *)obj->opaque,
-                         (struct ckpt_irq_notification *)ckpt_obj->opaque,
-                         true);
-            if (r) {
-                goto out_fail;
-            }
-            break;
-        }
-        case TYPE_VMSPACE: {
-            r = vmspace_ckpt((struct vmspace *)obj->opaque,
-                             (struct ckpt_vmspace *)ckpt_obj->opaque);
-            if (r) {
-                goto out_fail;
-            }
-            break;
-        }
-        default:
-            /* Shouldn't reach here */
-            BUG_ON(1);
-        }
-#ifdef REPORT
-        if (obj->type != TYPE_CAP_GROUP) {
-            eval_obj_time[obj->type] +=
-                    plat_get_mono_time() - object_time_begin;
-        }
-#endif
     }
-    // printk("[return]ckpt_obj_node_get: type=%d,obj=%p\n",obj->type,obj);
+
+    /* get the ckpt_obj */
+    if (flags & FLAGS_CFORK) {
+        ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
+    } else {
+        ckpt_obj = get_second_latest_ckpt_obj(
+                ckpt_obj_root, current_ckpt_verison);
+    }
+
+#ifdef REPORT
+    eval_obj_count[obj->type]++;
+    DECLTMR;
+    start();
+#endif
+
+    /* allocate ckpt_obj if it is not allocated */
+    if (!ckpt_obj) {
+        ckpt_obj = ckpt_obj_alloc(obj->type);
+        if (!ckpt_obj) {
+            CFORK_LOG_ERR("ckpt_obj_alloc failed\n");
+            return NULL;
+        }
+    }
+
+    /* skip checkpointing shared cap_group */
+    // if (obj->type == TYPE_CAP_GROUP && 
+    //     is_system_services((struct cap_group *)obj->opaque)) {
+    //     CFORK_LOG_DEBUG("ckpt_obj_get: skip checkpointing shared cap_group\n");
+    //     ckpt_obj_root->cross_shared = true;
+    //     return ckpt_obj;
+    // }
+
+    /* set ckpt_obj_root->ckpt_objs to obj */
+    if (flags & FLAGS_CFORK) {
+        ckpt_obj_root->cfork_ckpt_obj = ckpt_obj;
+    } else {
+        set_second_latest_ckpt_obj(
+            ckpt_obj_root, current_ckpt_verison, ckpt_obj);
+    }
+
+    /* set flip_flag */
+    if (flags & FLAGS_CFORK) {
+        ckpt_obj_root->flip_flag = cfork_current_flip_flag;
+    } else {
+        ckpt_obj_root->flip_flag = system_current_flip_flag;
+    }
+
+    /* increase the refcnt of the ckpt_obj_root */
+    ckpt_obj_root->refcnt++;
+
+#ifdef REPORT
+    u64 object_time_begin = plat_get_mono_time();
+    get_second_latest_obj_time += object_time_begin - timer_start;
+#endif
+
+    /* checkpoint the object */
+    if ((r = __ckpt_obj_common(obj, ckpt_obj, flags)) != 0) {
+        return NULL;
+    }
+
+#ifdef REPORT
+    if (obj->type != TYPE_CAP_GROUP) {
+        eval_obj_time[obj->type] += plat_get_mono_time() - object_time_begin;
+    }
+#endif
     return ckpt_obj;
-out_fail:
-    return NULL;
 }
 
 inline struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root)
@@ -308,7 +331,7 @@ inline struct object *restore_obj_get(struct ckpt_obj_root *ckpt_obj_root)
  * if alloc == true, we will restore the object
  */
 struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
-                                            struct kvs *obj_map, int alloc)
+                                            struct kvs *obj_map, int flags)
 {
     obj_restore_func func;
     struct object *obj = NULL;
@@ -319,39 +342,73 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     if (obj_value) {
         /* object is already allocated */
         obj = *obj_value;
-    } else if (alloc) {
-        ckpt_obj_root->flip_flag = system_current_flip_flag;
-
-        /* get ckpt obj */
-        if (ckpt_obj_root->time_traveling) {
-            /* time traveling obj always use the first ckpt_obj */
-            ckpt_obj = ckpt_obj_root->ckpt_objs[0];
-        } else {
-            ckpt_obj = get_second_latest_ckpt_obj(ckpt_obj_root,
-                                                  get_current_ckpt_version());
-        }
-        BUG_ON(!ckpt_obj);
-        obj = ckpt_obj_root->obj;
-        kvs_put(obj_map, (kvs_key_t *)&ckpt_obj_root, (kvs_value_t *)(&obj));
-#ifdef RESTORE_REPORT
-        DECLTMR;
-        start();
-#endif
-        /* Invoke the object-specific restore routine */
-        kdebug("restore obj type %d\n", obj->type);
-        func = obj_restore_tbl[obj->type];
-        if (func) {
-            BUG_ON(func(obj, ckpt_obj, obj_map, ckpt_obj_root->time_traveling));
-        } else {
-            WARN("obj restore func is NULL");
-            BUG_ON(1);
-        }
-#ifdef RESTORE_REPORT
-        if (obj->type != TYPE_CAP_GROUP)
-            eval_restore_obj_time[obj->type] += stop();
-        eval_restore_obj_count[obj->type]++;
-#endif
+        return obj;
     }
+
+    // get ckpt obj
+    if (flags & FLAGS_TIME_TRAVELING) {
+        ckpt_obj = ckpt_obj_root->ckpt_objs[0];
+    } else if (flags & FLAGS_CFORK) {
+        ckpt_obj = ckpt_obj_root->cfork_ckpt_obj;
+    } else {
+        ckpt_obj = get_second_latest_ckpt_obj(
+            ckpt_obj_root, get_current_ckpt_version());
+    }
+
+    // get obj
+    BUG_ON(!ckpt_obj);
+    obj = ckpt_obj_root->obj;
+
+    // allocate object
+    if (flags & FLAGS_CFORK) {
+        // a object that is cross-shared not do requie allocation
+        if (ckpt_obj_root->cross_shared == true) {
+            BUG_ON(!obj);
+            return obj;
+        } else {
+            // always allocate a new object for CFORK
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            BUG_ON(!obj);
+            obj->obj_root = ckpt_obj_root;
+            ckpt_obj_root->obj = obj;
+        }
+    } else {
+        // allocate object if not allocated
+        if (!obj && (flags & FLAGS_ALLOC)) {
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            BUG_ON(!obj);
+            obj->obj_root = ckpt_obj_root;
+            ckpt_obj_root->obj = obj;
+        }
+    }
+
+    CFORK_LOG_DEBUG("%s: obj: %p, type: %d, cross-shared: %d\n", 
+        __func__, obj, obj->type, ckpt_obj_root->cross_shared);
+
+    // put obj into obj map
+    kvs_put(obj_map, (kvs_key_t *)&ckpt_obj_root, (kvs_value_t *)(&obj));
+
+#ifdef RESTORE_REPORT
+    DECLTMR;
+    start();
+#endif
+
+    /* Invoke the object-specific restore routine */
+    func = obj_restore_tbl[obj->type];
+
+    if (func) {
+        BUG_ON(func(obj, ckpt_obj, obj_map, flags));
+    } else {
+        CFORK_LOG_ERR("obj restore func is NULL");
+        BUG_ON(1);
+    }
+
+#ifdef RESTORE_REPORT
+    if (obj->type != TYPE_CAP_GROUP)
+        eval_restore_obj_time[obj->type] += stop();
+    eval_restore_obj_count[obj->type]++;
+#endif
+
     return obj;
 }
 
@@ -380,41 +437,4 @@ inline void set_second_latest_ckpt_obj(struct ckpt_obj_root *ckpt_obj_root,
                                        struct ckpt_object *ckpt_obj)
 {
     ckpt_obj_root->ckpt_objs[1 - version_number % 2] = ckpt_obj;
-}
-
-void dsm_enqueue(void *data)
-{
-    struct shared_queue_meta *queue;
-    struct dsm_queue_node *queue_node;
-
-    queue_node = kmalloc(sizeof(*queue_node), __SHARED__);
-    queue_node->data = data;
-
-    queue = &dsm_meta->ready_to_merge_object_queue;
-    lock(&(queue->queue_lock));
-    list_append(&(queue_node->node), &(queue->queue_head));
-    queue->queue_len++;
-    unlock(&(queue->queue_lock));
-}
-
-void *dsm_dequeue()
-{
-    struct shared_queue_meta *queue;
-    struct list_head *pos;
-    void *data;
-
-    queue = &dsm_meta->ready_to_merge_object_queue;
-    lock(&(queue->queue_lock));
-    if (list_empty(&(queue->queue_head))) {
-        data = NULL;
-        goto out;
-    }
-    pos = queue->queue_head.next;
-    data = container_of(pos, struct dsm_queue_node, node)->data;
-
-    list_del(pos);
-    queue->queue_len--;
-out:
-    unlock(&(queue->queue_lock));
-    return data;
 }

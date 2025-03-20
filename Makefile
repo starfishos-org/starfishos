@@ -3,6 +3,14 @@ P = 'libc.so'
 
 .PHONY: build build-all
 
+help:
+	@echo "make b: build the system without cleaning"
+	@echo "make build-all / ba: build the whole system"
+	@echo "make run / r: start the qemu"
+	@echo "make clean / c: clean the system"
+	@echo "make test: run tests under the directory ./dsm-scripts/tests"
+	@echo "make prepare: prepare the system (only need to run once after the first clone)"
+
 b: build
 build:
 	./chbuild build
@@ -16,19 +24,45 @@ run:
 	./dsm-scripts/config_memdev.sh cxl
 	./build/simulate.sh
 
-ra: run-all
-run-all:
+r2: run-2clusters
+run-2clusters:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_2clusters.sh
+
+r4: run-4clusters
+run-4clusters:
+	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/simulate_4clusters.sh
 
-c: ip2c
+r2-perf:
+	./dsm-scripts/config.sh
+	make r2
+
+r4-perf:
+	./dsm-scripts/config.sh
+	make r4
+
+prepare:
+	./dsm-scripts/config_memdev.sh cxl-new
+	python3 ./dsm-scripts/prepare_hostfs.py
+	./quick-build.sh
+
+c: clean
+clean:
+	./dsm-scripts/clean_memdev.sh
+
 ip2c:
 	addr2line -e user/build/ramdisk/$(P) -fCi $(IP)
 
-ck: ip2c-kernel
 ip2c-kernel:
 	addr2line -e build/kernel.img -fCi $(IP)
 
-test:
+test: cfork
+cfork:
+	./dsm-scripts/config.sh
+	./dsm-scripts/simulate_cfork.sh
+
+cfork-prepare:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/lkl.exp
 
@@ -42,3 +76,15 @@ json-test:
 float-test:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/python.exp float_operation.py 1000000
+	./dsm-scripts/tests/cfork_prepare.exp
+
+cfork-restore:
+	./dsm-scripts/tests/cfork_restore.exp
+
+llama-bench:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/llama-bench.exp
+
+llama-cli:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/llama-cli.exp

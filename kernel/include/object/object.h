@@ -54,6 +54,7 @@ extern const obj_deinit_func obj_deinit_tbl[TYPE_NR];
 void *obj_get(struct cap_group *cap_group, int slot_id, int type);
 void obj_put(void *obj);
 
+struct object *object_alloc(u64 type, u64 size, int flags);
 void *obj_alloc(u64 type, u64 size, int flags);
 void obj_free(void *obj);
 int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights);

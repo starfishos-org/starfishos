@@ -18,12 +18,13 @@ extern u64 init_ckpt_vm_time;
 #endif
 
 static inline void vmr_ckpt(struct vmregion *target_vmr,
-                            struct ckpt_vmregion *ckpt_vmr)
+                            struct ckpt_vmregion *ckpt_vmr,
+                            int flags)
 {
     struct object *old_obj;
     struct ckpt_obj_root *obj_root;
     old_obj = container_of(target_vmr->pmo, struct object, opaque);
-    obj_root = ckpt_obj_root_get(old_obj, true);
+    obj_root = ckpt_obj_root_get(old_obj, flags);
     BUG_ON(!obj_root);
 
     ckpt_vmr->start = target_vmr->start;
@@ -40,7 +41,7 @@ extern u64 vm_time, vmr_ckpt_time;
 extern u64 init_ckpt_vm_time;
 #endif
 int vmspace_ckpt(struct vmspace *target_vmspace,
-                 struct ckpt_vmspace *ckpt_vmspace)
+                 struct ckpt_vmspace *ckpt_vmspace, int flags)
 {
 #ifdef REPORT
     u64 start0, start1, start2, start3;
@@ -99,7 +100,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
         }
 #endif
         /* ckpt vmr */
-        vmr_ckpt(target_vmr, &ckpt_vmr_array[idx]);
+        vmr_ckpt(target_vmr, &ckpt_vmr_array[idx], flags);
         if (unlikely(target_vmr == target_vmspace->heap_vmr)) {
             ckpt_vmspace->heap_vmr_idx = idx;
         }
@@ -207,7 +208,7 @@ out_fail:
 }
 
 int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
-                    struct kvs *obj_map, bool time_traveling)
+                    struct kvs *obj_map, int flags)
 {
     int r;
     struct vmspace *target_vmspace = (struct vmspace *)vm_obj->opaque;

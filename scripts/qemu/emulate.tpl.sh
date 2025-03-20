@@ -10,15 +10,17 @@ basedir=$(dirname "$0")
 # basedir should be /build directory
 nvm_backend_file="/tmp/nvm-file-$USER"
 ivshmem_dev="/dev/shm/ivshmem-$USER"
+conn_size=16G
+ivshmem_conn_dev="/dev/shm/ivshmem-conn-$USER"
 dram_size=20G # 20GB shared memory
-cxl_size=32G # 32GB shared memory
+cxl_size=8G # 32GB shared memory
 plat_cpu_name=48 # 48 CPUs
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
 
 # pass a virtio file to the qemu
 virtio_file_name="$basedir/../disk.img"
-echo "virtio_file_name: $virtio_file_name"
+# echo "virtio_file_name: $virtio_file_name"
 
 port=$(shuf -i 30000-40000 -n 1)
 #while true; do

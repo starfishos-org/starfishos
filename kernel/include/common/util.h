@@ -77,4 +77,6 @@ int snprintf(char *buf, size_t size, const char *fmt, ...);
 
 int sscanf(const char *str, const char *format, ...);
 
+const char *strstr(const char *haystack, const char *needle);
+
 #endif

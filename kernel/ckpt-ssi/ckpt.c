@@ -6,7 +6,7 @@
 #include <object/cap_group.h>
 #include <object/user_fault.h>
 #include <mm/mm.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <mm/kmalloc.h>
 #include <ckpt/ckpt.h>
 #include <sched/context.h>
@@ -21,19 +21,25 @@
 
 void flush_tlb_all(void);
 
-int ckpt_metadata_init(void)
+int ssi_ckpt_init(void)
 {
     int ret = 0;
+    
+    if (DSM_STATE >= DSM_CONFIG_STATE_CKPT_INITED) {
+        return 0;
+    }
 
     /* init ckpt whole system metadata */
-    if ((ret = ckpt_ws_init()) != 0)
-        goto out_fail;
+    if ((ret = ckpt_ws_init()) != 0) {
+        return ret;
+    }
 
-    /* init ckpt object pool */
-    if ((ret = ckpt_obj_map_init()) != 0)
-        goto out_fail;
+    CKPT_INITIALIZED = false;
+    CKPT_VERSION_NUMBER = 0;
+    CKPT_CG_KVS = new_kvs(19, __SHARED__);
 
-out_fail:
+    DSM_STATE = DSM_CONFIG_STATE_CKPT_INITED;
+
     return ret;
 }
 
@@ -395,95 +401,5 @@ u64 sys_track_pf_end()
     }
     printk("===================\n");
     // sys_ipi_start_all();
-    return 0;
-}
-
-int sys_ckpt_migrate(u64 ckpt_name)
-{
-    char *name;
-    struct ckpt_object *ckpt_obj;
-    struct ckpt_obj_root *root_cap_group_obj_root;
-    struct ckpt_ws_data *data;
-    int r;
-
-    name = (char *)ckpt_name;
-    if (unlikely(!CKPT_INITIALIZED))
-        CKPT_INITIALIZED = true;
-    /* stop all cpus by sending ipis to all remote cpus */
-    sys_ipi_stop_all();
-
-    data = get_ckpt_ws_data();
-    if (!data) {
-        r = -ENOMEM;
-        goto out_fail;
-    }
-
-    system_current_flip_flag ^= 1;
-    current_thread->thread_ctx->tls_base_reg[TLS_FS] =
-            __builtin_ia32_rdfsbase64();
-    root_cap_group_obj_root =
-            ckpt_obj_root_get(root_cap_group_obj_for_ckpt, true);
-    ckpt_obj = ckpt_obj_get(root_cap_group_obj_root, true);
-    BUG_ON(!ckpt_obj);
-    data->ckpt_root_obj_root = root_cap_group_obj_root;
-
-    recycle_create_ckpt(&data->recycle_data);
-    fmap_fault_pool_create_ckpt(&data->ckpt_fmap_fault_pool_list);
-#ifdef HYBRID_MEM
-#ifdef DYN_ADJUST
-    if (unlikely(check_and_adjust))
-        ckpt_max_time = stop2();
-#endif
-    finish_process_active_list();
-#endif
-    r = ckpt_ws_put(data, (char *)ckpt_name, strlen(name));
-    if (!r) {
-        goto out_fail;
-    }
-    /* TODO(MOK): remove the following two lines*/
-    second_latest_ws_data = latest_ws_data;
-    latest_ws_data = data;
-
-    smp_mb();
-
-    sys_ipi_start_all();
-
-    flush_tlb_all();
-
-    return 0;
-out_fail:
-    sys_ipi_start_all();
-    return r;
-}
-
-int sys_ckpt_merge_migration()
-{
-    struct ckpt_obj_root *root_cap_group_obj_root;
-    struct cap_group *cap_group;
-    struct ckpt_object *ckpt_obj;
-    struct thread *target;
-    struct object *thread_obj, *cap_group_obj;
-    struct ckpt_thread *ckpt_thread;
-
-    UNUSED(root_cap_group_obj_root);
-    UNUSED(cap_group);
-    UNUSED(cap_group_obj);
-    UNUSED(thread_obj);
-    UNUSED(ckpt_obj);
-    UNUSED(target);
-    UNUSED(ckpt_thread);
-
-    ckpt_obj = (struct ckpt_object *)dsm_dequeue();
-    thread_obj = kmalloc(sizeof(struct object), __SHARED__);
-    ckpt_thread = (struct ckpt_thread *)ckpt_obj->opaque;
-    ckpt_thread->thread_ctx.state = TS_READY;
-    thread_restore(thread_obj, ckpt_obj, NULL, false);
-    // rr.sched_top();
-    // ckpt_obj = (struct ckpt_object *)dsm_dequeue();
-    // cap_group_obj = kmalloc(sizeof(struct object), __SHARED__);
-    // cap_group_restore(cap_group_obj, ckpt_obj, NULL);
-    target = (struct thread *)thread_obj->opaque;
-    print_thread(target);
-
     return 0;
 }

@@ -1,7 +1,7 @@
 #include <irq/ipi.h>
 #include <common/util.h>
 #include <ckpt/ckpt.h>
-#include <mm/nvm.h>
+#include <ckpt/ckpt-dsm.h>
 #include <sched/fpu.h>
 
 #ifdef CHCORE_SSI_SLS

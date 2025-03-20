@@ -53,7 +53,7 @@ struct thread {
     struct cap_group *cap_group;
 
     /* Record the thread cap for quick thread recycle. */
-    u64 cap; // TODO(FN): new field
+    u64 cap;
 
     /*
      * Only exists for threads in a server process.
