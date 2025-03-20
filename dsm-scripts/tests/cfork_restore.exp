@@ -2,11 +2,14 @@
 
 set timeout 60
 
+set program_name "test_cfork_hello.bin"
+# set program_name "leveldb-dbbench"
+
 # start
 spawn ./build/simulate.sh 1
 expect "Welcome to ChCore shell!"
-# run anything you like here
-# interact
-send -- "test_cfork_restore.bin & \r"
+
+# restore the program
+send -- "test_cfork_restore.bin $program_name & \r"
 
 interact

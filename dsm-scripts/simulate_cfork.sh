@@ -16,9 +16,9 @@ tmux new -d -s $session_name -n $window_name
 tmux split-window -v -t $session_name:$window_name
 
 ## Run the ROS programs sequentially.
-tmux send -t $session_name:$window_name.$window_start_index "make cfork-prepare" ENTER
+tmux send -t $session_name:$window_name.$window_start_index "make cfork-prepare > exec_log | tee exec_log1" ENTER
 sleep 5
-tmux send -t $session_name:$window_name.$((window_start_index + 1)) "make cfork-restore" ENTER
+tmux send -t $session_name:$window_name.$((window_start_index + 1)) "make cfork-restore > exec_log | tee exec_log2" ENTER
 
 ## Attach the Tmux session to the front.
 tmux a -t $session_name

@@ -2,12 +2,19 @@
 
 set timeout 60
 
+set program_name "test_cfork_hello.bin"
+set args ""
+# set program_name "leveldb-dbbench"
+# set args "--benchmarks=fillbatch --num=1000000"
+
 # start
 spawn ./build/simulate.sh 0
 expect "Welcome to ChCore shell!"
-# run anything you like here
-# interact
-send -- "test_cfork_hello.bin & \r"
-send -- "test_cfork_prepare.bin & \r"
+
+# start the program
+send -- "$program_name $args & \r"
+
+# prepare the checkpoint
+send -- "test_cfork_prepare.bin $program_name & \r"
 
 interact
