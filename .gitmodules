@@ -16,9 +16,9 @@
   branch = 3.12
 [submodule "user/libraries/libffi"]
 	path = user/libraries/libffi
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/libraries/libffi.git
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/libffi.git
   branch = dev
 [submodule "user/libraries/zlib"]
 	path = user/libraries/zlib
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/libraries/zlib.git
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/zlib.git
 	branch = master

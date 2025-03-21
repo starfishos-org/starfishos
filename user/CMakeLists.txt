@@ -18,13 +18,16 @@ add_library(libc SHARED IMPORTED)
 set_property(TARGET libc PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.so)
 
 add_library(libstdc++ SHARED IMPORTED)
-set_property(TARGET libstdc++ PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6)
+set_property(TARGET libstdc++ PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6.0.28)
 
 add_library(libgcc_s SHARED IMPORTED)
 set_property(TARGET libgcc_s PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgcc_s.so.1)
 
 add_library(libgomp SHARED IMPORTED)
-set_property(TARGET libgomp PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1)
+set_property(TARGET libgomp PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1.0.0)
+
+set(CMAKE_C_COMPILER ${libc_install_dir}/bin/musl-gcc)
+set(CMAKE_CXX_COMPILER ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/bin/musl-g++)
 
 add_custom_target(
     ramdisk ALL
@@ -32,13 +35,13 @@ add_custom_target(
     # install libc.so
     COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.so ${build_ramdisk_dir}/
     # install libffi.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so ${build_ramdisk_dir}/
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/
     # install libz.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so ${build_ramdisk_dir}/
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/
     # install cpp library
-    COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6 ${build_ramdisk_dir}/
+    COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6.0.28 ${build_ramdisk_dir}/
     COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgcc_s.so.1 ${build_ramdisk_dir}/
-    COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1 ${build_ramdisk_dir}/
+    COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1.0.0 ${build_ramdisk_dir}/
     # install packages installed by ChPM
     COMMAND ${_copy_chpm_install_cmd}
     # libevent
