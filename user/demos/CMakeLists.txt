@@ -371,10 +371,10 @@ if (CHCORE_DEMOS_CPYTHON)
             ac_cv_file__dev_ptmx=no
             ac_cv_file__dev_ptc=no
         COMMAND make -j$(_nproc)
-        COMMAND make install DESTDIR=${cpython_install_dir}
-        COMMAND rsync -aL python ${build_ramdisk_dir}/python
-        COMMAND rsync -aL ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND rsync -aL example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
+        COMMAND make install prefix=${cpython_install_dir} exec_prefix=${cpython_install_dir}
+        COMMAND rsync -a python ${build_ramdisk_dir}/python
+        COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
+        COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
         DEPENDS libffi zlib
       )
     endif()

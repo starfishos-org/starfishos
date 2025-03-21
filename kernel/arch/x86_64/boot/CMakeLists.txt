@@ -19,8 +19,8 @@ add_custom_target(
     chcore.iso ALL
     COMMAND [ -f chcore.iso ] && rm -f chcore.iso || true
     COMMAND [ -d iso ] && rm -rf iso || true
-    COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/iso .
-    COMMAND cp $<TARGET_FILE:${kernel_target}> iso/boot
+    COMMAND rsync -a -r ${CMAKE_CURRENT_SOURCE_DIR}/iso .
+    COMMAND rsync -a $<TARGET_FILE:${kernel_target}> iso/boot
     COMMAND grub-mkrescue -o chcore.iso iso
     COMMAND test -f chcore.iso
     DEPENDS ${kernel_target})

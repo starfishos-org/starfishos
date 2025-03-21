@@ -102,7 +102,7 @@ if(CHCORE_CHPM_INSTALL_TO_RAMDISK AND CHCORE_CHPM_INSTALL_PREFIX)
     get_filename_component(_chpm_install_prefix ${CHCORE_CHPM_INSTALL_PREFIX}
                            REALPATH BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set(_copy_chpm_install_cmd
-        "cp -rL `find ${_chpm_install_prefix} -mindepth 1 -maxdepth 1 -type d -not -name include -and -not -name 'chpm-*'` ."
+        "rsync -a -rL `find ${_chpm_install_prefix} -mindepth 1 -maxdepth 1 -type d -not -name include -and -not -name 'chpm-*'` ."
     )
     string(REPLACE " " ";" _copy_chpm_install_cmd ${_copy_chpm_install_cmd})
 else()
