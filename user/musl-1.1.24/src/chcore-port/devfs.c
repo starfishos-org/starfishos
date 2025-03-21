@@ -1,5 +1,4 @@
 #include <chcore/syscall.h>
-#include <chcore/vfio.h>
 
 #include "devfs.h"
 
@@ -26,52 +25,49 @@ int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg)
 	req->req_type = request;
 	strncpy(req->dev_ids, fd_dic[fd]->private_data, 
 		sizeof(req->dev_ids));
-	// printf("VFIO_IOMMU_MAP_DMA 0x%lx\n", VFIO_IOMMU_MAP_DMA);
-	// printf("req->req_type 0x%lx\n", req->req_type);
+	printf("VFIO_IOMMU_MAP_DMA 0x%lx\n", VFIO_IOMMU_MAP_DMA);
+	printf("req->req_type 0x%lx\n", req->req_type);
 
 	switch (req->req_type) {
 		case VFIO_IOMMU_MAP_DMA:
 		{
-			// printf("VFIO_IOMMU_MAP_DMA\n");
-			req->arg_ptr = (u64)arg;
-			req->arg_sz = sizeof(struct vfio_iommu_type1_dma_map);
+			printf("VFIO_IOMMU_MAP_DMA\n");
+			strncpy((char *)&req->_vfio_args, arg, 
+				sizeof(struct vfio_iommu_type1_dma_map));
 			ret = usys_pcie_control((u64)req);
-			// printf("VFIO_IOMMU_MAP_DMA finished\n");
+			strncpy(arg, (char *)&req->_vfio_args, 
+				sizeof(struct vfio_device_info));
 			break;
 		}
 		case VFIO_DEVICE_GET_INFO:
 		{
-			// printf("VFIO_DEVICE_GET_INFO\n");
-			req->arg_ptr = (u64)arg;
-			req->arg_sz = sizeof(struct vfio_device_info);
+			printf("VFIO_DEVICE_GET_INFO\n");
 			ret = usys_pcie_control((u64)req);
+			if (ret < 0) {
+				goto out;
+			}
+			strncpy(arg, (char *)&req->_vfio_args, 
+				sizeof(struct vfio_device_info));
 			break;
 		}
 		case VFIO_DEVICE_GET_REGION_INFO:
 		{
-			// printf("VFIO_DEVICE_GET_REGION_INFO\n");
-			req->arg_ptr = (u64)arg;
-			req->arg_sz = sizeof(struct vfio_region_info);
+			printf("VFIO_DEVICE_GET_REGION_INFO\n");
 			ret = usys_pcie_control((u64)req);
+			if (ret < 0) {
+				goto out;
+			}
+			strncpy(arg, (char *)&req->_vfio_args, 
+				sizeof(struct vfio_region_info));
 			break;
 		}
 		default:
-			printf("VFIO ioctl not supported %lx\n", request);
+			printf("default\n");
 			return -EINVAL;
 	}
 out:
 	free(req);
 	return ret;
-}
-
-int chcore_virtio_file_pread(int fd, void *buf, size_t count, off_t offset) {
-	printf("chcore_virtio_file_read\n");
-	return 0;
-}
-
-int chcore_virtio_file_pwrite(int fd, void *buf, size_t count, off_t offset) {
-	printf("chcore_virtio_file_write\n");
-	return 0;
 }
 
 /**
@@ -115,7 +111,10 @@ error:
 }
 
 struct fd_ops virtio_file_ops = {
-	.pread = chcore_virtio_file_pread, 
-	.pwrite = chcore_virtio_file_pwrite,
-	.ioctl = chcore_virtio_file_ioctl,
+	.read = NULL, 
+	.write = NULL, 
+	.close = NULL, 
+	.ioctl = chcore_virtio_file_ioctl, 
+	.poll = NULL,
+	.fcntl = NULL,
 };

@@ -4,7 +4,7 @@ int chcore_chdir(const char *path);
 int chcore_fchdir(int fd);
 int chcore_getcwd(char *buf, size_t size);
 int chcore_ftruncate(int fd, off_t length);
-off_t chcore_lseek(int fd, off_t offset, int whence);
+int chcore_lseek(int fd, off_t offset, int whence);
 int chcore_mkdirat(int dirfd, const char *pathname, mode_t mode);
 int chcore_unlinkat(int dirfd, const char *pathname, int flags);
 int chcore_symlinkat(const char *target, int newdirfd, const char *linkpath);

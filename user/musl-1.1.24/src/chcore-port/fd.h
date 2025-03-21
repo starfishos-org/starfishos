@@ -24,20 +24,15 @@ enum fd_type {
 	FD_TYPE_TIMER,
 	FD_TYPE_EPOLL,
 	FD_TYPE_DEV,
-	FD_TYPE_HOSTFS,
 };
 
 struct fd_ops {
 	int (*read) (int fd, void *buf, size_t count);
 	int (*write) (int fd, void *buf, size_t count);
-	int (*pread) (int fd, void *buf, size_t count, off_t offset);
-	int (*pwrite) (int fd, void *buf, size_t count, off_t offset);
 	int (*close) (int fd);
 	int (*poll) (int fd, struct pollarg *arg);
 	int (*ioctl) (int fd, unsigned long request, void *arg);
 	int (*fcntl) (int fd, int cmd, int arg);
-	off_t (*lseek) (int fd, off_t offset, int whence);
-	u64 (*mmap) (u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset);
 };
 
 extern struct fd_ops epoll_ops;

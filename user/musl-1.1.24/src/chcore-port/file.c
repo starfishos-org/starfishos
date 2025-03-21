@@ -13,7 +13,6 @@
 #include "fd.h"
 #include "fs_client_defs.h"
 #include "devfs.h"
-#include "hostfs.h"
 
 #define debug(fmt, ...) printf("[DEBUG] " fmt, ##__VA_ARGS__)
 #define warn_once(fmt, ...) do {  \
@@ -208,7 +207,7 @@ int chcore_ftruncate(int fd, off_t length)
 	return ret;
 }
 
-int chcore_file_lseek(int fd, off_t offset, int whence)
+int chcore_lseek(int fd, off_t offset, int whence)
 {
 	ipc_msg_t *ipc_msg = 0;
 	ipc_struct_t *_fs_ipc_struct;
@@ -669,8 +668,17 @@ int chcore_fallocate(int fd, int mode, off_t offset, off_t len)
 	return ret;
 }
 
-ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
+ssize_t chcore_pread(int fd, void *buf, size_t count, off_t offset)
 {
+#if 0
+	ssize_t nread;
+	/* FIXME(FN): this is not efficient now, use on ipc to pread in the future */
+    if ((chcore_lseek(fd, offset, SEEK_SET) == -1) || ((nread = chcore_read(fd, buf, count)) == -1)) {
+        printf("Failed to read file\n");
+        return -1;
+    }
+	return nread;
+#endif
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
 	struct fd_record_extension *fd_ext;
@@ -710,7 +718,7 @@ ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 	return ret;
 }
 
-ssize_t chcore_file_pwrite(int fd, const void *buf, size_t count, off_t offset)
+ssize_t chcore_pwrite(int fd, const void *buf, size_t count, off_t offset)
 {
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
@@ -860,18 +868,14 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	if (IS_DEVFS(full_path)) {
 		/* TODO: check whether this dev exist */
 		ret = chcore_open_dev(fd, full_path);
-		goto out_full_path_destroy;
-	}
-
-	if (IS_HOSTFS(full_path)) {
-		ret = chcore_hostfs_open(fd, full_path);
-		goto out_full_path_destroy;
+		free(full_path);
+		return ret;
 	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
-		ret = -EINVAL;
-		goto out_full_path_destroy;
+		free(full_path);
+		return -EINVAL;
 	}
 
 	/* Send IPC to fs_server */
@@ -906,9 +910,8 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 		free_fd(fd);
 	}
 
-	ipc_destroy_msg(ipc_msg);
-out_full_path_destroy:
 	free(full_path);
+	ipc_destroy_msg(ipc_msg);
 
 	return ret;
 }
@@ -1227,12 +1230,8 @@ u64 chcore_file_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_
 struct fd_ops file_ops = {
 	.read = chcore_file_read,
 	.write = chcore_file_write,
-	.pread = chcore_file_pread,
-	.pwrite = chcore_file_pwrite,
 	.close = chcore_file_close,
 	.ioctl = chcore_file_ioctl,
 	.poll = NULL,
 	.fcntl = chcore_file_fcntl,
-	.lseek = chcore_file_lseek,
-	.mmap = chcore_file_mmap,
 };
