@@ -27,3 +27,4 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 int chcore_mount(const char *special, const char *dir, const char *fstype,
 		 unsigned long flags, const void *data);
 int chcore_umount(const char *special);
+long chcore_file_mmap(void *vaddr, size_t length, int prot, int flags, int fd, off_t offset);

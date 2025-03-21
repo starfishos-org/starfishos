@@ -8,6 +8,7 @@
 #include <chcore/ipc.h>
 #include <chcore-internal/procmgr_defs.h>
 #include <pthread.h>
+#include <chcore/memory.h>
 
 #include "fd.h"
 #include "fs_client_defs.h"
@@ -1158,6 +1159,71 @@ int __xstatxx(int req, int fd, const char *path, int flags,
 	if (full_path)
 		free(full_path);
 	return ret;
+}
+
+u64 chcore_file_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+#ifdef CHCORE_ENABLE_FMAP
+	ipc_struct_t *_fs_ipc_struct;
+	struct ipc_msg *ipc_msg;
+	u64 fmap_pmo_cap;
+	int ret;
+	struct fd_record_extension *fd_ext;
+	struct fs_request fr;
+
+	BUG_ON(fd_dic[fd] == 0);
+	/**
+	 * One cap slot number to receive pmo_cap.
+	 */
+	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	ipc_msg = ipc_create_msg(_fs_ipc_struct,
+					sizeof(struct fs_request), 1);
+
+	/* Step: Allocate a mmap address in client user-level */
+	if (!vaddr) {
+		vaddr = (long)chcore_alloc_vaddr((u64)length /* length */);
+		if (!vaddr) {
+			ipc_destroy_msg(ipc_msg);
+			return -ENOMEM;
+		}
+	}
+	// debug("%s: addr=0x%lx, size=%0x%lx\n", __func__, vaddr, length);
+
+	fr.req = FS_REQ_FMAP;
+	fr.mmap.addr = (void *)vaddr;
+	fr.mmap.length = (size_t)ROUND_UP(length, PAGE_SIZE);
+	fr.mmap.prot = (int)prot;
+	fr.mmap.flags = (int)flags;
+	fr.mmap.fd = fd;
+	fr.mmap.offset = (off_t)offset;
+
+	ipc_set_msg_data(ipc_msg, (char *)&fr, 0, sizeof(fr));
+
+	ret = ipc_call(_fs_ipc_struct, ipc_msg);
+	if (ret < 0) {
+		return ret;
+	}
+
+	BUG_ON(ipc_msg->cap_slot_number <= 0);
+
+	fmap_pmo_cap = ipc_get_msg_cap(ipc_msg, 0);
+	ipc_destroy_msg(ipc_msg);
+
+	/* Step: (TODO) map pmo in addr */
+	/* FIXME: why hard-coding VM_READ | VM_WRITE? */
+	ret = usys_map_pmo_with_length(
+		fmap_pmo_cap, vaddr, VM_READ | VM_WRITE, (size_t)fr.mmap.length);
+	// ret = usys_map_pmo(SELF_CAP, fmap_pmo_cap, a, VM_READ | VM_WRITE);
+
+	if (ret < 0)
+		return ret;
+
+	return vaddr; /* Generated addr */
+#else
+	printf("The mmap configuration is disabled.\n");
+	return -1;
+#endif
 }
 
 /* FILE */

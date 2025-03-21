@@ -744,7 +744,11 @@ long __syscall4(long n, long a, long b, long c, long d)
 		return -1;
 	}
 	case SYS_utimensat: {
-		warn("SYS_utimensat is implemented.\n");
+		warn("SYS_utimensat is not implemented.\n");
+		return 0;
+	}
+	case SYS_fadvise64: {
+		warn("SYS_fadvise is not implemented.\n");
 		return 0;
 	}
 	default:
@@ -801,9 +805,6 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 	struct fd_record_extension *fd_ext;
 	struct fs_request fr;
 	ipc_struct_t *_fs_ipc_struct;
-#ifdef CHCORE_ENABLE_FMAP
-	u64 fmap_pmo_cap;
-#endif
 	int ret = 0, fd = 0, cap = 0, len = 0, shared_pmo = 0;
 
 	if (n != SYS_io_submit && n != SYS_read)
@@ -813,63 +814,9 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 	case SYS_mmap: {
 		/* TODO */
 		if (e != -1) {
-#ifdef CHCORE_ENABLE_FMAP
-			/* TODO: move this piece of code to a function: chcore_fmap() */
-			BUG_ON(fd_dic[e] == 0);
-			/**
-			 * One cap slot number to receive pmo_cap.
-			 */
-			fd_ext = (struct fd_record_extension *)fd_dic[e]->private_data;
-			_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
-			ipc_msg = ipc_create_msg(_fs_ipc_struct,
-						 sizeof(struct fs_request), 1);
-
-			/* Step: Allocate a mmap address in client user-level */
-			if (!a) {
-				a = (long)chcore_alloc_vaddr((u64)b /* length */);
-				if (!a) {
-					ipc_destroy_msg(ipc_msg);
-					return -ENOMEM;
-				}
-			}
-			fs_debug("mmap: addr=0x%lx, size=%0x%lx\n", a, b);
-
-			fr.req = FS_REQ_FMAP;
-			fr.mmap.addr = (void *)a;
-			fr.mmap.length = (size_t)ROUND_UP(b, PAGE_SIZE);
-			fr.mmap.prot = (int)c;
-			fr.mmap.flags = (int)d;
-			fr.mmap.fd = e;
-			fr.mmap.offset = (off_t)f;
-
-			ipc_set_msg_data(ipc_msg, (char *)&fr, 0, sizeof(fr));
-
-			ret = ipc_call(_fs_ipc_struct, ipc_msg);
-			if (ret < 0) {
-				return ret;
-			}
-
-			BUG_ON(ipc_msg->cap_slot_number <= 0);
-
-			fmap_pmo_cap = ipc_get_msg_cap(ipc_msg, 0);
-			ipc_destroy_msg(ipc_msg);
-
-			/* Step: (TODO) map pmo in addr */
-			/* FIXME: why hard-coding VM_READ | VM_WRITE? */
-			ret = usys_map_pmo_with_length(
-				fmap_pmo_cap, a, VM_READ | VM_WRITE, (size_t)fr.mmap.length);
-			// ret = usys_map_pmo(SELF_CAP, fmap_pmo_cap, a, VM_READ | VM_WRITE);
-
-			if (ret < 0)
-				return ret;
-
-			return a; /* Generated addr */
-#else
-			printf("The mmap configuration is disabled.\n");
-			return -1;
-#endif
+			return (long)chcore_file_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f);
 		}
-		return (long)chcore_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f);
+		return (long)chcore_mmap((void *)a, (size_t)b, (int)c, (int)d, (int)e, (off_t)f, 0);
 	}
 	case SYS_fsync: {
 		return chcore_fsync(a);

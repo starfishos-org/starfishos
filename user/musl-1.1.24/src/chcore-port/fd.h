@@ -90,3 +90,4 @@ int chcore_ioctl(int fd, unsigned long request, void *arg);
 int chcore_readv(int fd, const struct iovec *iov, int iovcnt);
 int chcore_writev(int fd, const struct iovec *iov, int iovcnt);
 int dup_fd_content(int fd, int arg);
+long chcore_fd_mmap(long vaddr, size_t length, int prot, int flags, int fd, off_t offset);
