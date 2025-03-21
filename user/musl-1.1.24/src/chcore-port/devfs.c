@@ -32,10 +32,10 @@ int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg)
 		case VFIO_IOMMU_MAP_DMA:
 		{
 			printf("VFIO_IOMMU_MAP_DMA\n");
-			strncpy(&req->_vfio_args, arg, 
+			strncpy((char *)&req->_vfio_args, arg, 
 				sizeof(struct vfio_iommu_type1_dma_map));
 			ret = usys_pcie_control((u64)req);
-			strncpy(arg, &req->_vfio_args, 
+			strncpy(arg, (char *)&req->_vfio_args, 
 				sizeof(struct vfio_device_info));
 			break;
 		}
@@ -46,7 +46,7 @@ int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg)
 			if (ret < 0) {
 				goto out;
 			}
-			strncpy(arg, &req->_vfio_args, 
+			strncpy(arg, (char *)&req->_vfio_args, 
 				sizeof(struct vfio_device_info));
 			break;
 		}
@@ -57,7 +57,7 @@ int chcore_virtio_file_ioctl(int fd, unsigned long request, void *arg)
 			if (ret < 0) {
 				goto out;
 			}
-			strncpy(arg, &req->_vfio_args, 
+			strncpy(arg, (char *)&req->_vfio_args, 
 				sizeof(struct vfio_region_info));
 			break;
 		}

@@ -71,8 +71,6 @@ int usys_whole_ckpt(char *ckpt_name, u64 name_len);
 int usys_whole_ckpt_for_test(char *ckpt_name, u64 name_len, u64 log_level);
 int usys_whole_restore(char *ckpt_name, u64 name_len);
 int usys_register_external_ringbuf(u64 buffer);
-int usys_ckpt_migrate(char *ckpt_name);
-int usys_ckpt_merge_migration();
 
 void usys_ipi_stop_all(void);
 void usys_ipi_start_all(void);
@@ -88,6 +86,10 @@ void usys_set_excepted_connected_client_num(int expected_num);
 void usys_set_dyn_args(u64, u64);
 
 int usys_pcie_control(u64);
+
+int usys_cfork_prepare(char *pname, u64 pname_len);
+int usys_cfork_ckpt(char *pname, u64 pname_len);
+int usys_cfork_restore(char *pname, u64 pname_len);
 
 #ifdef __cplusplus
 }

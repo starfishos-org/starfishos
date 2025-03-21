@@ -5,7 +5,7 @@ target_compile_options(perf_libc_malloc.bin PRIVATE -O2)
 add_custom_command(
   TARGET perf_libc_malloc.bin
   POST_BUILD
-  COMMAND rsync -a ${CMAKE_CURRENT_SOURCE_DIR}/mem_alloc.txt ${build_ramdisk_dir}/
+  COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/mem_alloc.txt ${build_ramdisk_dir}/
 )
 
 add_executable(perf_mem.bin perf_mem.c)

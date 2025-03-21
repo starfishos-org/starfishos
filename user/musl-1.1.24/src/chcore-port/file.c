@@ -743,7 +743,7 @@ ssize_t chcore_pwrite(int fd, const void *buf, size_t count, off_t offset)
 		fr_ptr->pwrite.fd = fd;
 		fr_ptr->pwrite.count = cnt;
 		fr_ptr->pwrite.offset = offset;
-		ipc_set_msg_data(ipc_msg, buf, sizeof(struct fs_request), cnt);
+		ipc_set_msg_data(ipc_msg, (void *)buf, sizeof(struct fs_request), cnt);
 		ret = ipc_call(_fs_ipc_struct, ipc_msg);
 		buf = (char *)buf + ret;
 		remain -= ret;

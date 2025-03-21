@@ -2,7 +2,7 @@
 
 #include <chcore/type.h>
 
-#include "ioctl.h"
+#include <sys/ioctl.h>
 #include "vfio.h"
 
 #ifdef __cplusplus
