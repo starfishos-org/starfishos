@@ -1,6 +1,3 @@
-# chcore_enable_clang_tidy(
-    # EXTRA_CHECKS -performance-no-int-to-ptr,-clang-analyzer-deadcode.DeadStores)
-message(STATUS "CMAKE_C_CLANG_TIDY: ${CMAKE_C_CLANG_TIDY}")
 set(binary_path ${build_user_dir}/ramdisk.cpio)
 configure_file(incbin_ramdisk.tpl.S incbin_ramdisk.S)
 unset(binary_path)
@@ -11,3 +8,7 @@ add_dependencies(tmpfs.srv ramdisk)
 target_sources(tmpfs.srv PRIVATE incbin_ramdisk.S)
 
 target_link_libraries(tmpfs.srv PRIVATE fs_base)
+
+add_dependencies(tmpfs.srv libc)
+
+target_link_options(tmpfs.srv PRIVATE -static)

@@ -73,3 +73,18 @@ llama-bench:
 llama-cli:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/llama-cli.exp
+
+cxl-new:
+	./dsm-scripts/config_memdev.sh cxl-new
+
+cluster:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_cluster.sh
+
+4cluster:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/simulate_4clusters.sh
+
+leveldb:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/leveldb.sh
