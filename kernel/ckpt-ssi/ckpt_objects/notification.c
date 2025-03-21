@@ -6,7 +6,7 @@ extern u64 eval_obj_time[];
 #endif
 
 int notification_ckpt(struct notification *notifc,
-                      struct ckpt_notification *ckpt_notifc, int alloc)
+                      struct ckpt_notification *ckpt_notifc, int flags)
 {
     int r, count;
     struct thread *old_thread;
@@ -28,7 +28,7 @@ int notification_ckpt(struct notification *notifc,
                       notification_queue_node,
                       &notifc->waiting_threads) {
         old_obj = container_of(old_thread, struct object, opaque);
-        ckpt_obj_root = ckpt_obj_root_get(old_obj, alloc);
+        ckpt_obj_root = ckpt_obj_root_get(old_obj, flags);
         if (!ckpt_obj_root) {
             BUG_ON(1);
             r = -ENOMEM;
@@ -47,7 +47,7 @@ out_fail:
 
 int notification_restore(struct object *notifc_obj,
                          struct ckpt_object *ckpt_notifc_obj,
-                         struct kvs *obj_map, bool time_traveling)
+                         struct kvs *obj_map, int flags)
 {
     int r, i;
     struct notification *notifc = (struct notification *)notifc_obj->opaque;

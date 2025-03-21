@@ -3,6 +3,7 @@
 #include <common/types.h>
 #include <common/list.h>
 #include <drivers/resource.h>
+#include <drivers/vfio.h>
 
 #include "pci_regs.h"
 #include "pci_names.h"
@@ -427,4 +428,4 @@ int pci_setup_device(struct pci_dev *dev);
 void pci_setup_devices();
 
 /* ioctl handler for vfio */
-int vfio_handle_ioctl(u32 type, struct pci_dev *pdev, void *args);
+int vfio_handle_ioctl(u32 type, struct pci_dev *pdev, u64 arg_ptr, u64 arg_sz);

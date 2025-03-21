@@ -27,14 +27,11 @@
     printk("[pingpong] " fmt, ##__VA_ARGS__)
 
 /**
- * DSM_STATE
+ * Fast access to dsm metadata
  */
-enum {
-    DSM_CONFIG_STATE_UNINITED = 0,
-    DSM_CONFIG_STATE_MM_INITED,
-    DSM_CONFIG_STATE_SCHED_INITED,
-} dsm_config_state_type;
-
+#define DSM_CONFIG_STATE_UNINITED 0
+#define DSM_CONFIG_STATE_MM_INITED 1
+#define DSM_CONFIG_STATE_CKPT_INITED 2
 #define DSM_STATE (dsm_meta->state)
 
 /**
@@ -88,36 +85,62 @@ typedef struct {
     u64 local_mem_size;
 } dsm_machine_local_metadata_t;
 
+/**
+ * dsm metadata
+ *
+ * The main structure of dsm metadata.
+ * It is shared among all machines, and is placed in the
+ * first page of the shared memory so that it can be accessed
+ * by all machines.
+ *
+ * The metadata contains several parts:
+ * 1. global configuration
+ * 2. dsm memory layout
+ * 3. buddy and slab system
+ * 4. shared queue
+ * 5. checkpoint data
+ */
 typedef struct {
-    // global configuration
-    u32 cluster_cpu_num;
-    u32 cluster_machine_num;
-    volatile u64 state;
+    /**
+     * 1. global configuration
+     */
+    u32 cluster_cpu_num; // number of CPUs in the cluster
+    u32 cluster_machine_num; // number of machines in the cluster
+    volatile u64 state; // state of dsm
 
     /**
-     * dsm memory layout:
-     * kernel space:
-     * shm_vaddr                                 max_vaddr
-     *     | SHM | M1 LOCAL MEM | ... | Mn LOCAL MEM |
+     * 2. dsm memory layout:
+     * a shared and single virtual kernel space:
+     *
+     * local_paddr                                 shm_paddr + shm_size
+     *    v
+     *    || M1 LOCAL MEM || ... || Mn LOCAL MEM || SHM ||
      */
     u64 shm_paddr;
     u64 shm_size;
     u64 local_paddr;
     u64 max_paddr; // vaddr of max local DRAM
 
-    /* local mem kernel addr of each machine */
+    /**
+     * 3. local mem kernel addr of each machine
+     */
     dsm_machine_local_metadata_t local_meta[CLUSTER_MAX_MACHINE_NUM];
 
-    // after configuration, should be consistent among all machines
-    // buddy system
-    struct phys_mem_pool mem_pool[N_PHYS_MEM_POOLS];
-    // slab system
-    struct slab_pointer slab_pool[SLAB_MAX_ORDER + 1];
-    struct lock slabs_locks[SLAB_MAX_ORDER + 1];
+    /**
+     * 4. buddy and slab system of SHM
+     */
+    struct phys_mem_pool mem_pool[N_PHYS_MEM_POOLS];     // buddy system
+    struct slab_pointer slab_pool[SLAB_MAX_ORDER + 1];   // slab system
+    struct lock slabs_locks[SLAB_MAX_ORDER + 1];         // slab lock
 
-    // FIXME(FN): remove this ugly tetsing share
+    /**
+     * 5. shared queue for scheduler
+     */
     struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
 
+    /**
+     * 6. checkpoint data
+     */
 #if defined CHCORE_SSI_SLS
     /* crash_last_time = 1 means unexpected */
     bool crash_last_time;
@@ -127,10 +150,9 @@ typedef struct {
     bool ckpt_initialized;
     /* Checkpoint data */
     struct ckpt_ws_table *ckpt_whole_sys_table;
-    struct kvs *ckpt_global_obj_map;
-    struct slab_pointer slabs[SLAB_MAX_ORDER + 1];
+    /* A KVS to accelerate the lookup of ckpt cap_group */
+    struct kvs *ckpt_cg_kvs;
 #endif
-    struct shared_queue_meta ready_to_merge_object_queue;
 } __attribute__((aligned(SIZE_1M))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -141,9 +163,6 @@ dsm_metadata_t *dsm_meta;
 static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
     dsm_meta = (dsm_metadata_t *)shm_vaddr;
-    init_list_head(&(dsm_meta->ready_to_merge_object_queue.queue_head));
-    lock_init(&(dsm_meta->ready_to_merge_object_queue.queue_lock));
-    dsm_meta->ready_to_merge_object_queue.queue_len = 0;
 }
 
 static inline u64 dsm_is_inited()

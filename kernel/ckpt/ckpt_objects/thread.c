@@ -133,7 +133,7 @@ void ipc_config_ckpt(void *config, void *ckpt_config, int config_type)
     }
 }
 
-int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread)
+int thread_ckpt(struct thread *target, struct ckpt_thread *ckpt_thread, int flags)
 {
     /* Copy thread_ctx data */
     thread_ctx_ckpt(&ckpt_thread->thread_ctx, target->thread_ctx);

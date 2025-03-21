@@ -6,7 +6,7 @@ extern u64 eval_obj_time[];
 #endif
 
 int connection_ckpt(struct ipc_connection *conn,
-                    struct ckpt_ipc_connection *ckpt_conn, int alloc)
+                    struct ckpt_ipc_connection *ckpt_conn, int flags)
 {
     struct object *old_client_obj, *old_server_obj;
     struct ckpt_obj_root *new_client_obj_root, *new_server_obj_root;
@@ -15,7 +15,7 @@ int connection_ckpt(struct ipc_connection *conn,
     if (conn->current_client_thread) {
         old_client_obj = container_of(
                 conn->current_client_thread, struct object, opaque);
-        new_client_obj_root = ckpt_obj_root_get(old_client_obj, alloc);
+        new_client_obj_root = ckpt_obj_root_get(old_client_obj, flags);
         if (!new_client_obj_root) {
             BUG_ON(1);
             r = -ENOMEM;
@@ -29,7 +29,7 @@ int connection_ckpt(struct ipc_connection *conn,
     if (conn->server_handler_thread) {
         old_server_obj = container_of(
                 conn->server_handler_thread, struct object, opaque);
-        new_server_obj_root = ckpt_obj_root_get(old_server_obj, alloc);
+        new_server_obj_root = ckpt_obj_root_get(old_server_obj, flags);
         if (!new_server_obj_root) {
             BUG_ON(1);
             r = -ENOMEM;
@@ -54,7 +54,7 @@ out_fail:
 
 int connection_restore(struct object *conn_obj,
                        struct ckpt_object *ckpt_conn_obj, struct kvs *obj_map,
-                       bool time_traveling)
+                       int flags)
 {
     int r;
     struct ipc_connection *conn = (struct ipc_connection *)conn_obj->opaque;

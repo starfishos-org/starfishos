@@ -354,22 +354,6 @@ if (CHCORE_DEMOS_CPYTHON)
         cpython
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
         COMMAND make clean
-        COMMAND ./configure
-            CXX=${MUSL_CXX}
-            CC=${MUSL_CC}
-            LDFLAGS="-L${libc_install_dir}/lib"
-            CPPFLAGS="-I${libc_install_dir}/include"
-            --host=x86_64-linux-musl
-            --build=x86_64-linux
-            --disable-ipv6
-            --with-build-python
-            --with-ensurepip=no
-            --prefix=${cpython_install_dir}
-            --exec-prefix=${cpython_install_dir}
-            ac_cv_file__dev_ptmx=no
-            ac_cv_file__dev_ptc=no
-        COMMAND make -j$(_nproc)
-        COMMAND make install
         COMMAND ./configure 
             CXX=${MUSL_CXX}
             CC=${MUSL_CC}
@@ -385,6 +369,7 @@ if (CHCORE_DEMOS_CPYTHON)
             ac_cv_file__dev_ptmx=no
             ac_cv_file__dev_ptc=no
         COMMAND make -j$(_nproc)
+        COMMAND make install prefix=${cpython_install_dir} exec_prefix=${cpython_install_dir}
         COMMAND rsync -a python ${build_ramdisk_dir}/python
         COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
         COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"

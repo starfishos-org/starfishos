@@ -187,3 +187,28 @@ int snprintf(char *str, size_t size, const char *format, ...)
     str[len] = '\0';
     return len;
 }
+
+const char *strstr(const char *haystack, const char *needle) {
+    // if needle is empty, return haystack
+    if (!*needle) {
+        return haystack;
+    }
+    
+    // main loop, traverse haystack
+    for (const char *p = haystack; *p != '\0'; ++p) {
+        // start matching
+        const char *start = p, *pattern = needle;
+        // if haystack is not end and needle is not end and character match, continue
+        while (*start && *pattern && *start == *pattern) {
+            ++start;
+            ++pattern;
+        }
+        // if complete match needle, return current position
+        if (!*pattern) {
+            return p;
+        }
+    }
+    
+    // if not found, return NULL
+    return NULL;
+}

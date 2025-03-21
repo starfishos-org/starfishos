@@ -4,6 +4,7 @@
 #include <mm/kmalloc.h>
 #include <common/errno.h>
 #include <common/util.h>
+#include <drivers/ivshmem.h>
 
 /* syscall for userspace */
 /* functions for pci control */
@@ -40,10 +41,29 @@ int pci_device_map_region(struct pci_control_req *req)
     return 0;
 }
 
+int hostfs_handle_ioctl(struct pci_control_req *req)
+{
+    switch (req->req_type)
+    {
+    case PCI_CONTROL_IVSHMEM_OPEN:
+        return pci_hostfs_open(req);
+    case PCI_CONTROL_IVSHMEM_MMAP:
+        return pci_hostfs_mmap(req);
+    case PCI_CONTROL_IVSHMEM_UNMAP:
+        return pci_hostfs_unmap(req);
+    case PCI_CONTROL_IVSHMEM_LIST:
+        return pci_hostfs_list(req);
+    default:
+        printk("unknown ioctl type %lx\n", req->req_type);
+        break;
+    }
+    return -EINVAL;
+}
+
 int sys_pcie_control(u64 usr_req_buf)
 {
     struct pci_control_req *req;
-    u64 device_type;
+    char device_type;
     int ret = 0;
 
     req = (struct pci_control_req *)kmalloc(
@@ -54,7 +74,7 @@ int sys_pcie_control(u64 usr_req_buf)
     }
 
     copy_from_user((char *)req, (char *)usr_req_buf, sizeof(struct pci_control_req));
-    pci_ioctl_debug("[PCI] sys_pcie_control request is %lx\n", req->req_type);
+    // pci_ioctl_debug("[PCI] sys_pcie_control request is %lx\n", req->req_type);
 
     if (req->req_type == PCI_CONTROL_LIST_DEVICES) {
         ret = pci_list_all_devices(req);
@@ -69,22 +89,27 @@ int sys_pcie_control(u64 usr_req_buf)
         }
         goto out;
     }
-    
+
     // ioctl requests are related to each devices
     device_type = _IOC_TYPE(req->req_type);
-    struct pci_dev *pdev = pci_find_device_by_ids(req->dev_ids);
-    if (!pdev) {
-        pci_info("device /dev/%s not found\n", req->dev_ids);
-        ret = -ENODEV;
-        goto out;
-    }
 
     switch (device_type) {
-    case VFIO_TYPE:
+    case HOSTFS_TYPE: {
+        ret = hostfs_handle_ioctl(req);
+        break;
+    }
+    case VFIO_TYPE: {
+        struct pci_dev *pdev = pci_find_device_by_ids(req->dev_ids);
+        if (!pdev) {
+            pci_info("device /dev/%s not found\n", req->dev_ids);
+            ret = -ENODEV;
+            goto out;
+        }
         ret = vfio_handle_ioctl(req->req_type, pdev, 
-            (void *)&(req->_vfio_args));
-        copy_to_user((char *)usr_req_buf, (char *)req, sizeof(struct pci_control_req));
-        goto out;
+            req->arg_ptr, req->arg_sz);
+        break;
+    }
+
     default:
         pci_info("Chcore does not support device type %c\n", device_type);
         ret = -EINVAL;

@@ -29,12 +29,9 @@ const obj_deinit_func obj_deinit_tbl[TYPE_NR] = {
 };
 
 /*
- * Usage:
- * obj = obj_alloc(...);
- * initialize the obj;
- * cap_alloc(obj);
+ * object_alloc: allocate an object and return the opaque pointer
  */
-void *obj_alloc(u64 type, u64 size, int flags)
+struct object *object_alloc(u64 type, u64 size, int flags)
 {
     u64 total_size;
     struct object *object;
@@ -56,6 +53,22 @@ void *obj_alloc(u64 type, u64 size, int flags)
     init_list_head(&object->copies_head);
     lock_init(&object->copies_lock);
 
+    return object;
+}
+
+/*
+ * obj_alloc: allocate an object and return the opaque pointer
+ * Usage:
+ * obj = obj_alloc(...);
+ * initialize the obj;
+ * cap_alloc(obj);
+ */
+void *obj_alloc(u64 type, u64 size, int flags)
+{
+    struct object *object = object_alloc(type, size, flags);
+    if (!object) {
+        return NULL;
+    }
     return object->opaque;
 }
 
@@ -153,7 +166,7 @@ void __free_object(struct object *object)
 {
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
     extern struct ckpt_obj_root *ckpt_obj_root_get(struct object *, bool);
-    struct ckpt_obj_root *root = ckpt_obj_root_get(object, false);
+    struct ckpt_obj_root *root = ckpt_obj_root_get(object, 0);
     if (root) {
         return;
     }

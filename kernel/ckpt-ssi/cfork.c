@@ -1,0 +1,155 @@
+#include <common/kvstore.h>
+#include <common/util.h>
+#include <arch/mmu.h>
+#include <mm/mm.h>
+#include <mm/kmalloc.h>
+#include <mm/uaccess.h>
+#include <object/cap_group.h>
+#include <object/thread.h>
+#include <object/user_fault.h>
+#include <ckpt/ckpt.h>
+#include <ckpt/ckpt_data.h>
+#include <sched/context.h>
+#include <dsm/dsm-single.h>
+
+#include "cfork.h"
+
+static inline char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
+{
+    char *pname = (char *)kmalloc(pname_len + 1, __PRIVATE__);
+    copy_from_user(pname, (void *)pname_ptr, pname_len);
+    pname[pname_len] = '\0';
+    CFORK_LOG_INFO("pname: %s, pname_len: %d", pname, pname_len);
+    return pname;
+}
+
+int sys_cfork_prepare(u64 pname_ptr, u64 pname_len)
+{
+    char *pname;
+    int ret = 0;
+
+    pname = pname_to_pname_ptr(pname_ptr, pname_len);
+
+    struct cap_group *cap_group;
+    struct object *cg_obj;
+    struct ckpt_obj_root *cg_obj_root;
+
+    // find the cap group in the cap tree by the process name
+    cap_group = find_capgroup_by_name(pname, pname_len);
+    if (!cap_group) {
+        CFORK_LOG_ERR("cfork_prepare: cap_group not found");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    cg_obj = container_of(cap_group, struct object, opaque);
+
+    // checkpoint most memory expect cap_group and thread to the shared memory
+    cg_obj_root = cfork_prepare_ckpt_process(cg_obj);
+    if (!cg_obj_root) {
+        CFORK_LOG_ERR("cfork_prepare: cfork_prepare_ckpt_process failed");
+        goto out;
+    }
+
+    // add the cg_obj_root to the kvs
+    ret = add_ckpt_obj_root_by_name(cg_obj_root, pname, pname_len);
+    if (ret) {
+        CFORK_LOG_ERR("cfork_prepare: add_ckpt_obj_root_by_name failed");
+        goto out;
+    }
+
+out:
+    kfree(pname);
+    return ret;
+}
+
+int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
+{
+    char *pname;
+    int ret = 0;
+    struct ckpt_obj_root *ckpt_obj_root;
+    struct cap_group *cap_group;
+
+    pname = pname_to_pname_ptr(pname_ptr, pname_len);
+
+    ckpt_obj_root = find_ckpt_obj_root_by_name(pname, pname_len);
+    if (!ckpt_obj_root) {
+        CFORK_LOG_ERR("cfork_ckpt: ckpt_obj_root not found");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    cap_group = (struct cap_group *)(ckpt_obj_root->obj->opaque);
+
+    // remove the process from the cap tree
+    ret = cfork_stop_threads(&(cap_group->thread_list));
+    if (ret) {
+        CFORK_LOG_ERR("cfork_ckpt: cfork_stop_threads failed");
+        goto out;
+    }
+
+    // checkpoint the remaining part to the shared memory
+    ret = cfork_ckpt_process(ckpt_obj_root);
+    if (ret) {
+        CFORK_LOG_ERR("cfork_ckpt: cfork_ckpt_process failed");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    // add the cap group to the kvs
+    ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
+    if (ret) {
+        CFORK_LOG_ERR("cfork_ckpt: add_ckpt_obj_root_by_name failed");
+        goto out;
+    }
+
+out:
+    kfree(pname);
+    return ret;
+}
+
+int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
+{
+    int ret = 0;
+    char *pname;
+    struct ckpt_obj_root *ckpt_obj_root;
+    struct cap_group *restored_cg;
+
+    pname = pname_to_pname_ptr(pname_ptr, pname_len);
+
+    // find cap group in the checkpointed cap tree
+    if (!(ckpt_obj_root = find_ckpt_obj_root_by_name(pname, pname_len))) {
+        CFORK_LOG_ERR("cfork_restore: ckpt_obj_root not found");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p\n", ckpt_obj_root);
+
+    // restore the cap group
+    if ((ret = cfork_restore_process(ckpt_obj_root, &restored_cg))) {
+        CFORK_LOG_ERR("cfork_restore: cfork_restore_process failed");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    CFORK_LOG_DEBUG("cfork_restore: restored_cg: %p\n", restored_cg);
+
+    // add the restored sub cap group to the cap tree
+    if ((ret = add_cap_group_to_cap_tree(root_cap_group, restored_cg))) {
+        CFORK_LOG_ERR("cfork_restore: add_cap_group_to_cap_tree failed");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    // start all threads
+    if ((ret = cfork_start_threads(&(restored_cg->thread_list)))) {
+        CFORK_LOG_ERR("cfork_restore: cfork_start_threads failed");
+        ret = -ENOENT;
+        goto out;
+    }
+
+out:
+    kfree(pname);
+    return ret;
+}
