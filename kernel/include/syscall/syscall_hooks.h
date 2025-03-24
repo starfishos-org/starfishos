@@ -10,13 +10,16 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#pragma once
+#ifndef SYSCALL_SYSCALL_HOOKS_H
+#define SYSCALL_SYSCALL_HOOKS_H
 
-#include <arch/machine/registers.h>
+#include <common/types.h>
 
-/* size in registers.h (to be used in asm) */
-typedef struct arch_exec_context {
-    unsigned long reg[REG_NUM];
-} arch_exec_ctx_t;
+int hook_sys_create_pmo(unsigned long size, pmo_type_t type, unsigned long val);
+int hook_sys_get_phys_addr(vaddr_t va, paddr_t *pa_buf);
+int hook_sys_create_cap_group(unsigned long cap_group_args_p);
+int hook_sys_register_recycle(cap_t notifc_cap, vaddr_t msg_buffer);
+int hook_sys_cap_group_recycle(cap_t cap_group_cap);
+int hook_sys_kill_group(cap_t proc_cap);
 
-#define TLS_REG_NUM 2
+#endif /* SYSCALL_SYSCALL_HOOKS_H */

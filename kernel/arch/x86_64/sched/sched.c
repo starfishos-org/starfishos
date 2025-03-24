@@ -12,7 +12,7 @@ void arch_idle_ctx_init(struct thread_ctx *idle_ctx, u64 stack,
                         void (*func)(void))
 {
     int i = 0;
-    arch_exec_cont_t *ec = &(idle_ctx->ec);
+    arch_exec_ctx_t *ec = &(idle_ctx->ec);
 
     /* set general registers to zero */
     for (i = 0; i < REG_NUM; i++)
@@ -22,8 +22,6 @@ void arch_idle_ctx_init(struct thread_ctx *idle_ctx, u64 stack,
     ec->reg[RIP] = (u64)func;
     ec->reg[CS] = KCSEG64;
     ec->reg[RFLAGS] = EFLAGS_DEFAULT;
-
-    // ec->reg[RSP] = (u64)((char *)idle_ctx + sizeof(arch_exec_cont_t));
     ec->reg[RSP] = stack;
     ec->reg[SS] = KDSEG;
 }
@@ -31,7 +29,7 @@ void arch_idle_ctx_init(struct thread_ctx *idle_ctx, u64 stack,
 void prememcpy_ctx_init(struct thread_ctx *ctx, u64 stack, u64 func)
 {
     int i = 0;
-    arch_exec_cont_t *ec = &(ctx->ec);
+    arch_exec_ctx_t *ec = &(ctx->ec);
 
     /* set general registers to zero */
     for (i = 0; i < REG_NUM; i++)
@@ -48,7 +46,7 @@ void prememcpy_ctx_init(struct thread_ctx *ctx, u64 stack, u64 func)
 
 inline void arch_switch_context(struct thread *target)
 {
-    arch_exec_cont_t *cur_exec_ctx;
+    arch_exec_ctx_t *cur_exec_ctx;
     vaddr_t interrupt_stack;
 
     /* Get the addr of the execution context */
@@ -64,7 +62,7 @@ inline void arch_switch_context(struct thread *target)
                  : "memory");
 
     /* Get the addr of the interrupt stack */
-    interrupt_stack = ((vaddr_t)cur_exec_ctx) + sizeof(arch_exec_cont_t);
+    interrupt_stack = ((vaddr_t)cur_exec_ctx) + sizeof(arch_exec_ctx_t);
 
     /*
      * Set the interrupt stack. Same as:

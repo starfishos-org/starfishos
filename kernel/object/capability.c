@@ -191,8 +191,8 @@ void __free_object(struct object *object)
  * cap_free (__cap_free) only removes one cap, which differs from cap_free_all.
  * TODO: we do not support cap_revoke for now.
  */
-int __cap_free(struct cap_group *cap_group, int slot_id, bool slot_table_locked,
-               bool copies_list_locked)
+int __cap_free(struct cap_group *cap_group, int slot_id, 
+                bool slot_table_locked, bool copies_list_locked)
 {
 #ifdef CKPT_CAP_GROUP_LAZY_COPY
     cap_group_lazy_copy_ckpt(cap_group);
@@ -206,8 +206,18 @@ int __cap_free(struct cap_group *cap_group, int slot_id, bool slot_table_locked,
     /* Step-1: free the slot_id (i.e., the capability number) in the slot
      * table */
     slot_table = &cap_group->slot_table;
-    if (!slot_table_locked)
+    if (!slot_table_locked && copies_list_locked) {
+        /*
+         * Prevent the following deadlock with try_lock():
+         * cap_copy(): read_lock(table_guard) -> lock(copies_lock)
+         * cap_free_all(): lock(copies_lock) -> write_lock(table_guard)
+         */
+        if (write_try_lock(&slot_table->table_guard)) {
+            return -EAGAIN;
+        }
+    } else if (!slot_table_locked) {
         write_lock(&slot_table->table_guard);
+    }
     slot = get_slot(cap_group, slot_id);
     if (!slot || slot->isvalid == false) {
         r = -ECAPBILITY;
@@ -366,6 +376,8 @@ int cap_free_all(struct cap_group *cap_group, int slot_id)
     }
 
     object = container_of(obj, struct object, opaque);
+
+again:
     /* free all copied slots */
     lock(&object->copies_lock);
     for_each_in_list_safe (
@@ -373,9 +385,13 @@ int cap_free_all(struct cap_group *cap_group, int slot_id)
         u64 iter_slot_id = slot_iter->slot_id;
         struct cap_group *iter_cap_group = slot_iter->cap_group;
 
-        // r =
-        __cap_free(iter_cap_group, iter_slot_id, false, true);
-        // BUG_ON(r != 0);
+        r = __cap_free(iter_cap_group, iter_slot_id, false, true);
+        if (r == -EAGAIN) {
+            unlock(&object->copies_lock);
+            goto again;
+        }
+        
+        BUG_ON(r != 0);
     }
     unlock(&object->copies_lock);
 

@@ -114,6 +114,9 @@ struct cap_group *create_root_cap_group(char *, size_t);
 #define FSM_BADGE            (2)
 #define LWIP_BADGE           (3)
 #define TMPFS_BADGE          (4)
+#define SERVER_BADGE_START         (5)
+#define DRIVER_BADGE_START         (100)
+#define APP_BADGE_START            (200)
 
 /**
  * Fixed pcid for root process (PROCMGR_PCID) and servers,

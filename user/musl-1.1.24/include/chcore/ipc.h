@@ -85,7 +85,10 @@ ipc_struct_t *ipc_register_client(int server_thread_cap);
 
 void *register_cb(void *ipc_handler);
 void *register_cb_single(void *ipc_handler);
+
 #define DEFAULT_CLIENT_REGISTER_HANDLER register_cb
+#define DEFAULT_DESTRUCTOR              NULL
+
 int ipc_register_server(server_handler server_handler,
 			void *(*client_register_handler)(void *));
 int ipc_register_server_cap(server_handler server_handler,

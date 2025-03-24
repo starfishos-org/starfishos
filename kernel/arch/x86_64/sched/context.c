@@ -82,6 +82,58 @@ void arch_set_thread_arg1(struct thread *thread, u64 arg)
     thread->thread_ctx->ec.reg[RSI] = arg;
 }
 
+void arch_set_thread_arg2(struct thread *thread, unsigned long arg)
+{
+    thread->thread_ctx->ec.reg[RDX] = arg;
+}
+
+void arch_set_thread_arg3(struct thread *thread, unsigned long arg)
+{
+    arch_exec_ctx_t *cur_thread_ctx = &thread->thread_ctx->ec;
+
+    /**
+     * There are two ways for a thread to enter kernel on x86_64:
+     * interrupts/exceptions, and syscall. They also exist on
+     * many other platforms of course, but the main problem on x86_64
+     * is that they have different calling convention.
+     *
+     * In interrupts/exceptions calling convention, all registers
+     * are preserved/resumed when entering/leaving kernel, and iretq
+     * instruction is used to return to user from kernel. The iretq
+     * instruction only uses state on stack to resume userspace
+     * control flow. So it's completely transparent for userspace code,
+     * and it's free for them to use any calling convention.
+     *
+     * However, in syscall calling convention, sysretq instruction is
+     * used to return to userspace. And this instruction would use %rcx
+     * as next ip, %r11 as userspace RFLAGS, i.e., kernel code must clobber
+     * %rcx, %r11 and %rax(as return value) to call sysretq correctly. So if
+     * a thread entered kernel via syscall, it should be aware of syscall
+     * calling convention. Besides, when kernel calls functions in those
+     * threads, the kernel should also use syscall calling convention
+     * because %rcx which serve as the 4th argument in System V calling
+     * convention would be clobbered by kernel to invoke sysretq.
+     *
+     * Comparing how arguments are passed via registers in SystemV and
+     * x86_64 syscall calling convention:
+     *
+     * SystemV: %rdi %rsi %rdx %rcx %r8 %r9
+     *
+     * x86_64 syscall: %rdi %rsi %rdx **%r10** %r8 %r9
+     *
+     * So this function is also the only one who needs to be aware of
+     * their difference.
+     */
+    switch (cur_thread_ctx->reg[EC]) {
+    case EC_SYSEXIT:
+        cur_thread_ctx->reg[R10] = arg;
+        break;
+    default:
+        cur_thread_ctx->reg[RCX] = arg;
+        break;
+    }
+}
+
 void arch_set_thread_tls(struct thread *thread, u64 tls)
 {
     thread->thread_ctx->tls_base_reg[TLS_FS] = tls;
@@ -89,6 +141,12 @@ void arch_set_thread_tls(struct thread *thread, u64 tls)
 
 /* set arch-specific thread state */
 void set_thread_arch_spec_state(struct thread *thread)
+{
+    /* Currently, nothing need to be done in x86-64. */
+}
+
+/* set arch-specific thread state for ipc server thread */
+void set_thread_arch_spec_state_ipc(struct thread *thread)
 {
     /* Currently, nothing need to be done in x86-64. */
 }

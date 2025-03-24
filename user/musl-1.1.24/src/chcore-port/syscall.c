@@ -85,10 +85,10 @@ int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid)
 			       name_len, pcid);
 }
 
-u64 usys_register_server(u64 callback, u64 register_thread_cap)
+int usys_register_server(u64 callback, u32 register_thread_cap, u64 destructor)
 {
-	return chcore_syscall2(CHCORE_SYS_register_server, callback,
-		       register_thread_cap);
+	return chcore_syscall3(CHCORE_SYS_register_server, callback,
+		       register_thread_cap, destructor);
 }
 
 u32 usys_register_client(u32 server_cap, u64 vm_config_ptr)
@@ -110,10 +110,10 @@ void usys_ipc_return(u64 ret, u64 cap_num)
 	chcore_syscall2(CHCORE_SYS_ipc_return, ret, cap_num);
 }
 
-void usys_ipc_register_cb_return(u64 server_thread_cap, u64 server_thread_exit_routine,
+int usys_ipc_register_cb_return(u64 server_thread_cap, u64 server_thread_exit_routine,
 				 u64 server_shm_addr)
 {
-	chcore_syscall3(CHCORE_SYS_ipc_register_cb_return, server_thread_cap,
+	return chcore_syscall3(CHCORE_SYS_ipc_register_cb_return, server_thread_cap,
 		server_thread_exit_routine, server_shm_addr);
 }
 

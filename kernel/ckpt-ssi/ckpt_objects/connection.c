@@ -46,7 +46,7 @@ int connection_ckpt(struct ipc_connection *conn,
     ckpt_conn->ownership = conn->ownership;
     ckpt_conn->conn_cap_in_client = conn->conn_cap_in_client;
     ckpt_conn->conn_cap_in_server = conn->conn_cap_in_server;
-    ckpt_conn->is_valid = conn->is_valid;
+    ckpt_conn->state = conn->state;
 
 out_fail:
     return r;
@@ -96,7 +96,7 @@ int connection_restore(struct object *conn_obj,
     conn->ownership = ckpt_conn->ownership;
     conn->conn_cap_in_client = ckpt_conn->conn_cap_in_client;
     conn->conn_cap_in_server = ckpt_conn->conn_cap_in_server;
-    conn->is_valid = ckpt_conn->is_valid;
+    conn->state = ckpt_conn->state;
     return 0;
 out_fail:
     return r;

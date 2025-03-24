@@ -232,6 +232,12 @@ bool try_dequeue_sleeper(struct thread *thread)
     bool ret = false;
 
     BUG_ON(thread == NULL);
+
+    /* directly return a thread not sleep */
+    if (thread->sleep_state.cb == NULL) {
+        return true;
+    }
+
     target_time_state = &time_states[thread->sleep_state.sleep_cpu];
     target_sleep_list_lock = &target_time_state->sleep_list_lock;
 
@@ -240,8 +246,6 @@ bool try_dequeue_sleeper(struct thread *thread)
      * Use try_lock for preventing dead lock. sys_notify can be retried.
      */
     if (try_lock(target_sleep_list_lock) == 0) {
-        BUG_ON(thread->sleep_state.cb == NULL);
-
         list_del(&thread->sleep_state.sleep_node);
         thread->sleep_state.cb = NULL;
         ret = true;

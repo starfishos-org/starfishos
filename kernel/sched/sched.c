@@ -168,9 +168,9 @@ void sched_to_thread(struct thread *target)
 {
 #ifdef DSM_ENABLED
     /* sched to a thread already migrate to remote */
-    if (target->thread_ctx->state == TS_MIGRATING) {
-        dsm_debug(
-                "%s: to a remote thread (%p), sched again\n", __func__, target);
+    if (target->thread_ctx->thread_exit_state == TE_MIGRATING) {
+        dsm_debug("%s: sched to a remote thread (%p), sched again\n", 
+            __func__, target);
         sched();
         return;
     }

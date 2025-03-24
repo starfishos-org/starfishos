@@ -12,11 +12,5 @@
 
 #pragma once
 
-#include <arch/machine/registers.h>
-
-/* size in registers.h (to be used in asm) */
-typedef struct arch_exec_context {
-    unsigned long reg[REG_NUM];
-} arch_exec_ctx_t;
-
-#define TLS_REG_NUM 2
+typedef int cap_t;
+typedef int badge_t;

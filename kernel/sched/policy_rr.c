@@ -1,5 +1,4 @@
 /* Scheduler related functions are implemented here */
-#include "lib/printk.h"
 #include <sched/sched.h>
 #include <sched/fpu.h>
 #include <arch/machine/smp.h>
@@ -138,10 +137,10 @@ int rr_sched_migrate_to_remote(struct thread *thread)
 }
 
 /**
- * __rr_sched_migrate_from_shared_queue -- check shared queue and migrate
+ * rr_sched_migrate_from_shared_queue -- check shared queue and migrate
  * scheduled thread to local queue
  */
-int __rr_sched_migrate_from_shared_queue()
+int rr_sched_migrate_from_shared_queue()
 {
     int gcpuid, lcpuid;
     struct thread *thread;
@@ -356,6 +355,13 @@ struct thread *rr_sched_choose_thread(void)
             thread->thread_ctx->thread_exit_state = TE_EXITED;
             goto again;
         }
+#ifdef DSM_ENABLED
+        if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+            /* Thread need to stop. Set the state to TS_STOPPED */
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
+            goto again;
+        }
+#endif
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
         return thread;
     }
@@ -394,13 +400,38 @@ int rr_sched(void)
             BUG_ON(!old->thread_ctx->sc);
         }
 
-        /* Set TE_EXITING after check won't cause any trouble, the
-         * thread will be recycle afterwards. Just a fast path. */
-        /* Check whether the thread is going to exit */
-        if (old->thread_ctx->thread_exit_state == TE_EXITING) {
-            /* Set the state to TS_EXIT */
+        switch (old->thread_ctx->thread_exit_state) {
+        case TE_RUNNING:
+        case TE_EXITED:
+            break;
+        case TE_EXITING:
+            /**
+             * Set TE_EXITING after check won't cause any trouble, the
+             * thread will be recycle afterwards. Just a fast path.
+             * Check whether the thread is going to exit.
+             */
             old->thread_ctx->state = TS_EXIT;
             old->thread_ctx->thread_exit_state = TE_EXITED;
+            old->thread_ctx->kernel_stack_state = KS_FREE;
+            break;
+
+            /* do nothing */
+            break;
+#ifdef DSM_ENABLED
+        case TE_MIGRATING:
+            /* schedule migrate thread to remote */
+            rr_sched_migrate_to_remote(old);
+            break;
+        case TE_STOPPING:
+            /* If the thread is being asked to stop, set it to TS_STOPPED */
+            old->thread_ctx->thread_exit_state = TE_STOPPED;
+            break;
+        case TE_STOPPED:
+            /* do nothing */
+            break;
+#endif
+        default:
+            BUG("Unexpected thread exit state: %d", old->thread_ctx->thread_exit_state);
         }
 
         /* check old state */
@@ -419,19 +450,6 @@ int rr_sched(void)
             old->thread_ctx->state = TS_INTER;
             BUG_ON(rr_sched_enqueue(old) != 0);
             break;
-#ifdef DSM_ENABLED
-        case TS_MIGRATING:
-            /* schedule migrate thread to remote */
-            rr_sched_migrate_to_remote(old);
-            break;
-        case TS_STOPPING:
-            /* If the thread is being asked to stop, set it to TS_STOPPED */
-            old->thread_ctx->state = TS_STOPPED;
-            break;
-        case TS_STOPPED:
-            /* do nothing */
-            break;
-#endif
         case TS_WAITING:
             /* do nothing */
             break;
@@ -441,11 +459,6 @@ int rr_sched(void)
             break;
         }
     }
-
-#ifdef DSM_ENABLED
-    /* migrate thread scheduled to this machine */
-    __rr_sched_migrate_from_shared_queue();
-#endif
 
     new = rr_sched_choose_thread();
     BUG_ON(!new);

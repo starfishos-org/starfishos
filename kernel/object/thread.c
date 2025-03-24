@@ -285,11 +285,11 @@ void create_root_thread(void)
  * TODO: run/stop control; whether the cap in current cap_group is required
  */
 
-static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
+static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
                          u64 arg, u32 prio, u32 type, u64 tls)
 {
     struct thread *thread;
-    int cap, ret = 0;
+    cap_t cap, ret = 0;
 
     if (!cap_group) {
         ret = -ECAPBILITY;
@@ -349,6 +349,7 @@ static int create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
     } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
         thread->thread_ctx->state = TS_WAITING;
     }
+
     return cap;
 
 out_free_obj:
@@ -425,7 +426,7 @@ int sys_create_thread(u64 thread_args_p)
 {
     struct thread_args args = {0};
     struct cap_group *cap_group;
-    int thread_cap;
+    cap_t thread_cap;
     int r;
     u32 type;
 
@@ -534,7 +535,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         /* thread set to remote */
         if (!is_local_cpu(aff)) {
             thread->thread_ctx->affinity = aff;
-            thread->thread_ctx->state = TS_MIGRATING;
+            thread->thread_ctx->thread_exit_state = TE_MIGRATING;
         }
     }
 #endif

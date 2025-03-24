@@ -19,7 +19,7 @@ u64 eval_restore_obj_count[TYPE_NR];
 #endif
 
 struct ckpt_thread_ctx {
-    arch_exec_cont_t ec;
+    arch_exec_ctx_t ec;
     /* TLS Related States */
     u64 tls_base_reg[TLS_REG_NUM];
     /* Thread Type */
@@ -190,7 +190,8 @@ struct ckpt_ipc_connection {
      * will be transferred to the server during each IPC.
      * Thus, the server can identify different client processes.
      */
-    u64 client_badge;
+	badge_t client_badge;
+	int client_pid;
 
     /* XXX: for temporary use of return cap from server to client */
     struct ipc_msg *user_ipc_msg;
@@ -198,9 +199,9 @@ struct ckpt_ipc_connection {
     struct shm_for_ipc_connection shm;
     /* For resource recycle */
     struct lock ownership;
-    int conn_cap_in_client;
-    int conn_cap_in_server;
-    int is_valid;
+    cap_t conn_cap_in_client;
+    cap_t conn_cap_in_server;
+    int state;
 };
 
 struct ckpt_irq_notification {

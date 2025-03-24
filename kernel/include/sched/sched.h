@@ -40,16 +40,20 @@ enum thread_state {
     TS_RUNNING,
     TS_EXIT, /* Only for debug use */
     TS_WAITING, /* Waiting IPC or etc */
-#ifdef DSM_ENABLED
-    TS_MIGRATING, /* migrating to remote */
-    TS_STOPPING, /* being stopped by cfork */
-    TS_STOPPED, /* has been stopped */
-#endif
 };
 
 enum kernel_stack_state { KS_FREE = 0, KS_LOCKED };
 
-enum thread_exit_state { TE_RUNNING = 0, TE_EXITING, TE_EXITED };
+enum thread_exit_state { 
+    TE_RUNNING = 0, 
+    TE_EXITING, 
+    TE_EXITED,
+#ifdef DSM_ENABLED
+    TE_MIGRATING, /* migrating to remote */
+    TE_STOPPING, /* being stopped by cfork */
+    TE_STOPPED, /* has been stopped */
+#endif
+};
 
 #define TYPE_STR_LEN 20
 enum thread_type {
@@ -83,7 +87,7 @@ typedef struct sched_cont {
 /* Must be 8-byte aligned */
 struct thread_ctx {
     /* Executing Context */
-    arch_exec_cont_t ec;
+    arch_exec_ctx_t ec;
     /* Is FPU state modified ?
      * set 0 during checkpoint;
      * set 1 if call save_fpu_state;

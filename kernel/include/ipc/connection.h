@@ -2,6 +2,20 @@
 
 #include <object/thread.h>
 
+/*
+ * There are three states of an IPC connection.
+ * An IPC call request on a connection will be declined other
+ * than the connection state is VALID, and a connection is only safe
+ * to be recycled when its state is RECYCLE_READY.
+ * See `__stop_connection` in recycle.c.
+ */
+enum conn_state {
+	CONN_VALID = 0,
+	CONN_INCOME_STOPPED,
+	CONN_RECYCLE_READY,
+	CONN_DEINIT_READY
+};
+
 enum config_type { IPC_SERVER_HANDLER = 1, IPC_SERVER_REGISTER_CB, IPC_SERVER };
 
 struct ipc_config {
@@ -18,11 +32,13 @@ struct ipc_server_handler_config {
     struct lock ipc_lock;
 
     /* PC */
-    u64 ipc_routine_entry;
+    vaddr_t ipc_routine_entry;
     /* SP */
-    u64 ipc_routine_stack;
+    vaddr_t ipc_routine_stack;
     /* Entry point of shadow thread exit routine */
-    u64 ipc_exit_routine_entry;
+    vaddr_t ipc_exit_routine_entry;
+    /* Destructor of the connection */
+    vaddr_t destructor;
 
     /*
      * Record which connection uses this handler thread now.
@@ -42,6 +58,8 @@ struct ipc_server_register_cb_config {
     u64 register_cb_entry;
     /* SP */
     u64 register_cb_stack;
+    /* Destructor of the connection */
+    vaddr_t destructor;
 
     /* The caps for the connection currently building */
     int conn_cap_in_client;
@@ -100,16 +118,16 @@ struct ipc_connection {
      */
     struct thread *server_handler_thread;
 
-    /*
-     * Identification of the client (cap_group).
-     * This badge is always fixed with the ipc_connection and
-     * will be transferred to the server during each IPC.
-     * Thus, the server can identify different client processes.
-     *
-     * NOTE: an connection cannot be shared between multiple clients
-     * TODO: disable cap_copy on TYPE_CONNECTION.
-     */
-    u64 client_badge;
+	/*
+	 * Identification of the client (cap_group).
+	 * This badge is always fixed with the ipc_connection and
+	 * will be transferred to the server during each IPC.
+	 * Thus, the server can identify different client processes.
+	 *
+	 * NOTE: an connection cannot be shared between multiple clients.
+	 */
+	badge_t client_badge;
+	int client_pid;
 
     /* XXX: for temporary use of return cap from server to client */
     struct ipc_msg *user_ipc_msg;
@@ -124,11 +142,8 @@ struct ipc_connection {
 
     int conn_cap_in_client;
     int conn_cap_in_server;
-    int is_valid;
+    int state;
 };
-
-#define INVALID (0)
-#define VALID   (1)
 
 /*
  * TODO: use uapi for shared data structure declaration
@@ -142,10 +157,12 @@ struct ipc_msg {
 };
 
 /* IPC related system calls */
-u64 sys_register_server(u64 ipc_rountine, u64 register_cb_cap);
-u32 sys_register_client(u32 server_cap, u64 vm_config_ptr);
-void sys_ipc_register_cb_return(u64, u64, u64);
+int sys_register_server(unsigned long ipc_rountine,
+                        cap_t register_cb_cap,
+                        unsigned long destructor);
+cap_t sys_register_client(cap_t server_cap, u64 vm_config_ptr);
+int sys_ipc_register_cb_return(u64, u64, u64);
 
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg, u64 cap_num);
-void sys_ipc_return(u64 ret, u64 cap_num);
+int sys_ipc_return(u64 ret, u64 cap_num);
 u64 sys_ipc_send_cap(u32 conn_cap, u32 send_cap);

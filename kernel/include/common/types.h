@@ -37,3 +37,5 @@ typedef u64 atomic_cnt;
 #define pad_to_cache_line(n) (ROUND_UP(n, CACHELINE_SZ) - (n))
 
 typedef paddr_t resource_size_t;
+
+#include <uapi/types.h>

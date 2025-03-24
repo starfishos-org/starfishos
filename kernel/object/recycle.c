@@ -12,6 +12,7 @@
 #include <irq/irq.h>
 #include <lib/ring_buffer.h>
 #include <sched/context.h>
+#include <syscall/syscall_hooks.h>
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/ckpt.h>
 #include <ckpt/ckpt_data.h>
@@ -171,85 +172,197 @@ void sys_exit_group(int exitcode)
 }
 
 static void recycle_server_shadow_thread(struct ipc_connection *conn,
-                                         struct thread *server_thread)
+                                         struct thread *server_thread,
+                                         bool recycle_client_state)
 {
     struct ipc_server_handler_config *config;
 
     config = (struct ipc_server_handler_config *)
                      server_thread->general_ipc_config;
-    if (config->ipc_exit_routine_entry) {
+    if (config->ipc_exit_routine_entry &&
+    server_thread->thread_ctx->thread_exit_state == TE_RUNNING) {
         BUG_ON(server_thread->thread_ctx->sc);
-        /*
-         * FIXME: The server shadow thread needs
-         * a temporary schuduling context to execute
-         * its exit routine. Use a more elegant way
-         * to avoid kmalloc here.
-         */
+
         server_thread->thread_ctx->sc =
                 kmalloc(sizeof(*server_thread->thread_ctx->sc), __DEFAULT__);
-        arch_set_thread_next_ip(server_thread, config->ipc_exit_routine_entry);
+        if (!server_thread->thread_ctx->sc) {
+            kwarn("No memory when %s", __func__);
+            return;
+        }
+        server_thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
+        // server_thread->thread_ctx->sc->prio = DEFAULT_PRIO;
+        arch_set_thread_next_ip(server_thread,
+                                config->ipc_exit_routine_entry);
         arch_set_thread_stack(server_thread, config->ipc_routine_stack);
+        set_thread_arch_spec_state_ipc(server_thread);
+
+        /* See comments in sys_ipc_close_connection */
+        if (recycle_client_state) {
+            arch_set_thread_arg0(server_thread, config->destructor);
+        } else {
+            arch_set_thread_arg0(server_thread, 0);
+        }
+
+        arch_set_thread_arg1(server_thread, conn->client_badge);
+        arch_set_thread_arg2(server_thread, conn->shm.server_shm_uaddr);
+        arch_set_thread_arg3(server_thread, conn->shm.shm_size);
         server_thread->thread_ctx->state = TS_INTER;
         vmspace_unmap_range(conn->server_handler_thread->vmspace,
                             conn->shm.server_shm_uaddr,
                             conn->shm.shm_size);
         BUG_ON(sched_enqueue(server_thread));
     }
+    else {
+        /*
+        * Since the shadow thread does need to be recycled
+        * but won't be scheduled afterwards, its thread state
+        * should be set to TS_EXIT here.
+        */
+        server_thread->thread_ctx->state = TS_EXIT;
+    }
 }
 
-/* Wait onging IPCs to finish and stop new IPCs. Also, recycle the connection
- * cap. */
-// TODO: is that OK to remove the checking during IPC calls
-static void stop_ipcs(struct cap_group *cap_group, struct object_slot *slot,
-                      int slot_id, int *ret)
+static int __stop_connection(struct ipc_connection *conn)
 {
-    struct ipc_connection *conn;
-    struct thread *server_thread;
+    struct ipc_server_handler_config *config;
 
-    conn = (struct ipc_connection *)slot->object->opaque;
-#ifdef CKPT_CONNECTION_LAZY_COPY
-    connection_lazy_copy_ckpt(conn);
-#endif
     /*
-     * Lock *conn*:
-     * If succeed, we can then free the *conn* cap in cap_group
-     * and we will not find it next time (if try again).
-     * If failed, try next time.
-     *
+     * A VALID connection will be marked INCOME_STOPPED after
+     * successfully obtaining its ownership lock, and a
+     * INCOME_STOPPED connection will be marked RECYCLE_READY
+     * only after it also grabs the corresponding IPC config lock.
      */
-    if (try_lock(&conn->ownership) != 0) {
-        *ret = -EAGAIN;
-        return;
+    switch (conn->state) {
+    case CONN_VALID:
+        if (try_lock(&conn->ownership) != 0) {
+            return -EAGAIN;
+        }
+        /*
+         * Mark the connection as INCOME_STOPPED so that
+         * IPC call requests afterwards will be declined in
+         * sys_ipc_call thus the connection will not be used any more.
+         */
+        conn->state = CONN_INCOME_STOPPED;
+    case CONN_INCOME_STOPPED:
+        config = (struct ipc_server_handler_config *)
+                         conn->server_handler_thread->general_ipc_config;
+        /*
+         * If the server shadow thread will not exit (e.g. single
+         * shadow thread), it should be locked in case other clients
+         * perform ipc_call/recycling during its exit routine.
+         * The server exit routine should call
+         * `sys_ipc_exit_routine_return` syscall to unlock.
+         * Otherwise, locking the server thread hurts nothing since
+         * it will exit and will not be used by anyone.
+         */
+        if (try_lock(&config->ipc_lock) != 0) {
+            return -EAGAIN;
+        }
+        /*
+         * Mark the connection as RECYCLE_READY,
+         * implying that this connection has locked the shadow
+         * thread and thus is safe to be recycled.
+         * This state is necessary since a binary state
+         * (e.g. valid/invalid) is not enough to decide whether the
+         * above two locks have **all** been grabbed when the recycling
+         * procedure is being **retried** due to a former EAGAIN.
+         */
+        conn->state = CONN_RECYCLE_READY;
+    case CONN_RECYCLE_READY:
+        /**
+         * A connection is "asymmetrically shared" by client capgroup
+         * and server capgroup. When a connection is active, the client
+         * and the server invoke it in different ways. So, when it should
+         * be recycled, it should be considered from the perspective of client
+         * and server. But the reference-counting-based capability mechanism,
+         * however, only tackles the memory management of "symmetrically shared"
+         * objects.
+         *
+         * We have to introduce two more states for connection object, to
+         * ensure the correctness of recycling such a asymmetrically shared
+         * object. That is, **both** server side and client side would execute
+         * the recycling process of a connection. And only both of them have
+         * done their parts of connection recycling, then a connection can be
+         * freed (deinited) by the capability system.
+         *
+         * If the client side of a connection closes it, the client need to
+         * 1) grab connection ownership lock to ensure there is no ongoing
+         * ipc calls, and mark this connection as unusable(CONN_INCOME_STOPPED)
+         * 2) grab server handler thread lock, to let it recycle server side
+         * resources for this client (CONN_RECYCLE_READY)
+         * 3) recycle resources allocated by server for this client and this
+         * connection
+         * 4) then this connection can be freed(CONN_DEINIT_READY)
+         *
+         * The major differences in server side, is the step 3) above. Because
+         * currently we does not allow a server to actively close a connection,
+         * so if the server side of a connection closes it, the server process
+         * must be exiting currently, i.e., it is useless to specifically
+         * recycle server side resources. So the conn->state should be marked as
+         * CONN_DEINIT_READY(see __recycle_connection). After that, when the
+         * client side execute this function again, it can understand that the
+         * server resources have been recycled, and directly free this
+         * connection object via the capability system.
+         */
+    case CONN_DEINIT_READY:
+        return 0;
+    default:
+        BUG("Unknown connection state!");
     }
 
-    /*
-     * Mark the connection as invalid.
-     * After, the connection will never be used. See sys_ipc_call.
-     */
-    conn->is_valid = INVALID;
+    return 0;
+}
 
-    /*
-     * If the connection is created by cap_group (to recycle),
-     * then free the connection cap in the server cap_group (maybe
-     * the cap_group).
-     *
-     */
+/* Wait onging IPCs to finish and stop new IPCs. */
+static void stop_connection(struct object_slot *slot, int *ret)
+{
+    struct ipc_connection *conn;
+
+    conn = (struct ipc_connection *)slot->object->opaque;
+
+    *ret = __stop_connection(conn);
+}
+
+static void __recycle_connection(struct cap_group *cap_group, struct ipc_connection *conn,
+                bool client_process_exited)
+{
+    struct thread *server_thread;
+
+    BUG_ON(conn->state != CONN_RECYCLE_READY
+           && conn->state != CONN_DEINIT_READY);
+
     if (conn->client_badge == cap_group->badge) {
-        server_thread = conn->server_handler_thread;
-        if (server_thread) {
-            /* If the server_thread (and its cap_group) still exits.
-             *
-             * TODO: In A -> B -> C,
-             * When A exits, cap_free only removes the cap in B.
-             * But, the cap maybe passed from B to C.
-             */
-            recycle_server_shadow_thread(conn, server_thread);
-            cap_free(server_thread->cap_group, conn->conn_cap_in_server);
-            cap_free(server_thread->cap_group, conn->shm.shm_cap_in_server);
+        switch (conn->state) {
+        case CONN_RECYCLE_READY: {
+            server_thread = conn->server_handler_thread;
+            if (server_thread) {
+                /**
+                 * If a client closes a connection, the server side
+                 * resources allocated for this client and this connection
+                 * should be cleared too. Then it's safe for this object
+                 * to be freed.
+                 */
+                recycle_server_shadow_thread(
+                        conn, server_thread, client_process_exited);
+                cap_free(server_thread->cap_group, conn->conn_cap_in_server);
+                cap_free(server_thread->cap_group, conn->shm.shm_cap_in_server);
+            }
+            conn->state = CONN_DEINIT_READY;
+        }
+        case CONN_DEINIT_READY:
+            return;
         }
     } else {
         /* cap_group is the server side of the connection */
         conn->server_handler_thread = NULL;
+        /**
+         * Currently we does not allow a server to actively close
+         * a connection. It would only happen when a server exits
+         * before its client. At that time, server side resources
+         * has been cleaning, so no other cleaning operations are
+         * demanded, and we can mark this connection as CONN_DEINIT_READY.
+         */
+        conn->state = CONN_DEINIT_READY;
         /* Since we need to lock the connection again when
          * the connection owner (client cap_group) is recycled,
          * unlock here.
@@ -257,13 +370,56 @@ static void stop_ipcs(struct cap_group *cap_group, struct object_slot *slot,
          */
         unlock(&conn->ownership);
     }
+}
 
-    /* Free the connection cap (i.e., slot_id) in cap_group */
-    __cap_free(cap_group, slot_id, true, false);
+static void recycle_connection(struct cap_group *cap_group, struct object_slot *slot)
+{
+    struct ipc_connection *conn;
 
-    /* An connection will be freed automatically when the client
-     * cap_group creating it exits.
-     */
+    conn = (struct ipc_connection *)slot->object->opaque;
+
+    __recycle_connection(cap_group, conn, true);
+}
+
+/*
+ * Close an IPC connection from a client **thread** to a server handler(shadow)
+ * thread. It can be invoked by a client thread actively. So, when this syscall
+ * is invoked, the client process may have not exited, we should not let IPC
+ * server to recycle state stored for client process, because server state is
+ * for the whole client but connections are established between two threads in
+ * current programming model.
+ */
+int sys_ipc_close_connection(cap_t connection_cap)
+{
+    int ret;
+    struct ipc_connection *conn;
+    struct vmspace *client_vmspace;
+
+    conn = obj_get(current_cap_group, connection_cap, TYPE_CONNECTION);
+
+    if (!conn) {
+        ret = -ECAPBILITY;
+        goto out;
+    }
+
+    ret = __stop_connection(conn);
+    if (ret < 0) {
+        goto out_put;
+    }
+
+    __recycle_connection(current_cap_group, conn, false);
+
+    client_vmspace = current_thread->vmspace;
+
+    vmspace_unmap_range(
+            client_vmspace, conn->shm.client_shm_uaddr, conn->shm.shm_size);
+    cap_free(current_cap_group, conn->shm.shm_cap_in_client);
+
+    cap_free(current_cap_group, connection_cap);
+out_put:
+    obj_put(conn);
+out:
+    return ret;
 }
 
 /* Wait onging IPC registration to finish and stop newly coming ones */
@@ -336,11 +492,14 @@ int sys_cap_group_recycle(int cap_group_cap)
     int ret;
     struct slot_table *slot_table;
     int slot_id;
-    struct vmspace *vmspace = NULL;
+    struct object *object;
+
+    if ((ret = hook_sys_cap_group_recycle(cap_group_cap)) != 0)
+        return ret;
 
     cap_group = obj_get(current_cap_group, cap_group_cap, TYPE_CAP_GROUP);
     if (!cap_group) {
-        BUG_ON("Process Manager gives a invalid cap_group_cap.\n");
+         return -ECAPBILITY;
     }
 
 #ifdef CKPT_CAP_GROUP_LAZY_COPY
@@ -359,9 +518,10 @@ int sys_cap_group_recycle(int cap_group_cap)
         struct object_slot *slot;
 
         slot = get_slot(cap_group, slot_id);
+        BUG_ON(slot == NULL);
 
         if (slot->object->type == TYPE_CONNECTION) {
-            stop_ipcs(cap_group, slot, slot_id, &ret);
+            stop_connection(slot, &ret);
         } else if (slot->object->type == TYPE_THREAD) {
             stop_ipc_registration(cap_group, slot, &ret);
         } else if (slot->object->type == TYPE_NOTIFICATION) {
@@ -419,7 +579,7 @@ int sys_cap_group_recycle(int cap_group_cap)
         wait_for_kernel_stack(thread);
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
         if (thread->thread_ctx->state != TS_EXIT)
-            kwarn("%s thread ctx->state is %d\n",
+            kdebug("%s thread ctx->state is %d\n",
                   thread->cap_group->cap_group_name,
                   thread->thread_ctx->state);
     }
@@ -430,8 +590,12 @@ int sys_cap_group_recycle(int cap_group_cap)
      * resources.
      */
 
+    /* The recycled cap_group should not be accessed in other places  */
+    cap_free_all(current_cap_group, cap_group_cap);
+    object = container_of(cap_group, struct object, opaque);
+    while (object->refcount > 1);
+
     slot_table = &cap_group->slot_table;
-    write_lock(&slot_table->table_guard);
 
     for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
         struct object_slot *slot;
@@ -441,60 +605,20 @@ int sys_cap_group_recycle(int cap_group_cap)
         BUG_ON(!slot || slot->isvalid == false);
         object = slot->object;
 
-        if (slot_id == VMSPACE_OBJ_ID) {
-            vmspace = (struct vmspace *)(object->opaque);
-            extern void flush_tlb_of_vmspace(struct vmspace *);
-            flush_tlb_of_vmspace(vmspace);
-        }
-
-        /*
-         * TODO: according to the cap type, cap_free_all-like-procedure
-         * should be used.
-         */
-        if ((object->type == TYPE_THREAD)
-            && (((struct thread *)(object->opaque))->cap_group == cap_group)) {
-            /*
-             * Use cap_free_all to free the threads belong to
-             * the exited cap_group.
-             */
-            kdebug("recycle one local thread.\n");
-
-            /*
-             * Like cap_free_all, but without locks.
-             * Directly using cap_free_all leads to dead lock.
-             */
-            struct object_slot *slot_iter = NULL, *slot_iter_tmp = NULL;
-            // int r;
-
-            /* Not using obj_get or get_opaque is also for avoid
-             * deadlock. */
-            atomic_fetch_add_64(&object->refcount, 1);
-
-            /* free all copied slots */
-            lock(&object->copies_lock);
-            for_each_in_list_safe (
-                    slot_iter, slot_iter_tmp, copies, &object->copies_head) {
-                u64 iter_slot_id = slot_iter->slot_id;
-                struct cap_group *iter_cap_group = slot_iter->cap_group;
-
-                // r =
-                __cap_free(iter_cap_group, iter_slot_id, true, true);
-                // BUG_ON(r != 0);
-            }
-            unlock(&object->copies_lock);
-
-            obj_put(object->opaque);
+        if (object->type == TYPE_CONNECTION) {
+            recycle_connection(cap_group, slot);
+            __cap_free(cap_group, slot_id, true, false);
+        } else if ((object->type == TYPE_THREAD)
+                   && (((struct thread *)(object->opaque))->cap_group == cap_group)) {
+            cap_free_all(cap_group, slot_id);
         } else {
             __cap_free(cap_group, slot_id, true, false);
         }
     }
-    write_unlock(&slot_table->table_guard);
 
     /* The cap_group will be freed in the following cap_free_all. */
     obj_put(cap_group);
-    cap_free_all(current_cap_group, cap_group_cap);
 
-    BUG_ON(vmspace == NULL);
     kdebug("%s is done\n", __func__);
 
     return ret;

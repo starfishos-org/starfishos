@@ -1,6 +1,6 @@
 #pragma once
 
-// XXX barrier
+#include <common/types.h>
 
 #define mb()  asm volatile("mfence")
 #define rmb() asm volatile("mfence")

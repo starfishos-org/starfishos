@@ -271,7 +271,7 @@ long thread_measure_pass(long ret, long state)
 }
 #endif
 
-void trap_c(struct arch_exec_cont *ec)
+void trap_c(arch_exec_ctx_t *ec)
 {
     int trapno = ec->reg[TRAPNO];
     int errorcode = ec->reg[EC];
@@ -457,7 +457,7 @@ void __eret_to_thread(u64 sp)
     }
 #endif
     struct thread_ctx *cur_thread = (struct thread_ctx *)sp;
-    arch_exec_cont_t *cur_thread_ctx = &cur_thread->ec;
+    arch_exec_ctx_t *cur_thread_ctx = &cur_thread->ec;
 
     switch (cur_thread_ctx->reg[EC]) {
     case EC_SYSEXIT:

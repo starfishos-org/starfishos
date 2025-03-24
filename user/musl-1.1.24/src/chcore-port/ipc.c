@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <chcore-internal/lwip_defs.h>
 #include <chcore/container/list.h>
+
 #include "pthread_impl.h"
 #include "fs_client_defs.h"
 
@@ -162,10 +163,10 @@ int ipc_shadow_thread_exit_routine(void)
 }
 
 /* A register_callback thread uses this to finish a registration */
-void ipc_register_cb_return(u64 server_thread_cap, u64 server_thread_exit_routine,
+int ipc_register_cb_return(u64 server_thread_cap, u64 server_thread_exit_routine,
 				   u64 server_shm_addr)
 {
-	usys_ipc_register_cb_return(server_thread_cap, server_thread_exit_routine, server_shm_addr);
+	return usys_ipc_register_cb_return(server_thread_cap, server_thread_exit_routine, server_shm_addr);
 }
 
 /* A register_callback thread is passive (never proactively run) */
@@ -241,7 +242,8 @@ int ipc_register_server_cap(server_handler server_handler,
 	 * register_cb_thread.
 	 */
 	ret = usys_register_server((u64)server_handler,
-				    (u64)register_cb_thread_cap);
+				    (u32)register_cb_thread_cap,
+					DEFAULT_DESTRUCTOR);
 	// NOTE: The cap cannot be used to connect to the server!
 	if (cap_ptr)
 		*cap_ptr = register_cb_thread_cap;
