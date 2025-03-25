@@ -8,6 +8,7 @@
 #include <ckpt/ckpt-dsm.h>
 
 #include "cfork.h"
+#include "ckpt_ws.h"
 
 struct pname_kvs_value {
     char pname[128];
@@ -20,19 +21,9 @@ struct kvs *cap_kvs;
 static void init_cg_kvs(void)
 {
     if (unlikely(!cap_kvs)) {
-        cap_kvs = new_kvs(19, __PRIVATE__);
+        cap_kvs = new_kvs(KVS_SIZE, __PRIVATE__);
     }
 }
-
-#if 0
-// should be inited in dsm_init_meta()
-static void init_ckpt_cg_kvs(void)
-{
-    if (unlikely(!CKPT_CG_KVS)) {
-        CKPT_CG_KVS = new_kvs(19, __SHARED__);
-    }
-}
-#endif
 
 static inline u64 __pname_hash(char *name, u64 name_len)
 {

@@ -134,7 +134,7 @@ static int __create_pmo(u64 paddr, u64 size, u64 type, int flags,
     int cap, r;
     struct pmobject *pmo;
 
-    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), flags);
+    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __OBJECT_MALLOC_TYPE__);
     if (!pmo) {
         r = -ENOMEM;
         goto out_fail;

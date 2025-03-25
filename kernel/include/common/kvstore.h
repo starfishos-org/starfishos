@@ -76,7 +76,11 @@ inline static int kvs_put(struct kvs *kv, const kvs_key_t *key,
     DECLTMR;
     start();
 #endif
-    struct kvs_node *node = (struct kvs_node *)kvs_alloc(sizeof(*node), kv->type);
+    struct kvs_node *node;
+    
+    BUG_ON(kv->type < __DEFAULT__ || kv->type >= __MAX_MALLOC_TYPE__);
+    
+    node = (struct kvs_node *)kvs_alloc(sizeof(*node), kv->type);
     if (!node) {
         return 1;
     }

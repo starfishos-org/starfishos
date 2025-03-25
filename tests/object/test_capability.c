@@ -47,7 +47,7 @@ static void test_expand(struct cap_group *cap_group)
 
 #define TOTAL_ALLOC	200
 	for (i = 0; i < TOTAL_ALLOC; i++) {
-		obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __DEFAULT__);
+		obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __OBJECT_MALLOC_TYPE__);
 		cap_tmp = cap_alloc(cap_group, obj, 0);
 		/* printf("\tinit multiple test_object cap = %d\n", cap_tmp); */
 		if (i == 0) {
@@ -68,7 +68,7 @@ static void test_expand(struct cap_group *cap_group)
 	       FREE_OFFSET + TOTAL_FREE - 1);
 
 	for (i = 0; i < TOTAL_FREE; i++) {
-		obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __DEFAULT__);
+		obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __OBJECT_MALLOC_TYPE__);
 		cap_tmp = cap_alloc(cap_group, obj, 0);
 		mu_assert_msg(cap_tmp == FREE_OFFSET + i,
 			      "create test_object failed, ret = %d\n", cap_tmp);
@@ -124,7 +124,7 @@ MU_TEST(test_check)
 #endif
 
 	/* create object */
-	obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __DEFAULT__);
+	obj = obj_alloc(TYPE_TEST_OBJECT, sizeof(struct test_object), __OBJECT_MALLOC_TYPE__);
 	ret = cap_alloc(root_cap_group, obj, 0);
 	mu_assert_msg(ret >= 0, "create test_object failed, ret = %d\n", ret);
 	cap = ret;

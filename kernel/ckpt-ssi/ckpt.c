@@ -31,7 +31,7 @@ int ssi_ckpt_init(void)
 
     /* init ckpt whole system metadata */
     if ((ret = ckpt_ws_init()) != 0) {
-        return ret;
+        kwarn_once("%s: ckpt_ws_init failed\n", __func__);
     }
 
     CKPT_INITIALIZED = false;

@@ -16,6 +16,7 @@ enum malloc_type {
     __DEFAULT__ = 0,
     __PRIVATE__,
     __SHARED__,
+    __MAX_MALLOC_TYPE__,
 };
 
 /* sepcial flag for each type of process state */
@@ -43,12 +44,20 @@ enum malloc_type {
 #define __THREADCTX_MALLOC_TYPE__ __DEFAULT__
 #endif
 
-#ifdef DSM_THREAD_MODE_CXL
-#define __THREAD_MALLOC_TYPE__ __SHARED__
-#elif defined DSM_THREAD_MODE_DRAM
-#define __THREAD_MALLOC_TYPE__ __PRIVATE__
+#ifdef DSM_OBJECT_MODE_CXL
+#define __OBJECT_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_OBJECT_MODE_DRAM
+#define __OBJECT_MALLOC_TYPE__ __PRIVATE__
 #else
-#define __THREAD_MALLOC_TYPE__ __DEFAULT__
+#define __OBJECT_MALLOC_TYPE__ __DEFAULT__
+#endif
+
+#ifdef DSM_PAGE_MODE_CXL
+#define __PAGE_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_PAGE_MODE_DRAM
+#define __PAGE_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __PAGE_MALLOC_TYPE__ __DEFAULT__
 #endif
 
 void *kmalloc(unsigned long long size, int flags);
