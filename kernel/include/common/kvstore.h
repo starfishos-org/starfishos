@@ -23,8 +23,8 @@ struct kvs_key_node {
 
 struct kvs {
     unsigned int size;
-    struct kvs_node *buckets[0];
     int type;
+    struct kvs_node *buckets[0];
 };
 
 typedef struct kvs_node *kvs_list_t;
@@ -58,8 +58,8 @@ inline static struct kvs *new_kvs(unsigned int size, int type)
 
     /* Initialize */
     kv->size = size;
-    memset(kv->buckets, 0, size * sizeof(void *));
     kv->type = type;
+    memset(kv->buckets, 0, size * sizeof(void *));
 
     return kv;
 }
@@ -165,4 +165,22 @@ inline static void kvs_destroy(struct kvs *kv)
 {
     kvs_clear(kv);
     kvs_free(kv);
+}
+
+inline static bool is_valid_kvs(struct kvs *kv)
+{
+    if (kv->type < __DEFAULT__ || kv->type >= __MAX_MALLOC_TYPE__) {
+        return false;
+    }
+    // loop through the buckets
+    for (int i = 0; i < kv->size; i++) {
+        struct kvs_node *node = kv->buckets[i];
+        while (node) {
+            if (node->key == NULL || node->value == NULL) {
+                return false;
+            }
+            node = node->next;
+        }
+    }
+    return true;
 }
