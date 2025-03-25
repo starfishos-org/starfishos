@@ -344,11 +344,14 @@ if (CHCORE_DEMOS_CPYTHON)
       add_custom_target(
         cpython
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
+        # COMMAND make -j$(_nproc)
+        # COMMAND make install prefix=${cpython_install_dir} exec_prefix=${cpython_install_dir}
         COMMAND rsync -a python ${build_ramdisk_dir}/python
         COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
         COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
         DEPENDS libffi zlib
       )
+      add_dependencies(cpython libc-static)
     else()
       add_custom_target(
         cpython
@@ -375,6 +378,7 @@ if (CHCORE_DEMOS_CPYTHON)
         COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
         DEPENDS libffi zlib
       )
+      add_dependencies(cpython libc-static)
     endif()
     add_dependencies(ramdisk cpython)
 

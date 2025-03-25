@@ -4,7 +4,7 @@ int chcore_chdir(const char *path);
 int chcore_fchdir(int fd);
 int chcore_getcwd(char *buf, size_t size);
 int chcore_ftruncate(int fd, off_t length);
-int chcore_lseek(int fd, off_t offset, int whence);
+off_t chcore_lseek(int fd, off_t offset, int whence);
 int chcore_mkdirat(int dirfd, const char *pathname, mode_t mode);
 int chcore_unlinkat(int dirfd, const char *pathname, int flags);
 int chcore_symlinkat(const char *target, int newdirfd, const char *linkpath);
@@ -27,4 +27,3 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 int chcore_mount(const char *special, const char *dir, const char *fstype,
 		 unsigned long flags, const void *data);
 int chcore_umount(const char *special);
-long chcore_file_mmap(void *vaddr, size_t length, int prot, int flags, int fd, off_t offset);

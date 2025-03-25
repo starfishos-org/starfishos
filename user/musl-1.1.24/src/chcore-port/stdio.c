@@ -315,6 +315,15 @@ static int chcore_stdio_ioctl(int fd, unsigned long request, void *arg)
 	return 0;
 }
 
+static off_t chcore_stdio_lseek(int fd, off_t offset, int whence)
+{
+	(void)fd;
+	(void)offset;
+	(void)whence;
+	fprintf(stderr, "[warning] stdio lseek fd=%d, offset=%ld, whence=%d\n", fd, offset, whence);
+	return 0;
+}
+
 struct fd_ops stdin_ops = {
 	.read = chcore_stdin_read,
 	.write = chcore_stdin_write,
@@ -322,6 +331,7 @@ struct fd_ops stdin_ops = {
 	.poll = NULL,
 	.ioctl = chcore_stdio_ioctl,
 	.fcntl = chcore_stdio_fcntl,
+	.lseek = chcore_stdio_lseek,
 };
 
 /* STDOUT */
@@ -368,6 +378,7 @@ struct fd_ops stdout_ops = {
 	.poll = NULL,
 	.ioctl = chcore_stdio_ioctl,
 	.fcntl = chcore_stdio_fcntl,
+	.lseek = chcore_stdio_lseek,
 };
 
 /* STDERR */
@@ -394,4 +405,5 @@ struct fd_ops stderr_ops = {
 	.poll = NULL,
 	.ioctl = chcore_stdio_ioctl,
 	.fcntl = chcore_stdio_fcntl,
+	.lseek = chcore_stdio_lseek,
 };
