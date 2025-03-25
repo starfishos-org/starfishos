@@ -819,11 +819,6 @@ int fs_wrapper_fmap(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr,
 	fd = fr->mmap.fd;
 	offset = (off_t)fr->mmap.offset;
 
-	// check fd exist in server_entrys
-	if (server_entrys[fd] == NULL) {
-		return -EBADF;
-	}
-
 	vnode = server_entrys[fd]->vnode;
 
 	fs_debug_trace_fswrapper(

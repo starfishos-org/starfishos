@@ -1,6 +1,8 @@
 IP = '0x0'
 P = 'libc.so'
 
+.PHONY: build build-all
+
 help:
 	@echo "make b: build the system without cleaning"
 	@echo "make build-all / ba: build the whole system"
@@ -9,8 +11,8 @@ help:
 	@echo "make test: run tests under the directory ./dsm-scripts/tests"
 	@echo "make prepare: prepare the system (only need to run once after the first clone)"
 
-b: build-wo-clean
-build-wo-clean:
+b: build
+build:
 	./chbuild build
 
 ba: build-all
@@ -88,3 +90,11 @@ cluster:
 leveldb:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/leveldb.sh
+
+json-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp json_test.py json/english.json
+
+float-test:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/python.exp float_operation.py 1000000

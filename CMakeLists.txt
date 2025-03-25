@@ -81,7 +81,7 @@ chcore_add_subproject(
     CMAKE_ARGS
         ${_common_args}
         -DCHCORE_MUSL_LIBC_INSTALL_DIR=${_libc_install_dir} # used by user.cmake toolchain to find `musl-gcc`
-        -DCHCORE_MUSL_CROSS_MAKE_INSTALL_DIR=/home/musl-cross-make/install/
+        -DCHCORE_MUSL_CROSS_MAKE_INSTALL_DIR=/home/musl-cross-make/install
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
         -DCMAKE_TOOLCHAIN_FILE=${_cmake_script_dir}/Toolchains/user.cmake
     CMAKE_CACHE_ARGS ${_cache_args}
@@ -102,7 +102,7 @@ if(CHCORE_CHPM_INSTALL_TO_RAMDISK AND CHCORE_CHPM_INSTALL_PREFIX)
     get_filename_component(_chpm_install_prefix ${CHCORE_CHPM_INSTALL_PREFIX}
                            REALPATH BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set(_copy_chpm_install_cmd
-        "cp -rL `find ${_chpm_install_prefix} -mindepth 1 -maxdepth 1 -type d -not -name include -and -not -name 'chpm-*'` ."
+        "rsync -a -rL `find ${_chpm_install_prefix} -mindepth 1 -maxdepth 1 -type d -not -name include -and -not -name 'chpm-*'` ."
     )
     string(REPLACE " " ";" _copy_chpm_install_cmd ${_copy_chpm_install_cmd})
 else()

@@ -37,7 +37,7 @@ endmacro()
 function(chcore_copy_binary_to_ramdisk _target)
     add_custom_target(
         cp_${_target}_to_ramdisk
-        COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${build_ramdisk_dir}
+        COMMAND rsync -a ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${build_ramdisk_dir}
         DEPENDS ${_target})
     add_dependencies(ramdisk cp_${_target}_to_ramdisk ${_target})
     set_property(GLOBAL PROPERTY ${_target}_INSTALLED TRUE)
@@ -46,7 +46,7 @@ endfunction()
 function(chcore_copy_target_to_ramdisk _target)
     add_custom_target(
         cp_${_target}_to_ramdisk
-        COMMAND cp $<TARGET_FILE:${_target}> ${build_ramdisk_dir}
+        COMMAND rsync -a $<TARGET_FILE:${_target}> ${build_ramdisk_dir}
         DEPENDS ${_target})
     add_dependencies(ramdisk cp_${_target}_to_ramdisk ${_target})
     set_property(GLOBAL PROPERTY ${_target}_INSTALLED TRUE)
