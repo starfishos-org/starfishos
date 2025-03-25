@@ -14,9 +14,9 @@ struct cap_group *find_capgroup_by_name(char *pname, u64 pname_len);
 struct ckpt_obj_root *find_ckpt_obj_root_by_name(char *pname, u64 pname_len);
 int add_ckpt_obj_root_by_name(struct ckpt_obj_root *ckpt_obj_root, char *pname, u64 pname_len);
 
-// cfork ckpt
-int cfork_stop_threads(struct list_head *thread_list);
-int cfork_start_threads(struct list_head *thread_list);
+// TODO: these are general functions, move them to a more general place
+int stop_all_threads(struct list_head *thread_list);
+int start_all_threads(struct list_head *thread_list);
 
 // cfork prepare
 struct ckpt_obj_root *cfork_prepare_ckpt_process(struct object *root_cg_obj);

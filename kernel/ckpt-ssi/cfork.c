@@ -82,9 +82,9 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
     cap_group = (struct cap_group *)(ckpt_obj_root->obj_src->opaque);
 
     // remove the process from the cap tree
-    ret = cfork_stop_threads(&(cap_group->thread_list));
+    ret = stop_all_threads(&(cap_group->thread_list));
     if (ret) {
-        CFORK_LOG_ERR("cfork_ckpt: cfork_stop_threads failed");
+        CFORK_LOG_ERR("cfork_ckpt: stop_all_threads failed");
         goto out;
     }
 
@@ -143,7 +143,7 @@ int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
     }
 
     // start all threads
-    if ((ret = cfork_start_threads(&(restored_cg->thread_list)))) {
+    if ((ret = start_all_threads(&(restored_cg->thread_list)))) {
         CFORK_LOG_ERR("cfork_restore: cfork_start_threads failed");
         ret = -ENOENT;
         goto out;

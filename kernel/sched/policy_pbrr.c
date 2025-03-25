@@ -235,8 +235,8 @@ retry:
 
     /* If the thread is going to exit, choose another thread. */
     if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
-        thread->thread_ctx->thread_exit_state = TE_EXITED;
         thread->thread_ctx->state = TS_EXIT;
+        thread->thread_ctx->thread_exit_state = TE_EXITED;
         goto retry;
     }
 
@@ -258,8 +258,8 @@ int pbrr_sched(void)
 
     /* Check whether the old thread is going to exit */
     if (old != NULL && old->thread_ctx->thread_exit_state == TE_EXITING) {
-        old->thread_ctx->thread_exit_state = TE_EXITED;
         old->thread_ctx->state = TS_EXIT;
+        old->thread_ctx->thread_exit_state = TE_EXITED;
     }
 
     new = pbrr_sched_choose_thread();

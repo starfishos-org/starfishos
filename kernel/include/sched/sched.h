@@ -40,6 +40,7 @@ enum thread_state {
     TS_RUNNING,
     TS_EXIT, /* Only for debug use */
     TS_WAITING, /* Waiting IPC or etc */
+    TS_WAITING_IPC, /* Waiting for IPC */
 };
 
 enum kernel_stack_state { KS_FREE = 0, KS_LOCKED };
@@ -50,8 +51,6 @@ enum thread_exit_state {
     TE_EXITED,
 #ifdef DSM_ENABLED
     TE_MIGRATING, /* migrating to remote */
-    TE_STOPPING, /* being stopped by cfork */
-    TE_STOPPED, /* has been stopped */
 #endif
 };
 

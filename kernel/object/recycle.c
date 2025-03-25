@@ -451,8 +451,8 @@ static void stop_ipc_registration(struct cap_group *cap_group,
      * No release the register_lock. So, the register_cb_thread will never
      * execute any more.
      */
-    thread->thread_ctx->thread_exit_state = TE_EXITED;
     thread->thread_ctx->state = TS_EXIT;
+    thread->thread_ctx->thread_exit_state = TE_EXITED;
 }
 
 static void stop_notification(struct object_slot *slot)
@@ -573,15 +573,13 @@ int sys_cap_group_recycle(int cap_group_cap)
         goto out;
     }
 
-    /* All the thread are TE_EXITED now, wait until their kernel stacks are
-     * free */
+    /* All the thread are TE_EXITED now, wait until their kernel stacks are free */
     for_each_in_list (thread, struct thread, node, &(cap_group->thread_list)) {
         wait_for_kernel_stack(thread);
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
         if (thread->thread_ctx->state != TS_EXIT)
-            kdebug("%s thread ctx->state is %d\n",
-                  thread->cap_group->cap_group_name,
-                  thread->thread_ctx->state);
+            kwarn("%s thread ctx->state is %d\n",
+                  thread->cap_group->cap_group_name, thread->thread_ctx->state);
     }
 
     /*

@@ -48,6 +48,7 @@ char thread_state[][STATE_STR_LEN] = {
         "TS_RUNNING   ",
         "TS_EXIT      ",
         "TS_WAITING   ",
+        "TS_WAITING_IPC",
 };
 
 void print_thread(struct thread *thread)
@@ -179,6 +180,7 @@ void sched_to_thread(struct thread *target)
 
     /* TS_INTER may be set in signal_notific */
     BUG_ON((target->thread_ctx->state != TS_WAITING)
+           && (target->thread_ctx->state != TS_WAITING_IPC)
            && (target->thread_ctx->state != TS_INTER));
 
     /* Switch to itself? */
@@ -231,14 +233,14 @@ void sched_to_thread(struct thread *target)
         /*
          * TODO: if disallow sched_to_thread in notification,
          * we can add BUG_ON(current_thread->thread_ctx->state !=
-         * TS_WAITING) here and remove the below if statement.
+         * TS_WAITING_IPC) here and remove the below if statement.
          */
 
-        /* If current thread has not been set to TS_WAITING,
+        /* If current thread has not been set to TS_WAITING_IPC,
          * put it into the ready queue before switching to
          * the target thread.
          */
-        if (current_thread->thread_ctx->state != TS_WAITING)
+        if (current_thread->thread_ctx->state != TS_WAITING_IPC)
             BUG_ON(sched_enqueue(current_thread));
 
         switch_to_thread(target);

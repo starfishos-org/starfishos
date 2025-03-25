@@ -343,8 +343,8 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
      */
     conn->current_client_thread = current_thread;
 
-    /* Mark current_thread as TS_WAITING */
-    current_thread->thread_ctx->state = TS_WAITING;
+    /* Mark current_thread as TS_WAITING_IPC */
+    current_thread->thread_ctx->state = TS_WAITING_IPC;
 
     /* Pass the scheduling context */
     target->thread_ctx->sc = current_thread->thread_ctx->sc;
@@ -483,8 +483,8 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
     /* Record the server_shm_cap for current connection */
     register_cb_config->shm_cap_in_server = res.server_shm_cap;
 
-    /* Mark current_thread as TS_WAITING */
-    current_thread->thread_ctx->state = TS_WAITING;
+    /* Mark current_thread as TS_WAITING_IPC */
+    current_thread->thread_ctx->state = TS_WAITING_IPC;
 
     /* Set target thread SP/IP/arg */
     arch_set_thread_stack(register_cb_thread,
@@ -778,9 +778,9 @@ int sys_ipc_return(u64 ret, u64 cap_num)
         kdebug("%s:%d Step-1\n", __func__, __LINE__);
 
         conn->state = CONN_INCOME_STOPPED;
-
-        current_thread->thread_ctx->thread_exit_state = TE_EXITED;
+        
         current_thread->thread_ctx->state = TS_EXIT;
+        current_thread->thread_ctx->thread_exit_state = TE_EXITED;
 
         /* Returns an error to the client */
         ret = -ESRCH;
@@ -815,16 +815,16 @@ int sys_ipc_return(u64 ret, u64 cap_num)
             kdebug("%s:%d Step-2.0\n", __func__, __LINE__);
             handler_config->active_conn = NULL;
 
-            current_thread->thread_ctx->state = TS_WAITING;
+            current_thread->thread_ctx->state = TS_WAITING_IPC;
             current_thread->thread_ctx->sc = NULL;
 
             unlock(&handler_config->ipc_lock);
 
             unlock(&conn->ownership);
             obj_put(conn);
-
-            client->thread_ctx->thread_exit_state = TE_EXITED;
+            
             client->thread_ctx->state = TS_EXIT;
+            client->thread_ctx->thread_exit_state = TE_EXITED;
 
             sched();
             eret_to_thread(switch_context());
@@ -841,9 +841,9 @@ int sys_ipc_return(u64 ret, u64 cap_num)
 
     /*
     * Return control flow (sched-context) back later.
-    * Set current_thread state to TS_WAITING again.
+    * Set current_thread state to TS_WAITING_IPC again.
     */
-    current_thread->thread_ctx->state = TS_WAITING;
+    current_thread->thread_ctx->state = TS_WAITING_IPC;
 
     /*
      * Shadow thread should not any more use
@@ -964,9 +964,9 @@ int sys_ipc_register_cb_return(u64 server_handler_thread_cap,
 
     /*
      * Return control flow (sched-context) back later.
-     * Set current_thread state to TS_WAITING again.
+     * Set current_thread state to TS_WAITING_IPC again.
      */
-    current_thread->thread_ctx->state = TS_WAITING;
+    current_thread->thread_ctx->state = TS_WAITING_IPC;
 
     unlock(&config->register_lock);
 

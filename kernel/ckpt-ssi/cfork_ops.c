@@ -13,73 +13,152 @@
 #include "ckpt_object_pool.h"
 #include "ckpt_ws.h"
 
+static int start_user_thread(struct thread *thread)
+{
+    int ret = 0;
+    BUG_ON(thread->thread_ctx->type != TYPE_USER);
+
+    // stopped thread should be TE_EXITED
+    BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
+    thread->thread_ctx->thread_exit_state = TE_RUNNING;
+
+    // TODO: handle thread with affinity or fpu_owner
+    if (thread->thread_ctx->affinity != NO_AFF 
+            || thread->thread_ctx->is_fpu_owner >= 0) {
+        CFORK_LOG_WARN("illegal thread: %p, affinity: %d, is_fpu_owner: %d\n", 
+            thread, thread->thread_ctx->affinity, thread->thread_ctx->is_fpu_owner);
+        return -EINVAL;
+    }
+    thread->thread_ctx->cpuid = NO_AFF;
+    thread->thread_ctx->is_fpu_owner = -1;
+
+    switch (thread->thread_ctx->state) {
+    case TS_READY:
+        /* mark thread as inter state to pass check in __sched_enqueue */
+        thread->thread_ctx->state = TS_INTER;
+        ret = sched_enqueue(thread);
+        if (ret < 0) {
+            CFORK_LOG_ERR("failed to enqueue thread: %p\n", thread);
+            print_thread(thread);
+            return ret;
+        }
+        break;
+    case TS_WAITING:
+        break;
+    default:
+        CFORK_LOG_ERR("illegal thread: %p with state: %s\n", 
+            thread, thread_state[thread->thread_ctx->state]);
+        return -EINVAL;
+    }
+
+    return ret;
+}
+
 /**
- * cfork_start_threads: start all threads in the list.
+ * start_all_threads: start all threads in the list.
  * @param thread_list: the list of threads to be started
  * @return 0 if all threads are started, -EINVAL otherwise.
  */
-int cfork_start_threads(struct list_head *thread_list)
+int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
 
     // enqueue all threads to the scheduler
-    for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
-        BUG_ON((thread->thread_ctx->type != TYPE_USER));
-        // currently, clear affinity to -1
-        thread->thread_ctx->cpuid = NO_AFF;
-        CFORK_LOG_DEBUG("thread: %p, state: %d enqueued\n", thread, thread->thread_ctx->state);
-        BUG_ON(sched_enqueue(thread));
+    for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
+        BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
+        switch (thread->thread_ctx->type) {
+            case TYPE_USER:
+                start_user_thread(thread);
+                break;
+            case TYPE_SHADOW:
+            case TYPE_REGISTER:
+                // TODO: add shadow and register thread start logic here
+            default:
+                CFORK_LOG_ERR("%d: unsupported thread type\n", __LINE__);
+                return -EINVAL;
+        }
     }
 
     return 0;
 }
 
+#define COMMON_RUNNING_THREAD(thread) \
+    (thread->thread_ctx->type == TYPE_USER \
+        && thread->thread_ctx->state == TS_RUNNING)
+
+#define COMMON_READY_THREAD(thread) \
+    (thread->thread_ctx->type == TYPE_USER \
+        && thread->thread_ctx->state == TS_READY)
+
+#define COMMON_WAITING_THREAD(thread) \
+    (thread->thread_ctx->type == TYPE_USER \
+        && thread->thread_ctx->state == TS_WAITING)
+
+#define SHADOW_WAITING_THREAD(thread) \
+    (thread->thread_ctx->type == TYPE_SHADOW \
+        && thread->thread_ctx->state == TS_WAITING)
+
 /**
- * Stop all threads in the list.
+ * stop_all_threads: stop all threads in the list.
  * @param thread_list: the list of threads to be stopped
  * @return 0 if all threads are stopped, -EINVAL otherwise.
  */
-int cfork_stop_threads(struct list_head *thread_list)
+int stop_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
     wait_node_t *node, *node_tmp;
     struct list_head waiting_thread_list; // local list
+    int ret = 0;
 
     init_list_head(&waiting_thread_list);
 
     for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
-
-        if (thread->thread_ctx->type != TYPE_USER) {
-            // only user threads are allowed to be stopped
-            CFORK_LOG_ERR("Only user threads are allowed to be stopped");
-            return -EINVAL;
-        }
+        thread->thread_ctx->thread_exit_state = TE_EXITING;
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:
-            // send signal to the running thread
-            thread->thread_ctx->state = TS_STOPPING;
+            /* ask the cpu to reschedule a common thread that is running */
             send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
             add_to_waiting_list(&waiting_thread_list, (void *)thread);
             break;
+        case TS_READY:
+            ret = sched_dequeue(thread);
+            /** case1:
+             * @here: thread is TS_READY
+             * @scheduler: thread = find_runnable_thread(); 
+             *          which dequeue thread and set it to TS_INTER
+             * @here: rr_sched_dequeue will fail because state is not TS_READY
+             * this thread might be running; should wait
+             */
+            if (ret < 0) {
+                add_to_waiting_list(&waiting_thread_list, (void *)thread);
+            } 
+            /** case 2:
+             * @here: thread is TS_READY, dequeue success
+             * @scheduler: fail to dequeue the thread
+             * this thread is really stopped
+             */
+            else {
+                thread->thread_ctx->thread_exit_state = TE_EXITED;
+            }
+            break;
+        case TS_WAITING_IPC:
+            /* If waiting for ipc finish, ipc_return will set thread as TE_EXITED */
+            add_to_waiting_list(&waiting_thread_list, (void *)thread);
+            break;
         case TS_WAITING:
-            // TODO: who want to wake up the thread?
-            // notify: maintain cross-machine notify
-
-            // timer: remove the thread from the sleep queue
-            while (!try_dequeue_sleeper(thread));
-
-            thread->thread_ctx->state = TS_STOPPED;
+            /* If waiting for timer, remove it from sleeping queue */
+            if (thread->sleep_state.cb != NULL) {
+                extern void try_remove_timeout(struct thread *);
+                try_remove_timeout(thread);
+            }
+            
+            /* directly checkpoint */
+            thread->thread_ctx->thread_exit_state = TE_EXITED;
             break;
         case TS_INTER:
-        case TS_INIT:
-            // TODO: check if there are corner cases
-        case TS_READY:
-            // mark the thread as migrating
-            thread->thread_ctx->state = TS_STOPPED;
-            break;
         default:
-            BUG("Unexpected thread state: %d", thread->thread_ctx->state);
+            add_to_waiting_list(&waiting_thread_list, (void *)thread);
             break;
         }
     }
@@ -88,11 +167,21 @@ int cfork_stop_threads(struct list_head *thread_list)
     while (!list_empty(&waiting_thread_list)) {
         for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
             thread = (struct thread *)node->data;
-            if (thread->thread_ctx->state == TS_STOPPED) {
+            if (thread->thread_ctx->thread_exit_state == TE_EXITED) {
+                // check thread is not holding the kernel stack
+                BUG_ON(thread->thread_ctx->kernel_stack_state != KS_FREE);
                 remove_from_waiting_list(&waiting_thread_list, node);
+            } else {
+                // print_thread(thread);
+                /* If the thread is scheduled to running */
+                if (thread->thread_ctx->state == TS_RUNNING) {
+                    send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
+                }
             }
         }
     }
+
+    CFORK_LOG_DEBUG("%s: all threads have been stoped\n", __func__);
 
     return 0;
 }

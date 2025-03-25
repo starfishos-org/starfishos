@@ -289,11 +289,13 @@ int rr_sched_enqueue(struct thread *thread)
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
-    if (thread->thread_ctx->state != TS_READY) {
-        kwarn("%s: thread %s state is %d\n",
+    if (thread->thread_ctx->state != TS_READY 
+        || thread->thread_ctx->thread_exit_state != TE_RUNNING) {
+        kdebug("%s: thread %s state is %d exit state is %d\n",
               __func__,
               thread->cap_group->cap_group_name,
-              thread->thread_ctx->state);
+              thread->thread_ctx->state,
+              thread->thread_ctx->thread_exit_state);
         return -EINVAL;
     }
     list_del(&(thread->ready_queue_node));
@@ -329,6 +331,7 @@ struct thread *rr_sched_choose_thread(void)
 {
     u32 cpuid = smp_get_cpu_id();
     struct thread *thread = NULL;
+    int ret = 0;
 
     if (!list_empty(&(rr_ready_queue_meta[cpuid].queue_head))) {
         lock(&(rr_ready_queue_meta[cpuid].queue_lock));
@@ -348,20 +351,18 @@ struct thread *rr_sched_choose_thread(void)
             goto out;
         }
 
-        BUG_ON(__rr_sched_dequeue(thread));
+        ret = __rr_sched_dequeue(thread);
+        if (ret < 0) { /* thread is stopped by recycler or ckpt/restore */
+            goto again;
+        }
+
         if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
             thread->thread_ctx->thread_exit_state = TE_EXITED;
             goto again;
         }
-#ifdef DSM_ENABLED
-        if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
-            /* Thread need to stop. Set the state to TS_STOPPED */
-            thread->thread_ctx->thread_exit_state = TE_STOPPED;
-            goto again;
-        }
-#endif
+
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
         return thread;
     }
@@ -411,8 +412,8 @@ int rr_sched(void)
              * Check whether the thread is going to exit.
              */
             old->thread_ctx->state = TS_EXIT;
-            old->thread_ctx->thread_exit_state = TE_EXITED;
             old->thread_ctx->kernel_stack_state = KS_FREE;
+            old->thread_ctx->thread_exit_state = TE_EXITED;
             break;
 
             /* do nothing */
@@ -421,13 +422,6 @@ int rr_sched(void)
         case TE_MIGRATING:
             /* schedule migrate thread to remote */
             rr_sched_migrate_to_remote(old);
-            break;
-        case TE_STOPPING:
-            /* If the thread is being asked to stop, set it to TS_STOPPED */
-            old->thread_ctx->thread_exit_state = TE_STOPPED;
-            break;
-        case TE_STOPPED:
-            /* do nothing */
             break;
 #endif
         default:
@@ -451,6 +445,7 @@ int rr_sched(void)
             BUG_ON(rr_sched_enqueue(old) != 0);
             break;
         case TS_WAITING:
+        case TS_WAITING_IPC:
             /* do nothing */
             break;
         default:
