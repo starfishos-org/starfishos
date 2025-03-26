@@ -2,7 +2,7 @@
 add_executable(procmgr.srv proc_node.c procmgr.c recycle.c shell_msg_handler.c
                            srvmgr.c)
 target_link_options(procmgr.srv PRIVATE -static)
-add_dependencies(procmgr.srv libc)
+add_dependencies(procmgr.srv libc-static)
 
 macro(_procmgr_incbin _target_name _binary_name _binary_path)
     set(_binary_name ${_binary_name})

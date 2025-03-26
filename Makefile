@@ -98,3 +98,7 @@ json-test:
 float-test:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/python.exp float_operation.py 1000000
+
+pca:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/pca.exp 48

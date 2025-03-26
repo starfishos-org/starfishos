@@ -8,6 +8,7 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "pca -c 1000 -r 1000 -t $thread_num & \r"
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 1\n"
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 2\n"
 
 interact

@@ -35,9 +35,6 @@ set_property(TARGET libgomp-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROS
 set(CMAKE_C_COMPILER ${libc_install_dir}/bin/musl-gcc)
 set(CMAKE_CXX_COMPILER ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/bin/musl-g++)
 
-add_library(libc STATIC IMPORTED)
-set_property(TARGET libc PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.a)
-
 add_custom_target(
     ramdisk ALL
     WORKING_DIRECTORY ${build_ramdisk_dir}

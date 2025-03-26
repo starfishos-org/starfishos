@@ -248,7 +248,6 @@ if(CHCORE_DEMOS_PHOENIX)
     COMMAND rsync -a ${PHOENIX_TESTS_DIR}/bin/* ${build_ramdisk_dir}/
   )
   add_dependencies(ramdisk phoenix)
-  add_dependencies(phoenix libc-static)
 endif()
 
 if(CHCORE_DEMOS_GEMM)
