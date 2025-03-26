@@ -149,12 +149,12 @@ if(CHCORE_DEMOS_LEVELDB)
     leveldb ALL
     WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
     COMMAND mkdir -p build && cd build &&
-         cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
+         cmake -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . -j$(_nproc)
+            && cmake --build . --parallel
     COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
   add_dependencies(ramdisk leveldb)
@@ -230,27 +230,10 @@ if(CHCORE_DEMOS_PHOENIX)
   add_custom_target(
       phoenix ALL
       WORKING_DIRECTORY ${PHOENIX_DIR}
-      COMMAND cd ${PHOENIX_SRC_DIR} && make clean && make MALLOC=libc CC=${MUSL_CC} -j4
+      COMMAND cd ${PHOENIX_SRC_DIR} && make clean && make MALLOC=libc CC=${MUSL_CC}
       DEPENDS
   )
 
-  # Loop through each test and add the build commands
-  # foreach(test ${TESTS})
-  #     add_custom_command(
-  #         TARGET phoenix
-  #         POST_BUILD
-  #         COMMAND cd ${PHOENIX_TESTS_DIR}/${test} && make MALLOC=libc CC=${MUSL_CC} -j4
-  #         COMMAND rsync -a ${PHOENIX_TESTS_DIR}/${test}/${test} ${build_ramdisk_dir}/${test}.bin
-  #     )
-  # endforeach()
-
-  add_custom_command(
-    TARGET phoenix
-    POST_BUILD
-    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/matrix_multiply && make MALLOC=libc CC=${MUSL_CC} -j4
-    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/matrix_multiply/matrix_multiply_cxl ${build_ramdisk_dir}/matrix_multiply_cxl.bin
-  )
-  # Copy additional data files
   add_custom_command(
       TARGET phoenix
       POST_BUILD
@@ -261,10 +244,11 @@ if(CHCORE_DEMOS_PHOENIX)
   add_custom_command(
     TARGET phoenix
     POST_BUILD
-    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/pca && make clean && make MALLOC=libc CC=${MUSL_CC} -j4
-    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/pca/pca ${build_ramdisk_dir}/pca.bin
+    COMMAND cd ${PHOENIX_TESTS_DIR} && make CC=${MUSL_CC}
+    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/bin/* ${build_ramdisk_dir}/
   )
   add_dependencies(ramdisk phoenix)
+  add_dependencies(phoenix libc-static)
 endif()
 
 if(CHCORE_DEMOS_GEMM)

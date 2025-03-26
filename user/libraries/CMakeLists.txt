@@ -11,6 +11,7 @@ if(CHCORE_LIBRARY_LKL)
     add_subdirectory(lkl-libs)
 endif()
 
+if(CHCORE_DEMOS_CPYTHON)
 if (NOT EXISTS ${libc_install_dir}/lib/libffi.so)
   add_custom_target(
     libffi
@@ -57,5 +58,5 @@ add_custom_target(
     COMMAND make clean
 )
 add_dependencies(ramdisk zlib)
-
+endif()
 add_custom_target(libraries-clean DEPENDS ${_libraries_clean_targets})
