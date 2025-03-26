@@ -336,13 +336,14 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      */
     current_thread->thread_ctx->state = TS_WAITING;
 
-    sched();
     /*
      * To avoid sys_user_fault_map get pending thread too early,
      *      or modify thread->state early than here.
      * Release lock here.
      */
     unlock(&fault_pool->lock);
+
+    sched();
     eret_to_thread(switch_context());
 }
 
