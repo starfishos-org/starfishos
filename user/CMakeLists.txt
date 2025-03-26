@@ -43,10 +43,6 @@ add_custom_target(
     WORKING_DIRECTORY ${build_ramdisk_dir}
     # install libc.so
     COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.so ${build_ramdisk_dir}/libc.so
-    # install libffi.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
-    # install libz.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
     # install cpp library
     COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6.0.28 ${build_ramdisk_dir}/libstdc++.so.6
     COMMAND rsync -a ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgcc_s.so.1 ${build_ramdisk_dir}/libgcc_s.so.1

@@ -350,6 +350,63 @@ endif()
 
 
 if (CHCORE_DEMOS_CPYTHON)
+if (NOT EXISTS ${libc_install_dir}/lib/libffi.so)
+  add_custom_target(
+    libffi
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    COMMAND ./configure CXX=${MUSL_CXX} CC=${MUSL_CC} --disable-docs --host=x86_64-linux-musl --prefix=${libc_install_dir}
+    COMMAND make -j$(_nproc)
+    COMMAND make install
+    # install libffi.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
+    DEPENDS
+  )
+else()
+  add_custom_target(
+    libffi
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    # install libffi.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
+    DEPENDS
+  )
+endif()
+
+add_custom_target(
+    libffi-clean
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    COMMAND make clean
+)
+add_dependencies(ramdisk libffi)
+
+if (NOT EXISTS ${libc_install_dir}/lib/libz.so)
+  add_custom_target(
+    zlib
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    COMMAND ./configure --prefix=${libc_install_dir}
+    COMMAND make -j$(_nproc) CC=${MUSL_CC} CXX=${MUSL_CXX}
+    COMMAND make install
+    # install libz.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
+    DEPENDS
+  )
+else()
+add_custom_target(
+    zlib
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    # install libz.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
+    DEPENDS
+  )
+endif()
+add_custom_target(
+    zlib-clean
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    COMMAND make clean
+)
+add_dependencies(ramdisk zlib)
+endif()
+
+if (CHCORE_DEMOS_CPYTHON)
     set(cpython_install_dir ${CMAKE_CURRENT_BINARY_DIR}/cpython)
     if (EXISTS ${cpython_install_dir})
       add_custom_target(

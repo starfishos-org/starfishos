@@ -14,11 +14,11 @@
 	path = user/demos/cpython
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/cpython.git
   branch = 3.12
-[submodule "user/libraries/libffi"]
+[submodule "user/demos/libffi"]
 	path = user/libraries/libffi
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/libffi.git
   branch = dev
-[submodule "user/libraries/zlib"]
+[submodule "user/demos/zlib"]
 	path = user/libraries/zlib
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/zlib.git
 	branch = master
