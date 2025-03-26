@@ -157,7 +157,7 @@ void *kzalloc(size_t size)
         return addr;
 }
 #else
-void *kmalloc(unsigned long long size, int flags)
+void *kmalloc(unsigned long long size, mm_malloc_type_t flags)
 {
     BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
 #ifdef DSM_MALLOC_MODE_DRAM
@@ -190,7 +190,7 @@ void *kmalloc(unsigned long long size, int flags)
     return NULL;
 }
 
-void *kzalloc(unsigned long long size, int flags)
+void *kzalloc(unsigned long long size, mm_malloc_type_t flags)
 {
     BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
     void *addr;
@@ -201,7 +201,7 @@ void *kzalloc(unsigned long long size, int flags)
 }
 
 /* Return vaddr of (1 << order) continous free physical pages */
-void *get_pages(int order, int flags)
+void *get_pages(int order, mm_malloc_type_t flags)
 {
     BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
 #ifdef DSM_MALLOC_MODE_DRAM

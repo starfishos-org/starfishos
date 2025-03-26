@@ -22,7 +22,7 @@ extern int radix_deep_copy_with_hybird_mem(struct radix *src,
  * @paddr is only used when @type == PMO_DEVICE.
  */
 static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
-                    paddr_t paddr, int flags)
+                    paddr_t paddr, mm_malloc_type_t mm_type)
 {
     int ret = 0;
 
@@ -31,6 +31,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     len = ROUND_UP(len, PAGE_SIZE);
     pmo->size = len;
     pmo->type = type;
+    pmo->mm_type = mm_type;
 
 #ifdef RMAP_ENABLED
     /* reverse list */
@@ -46,7 +47,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
          * So, we directly allocate the physical memory.
          * Note that kmalloc(>2048) returns continous physical pages.
          */
-        void *new_va = kmalloc(len, flags);
+        void *new_va = kmalloc(len, pmo->mm_type);
         // kinfo("new_va: %lx\n", (u64)new_va);
         pmo->start = (paddr_t)virt_to_phys(new_va);
 
@@ -128,7 +129,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     return ret;
 }
 
-static int __create_pmo(u64 paddr, u64 size, u64 type, int flags, 
+static int __create_pmo(u64 paddr, u64 size, u64 type, mm_malloc_type_t flags, 
             struct cap_group *cap_group, struct pmobject **new_pmo)
 {
     int cap, r;
@@ -173,13 +174,13 @@ int sys_create_device_pmo(u64 paddr, u64 size)
     return create_device_pmo(paddr, size, NULL);
 }
 
-int create_pmo(u64 size, u64 type, int flags, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, mm_malloc_type_t flags, struct cap_group *cap_group,
                struct pmobject **new_pmo)
 {
     return __create_pmo(0, size, type, flags, cap_group, new_pmo);
 }
 
-int sys_create_pmo(u64 size, u64 type, int flags)
+int sys_create_pmo(u64 size, u64 type, mm_malloc_type_t flags)
 {
     BUG_ON(size == 0);
     return create_pmo(size, type, flags, current_cap_group, NULL);
