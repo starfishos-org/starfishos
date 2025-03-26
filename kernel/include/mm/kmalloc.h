@@ -12,10 +12,15 @@ void *get_pages(int order, __DEFAULT__);
 void free_pages(void *addr);
 #else
 
-enum malloc_type {
+#ifndef mm_malloc_type_t
+typedef char mm_malloc_type_t;
+#endif
+
+enum mm_malloc_type {
     __DEFAULT__ = 0,
     __PRIVATE__,
     __SHARED__,
+    __MAX_MALLOC_TYPE__,
 };
 
 /* sepcial flag for each type of process state */
@@ -43,24 +48,31 @@ enum malloc_type {
 #define __THREADCTX_MALLOC_TYPE__ __DEFAULT__
 #endif
 
-#ifdef DSM_THREAD_MODE_CXL
-#define __THREAD_MALLOC_TYPE__ __SHARED__
-#elif defined DSM_THREAD_MODE_DRAM
-#define __THREAD_MALLOC_TYPE__ __PRIVATE__
+#ifdef DSM_OBJECT_MODE_CXL
+#define __OBJECT_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_OBJECT_MODE_DRAM
+#define __OBJECT_MALLOC_TYPE__ __PRIVATE__
 #else
-#define __THREAD_MALLOC_TYPE__ __DEFAULT__
+#define __OBJECT_MALLOC_TYPE__ __DEFAULT__
 #endif
 
-void *kmalloc(unsigned long long size, int flags);
-void *kzalloc(unsigned long long size, int flags);
+#ifdef DSM_PAGE_MODE_CXL
+#define __PAGE_MALLOC_TYPE__ __SHARED__
+#elif defined DSM_PAGE_MODE_DRAM
+#define __PAGE_MALLOC_TYPE__ __PRIVATE__
+#else
+#define __PAGE_MALLOC_TYPE__ __DEFAULT__
+#endif
+
+void *kmalloc(unsigned long long size, mm_malloc_type_t flags);
+void *kzalloc(unsigned long long size, mm_malloc_type_t flags);
 void kfree(void *ptr);
 
 /* Return vaddr of (1 << order) continous free physical pages */
-void *get_pages(int order, int flags);
+void *get_pages(int order, mm_malloc_type_t flags);
 void free_pages(void *addr);
 #endif
 
-// TODO: merge several different kmalloc into kmalloc(size_t size, int flags)
 /* DRAM */
 void *dram_kmalloc(unsigned long long size);
 void *get_dram_pages(int order);

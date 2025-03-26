@@ -83,22 +83,6 @@ int start_all_threads(struct list_head *thread_list)
     return 0;
 }
 
-#define COMMON_RUNNING_THREAD(thread) \
-    (thread->thread_ctx->type == TYPE_USER \
-        && thread->thread_ctx->state == TS_RUNNING)
-
-#define COMMON_READY_THREAD(thread) \
-    (thread->thread_ctx->type == TYPE_USER \
-        && thread->thread_ctx->state == TS_READY)
-
-#define COMMON_WAITING_THREAD(thread) \
-    (thread->thread_ctx->type == TYPE_USER \
-        && thread->thread_ctx->state == TS_WAITING)
-
-#define SHADOW_WAITING_THREAD(thread) \
-    (thread->thread_ctx->type == TYPE_SHADOW \
-        && thread->thread_ctx->state == TS_WAITING)
-
 /**
  * stop_all_threads: stop all threads in the list.
  * @param thread_list: the list of threads to be stopped
@@ -182,6 +166,9 @@ int stop_all_threads(struct list_head *thread_list)
                 }
             }
         }
+
+        /* Handle IPI tx while waiting to avoid deadlock. */
+        handle_ipi();
     }
 
     CFORK_LOG_DEBUG("%s: all threads have been stoped\n", __func__);

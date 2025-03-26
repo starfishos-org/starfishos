@@ -4,12 +4,13 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # DSM_MALLOC_MODE 
 # "CXL": all on CXL
 # "DRAM": all on DRAM
-# "MIXED": our target partten
-set(DSM_MALLOC_MODE "CXL")
+# "MIXED_DEFAULT_DRAM": our target partten
+# "MIXED_DEFAULT_CXL": our target partten
+set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 
 set(DSM_THREADCTX_MODE "CXL")
 set(DSM_PGTABLE_MODE "CXL")
 set(DSM_STACK_MODE "CXL")
-
-# Now: always use CXL for thread
-set(DSM_THREAD_MODE "CXL")
+# Now: always use CXL for object
+set(DSM_OBJECT_MODE "CXL")
+set(DSM_PAGE_MODE "DRAM")

@@ -26,12 +26,18 @@ int ssi_ckpt_init(void)
     int ret = 0;
     
     if (DSM_STATE >= DSM_CONFIG_STATE_CKPT_INITED) {
+        /* check if CKPT_CG_KVS is initialized */
+        if (!is_valid_kvs(CKPT_CG_KVS)) {
+            kwarn_once("%s: CKPT_CG_KVS is not initialized\n", __func__);
+            CKPT_CG_KVS = new_kvs(19, __SHARED__);
+            return -1;
+        }
         return 0;
     }
 
     /* init ckpt whole system metadata */
     if ((ret = ckpt_ws_init()) != 0) {
-        return ret;
+        kwarn_once("%s: ckpt_ws_init failed\n", __func__);
     }
 
     CKPT_INITIALIZED = false;

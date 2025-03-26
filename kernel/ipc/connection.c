@@ -197,7 +197,7 @@ static int create_connection(struct thread *client, struct thread *server,
             cap_copy(current_cap_group, server->cap_group, shm_cap_client);
 
     /* Create struct ipc_connection */
-    conn = obj_alloc(TYPE_CONNECTION, sizeof(*conn), __DEFAULT__);
+    conn = obj_alloc(TYPE_CONNECTION, sizeof(*conn), __OBJECT_MALLOC_TYPE__);
     if (!conn) {
         ret = -ENOMEM;
         goto out_fail;
