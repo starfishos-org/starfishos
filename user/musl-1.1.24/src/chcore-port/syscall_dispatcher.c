@@ -773,7 +773,7 @@ long __syscall5(long n, long a, long b, long c, long d, long e)
 		return chcore_futex((int *)a, b, c, (struct timespec *)d,
 				    (int *)e, 0);
 	case SYS_mremap: {
-		warn("SYS_mremap is not implemented.\n");
+		warn_once("SYS_mremap is not implemented.\n");
 		/*
 		 * At least, our libc can work without mremap
 		 * since it will just try to invoke it and

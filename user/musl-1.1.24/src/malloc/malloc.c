@@ -475,7 +475,6 @@ void __malloc_donate(char *start, char *end)
 
 void *internel_malloc(size_t n)
 {
-	printf("internel malloc called\n");
 	struct chunk *c;
 	int i, j;
 
@@ -691,14 +690,16 @@ int internel_posix_memalign(void **res, size_t align, size_t len)
 }
 
 // #define RPMALLOC
-#define MALLOC_CXL
+#define MIXED_MALLOC
+
+int malloc_type = MALLOC_TYPE_DEFAULT;
 
 void *malloc(size_t n)
 {
 	#ifdef RPMALLOC
 		return rpmalloc(n);
-	#elif defined MALLOC_CXL
-		return mixed_malloc(n, MALLOC_TYPE_SHARED);
+	#elif defined MIXED_MALLOC
+		return mixed_malloc(n, malloc_type);
 	#else
 		return internel_malloc(n);
 	#endif
@@ -707,8 +708,8 @@ void *realloc(void *p, size_t n)
 {
 	#ifdef RPMALLOC
 	return rprealloc(p, n);
-	#elif defined MALLOC_CXL
-	return mixed_realloc(p, n, MALLOC_TYPE_SHARED);
+	#elif defined MIXED_MALLOC
+	return mixed_realloc(p, n, malloc_type);
 	#else
 	return internel_realloc(p, n);
 	#endif
@@ -717,8 +718,8 @@ void *calloc(size_t n, size_t m)
 {
 	#ifdef RPMALLOC
 	return rpcalloc(n, m);
-	#elif defined MALLOC_CXL
-	return mixed_calloc(n, m, MALLOC_TYPE_SHARED);
+	#elif defined MIXED_MALLOC
+	return mixed_calloc(n, m, malloc_type);
 	#else
 	return internel_calloc(n, m);
 	#endif
@@ -793,7 +794,10 @@ void *__mixed_expand_heap(size_t *pn, int flags) {
 	void *area = NULL;
 	if (flags == MALLOC_TYPE_SHARED) {
 		area = __mmap(0, n, PROT_READ|PROT_WRITE,
-		MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+		MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_SHARED, -1, 0);
+	} else if (flags == MALLOC_TYPE_PRIVATE) {
+		area = __mmap(0, n, PROT_READ|PROT_WRITE,
+		MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_PRIVATE, -1, 0);
 	} else {
 		area = __mmap(0, n, PROT_READ|PROT_WRITE,
 		MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
@@ -840,21 +844,23 @@ static struct chunk *mixed_expand_heap(size_t n, int flags) {
 }
 
 void *mixed_malloc(size_t n, int flags) {
-	// printf("mixed malloc called\n");
 	struct chunk *c;
 	int i, j;
 
 	if (adjust_size(&n) < 0) return NULL;
-
+	// fprintf(stderr, "mixed_malloc called malloc_type: %d size: %ld MMAP_THRESHOLD: %d\n", malloc_type, n, MMAP_THRESHOLD);
 	if (n > MMAP_THRESHOLD) {
 		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
 		char *base;
 		if (flags == MALLOC_TYPE_DEFAULT) {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+		} else if (flags == MALLOC_TYPE_SHARED) {
+			base = __mmap(0, len, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_SHARED, -1, 0);
 		} else {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
-			MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_PRIVATE, -1, 0);
 		}
 		
 		if (base == (void *)-1) return 0;

@@ -6,7 +6,8 @@
 #define MAP_PRIVATE	0x02
 
 #define MAP_ANONYMOUS	0x20
-#define MAP_CXL       0x200000
+#define MAP_FLAG_SHARED      0x200000
+#define MAP_FLAG_PRIVATE     0x400000
 
 #define PROT_NONE	0
 #define PROT_READ	1

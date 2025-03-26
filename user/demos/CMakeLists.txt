@@ -230,7 +230,7 @@ if(CHCORE_DEMOS_PHOENIX)
   add_custom_target(
       phoenix ALL
       WORKING_DIRECTORY ${PHOENIX_DIR}
-      COMMAND cd ${PHOENIX_SRC_DIR} && make MALLOC=libc CC=${MUSL_CC} -j4
+      COMMAND cd ${PHOENIX_SRC_DIR} && make clean && make MALLOC=libc CC=${MUSL_CC} -j4
       DEPENDS
   )
 
@@ -257,6 +257,12 @@ if(CHCORE_DEMOS_PHOENIX)
       # COMMAND cp ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
       COMMAND cp ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
+  )
+  add_custom_command(
+    TARGET phoenix
+    POST_BUILD
+    COMMAND cd ${PHOENIX_TESTS_DIR}/${test}/pca && make clean && make MALLOC=libc CC=${MUSL_CC} -j4
+    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/pca/pca ${build_ramdisk_dir}/pca.bin
   )
   add_dependencies(ramdisk phoenix)
 endif()
