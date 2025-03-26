@@ -208,7 +208,7 @@ int chcore_ftruncate(int fd, off_t length)
 	return ret;
 }
 
-int chcore_file_lseek(int fd, off_t offset, int whence)
+off_t chcore_file_lseek(int fd, off_t offset, int whence)
 {
 	ipc_msg_t *ipc_msg = 0;
 	ipc_struct_t *_fs_ipc_struct;
@@ -669,7 +669,7 @@ int chcore_fallocate(int fd, int mode, off_t offset, off_t len)
 	return ret;
 }
 
-ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
+int chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 {
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
@@ -710,7 +710,7 @@ ssize_t chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 	return ret;
 }
 
-ssize_t chcore_file_pwrite(int fd, const void *buf, size_t count, off_t offset)
+int chcore_file_pwrite(int fd, void *buf, size_t count, off_t offset)
 {
 	ipc_msg_t *ipc_msg;
 	ipc_struct_t *_fs_ipc_struct;
@@ -735,7 +735,7 @@ ssize_t chcore_file_pwrite(int fd, const void *buf, size_t count, off_t offset)
 		fr_ptr->pwrite.fd = fd;
 		fr_ptr->pwrite.count = cnt;
 		fr_ptr->pwrite.offset = offset;
-		ipc_set_msg_data(ipc_msg, buf, sizeof(struct fs_request), cnt);
+		ipc_set_msg_data(ipc_msg, (void *)buf, sizeof(struct fs_request), cnt);
 		ret = ipc_call(_fs_ipc_struct, ipc_msg);
 		buf = (char *)buf + ret;
 		remain -= ret;

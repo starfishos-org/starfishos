@@ -37,7 +37,7 @@ int chcore_hostfs_write(int fd, void *buf, size_t count) {
 	return -1;
 }
 
-long chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
+u64 chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_t offset)
 {
 	u64 mapped_vaddr;
 	struct hostfs_file_info *info;
@@ -90,7 +90,7 @@ int chcore_hostfs_open(int fd, char *path) {
 	info->mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
 	info->mmap_flags = MAP_ANONYMOUS | MAP_PRIVATE;
 	info->mmap_prot = PROT_READ;
-	map_addr = chcore_mmap(0,
+	map_addr = (u64)chcore_mmap(0,
 				info->mmap_size,
 				info->mmap_prot,
 				info->mmap_flags,
