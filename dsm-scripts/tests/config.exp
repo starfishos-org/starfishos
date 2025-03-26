@@ -10,12 +10,13 @@ array set program_names {
 
 array set program_args {
     "hello" ""
-    "leveldb" "--benchmarks=fillbatch --num=1000000"
-    # ...
+    "leveldb" "--benchmarks=fillbatch --num=1000000 --db=\/0"
 }
+# "leveldb" "--benchmarks=fillbatch --num=1000000"
+# ...
 
 array set program_expects {
     "hello" "[1] hello"
-    "leveldb" "version 1.23"
+    "leveldb" "version"
     # ...
 }

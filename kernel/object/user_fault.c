@@ -334,7 +334,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Give up the control flow here.
      * The thread will wake up when map finished.
      */
-    current_thread->thread_ctx->state = TS_WAITING_IPC;
+    current_thread->thread_ctx->state = TS_WAITING;
 
     sched();
     /*
@@ -345,6 +345,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
     unlock(&fault_pool->lock);
     eret_to_thread(switch_context());
 }
+
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
 {

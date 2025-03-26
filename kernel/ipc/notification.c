@@ -334,7 +334,11 @@ int signal_notific(struct notification *notifc)
         // BUG_ON(count);
 
         target->thread_ctx->state = TS_INTER;
-        BUG_ON(sched_enqueue(target));
+        if (target->thread_ctx->thread_exit_state == TE_EXITING) {
+            target->thread_ctx->thread_exit_state = TE_EXITED;
+        } else {
+            BUG_ON(sched_enqueue(target));
+        }
 
         unlock(&target->sleep_state.queue_lock);
     }
