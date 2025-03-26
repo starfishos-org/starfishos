@@ -16,6 +16,8 @@
 #define inline inline __attribute__((always_inline))
 #endif
 
+int memory_malloc_type = MALLOC_TYPE_DEFAULT;
+
 static struct {
 	volatile uint64_t binmap;
 	struct bin bins[64];
@@ -689,17 +691,12 @@ int internel_posix_memalign(void **res, size_t align, size_t len)
 	return 0;
 }
 
-// #define RPMALLOC
-#define MIXED_MALLOC
-
-int malloc_type = MALLOC_TYPE_DEFAULT;
-
 void *malloc(size_t n)
 {
 	#ifdef RPMALLOC
 		return rpmalloc(n);
 	#elif defined MIXED_MALLOC
-		return mixed_malloc(n, malloc_type);
+		return mixed_malloc(n, memory_malloc_type);
 	#else
 		return internel_malloc(n);
 	#endif
@@ -709,7 +706,7 @@ void *realloc(void *p, size_t n)
 	#ifdef RPMALLOC
 	return rprealloc(p, n);
 	#elif defined MIXED_MALLOC
-	return mixed_realloc(p, n, malloc_type);
+	return mixed_realloc(p, n, memory_malloc_type);
 	#else
 	return internel_realloc(p, n);
 	#endif
@@ -719,7 +716,7 @@ void *calloc(size_t n, size_t m)
 	#ifdef RPMALLOC
 	return rpcalloc(n, m);
 	#elif defined MIXED_MALLOC
-	return mixed_calloc(n, m, malloc_type);
+	return mixed_calloc(n, m, memory_malloc_type);
 	#else
 	return internel_calloc(n, m);
 	#endif
@@ -848,7 +845,7 @@ void *mixed_malloc(size_t n, int flags) {
 	int i, j;
 
 	if (adjust_size(&n) < 0) return NULL;
-	// fprintf(stderr, "mixed_malloc called malloc_type: %d size: %ld MMAP_THRESHOLD: %d\n", malloc_type, n, MMAP_THRESHOLD);
+	// fprintf(stderr, "mixed_malloc called memory_malloc_type: %d size: %ld MMAP_THRESHOLD: %d\n", memory_malloc_type, n, MMAP_THRESHOLD);
 	if (n > MMAP_THRESHOLD) {
 		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
 		char *base;

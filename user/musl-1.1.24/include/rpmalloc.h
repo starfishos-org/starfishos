@@ -12,6 +12,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <chcore/defs.h>
 
 #ifdef __cplusplus
 extern "C" {

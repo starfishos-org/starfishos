@@ -193,8 +193,8 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
 
         /* Check @flags */
         if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_SHARED) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_PRIVATE)) {
-                printf("%s: here only supports anonymous, private and shared mapping\n",
-                       __func__);
+                printf("%s: here only supports anonymous, private and shared mapping flags: %lx\n",
+                       __func__, flags);
                 goto err_exit;
         }
 
