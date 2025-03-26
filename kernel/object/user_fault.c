@@ -334,7 +334,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Give up the control flow here.
      * The thread will wake up when map finished.
      */
-    current_thread->thread_ctx->state = TS_WAITING;
+    current_thread->thread_ctx->state = TS_WAITING_IPC;
 
     sched();
     /*

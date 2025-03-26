@@ -7,9 +7,9 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "MIXED": our target partten
 set(DSM_MALLOC_MODE "CXL")
 
-set(DSM_THREADCTX_MODE "DRAM")
-set(DSM_PGTABLE_MODE "DRAM")
-set(DSM_STACK_MODE "DRAM")
+set(DSM_THREADCTX_MODE "CXL")
+set(DSM_PGTABLE_MODE "CXL")
+set(DSM_STACK_MODE "CXL")
 
 # Now: always use CXL for thread
 set(DSM_THREAD_MODE "CXL")

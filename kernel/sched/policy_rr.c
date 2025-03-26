@@ -248,6 +248,11 @@ int rr_sched_enqueue(struct thread *thread)
     if (thread->thread_ctx->type == TYPE_IDLE)
         return 0;
 
+    if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
+        thread->thread_ctx->thread_exit_state = TE_EXITED;
+        return 0;
+    }
+
     cpubind = get_cpubind(thread);
     gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
 
