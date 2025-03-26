@@ -15,6 +15,7 @@ inline static void dsm_metadata_init(void)
     dsm_meta->ckpt_initialized = false;
     dsm_meta->version_number = 0;
     dsm_meta->ckpt_whole_sys_table = NULL;
+    // FIXME(FN): should recycle the kvs
     dsm_meta->ckpt_cg_kvs = new_kvs(19, __SHARED__);
 }
 

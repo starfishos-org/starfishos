@@ -192,9 +192,9 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         }
 
         /* Check @flags */
-        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_CXL)) {
-                printf("%s: here only supports anonymous, private and shared mapping\n",
-                       __func__);
+        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_SHARED) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_PRIVATE)) {
+                printf("%s: here only supports anonymous, private and shared mapping flags: %lx\n",
+                       __func__, flags);
                 goto err_exit;
         }
 
@@ -207,8 +207,10 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
 
         /* pmo create */
         if (pmo_cap == 0) {
-                if (flags & MAP_CXL) {
+                if (flags & MAP_FLAG_SHARED) {
                         pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
+                } else if (flags & MAP_FLAG_PRIVATE) {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_PRIVATE);
                 } else {
                         pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
                 }

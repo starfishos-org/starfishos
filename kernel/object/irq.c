@@ -70,7 +70,7 @@ int sys_irq_register(int irq)
     if (irq < 0 || irq >= MAX_IRQ_NUM)
         return -EINVAL;
 
-    irq_notifc = obj_alloc(TYPE_IRQ, sizeof(*irq_notifc), __DEFAULT__);
+    irq_notifc = obj_alloc(TYPE_IRQ, sizeof(*irq_notifc), __OBJECT_MALLOC_TYPE__);
     if (!irq_notifc) {
         ret = -ENOMEM;
         goto out_fail;

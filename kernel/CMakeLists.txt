@@ -110,16 +110,10 @@ if(CHCORE_SSI)
   target_compile_definitions(${kernel_target} PRIVATE DSM_LINEAR_MM_LAYOUT)
   # use which device to simulate the shm
   target_compile_definitions(${kernel_target} PRIVATE DSM_SHM_DEVICE_${DSM_SHM_DEVICE})
-  # malloc configuration
-  target_compile_definitions(${kernel_target} PRIVATE DSM_MALLOC_MODE_${DSM_MALLOC_MODE})
-  # page table configuration
-  target_compile_definitions(${kernel_target} PRIVATE DSM_PGTABLE_MODE_${DSM_PGTABLE_MODE})
-  # stack configuration
-  target_compile_definitions(${kernel_target} PRIVATE DSM_STACK_MODE_${DSM_STACK_MODE})
-  # thread configuration
-  target_compile_definitions(${kernel_target} PRIVATE DSM_THREAD_MODE_${DSM_THREAD_MODE})
-  # thread ctx configuration
-  target_compile_definitions(${kernel_target} PRIVATE DSM_THREADCTX_MODE_${DSM_THREADCTX_MODE})
+  # DSM memory configurations
+  foreach(type MALLOC PGTABLE STACK THREADCTX OBJECT PAGE)
+    target_compile_definitions(${kernel_target} PRIVATE DSM_${type}_MODE_${DSM_${type}_MODE})
+  endforeach()
 endif()
 
 # SLS Basic Configruations

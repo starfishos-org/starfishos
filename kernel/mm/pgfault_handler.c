@@ -189,7 +189,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                                 new_va = get_cxl_pages(0);
                         else
 #endif
-            new_va = get_pages(0, __DEFAULT__);
+            new_va = get_pages(0, pmo->mm_type);
             BUG_ON(new_va == NULL);
             pa = virt_to_phys(new_va);
             BUG_ON(pa == 0);
@@ -276,7 +276,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     page = virt_to_page((void *)phys_to_virt(pmo->start));
                     lock(&page->lock);
                     if (page->ref_cnt > 1) {
-                        void *new_va = kmalloc(pmo->size, __DEFAULT__);
+                        void *new_va = kmalloc(pmo->size, pmo->mm_type);
                         if (new_va == NULL) {
                             ret = -ENOMEM;
                             unlock(&page->lock);
@@ -315,7 +315,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     page = virt_to_page((void *)phys_to_virt(pa));
                     lock(&page->lock);
                     if (page->ref_cnt > 1) {
-                        void *new_va = get_pages(0, __DEFAULT__);
+                        void *new_va = get_pages(0, pmo->mm_type);
                         if (new_va == NULL) {
                             ret = -ENOMEM;
                             unlock(&page->lock);

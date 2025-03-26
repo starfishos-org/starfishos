@@ -350,7 +350,7 @@ int sys_create_notifc(void)
     int notifc_cap = 0;
     int ret = 0;
 
-    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __DEFAULT__);
+    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __OBJECT_MALLOC_TYPE__);
     if (!notifc) {
         ret = -ENOMEM;
         goto out_fail;

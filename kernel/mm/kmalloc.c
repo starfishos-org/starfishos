@@ -157,15 +157,16 @@ void *kzalloc(size_t size)
         return addr;
 }
 #else
-void *kmalloc(unsigned long long size, int flags)
+void *kmalloc(unsigned long long size, mm_malloc_type_t flags)
 {
+    BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
 #ifdef DSM_MALLOC_MODE_DRAM
     UNUSED(flags);
     return dram_kmalloc(size);
 #elif defined(DSM_MALLOC_MODE_CXL)
     UNUSED(flags);
     return cxl_kmalloc(size);
-#elif defined(DSM_MALLOC_MODE_MIXED)
+#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM)
     switch (flags) {
     case __DEFAULT__:
     case __PRIVATE__:
@@ -175,12 +176,23 @@ void *kmalloc(unsigned long long size, int flags)
     default:
         kwarn_once("%s: type: %d is not supported\n", __func__, flags);
     }
+#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_CXL)
+    switch (flags) {
+    case __DEFAULT__:
+    case __SHARED__:
+        return cxl_kmalloc(size);
+    case __PRIVATE__:
+        return dram_kmalloc(size);
+    default:
+        kwarn_once("%s: type: %d is not supported\n", __func__, flags);
+    }
 #endif
     return NULL;
 }
 
-void *kzalloc(unsigned long long size, int flags)
+void *kzalloc(unsigned long long size, mm_malloc_type_t flags)
 {
+    BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
     void *addr;
 
     addr = kmalloc(size, flags);
@@ -189,21 +201,32 @@ void *kzalloc(unsigned long long size, int flags)
 }
 
 /* Return vaddr of (1 << order) continous free physical pages */
-void *get_pages(int order, int flags)
+void *get_pages(int order, mm_malloc_type_t flags)
 {
+    BUG_ON(flags < __DEFAULT__ || flags >= __MAX_MALLOC_TYPE__);
 #ifdef DSM_MALLOC_MODE_DRAM
     UNUSED(flags);
     return get_dram_pages(order);
 #elif defined(DSM_MALLOC_MODE_CXL)
     UNUSED(flags);
     return get_cxl_pages(order);
-#elif defined(DSM_MALLOC_MODE_MIXED)
+#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM)
     switch (flags) {
     case __DEFAULT__:
     case __PRIVATE__:
         return get_dram_pages(order);
     case __SHARED__:
         return get_cxl_pages(order);
+    default:
+        kwarn_once("%s: type: %d is not supported\n", __func__, flags);
+    }
+#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_CXL)
+    switch (flags) {
+    case __DEFAULT__:
+    case __SHARED__:
+        return get_cxl_pages(order);
+    case __PRIVATE__:
+        return get_dram_pages(order);
     default:
         kwarn_once("%s: type: %d is not supported\n", __func__, flags);
     }

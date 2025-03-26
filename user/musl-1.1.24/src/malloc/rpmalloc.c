@@ -951,6 +951,13 @@ _rpmalloc_mmap_os(size_t size, size_t* offset) {
 	}
 #else
 	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_UNINITIALIZED;
+	extern int memory_malloc_type;
+	if (memory_malloc_type == MALLOC_TYPE_SHARED) {
+		flags |= MAP_FLAG_SHARED;
+	} else if (memory_malloc_type == MALLOC_TYPE_PRIVATE) {
+		flags |= MAP_FLAG_PRIVATE;
+	}
+	
 #  if defined(__APPLE__) && !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 	int fd = (int)VM_MAKE_TAG(240U);
 	if (_memory_huge_pages)

@@ -227,7 +227,7 @@ void create_root_thread(void)
                             NULL);
     BUG_ON(ret != 0);
     /* Allocate the init thread */
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __DEFAULT__);
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
     BUG_ON(thread == NULL);
 
     /* Fill the parameter of the thread struct */
@@ -296,7 +296,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
         goto out_fail;
     }
 
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __THREAD_MALLOC_TYPE__);
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
     if (!thread) {
         ret = -ENOMEM;
         goto out_obj_put;
