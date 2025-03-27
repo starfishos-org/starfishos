@@ -214,6 +214,7 @@ _docker_run() {
 		docker run -i $use_tty --rm \
 			-u $(id -u ${USER}):$(id -g ${USER}) \
 			-v $(pwd):/$(pwd) -w $(pwd) \
+			--name $USER-chbuild \
 			promisivia/treesls_chcore_builder:v3.4 \
 			$self $@
 	fi

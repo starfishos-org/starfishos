@@ -91,14 +91,37 @@ leveldb:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/leveldb.sh
 
-json-test:
+json-test-py:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/python.exp json_test.py json/english.json
 
-float-test:
+float-test-py:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/python.exp float_operation.py 1000000
+
+json-test-cpp:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/json.exp english.json
+
+float-test-cpp:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/float.exp 1000000
 
 pca:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/pca.exp 48
+
+matrix:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/matrix.exp 1
+
+kmeans:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/kmeans.exp 1
+
+string_match:
+	./dsm-scripts/config_memdev.sh cxl
+	./dsm-scripts/tests/string_match.exp 1
+
+clear-ramdisk:
+	rm -rf ./user/build/ramdisk/*
