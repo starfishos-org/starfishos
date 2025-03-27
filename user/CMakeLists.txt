@@ -33,7 +33,7 @@ add_library(libgomp-shared SHARED IMPORTED)
 set_property(TARGET libgomp-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1.0.0)
 
 set(CMAKE_C_COMPILER ${libc_install_dir}/bin/musl-gcc)
-set(CMAKE_CXX_COMPILER ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/bin/musl-g++)
+set(CMAKE_CXX_COMPILER ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)
 
 add_custom_target(
     ramdisk ALL
