@@ -84,7 +84,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         if (pa == 0) {
             /* No physical page allocated to it before */
             // void *new_va = get_dram_pages(0);
-            void *new_va = get_pages(0, __DEFAULT__);
+            void *new_va = get_pages(0, pmo->mm_type);
             BUG_ON(new_va == NULL);
             pa = virt_to_phys(new_va);
             BUG_ON(pa == 0);

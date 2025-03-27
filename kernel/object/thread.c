@@ -198,7 +198,7 @@ void create_root_thread(void)
 #endif /* CHCORE_SLS */
     ret = create_pmo(ROUND_UP(mem_size, PAGE_SIZE),
                      PMO_DATA,
-                     __DEFAULT__,
+                     __MT_DEFAULT__,
                      root_cap_group,
                      &pmo);
     BUG_ON(ret < 0);
@@ -214,7 +214,7 @@ void create_root_thread(void)
     /* Allocate and setup a user stack for the init thread */
     stack_pmo_cap = create_pmo(ROOT_THREAD_STACK_SIZE,
                                PMO_ANONYM,
-                               __STACK_MALLOC_TYPE__,
+                               __MT_PAGE__,
                                root_cap_group,
                                &stack_pmo);
     BUG_ON(stack_pmo_cap < 0);
@@ -227,7 +227,7 @@ void create_root_thread(void)
                             NULL);
     BUG_ON(ret != 0);
     /* Allocate the init thread */
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __MT_OBJECT__);
     BUG_ON(thread == NULL);
 
     /* Fill the parameter of the thread struct */
@@ -241,7 +241,7 @@ void create_root_thread(void)
     stack = ROOT_THREAD_STACK_BASE + ROOT_THREAD_STACK_SIZE;
 
     /* Allocate a physical for the main stack for prepare_env */
-    kva = (vaddr_t)get_pages(0, __DEFAULT__);
+    kva = (vaddr_t)get_pages(0, __MT_STACK__);
     BUG_ON(kva == 0);
 
     commit_page_to_pmo(stack_pmo,
@@ -296,7 +296,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
         goto out_fail;
     }
 
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __MT_OBJECT__);
     if (!thread) {
         ret = -ENOMEM;
         goto out_obj_put;

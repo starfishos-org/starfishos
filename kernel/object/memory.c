@@ -22,7 +22,7 @@ extern int radix_deep_copy_with_hybird_mem(struct radix *src,
  * @paddr is only used when @type == PMO_DEVICE.
  */
 static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
-                    paddr_t paddr, mm_malloc_type_t mm_type)
+                    paddr_t paddr, mem_t mm_type)
 {
     int ret = 0;
 
@@ -85,7 +85,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
             ret = -EINVAL;
             break;
         }
-        pmo->radix = new_radix();
+        pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(pmo->radix);
 #else
         kwarn("fmap is not implemented, we should not use PMO_FILE\n");
@@ -103,7 +103,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
          * For PMO_ANONYM (e.g., stack and heap) or PMO_SHM,
          * we do not allocate the physical memory at once.
          */
-        pmo->radix = new_radix();
+        pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(pmo->radix);
         break;
     }
@@ -129,18 +129,19 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     return ret;
 }
 
-static int __create_pmo(u64 paddr, u64 size, u64 type, mm_malloc_type_t flags, 
+static int __create_pmo(u64 paddr, u64 size, u64 type, mem_t flags, 
             struct cap_group *cap_group, struct pmobject **new_pmo)
 {
     int cap, r;
     struct pmobject *pmo;
 
-    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __OBJECT_MALLOC_TYPE__);
+    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __MT_OBJECT__);
     if (!pmo) {
         r = -ENOMEM;
         goto out_fail;
     }
 
+    BUG_ON(!IS_VALID_MEM_TYPE(flags));
     r = pmo_init(pmo, type, size, paddr, flags);
     if (r) {
         goto out_free_obj;
@@ -165,7 +166,8 @@ out_fail:
 
 int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo)
 {
-    return __create_pmo(paddr, size, PMO_DEVICE, __DEFAULT__, 
+    /* device pmo can not choose memory type */
+    return __create_pmo(paddr, size, PMO_DEVICE, __MT_INVALID__,
             current_cap_group, new_pmo);
 }
 
@@ -174,13 +176,13 @@ int sys_create_device_pmo(u64 paddr, u64 size)
     return create_device_pmo(paddr, size, NULL);
 }
 
-int create_pmo(u64 size, u64 type, mm_malloc_type_t flags, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,
                struct pmobject **new_pmo)
 {
     return __create_pmo(0, size, type, flags, cap_group, new_pmo);
 }
 
-int sys_create_pmo(u64 size, u64 type, mm_malloc_type_t flags)
+int sys_create_pmo(u64 size, u64 type, mem_t flags)
 {
     BUG_ON(size == 0);
     return create_pmo(size, type, flags, current_cap_group, NULL);
@@ -211,7 +213,7 @@ int sys_create_pmos(u64 user_buf, u64 cnt, int flags)
 
     /* TODO: can we directly read/write user buffers */
     size = sizeof(*requests) * cnt;
-    requests = (struct pmo_request *)kmalloc(size, __DEFAULT__);
+    requests = (struct pmo_request *)kmalloc(size, flags);
     if (requests == NULL) {
         kwarn("cannot allocate more memory\n");
         return -EAGAIN;
@@ -295,7 +297,7 @@ static int read_write_pmo(u64 pmo_cap, u64 offset, u64 user_buf, u64 size,
                 /* Allocate a physical page for the anonymous
                  * pmo like a page fault happens.
                  */
-                kva = (vaddr_t)get_pages(0, __DEFAULT__);
+                kva = (vaddr_t)get_pages(0, __MT_DEFAULT__);
                 // kva = (vaddr_t)get_dram_pages(0);
                 BUG_ON(kva == 0);
 
@@ -412,7 +414,7 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
         if (src_pmo->dram_cache.array != NULL) {
             /* Just copy */
             *is_cow = false;
-            void *new_va = kmalloc(dst_pmo->size, __DEFAULT__);
+            void *new_va = kmalloc(dst_pmo->size, __MT_DEFAULT__);
             if (new_va == NULL) {
                 return -ENOMEM;
             }
@@ -457,12 +459,12 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
          * For radix tree based PMO, rebuild the radix tree.
          * The new radix tree should have the same structure.
          */
-        dst_pmo->radix = new_radix();
+        dst_pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(dst_pmo->radix);
 #if defined(CHCORE_SLS) && defined(HYBRID_MEM)
         r = radix_deep_copy_with_hybird_mem(src_pmo->radix, dst_pmo->radix);
 #else
-        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, 0);
+        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, 0, __MT_OBJECT__);
 
 #endif /* CHCHORE_SLS */
         if (r) {
@@ -480,9 +482,9 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
          * For radix tree based PMO, rebuild the radix tree.
          * The new radix tree should have the same structure.
          */
-        dst_pmo->radix = new_radix();
+        dst_pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(dst_pmo->radix);
-        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, false);
+        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, false, __MT_OBJECT__);
         if (r) {
             kinfo("radix_deep_copy failed: %d\n", r);
             break;
@@ -688,7 +690,7 @@ int sys_map_pmos(u64 target_cap_group_cap, u64 user_buf, u64 cnt)
 
     /* TODO: can we directly read/write user buffers */
     size = sizeof(*requests) * cnt;
-    requests = (struct pmo_map_request *)kmalloc(size, __DEFAULT__);
+    requests = (struct pmo_map_request *)kmalloc(size, __MT_DEFAULT__);
     if (requests == NULL) {
         kwarn("cannot allocate more memory\n");
         return -EAGAIN;

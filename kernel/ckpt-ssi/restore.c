@@ -53,7 +53,7 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
     system_current_flip_flag = 0;
 
     if (ckpt_name && name_len) {
-        name = kmalloc(name_len, __SHARED__);
+        name = kmalloc(name_len, __MT_SHARED__);
         if (!name) {
             r = -ENOMEM;
             goto out_fail;
@@ -81,7 +81,7 @@ int sys_whole_restore(u64 ckpt_name, u64 name_len)
 
     ckpt_obj_root = data->ckpt_root_obj_root;
 
-    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
+    obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!obj_map) {
         r = -ENOMEM;
         goto out_fail;
@@ -152,7 +152,7 @@ int sys_whole_restore_without_ipi(u64 ckpt_name, u64 name_len)
     system_current_flip_flag = 0;
     // printk("before restore:free mem size: %u\n",get_free_mem_size());
     if (ckpt_name && name_len) {
-        name = kmalloc(name_len, __SHARED__);
+        name = kmalloc(name_len, __MT_SHARED__);
         if (!name) {
             r = -ENOMEM;
             goto out_fail;
@@ -181,7 +181,7 @@ int sys_whole_restore_without_ipi(u64 ckpt_name, u64 name_len)
     ckpt_obj_root = data->ckpt_root_obj_root;
     // ckpt_obj_map = data->map;
 
-    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
+    obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!obj_map) {
         r = -ENOMEM;
         goto out_fail;

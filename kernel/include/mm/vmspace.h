@@ -150,7 +150,7 @@ struct pmobject {
     paddr_t start;
     size_t size;
     pmo_type_t type;
-    mm_malloc_type_t mm_type;
+    mem_t mm_type;
 
     /*
      * 'private' depends on 'type'.
@@ -173,7 +173,7 @@ struct vmspace *get_current_vmspace();
 int vmspace_init(struct vmspace *vmspace);
 
 struct cap_group;
-int create_pmo(u64 size, u64 type, mm_malloc_type_t flags, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,
                struct pmobject **new_pmo);
 int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo);
 

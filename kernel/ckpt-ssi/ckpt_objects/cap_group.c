@@ -51,7 +51,7 @@ int slot_table_ckpt(struct cap_group *cap_group,
 
     ckpt_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
             (ckpt_cap_group->table_size) * sizeof(struct ckpt_object_slot),
-            __SHARED__);
+            __MT_SHARED__);
 
     count = 0;
     for (i = 0; i < bmp_long_count; i++) {
@@ -235,7 +235,7 @@ int ckpt_cap_group_copy(struct ckpt_object *src_obj,
     memcpy(dst_cap_group, src_cap_group, sizeof(struct ckpt_cap_group));
     dst_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
             (dst_cap_group->table_size) * sizeof(struct ckpt_object_slot),
-            __SHARED__);
+            __MT_SHARED__);
 
     kinfo("copy cap group: size %u (%u), badge %lx, name %s\n",
           dst_cap_group->table_size,

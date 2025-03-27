@@ -16,7 +16,7 @@
 
 static inline char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
 {
-    char *pname = (char *)kmalloc(pname_len + 1, __PRIVATE__);
+    char *pname = (char *)kmalloc(pname_len + 1, __MT_PRIVATE__);
     copy_from_user(pname, (void *)pname_ptr, pname_len);
     pname[pname_len] = '\0';
     CFORK_LOG_DEBUG("pname: %s, pname_len: %d", pname, pname_len);

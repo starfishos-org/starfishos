@@ -10,19 +10,22 @@
 
 #include <common/errno.h>
 
-struct radix *new_radix(void)
+struct radix *new_radix(mem_t flags)
 {
     struct radix *radix;
 
-    radix = kzalloc(sizeof(*radix), __DEFAULT__);
+    radix = kzalloc(sizeof(*radix), flags);
     BUG_ON(!radix);
+
+    BUG_ON(!IS_VALID_MEM_TYPE(flags));
+    radix->mem_type = flags;
 
     return radix;
 }
 
 void init_radix(struct radix *radix)
 {
-    radix->root = kzalloc(sizeof(*radix->root), __DEFAULT__);
+    radix->root = kzalloc(sizeof(*radix->root), radix->mem_type);
     BUG_ON(!radix->root);
     radix->value_deleter = NULL;
 
@@ -35,9 +38,9 @@ void init_radix_w_deleter(struct radix *radix, void (*value_deleter)(void *))
     radix->value_deleter = value_deleter;
 }
 
-static struct radix_node *new_radix_node(void)
+static struct radix_node *new_radix_node(mem_t flags)
 {
-    struct radix_node *n = kzalloc(sizeof(struct radix_node), __DEFAULT__);
+    struct radix_node *n = kzalloc(sizeof(struct radix_node), flags);
 
     if (!n) {
         kwarn("run-out-memoroy: cannot allocate radix_new_node whose size is %ld\n",
@@ -60,7 +63,7 @@ int radix_add(struct radix *radix, u64 key, void *value)
 
     lock(&radix->radix_lock);
     if (!radix->root) {
-        new = new_radix_node();
+        new = new_radix_node(radix->mem_type);
         if (IS_ERR(new)) {
             ret = -ENOMEM;
             goto fail_out;
@@ -79,7 +82,7 @@ int radix_add(struct radix *radix, u64 key, void *value)
     for (i = RADIX_LEVELS - 1; i > 0; --i) {
         k = index[i];
         if (!node->children[k]) {
-            new = new_radix_node();
+            new = new_radix_node(radix->mem_type);
             if (IS_ERR(new)) {
                 ret = -ENOMEM;
                 goto fail_out;
@@ -228,7 +231,7 @@ static unsigned long __radix_checksum(unsigned long initial,
 
 extern void pagecpy(void *dst, const void *src);
 static int __radix_deep_copy(struct radix_node *src, struct radix_node *dst,
-                             int node_level, int phy_alloc)
+                             int node_level, int phy_alloc, mem_t page_mem_type)
 {
     int err;
     int i;
@@ -249,7 +252,7 @@ static int __radix_deep_copy(struct radix_node *src, struct radix_node *dst,
                         (void *)phys_to_virt(src->values[i]));
             } else {
                 if (phy_alloc) {
-                    void *newpage = get_pages(0, __DEFAULT__);
+                    void *newpage = get_pages(0, page_mem_type);
                     BUG_ON(!newpage);
                     pagecpy(newpage, (void *)phys_to_virt(src->values[i]));
                     dst->values[i] = (void *)virt_to_phys(newpage);
@@ -263,7 +266,7 @@ static int __radix_deep_copy(struct radix_node *src, struct radix_node *dst,
 
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (src->children[i]) {
-            new = new_radix_node();
+            new = new_radix_node(page_mem_type);
             if (IS_ERR(new)) {
                 return -ENOMEM;
             }
@@ -271,7 +274,8 @@ static int __radix_deep_copy(struct radix_node *src, struct radix_node *dst,
             err = __radix_deep_copy(src->children[i],
                                     dst->children[i],
                                     node_level + 1,
-                                    phy_alloc);
+                                    phy_alloc, 
+                                    page_mem_type);
             if (err) {
                 return err;
             }
@@ -287,7 +291,7 @@ unsigned long radix_checksum(struct radix *tree)
 }
 
 /* if phy_alloc == true, we will alloc a new phy page to copy */
-int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc)
+int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc, mem_t page_mem_type)
 {
     int r;
     struct radix_node *new;
@@ -302,14 +306,14 @@ int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc)
     }
 
     if (!dst->root) {
-        new = new_radix_node();
+        new = new_radix_node(dst->mem_type);
         if (IS_ERR(new)) {
             r = -ENOMEM;
         }
         dst->root = new;
     }
 
-    r = __radix_deep_copy(src->root, dst->root, 0, phy_alloc);
+    r = __radix_deep_copy(src->root, dst->root, 0, phy_alloc, page_mem_type);
 out:
     unlock(&src->radix_lock);
     return r;

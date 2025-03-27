@@ -29,7 +29,7 @@ int ssi_ckpt_init(void)
         /* check if CKPT_CG_KVS is initialized */
         if (!is_valid_kvs(CKPT_CG_KVS)) {
             kwarn_once("%s: CKPT_CG_KVS is not initialized\n", __func__);
-            CKPT_CG_KVS = new_kvs(19, __SHARED__);
+            CKPT_CG_KVS = new_kvs(19, __MT_SHARED__);
             return -1;
         }
         return 0;
@@ -42,7 +42,7 @@ int ssi_ckpt_init(void)
 
     CKPT_INITIALIZED = false;
     CKPT_VERSION_NUMBER = 0;
-    CKPT_CG_KVS = new_kvs(19, __SHARED__);
+    CKPT_CG_KVS = new_kvs(19, __MT_SHARED__);
 
     DSM_STATE = DSM_CONFIG_STATE_CKPT_INITED;
 
@@ -391,7 +391,7 @@ out_fail:
 
 u64 sys_track_pf_begin()
 {
-    pf_record = kmalloc(sizeof(u64) * 20000000, __SHARED__);
+    pf_record = kmalloc(sizeof(u64) * 20000000, __MT_SHARED__);
     track_pf = true;
 
     return 0;

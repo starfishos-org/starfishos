@@ -71,7 +71,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
         if (ckpt_vmspace->ckpt_vmrs)
             kfree(ckpt_vmspace->ckpt_vmrs);
         ckpt_vmr_array =
-                kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __SHARED__);
+                kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __MT_SHARED__);
     }
 
     ckpt_vmspace->user_current_mmap_addr =
@@ -273,7 +273,7 @@ int ckpt_vmspace_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
 
     /* Allocate memory for ckpt_vmrs */
     dst_vmspace->ckpt_vmrs = kmalloc(
-            src_vmspace->vmr_count * sizeof(struct ckpt_vmregion), __SHARED__);
+            src_vmspace->vmr_count * sizeof(struct ckpt_vmregion), __MT_SHARED__);
     if (!dst_vmspace->ckpt_vmrs) {
         return -ENOMEM;
     }

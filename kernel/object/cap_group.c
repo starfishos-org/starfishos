@@ -11,6 +11,7 @@
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
 #include <sched/context.h>
+#include <dsm/tiering.h>
 
 /* tool functions */
 static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
@@ -32,14 +33,14 @@ static int slot_table_init(struct slot_table *slot_table, unsigned int size,
     size = DIV_ROUND_UP(size, BASE_OBJECT_NUM) * BASE_OBJECT_NUM;
     slot_table->slots_size = size;
     /* XXX: vmalloc is better? */
-    slot_table->slots = kzalloc(size * sizeof(*slot_table->slots), __DEFAULT__);
+    slot_table->slots = kzalloc(size * sizeof(*slot_table->slots), __MT_OBJECT__);
     if (!slot_table->slots) {
         r = -ENOMEM;
         goto out_fail;
     }
 
     slot_table->slots_bmp =
-            kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long), __DEFAULT__);
+            kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long), __MT_OBJECT__);
     if (!slot_table->slots_bmp) {
         r = -ENOMEM;
         goto out_free_slots;
@@ -47,7 +48,7 @@ static int slot_table_init(struct slot_table *slot_table, unsigned int size,
 
     slot_table->full_slots_bmp =
             kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size)) * sizeof(unsigned long),
-                    __DEFAULT__);
+                    __MT_OBJECT__);
     if (!slot_table->full_slots_bmp) {
         r = -ENOMEM;
         goto out_free_slots_bmp;
@@ -169,6 +170,7 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
 {
     struct slot_table *slot_table = &cap_group->slot_table;
     struct object_slot *slot;
+    struct object *object;
     void *obj;
 
     read_lock(&slot_table->table_guard);
@@ -179,16 +181,22 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
 
     slot = get_slot(cap_group, slot_id);
     BUG_ON(slot->isvalid == false);
-    BUG_ON(slot->object == NULL);
 
-    if (!type_valid || slot->object->type == type) {
-        obj = slot->object->opaque;
+#ifndef DSM_ENABLED
+    object = slot->object;
+#else
+    object = dsm_tiering_get_object(slot->object, true);
+#endif
+    BUG_ON(object == NULL);
+
+    if (!type_valid || object->type == type) {
+        obj = object->opaque;
     } else {
         obj = NULL;
         goto out_unlock_table;
     }
 
-    atomic_fetch_add_64(&slot->object->refcount, 1);
+    atomic_fetch_add_64(&object->refcount, 1);
 
 out_unlock_table:
     read_unlock(&slot_table->table_guard);
@@ -238,7 +246,7 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
 
     /* cap current cap_group */
     new_cap_group =
-            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __DEFAULT__);
+            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __MT_DEFAULT__);
     if (!new_cap_group) {
         r = -ENOMEM;
         goto out_fail;
@@ -260,7 +268,7 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
     }
 
     /* 2st cap is vmspace */
-    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __OBJECT_MALLOC_TYPE__);
+    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __MT_OBJECT__);
     if (!vmspace) {
         r = -ENOMEM;
         goto out_free_obj_vmspace;
@@ -302,7 +310,7 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
     struct vmspace *vmspace;
     int slot_id;
 
-    cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*cap_group), __OBJECT_MALLOC_TYPE__);
+    cap_group = obj_alloc(TYPE_CAP_GROUP, sizeof(*cap_group), __MT_OBJECT__);
     BUG_ON(!cap_group);
     cap_group_init(cap_group,
                    BASE_OBJECT_NUM,
@@ -311,7 +319,7 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
     slot_id = cap_alloc(cap_group, cap_group, 0);
     BUG_ON(slot_id != CAP_GROUP_OBJ_ID);
 
-    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __OBJECT_MALLOC_TYPE__);
+    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __MT_OBJECT__);
     BUG_ON(!vmspace);
 
     /* fixed PCID 1 for root process, PCID 0 is not used. */
@@ -369,7 +377,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
 
     /* 1. Create a new cap group */
     new_cap_group =
-            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __OBJECT_MALLOC_TYPE__);
+            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __MT_OBJECT__);
     if (!new_cap_group) {
         r = -ENOMEM;
         goto out_fail;
@@ -387,7 +395,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
 
     /* 2. Create a new vmspace for the new cap group */
     child_vmspace =
-            obj_alloc(TYPE_VMSPACE, sizeof(*child_vmspace), __OBJECT_MALLOC_TYPE__);
+            obj_alloc(TYPE_VMSPACE, sizeof(*child_vmspace), __MT_OBJECT__);
     if (!child_vmspace) {
         r = -ENOMEM;
         goto out_free_obj_vmspace;
@@ -400,7 +408,7 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
     vmspace_init(child_vmspace);
 
     /* 3. Create a new main thread for the new cap group */
-    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
+    thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __MT_OBJECT__);
     if (!thread) {
         goto out_free_obj_thread;
     }

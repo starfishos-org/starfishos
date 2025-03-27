@@ -29,7 +29,7 @@ int init_async_copying_task(struct ckpt_obj_root *src_root_obj, u64 ckpt_name,
     if (latest_node) {
         BUG_ON(latest_node->finished == false);
     } else {
-        latest_node = kzalloc(sizeof(*latest_node), __SHARED__);
+        latest_node = kzalloc(sizeof(*latest_node), __MT_SHARED__);
         if (!latest_node)
             return -ENOMEM;
     }
@@ -45,7 +45,7 @@ int init_async_copying_task(struct ckpt_obj_root *src_root_obj, u64 ckpt_name,
         goto out_fail;
     }
 
-    latest_node->obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
+    latest_node->obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!latest_node->obj_map) {
         r = -ENOMEM;
         goto out_fail_free_ckpt;
@@ -77,7 +77,7 @@ out_fail:
     return r;
 }
 
-const obj_copy_func obj_copy_tbl[TYPE_NR] = {
+const ckpt_obj_copy_func ckpt_obj_copy_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
         [TYPE_CAP_GROUP] = ckpt_cap_group_copy,
         [TYPE_THREAD] = ckpt_thread_copy,
@@ -96,7 +96,7 @@ struct ckpt_obj_root *get_copied_obj_root(struct ckpt_obj_root *ckpt_obj_root,
             (struct ckpt_obj_root **)kvs_get(obj_map,
                                              (kvs_key_t *)(&ckpt_obj_root));
     struct ckpt_object *src_obj, *dst_obj;
-    obj_copy_func func;
+    ckpt_obj_copy_func func;
     if (copied_obj_root_ptr) {
         /* object is already copyed */
         copied_obj_root = *copied_obj_root_ptr;
@@ -129,7 +129,7 @@ struct ckpt_obj_root *get_copied_obj_root(struct ckpt_obj_root *ckpt_obj_root,
                 (kvs_value_t *)(&copied_obj_root));
 
         /* excute copy function */
-        func = obj_copy_tbl[src_obj->type];
+        func = ckpt_obj_copy_tbl[src_obj->type];
         if (func) {
             BUG_ON(func(src_obj, dst_obj, obj_map));
         } else {

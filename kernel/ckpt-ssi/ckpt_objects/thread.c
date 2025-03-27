@@ -66,17 +66,17 @@ void *alloc_ckpt_ipc_config(int config_type)
     switch (config_type) {
     case IPC_SERVER_REGISTER_CB: {
         ckpt_ipc_config = kmalloc(
-                sizeof(struct ckpt_ipc_server_register_cb_config), __SHARED__);
+                sizeof(struct ckpt_ipc_server_register_cb_config), __MT_SHARED__);
         break;
     }
     case IPC_SERVER_HANDLER: {
         ckpt_ipc_config = kmalloc(sizeof(struct ckpt_ipc_server_handler_config),
-                                  __SHARED__);
+                                  __MT_SHARED__);
         break;
     }
     case IPC_SERVER: {
         ckpt_ipc_config =
-                kmalloc(sizeof(struct ckpt_ipc_server_config), __SHARED__);
+                kmalloc(sizeof(struct ckpt_ipc_server_config), __MT_SHARED__);
         break;
     }
     default:
@@ -282,7 +282,7 @@ static void thread_ctx_restore(struct ckpt_thread_ctx *ckpt_ctx,
     /* Set the budget of the thread */
     /* There may cause memory leak for TYPE_SHADOW thread*/
     if (!target_ctx->sc) {
-        target_ctx->sc = kmalloc(sizeof(sched_cont_t), __SHARED__);
+        target_ctx->sc = kmalloc(sizeof(sched_cont_t), __MT_SHARED__);
         target_ctx->sc->budget = DEFAULT_BUDGET;
     }
     if (ckpt_ctx->fpu_state) {
@@ -314,7 +314,7 @@ struct ipc_config *ipc_config_restore(struct ipc_config *general_ckpt_ipc_config
         struct ckpt_ipc_server_register_cb_config *ckpt_config =
                 (struct ckpt_ipc_server_register_cb_config *)general_ckpt_ipc_config;
         struct ipc_server_register_cb_config *new_config =
-                kmalloc(sizeof(*new_config), __SHARED__);
+                kmalloc(sizeof(*new_config), __MT_SHARED__);
         
         new_config->config_type = ckpt_config->config_type;
         new_config->conn_cap_in_client = ckpt_config->conn_cap_in_client;
@@ -329,7 +329,7 @@ struct ipc_config *ipc_config_restore(struct ipc_config *general_ckpt_ipc_config
         struct ckpt_ipc_server_handler_config *ckpt_config =
                 (struct ckpt_ipc_server_handler_config *)general_ckpt_ipc_config;
         struct ipc_server_handler_config *new_config =
-                kmalloc(sizeof(*new_config), __SHARED__);
+                kmalloc(sizeof(*new_config), __MT_SHARED__);
         struct object *new_conn_obj;
 
         CFORK_LOG_DEBUG("[%s] ckpt_config->config_type %d, active_conn_root %p\n", 
@@ -355,7 +355,7 @@ struct ipc_config *ipc_config_restore(struct ipc_config *general_ckpt_ipc_config
         struct ckpt_ipc_server_config *ckpt_config = 
                 (struct ckpt_ipc_server_config *)general_ckpt_ipc_config;
         struct ipc_server_config *new_config =
-                kmalloc(sizeof(*new_config), __SHARED__);
+                kmalloc(sizeof(*new_config), __MT_SHARED__);
         struct object *new_thread_obj;
 
         CFORK_LOG_DEBUG("[%s] ckpt_config->config_type %d, register_cb_thread_root %p\n", 

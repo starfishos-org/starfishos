@@ -76,7 +76,7 @@ void notify_user_recycler(u64 proc_badge, int exitcode)
         /* Save the msg in the list for now */
         struct recycle_msg_node *msg;
 
-        msg = kmalloc(sizeof(*msg), __DEFAULT__);
+        msg = kmalloc(sizeof(*msg), __MT_DEFAULT__);
         msg->msg.badge = proc_badge;
         msg->msg.exitcode = exitcode;
         list_add(&msg->node, &recycle_msg_head);
@@ -184,7 +184,7 @@ static void recycle_server_shadow_thread(struct ipc_connection *conn,
         BUG_ON(server_thread->thread_ctx->sc);
 
         server_thread->thread_ctx->sc =
-                kmalloc(sizeof(*server_thread->thread_ctx->sc), __DEFAULT__);
+                kmalloc(sizeof(*server_thread->thread_ctx->sc), __MT_DEFAULT__);
         if (!server_thread->thread_ctx->sc) {
             kwarn("No memory when %s", __func__);
             return;
@@ -455,7 +455,7 @@ static void stop_ipc_registration(struct cap_group *cap_group,
     thread->thread_ctx->thread_exit_state = TE_EXITED;
 }
 
-static void stop_notification(struct object_slot *slot)
+void stop_notification(struct object_slot *slot)
 {
     struct notification *notific;
 
@@ -650,10 +650,10 @@ int recycle_create_ckpt(struct ckpt_recycle_data *recycle_data)
 /* ckpt recycle_msg_array */
 #if defined CHCORE_SLS
     struct recycle_msg_node **recycle_msg_array = kmalloc(
-            msg_list_size * sizeof(struct recycle_msg_node *), __DEFAULT__);
+            msg_list_size * sizeof(struct recycle_msg_node *), __MT_DEFAULT__);
 #else
     struct recycle_msg_node **recycle_msg_array = kmalloc(
-            msg_list_size * sizeof(struct recycle_msg_node *), __SHARED__);
+            msg_list_size * sizeof(struct recycle_msg_node *), __MT_SHARED__);
 #endif
     struct recycle_msg_node *msg;
     int i = 0;

@@ -20,7 +20,7 @@ static inline struct virtual_vmregion *alloc_virt_vmregion(struct vmregion *vmr)
 {
 	struct virtual_vmregion *virt_vmr;
 
-	virt_vmr = kmalloc(sizeof(*virt_vmr), __DEFAULT__);
+	virt_vmr = kmalloc(sizeof(*virt_vmr), __MT_OBJECT__);
 	lock_init(&(virt_vmr->lock));
 	virt_vmr->vmr = vmr;
 
@@ -41,7 +41,7 @@ struct vmregion *alloc_vmregion(void)
 {
     struct vmregion *vmr;
 
-    vmr = kmalloc(sizeof(*vmr), __DEFAULT__);
+    vmr = kmalloc(sizeof(*vmr), __MT_OBJECT__);
 
     return vmr;
 }
@@ -735,7 +735,7 @@ int vmspace_init(struct vmspace *vmspace)
 #if defined USE_NVM && defined USE_DRAM
     vmspace->pgtbl = get_dram_pages(0);
 #else
-    vmspace->pgtbl = get_pages(0, __DEFAULT__);
+    vmspace->pgtbl = get_pages(0, __MT_PGTABLE__);
 #endif
     BUG_ON(vmspace->pgtbl == NULL);
     memset((void *)vmspace->pgtbl, 0, PAGE_SIZE);
@@ -814,7 +814,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 
     for_each_in_list_safe (vmr, tmp, list_node, &(src_vmspace->vmr_list)) {
         /* Create new pmo */
-        new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject), __OBJECT_MALLOC_TYPE__);
+        new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject), __MT_OBJECT__);
         if (!new_pmo) {
             r = -ENOMEM;
             goto out_fail;
@@ -902,8 +902,10 @@ int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo)
     switch (src_pmo->type) {
     case PMO_DATA:
     case PMO_RING_BUFFER:
+    case PMO_DEVICE: {
         dst_pmo->start = src_pmo->start;
         break;
+    }
     case PMO_FILE: /* PMO backed by a file. It also uses the radix. */
     case PMO_ANONYM:
     case PMO_SHM:
@@ -912,18 +914,14 @@ int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo)
                          || src_pmo->type == PMO_RING_BUFFER_RADIX) ?
                                 1 :
                                 0;
-        dst_pmo->radix = new_radix();
+        dst_pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(dst_pmo->radix);
-        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, phy_alloc);
+        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, 
+                            phy_alloc, __MT_OBJECT__);
         if (r) {
             kinfo("radix deep copy fail\n");
             goto out_fail;
         }
-        break;
-    }
-    case PMO_DEVICE: {
-        BUG_ON(1);
-        dst_pmo->start = src_pmo->start;
         break;
     }
     case PMO_FORBID: {

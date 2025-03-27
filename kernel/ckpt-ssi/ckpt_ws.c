@@ -33,7 +33,7 @@ int ckpt_ws_init(void)
 
     /* Create ckpt whole-sys table */
     CKPT_WS_TABLE = (struct ckpt_ws_table *)kmalloc(
-            sizeof(struct ckpt_ws_table), __SHARED__);
+            sizeof(struct ckpt_ws_table), __MT_SHARED__);
     if (!CKPT_WS_TABLE) {
         kinfo("[CKPT WS] can not alloc ckpt_ws_table\n");
         ret = -ENOMEM;
@@ -41,7 +41,7 @@ int ckpt_ws_init(void)
     }
 
     /* Create info->data kvs */
-    CKPT_WS_TABLE->ckpt_ws_kvs = new_kvs(KVS_SIZE, __SHARED__);
+    CKPT_WS_TABLE->ckpt_ws_kvs = new_kvs(KVS_SIZE, __MT_SHARED__);
     if (!CKPT_WS_TABLE->ckpt_ws_kvs) {
         kinfo("[CKPT WS] can not alloc ckpt_ws_kvs\n");
         ret = -ENOMEM;
@@ -49,7 +49,7 @@ int ckpt_ws_init(void)
     }
 
     /* Create name kvs */
-    CKPT_WS_TABLE->name_kvs = new_kvs(KVS_SIZE, __SHARED__);
+    CKPT_WS_TABLE->name_kvs = new_kvs(KVS_SIZE, __MT_SHARED__);
     if (!CKPT_WS_TABLE->name_kvs) {
         kinfo("[CKPT WS] can not alloc name_kvs\n");
         ret = -ENOMEM;
@@ -96,7 +96,7 @@ int __name_kvs_put(struct ckpt_ws_info *info)
 
     if (!info_list_head_val) {
         info_list_head = (ckpt_ws_info_list_t *)kmalloc(sizeof(*info_list_head),
-                                                        __SHARED__);
+                                                        __MT_SHARED__);
         if (!info_list_head) {
             kinfo("[CKPT WS] fail to malloc info list\n");
             return -ENOMEM;
@@ -168,7 +168,7 @@ u64 ckpt_ws_put(struct ckpt_ws_data *ckpt_data, char *name, u64 name_len)
     struct ckpt_ws_info *info;
     int ret = 0;
 
-    info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __SHARED__);
+    info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __MT_SHARED__);
     if (!info) {
         kinfo("[CKPT WS] can not allocate memory for ckpt info.\n");
         return 0;
@@ -208,7 +208,7 @@ u64 ckpt_ws_put_from_userspace(struct ckpt_ws_data *ckpt_data, u64 name_buf,
     struct ckpt_ws_info *info;
     int ret = 0;
 
-    info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __SHARED__);
+    info = (struct ckpt_ws_info *)kmalloc(sizeof(*info), __MT_SHARED__);
     if (!info) {
         kinfo("[CKPT WS] can not allocate memory for ckpt info.\n");
         return 0;

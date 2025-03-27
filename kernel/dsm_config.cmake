@@ -4,8 +4,8 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # DSM_MALLOC_MODE 
 # "CXL": all on CXL
 # "DRAM": all on DRAM
-# "MIXED_DEFAULT_DRAM": our target partten
-# "MIXED_DEFAULT_CXL": our target partten
+# "MIXED_DEFAULT_DRAM": mixed and default to DRAM
+# "MIXED_DEFAULT_CXL": mixed and default to CXL
 set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 
 set(DSM_THREADCTX_MODE "CXL")

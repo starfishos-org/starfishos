@@ -24,7 +24,7 @@ typedef int (*obj_ckpt_func)(struct ckpt_object *, struct ckpt_object *,
 typedef int (*obj_restore_func)(struct object *, struct ckpt_object *,
                                 struct kvs *, int);
                                 
-typedef int (*obj_copy_func)(struct ckpt_object *, struct ckpt_object *,
+typedef int (*ckpt_obj_copy_func)(struct ckpt_object *, struct ckpt_object *,
                              struct kvs *);
 
 int system_current_flip_flag; // used to check if a object is checkpointed

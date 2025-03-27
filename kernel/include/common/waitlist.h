@@ -13,7 +13,7 @@ typedef struct wait_node wait_node_t;
 
 static inline wait_node_t *add_to_waiting_list(struct list_head *list, void *data)
 {
-    struct wait_node *node = kmalloc(sizeof(struct wait_node), __PRIVATE__);
+    struct wait_node *node = kmalloc(sizeof(struct wait_node), __MT_PRIVATE__);
     node->data = data;
     list_append(&node->list, list);
     return node;

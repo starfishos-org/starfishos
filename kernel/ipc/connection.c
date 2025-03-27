@@ -93,7 +93,7 @@ static int register_server(struct thread *server, u64 ipc_routine,
      * - free this memory when destoring the thread ...
      * - check kmalloc return value
      */
-    config = kmalloc(sizeof(*config), __DEFAULT__);
+    config = kmalloc(sizeof(*config), __MT_OBJECT__);
     config->config_type = IPC_SERVER;
     /*
      * @ipc_routine will be the real ipc_routine_entry.
@@ -110,7 +110,7 @@ static int register_server(struct thread *server, u64 ipc_routine,
      * - free this memory when destoring the thread ...
      * - check kmalloc return value
      */
-    register_cb_config = kmalloc(sizeof(*register_cb_config), __DEFAULT__);
+    register_cb_config = kmalloc(sizeof(*register_cb_config), __MT_OBJECT__);
     register_cb_config->config_type = IPC_SERVER_REGISTER_CB;
     register_cb_thread->general_ipc_config = register_cb_config;
 
@@ -197,7 +197,7 @@ static int create_connection(struct thread *client, struct thread *server,
             cap_copy(current_cap_group, server->cap_group, shm_cap_client);
 
     /* Create struct ipc_connection */
-    conn = obj_alloc(TYPE_CONNECTION, sizeof(*conn), __OBJECT_MALLOC_TYPE__);
+    conn = obj_alloc(TYPE_CONNECTION, sizeof(*conn), __MT_OBJECT__);
     if (!conn) {
         ret = -ENOMEM;
         goto out_fail;
@@ -536,7 +536,7 @@ static int ipc_send_cap(struct ipc_connection *conn, struct ipc_msg *ipc_msg,
     if (r < 0)
         goto out;
 
-    cap_buf = kmalloc(cap_num * sizeof(*cap_buf), __DEFAULT__);
+    cap_buf = kmalloc(cap_num * sizeof(*cap_buf), __MT_DEFAULT__);
     if (!cap_buf) {
         r = -ENOMEM;
         goto out;
@@ -924,7 +924,7 @@ int sys_ipc_register_cb_return(u64 server_handler_thread_cap,
      */
     if (!ipc_server_handler_thread->general_ipc_config) {
         handler_config = (struct ipc_server_handler_config *)kmalloc(
-                sizeof(*handler_config), __DEFAULT__);
+                sizeof(*handler_config), __MT_DEFAULT__);
         // For ckpt
         handler_config->config_type = IPC_SERVER_HANDLER;
         handler_config->active_conn = NULL;

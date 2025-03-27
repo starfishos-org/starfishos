@@ -32,14 +32,14 @@ int sys_register_external_ringbuf(u64 buffer)
 
     kva = transform_vaddr((char *)buffer);
 
-    ext_rbuf = (struct ext_ringbuf *)kmalloc(sizeof(*ext_rbuf), __DEFAULT__);
+    ext_rbuf = (struct ext_ringbuf *)kmalloc(sizeof(*ext_rbuf), __MT_DEFAULT__);
     if (!ext_rbuf) {
         return -ENOMEM;
     }
 
     if (!ext_ringbuf_list) {
         ext_ringbuf_list = (struct list_head *)kmalloc(
-                sizeof(*ext_ringbuf_list), __DEFAULT__);
+                sizeof(*ext_ringbuf_list), __MT_DEFAULT__);
         if (!ext_ringbuf_list) {
             return -ENOMEM;
         }

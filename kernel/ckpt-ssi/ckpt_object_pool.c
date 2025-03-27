@@ -63,7 +63,7 @@ const obj_restore_func obj_restore_tbl[TYPE_NR] = {
 struct ckpt_ws_data *init_ckpt_ws_data()
 {
     struct ckpt_ws_data *data;
-    data = kzalloc(sizeof(*data), __SHARED__);
+    data = kzalloc(sizeof(*data), __MT_SHARED__);
     if (!data) {
         return NULL;
     }
@@ -108,7 +108,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
     //      Thus the address of object-defined data is always 8-byte
     //      aligned.
     total_size = sizeof(*object) + ckpt_obj_size[type];
-    object = kzalloc(total_size, __SHARED__);
+    object = kzalloc(total_size, __MT_SHARED__);
     /* TODO: errno ecoded in pointer */
     if (!object)
         return NULL;
@@ -120,7 +120,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
 struct ckpt_obj_root *ckpt_obj_root_alloc(int flags)
 {
     struct ckpt_obj_root *root;
-    root = kmalloc(sizeof(*root), __SHARED__);
+    root = kmalloc(sizeof(*root), __MT_SHARED__);
     if (!root)
         return NULL;
 
@@ -395,7 +395,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
         } else {
             // always allocate a new object for CFORK
             BUG_ON(!ckpt_obj);
-            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __MT_SHARED__);
             BUG_ON(!obj);
             obj->obj_root = ckpt_obj_root;
             ckpt_obj_root->obj_dst = obj;
@@ -403,7 +403,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     } else {
         // allocate object if not allocated
         if (!obj && (flags & FLAGS_ALLOC)) {
-            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __MT_SHARED__);
             BUG_ON(!obj);
             obj->obj_root = ckpt_obj_root;
             ckpt_obj_root->obj = obj;

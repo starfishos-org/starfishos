@@ -78,7 +78,7 @@ inline static int kvs_put(struct kvs *kv, const kvs_key_t *key,
 #endif
     struct kvs_node *node;
     
-    BUG_ON(kv->type < __DEFAULT__ || kv->type >= __MAX_MALLOC_TYPE__);
+    BUG_ON(!IS_VALID_MEM_TYPE(kv->type));
     
     node = (struct kvs_node *)kvs_alloc(sizeof(*node), kv->type);
     if (!node) {
@@ -169,7 +169,7 @@ inline static void kvs_destroy(struct kvs *kv)
 
 inline static bool is_valid_kvs(struct kvs *kv)
 {
-    if (kv->type < __DEFAULT__ || kv->type >= __MAX_MALLOC_TYPE__) {
+    if (!IS_VALID_MEM_TYPE(kv->type)) {
         return false;
     }
     // loop through the buckets

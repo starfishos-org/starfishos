@@ -6,6 +6,7 @@
 #include <common/list.h>
 #include <common/lock.h>
 #include <common/kvstore.h>
+#include <dsm/dsm-mmconfig.h>
 
 struct object {
     u64 type;
@@ -23,7 +24,30 @@ struct object {
      * we use obj_root for checkpoint
      */
     struct ckpt_obj_root *obj_root;
+#ifdef DSM_ENABLED
     /*
+     * Memory type of the object.
+     */
+    mem_t mem_type;
+    /*
+     * For migrating objects, dirty_bit is used to indicate the object is dirty.
+     */
+#define DSM_STATUS_INVALID     (0) // the object is invalid
+#define DSM_STATUS_INUSE       (1) // the object is in use
+#define DSM_STATUS_MIGRATING   (2) // the object is being migrated
+#define DSM_STATUS_MIGRATED    (3) // the object is migrated
+    u16 status;
+    u16 dirty_bit;  // the object is dirty during migration
+    /*
+     * For tiering, link the object to another object.
+     */
+    struct object *pair_obj;
+    /*
+     * Lock for migration.
+     */
+    struct lock tiering_lock;
+#endif
+     /* 
      * opaque marks the end of this struct and the real object will be
      * stored here. Now its address will be 8-byte aligned.
      */
@@ -51,11 +75,14 @@ struct cap_group;
 typedef void (*obj_deinit_func)(void *);
 extern const obj_deinit_func obj_deinit_tbl[TYPE_NR];
 
+#define is_private_object(obj) ((obj)->mem_type == __MT_PRIVATE__)
+#define is_shared_object(obj) ((obj)->mem_type == __MT_SHARED__)
+
 void *obj_get(struct cap_group *cap_group, int slot_id, int type);
 void obj_put(void *obj);
 
-struct object *object_alloc(u64 type, u64 size, int flags);
-void *obj_alloc(u64 type, u64 size, int flags);
+struct object *object_alloc(u64 type, u64 size, mem_t flags);
+void *obj_alloc(u64 type, u64 size, mem_t flags);
 void obj_free(void *obj);
 int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights);
 int cap_free(struct cap_group *cap_group, int slot_id);

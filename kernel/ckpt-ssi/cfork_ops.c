@@ -237,7 +237,7 @@ int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group 
     struct cap_group *cg;
     
     // contains tmp mapping from ckpt_obj_root to the restored object
-    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
+    obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!obj_map) {
         CFORK_LOG_ERR("Failed to allocate the obj_map");
         return -ENOMEM;

@@ -20,7 +20,7 @@ int notification_ckpt(struct notification *notifc,
         kfree(ckpt_notifc->waiting_thread_roots);
     ckpt_notifc->waiting_thread_roots = kmalloc(
             ckpt_notifc->waiting_threads_count * sizeof(struct ckpt_obj_root *),
-            __SHARED__);
+            __MT_SHARED__);
 
     count = 0;
     for_each_in_list (old_thread,
@@ -110,7 +110,7 @@ int ckpt_notification_copy(struct ckpt_object *src_obj,
     /* Allocate memory for waiting_thread_roots */
     dst->waiting_thread_roots =
             kmalloc(src->waiting_threads_count * sizeof(struct ckpt_obj_root *),
-                    __SHARED__);
+                    __MT_SHARED__);
     if (!dst->waiting_thread_roots) {
         return -ENOMEM;
     }
