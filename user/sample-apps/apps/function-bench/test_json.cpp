@@ -14,7 +14,7 @@
 #include <string>
 #include <chrono>
 #include <fstream>
-#include "json11.hpp"
+#include <json11.hpp>
 
 int main(int argc, char **argv) {
   std::string file_path;

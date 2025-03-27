@@ -1,10 +1,12 @@
-file(GLOB UTILS_SOURCES "*.c" "*.cpp")
+add_subdirectory(json)
 
-foreach(SOURCE_FILE ${UTILS_SOURCES})
-    get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
-    add_executable(${EXECUTABLE_NAME}.bin ${SOURCE_FILE})
-    target_link_options(${EXECUTABLE_NAME}.bin PRIVATE -static)
-    target_link_libraries(${EXECUTABLE_NAME}.bin PRIVATE libc-static)
+file(GLOB test_files "*.cpp")
+
+foreach(test_file ${test_files})
+    get_filename_component(test_name ${test_file} NAME_WE)
+    add_executable(${test_name}.bin ${test_file})
+    target_link_options(${test_name}.bin PRIVATE -static)
+    target_link_libraries(${test_name}.bin PRIVATE libc-static libstdc++-static)
 endforeach()
 
-add_subdirectory(json)
+target_link_libraries(test_json.bin PRIVATE json11)
