@@ -1,6 +1,6 @@
 add_subdirectory(json)
 
-file(GLOB test_files "*.cpp")
+file(GLOB test_files "*.cpp" "*.c")
 
 foreach(test_file ${test_files})
     get_filename_component(test_name ${test_file} NAME_WE)
