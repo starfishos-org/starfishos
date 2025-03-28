@@ -14,23 +14,11 @@ if (NOT EXISTS ${build_ramdisk_dir})
     file(MAKE_DIRECTORY ${build_ramdisk_dir})
 endif()
 
-add_library(libc-shared SHARED IMPORTED)
-set_property(TARGET libc-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.so)
-
 add_library(libc-static STATIC IMPORTED)
 set_property(TARGET libc-static PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libc.a)
 
-add_library(libstdc++-shared SHARED IMPORTED)
-set_property(TARGET libstdc++-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.so.6.0.28)
-
 add_library(libstdc++-static STATIC IMPORTED)
 set_property(TARGET libstdc++-static PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libstdc++.a)
-
-add_library(libgcc_s-shared SHARED IMPORTED)
-set_property(TARGET libgcc_s-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgcc_s.so.1)
-
-add_library(libgomp-shared SHARED IMPORTED)
-set_property(TARGET libgomp-shared PROPERTY IMPORTED_LOCATION ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/x86_64-linux-musl/lib/libgomp.so.1.0.0)
 
 set(CMAKE_C_COMPILER ${libc_install_dir}/bin/musl-gcc)
 set(CMAKE_CXX_COMPILER ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)

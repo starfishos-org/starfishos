@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "libc.h"
-#include "rpmalloc.h"
+
 static void dummy()
 {
 }

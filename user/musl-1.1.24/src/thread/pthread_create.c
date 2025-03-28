@@ -3,7 +3,6 @@
 #include "stdio_impl.h"
 #include "libc.h"
 #include "lock.h"
-#include "rpmalloc.h"
 #include <sys/mman.h>
 #include <string.h>
 #include <stddef.h>

@@ -123,5 +123,8 @@ string_match:
 	./dsm-scripts/config_memdev.sh cxl
 	./dsm-scripts/tests/string_match.exp 1
 
-clear-ramdisk:
+clean-ramdisk:
 	rm -rf ./user/build/ramdisk/*
+
+clean-libc:
+	rm -rf ./user/musl-1.1.24/build/*

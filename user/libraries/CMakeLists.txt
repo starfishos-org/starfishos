@@ -67,3 +67,5 @@ add_custom_target(
 add_dependencies(ramdisk zlib)
 endif()
 add_custom_target(libraries-clean DEPENDS ${_libraries_clean_targets})
+
+add_subdirectory(rpmalloc)
