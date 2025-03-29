@@ -4,6 +4,8 @@ set -e
 
 self=$0
 
+docker_image="promisivia/treesls_chcore_builder:v3.5"
+
 defconfig_command="$self defconfig"
 clean_command="$self clean"
 
@@ -215,7 +217,7 @@ _docker_run() {
 			-u $(id -u ${USER}):$(id -g ${USER}) \
 			-v $(pwd):/$(pwd) -w $(pwd) \
 			--name $USER-chbuild \
-			promisivia/treesls_chcore_builder:v3.4 \
+			$docker_image \
 			$self $@
 	fi
 }

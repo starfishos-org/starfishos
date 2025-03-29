@@ -243,7 +243,7 @@ int ipc_register_server_cap(server_handler server_handler,
 	 */
 	ret = usys_register_server((u64)server_handler,
 				    (u32)register_cb_thread_cap,
-					DEFAULT_DESTRUCTOR);
+					(u64)DEFAULT_DESTRUCTOR);
 	// NOTE: The cap cannot be used to connect to the server!
 	if (cap_ptr)
 		*cap_ptr = register_cb_thread_cap;
