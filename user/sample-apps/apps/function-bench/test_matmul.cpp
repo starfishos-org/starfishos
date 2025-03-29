@@ -92,9 +92,9 @@ BenchmarkResult linpack(int n) {
     auto B = sumRows(A);
     
     // Solve Ax = B
-    auto start = high_resolution_clock::now();
+    auto start = steady_clock::now();
     auto x = solveLinearSystem(A, B);
-    auto stop = high_resolution_clock::now();
+    auto stop = steady_clock::now();
     
     double latency = duration_cast<duration<double>>(stop - start).count();
     double mflops = (ops * 1e-6 / latency);
@@ -103,16 +103,23 @@ BenchmarkResult linpack(int n) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        cerr << "Usage: " << argv[0] << " <matrix_size>" << endl;
+    if (argc != 3) {
+        cerr << "Usage: " << argv[0] << " <matrix_size> <memory_malloc_type>" << endl;
         return 1;
     }
     
     int n = stoi(argv[1]);
+    extern int memory_malloc_type;
+    memory_malloc_type = stoi(argv[2]);
+
+    std::cout << "Running " << argv[0] << std::endl;
+    cout << "n: " << n << endl;
+    cout << "memory_malloc_type: " << memory_malloc_type << endl;
     auto result = linpack(n);
     
     cout << "MFLOPS: " << result.mflops << endl;
-    cout << "Latency: " << result.latency << " seconds" << endl;
+    cout << "Time: " << result.latency << " seconds" << endl;
+    cout << "done" << endl;
     
     return 0;
 }

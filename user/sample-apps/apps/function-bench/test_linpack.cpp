@@ -102,7 +102,7 @@ BenchmarkResult linpack(int n) {
     auto start = chrono::steady_clock::now();
     Vector x = gaussianElimination(A, B, n);
     auto end = chrono::steady_clock::now();
-    double latency = chrono::duration_cast<chrono::duration<double>>(end - start).count() * 1000;
+    double latency = chrono::duration_cast<chrono::duration<double>>(end - start).count();
 
     // Calculate Mflops
     double mflops = (ops * 1e-6) / latency;
@@ -114,16 +114,27 @@ BenchmarkResult linpack(int n) {
 
 int main(int argc, char** argv) {
     int n = 1000;
-    if (argc > 1) {
-        n = atoi(argv[1]);
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <matrix_size> <memory_malloc_type>" << std::endl;
+        return 1;
     }
 
+    n = atoi(argv[1]);
+
+    extern int memory_malloc_type;
+    memory_malloc_type = atoi(argv[2]);
+
+    std::cout << "Running " << argv[0] << std::endl;
+
     cout << "Running LINPACK benchmark with matrix size " << n << "x" << n << endl;
+
+    cout << "memory_malloc_type: " << memory_malloc_type << endl;
 
     BenchmarkResult result = linpack(n);
 
     cout << "Mflops: " << result.mflops << endl;
-    cout << "Latency: " << result.latency << " seconds" << endl;
+    cout << "Time: " << result.latency << " seconds" << endl;
+    cout << "done" << endl;
 
     return 0;
 }

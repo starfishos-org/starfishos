@@ -12,6 +12,13 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "json_test.bin $file_path \n"
+send -- "test_json.bin $file_path 0 \n"
 expect "done"
+sleep 1
+send -- "test_json.bin $file_path 1 \n"
+expect "done"
+sleep 1
+send -- "test_json.bin $file_path 2 \n"
+expect "done"
+sleep 1
 exit

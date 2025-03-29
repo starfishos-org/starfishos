@@ -4,7 +4,7 @@ set timeout 120
 set N [lindex $argv 0]
 
 if { $N == "" } {
-    set N 1000000
+    set N 10000000
 }
 
 # start
@@ -12,6 +12,13 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "float.bin $N \n"
+send -- "test_float.bin $N 0\n"
 expect "done"
+sleep 1
+send -- "test_float.bin $N 1 \n"
+expect "done"
+sleep 1
+send -- "test_float.bin $N 2 \n"
+expect "done"
+sleep 1
 exit

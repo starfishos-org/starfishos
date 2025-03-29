@@ -18,13 +18,19 @@
 
 int main(int argc, char **argv) {
   std::string file_path;
+  extern int memory_malloc_type;
 
-  if (argc == 2) {
+  if (argc == 3) {
     file_path = argv[1];
+    memory_malloc_type = atoi(argv[2]);
   } else {
-    std::cerr << "Usage: " << argv[0] << " <file_path>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <file_path> <memory_malloc_type>" << std::endl;
     return 1;
   }
+
+  std::cout << "Running " << argv[0] << std::endl;
+
+  std::cout << "memory_malloc_type: " << memory_malloc_type << std::endl;
 
   std::ifstream file(file_path);
   std::string content((std::istreambuf_iterator<char>(file)),
@@ -37,7 +43,7 @@ int main(int argc, char **argv) {
 
   std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end - start;
-  std::cout << "Latency: " << duration.count() << " seconds" << std::endl;
+  std::cout << "Time: " << duration.count() << " seconds" << std::endl;
 
   std::cout << "done" << std::endl;
 

@@ -103,7 +103,7 @@ double benchmarkAES(int messageLength, int iterations) {
     vector<uint8_t> key = {0xa1, 0xf6, 0x25, 0x8c, 0x87, 0x7d, 0x5f, 0xcd, 
                           0x89, 0x64, 0x48, 0x45, 0x38, 0xbf, 0xc9, 0x2c};
     
-    auto start = high_resolution_clock::now();
+    auto start = steady_clock::now();
     
     for (int i = 0; i < iterations; ++i) {
         SimpleAES aes(key);
@@ -125,22 +125,27 @@ double benchmarkAES(int messageLength, int iterations) {
         // cout << "Plaintext: " << plaintextStr << endl;
     }
     
-    auto end = high_resolution_clock::now();
+    auto end = steady_clock::now();
     duration<double> elapsed = end - start;
     return elapsed.count();
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        cerr << "Usage: " << argv[0] << " <message_length> <iterations>" << endl;
+    if (argc != 4) {
+        cerr << "Usage: " << argv[0] << " <message_length> <iterations> <memory_malloc_type>" << endl;
         return 1;
     }
     
     int messageLength = stoi(argv[1]);
     int iterations = stoi(argv[2]);
-    
+    extern int memory_malloc_type;
+    memory_malloc_type = atoi(argv[3]);
+
+    std::cout << "Running " << argv[0] << std::endl;
+
     double latency = benchmarkAES(messageLength, iterations);
-    cout << "Latency: " << latency << " seconds" << endl;
+    cout << "Time: " << latency << " seconds" << endl;
+    cout << "done" << endl;
     
     return 0;
 }
