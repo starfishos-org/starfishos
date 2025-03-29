@@ -58,13 +58,13 @@ ip2c-kernel:
 
 test: cfork
 cfork: clean-dsm
-	./dsm-scripts/simulate_cfork.sh leveldb
+	./dsm-scripts/simulate_cfork.sh $(APP)
 
 cfork-prepare:
-	./dsm-scripts/tests/cfork_prepare.exp
+	./dsm-scripts/tests/cfork_prepare.exp $(APP)
 
 cfork-restore:
-	./dsm-scripts/tests/cfork_restore.exp
+	./dsm-scripts/tests/cfork_restore.exp $(APP)
 
 llama-bench: clean-dsm
 	./dsm-scripts/tests/llama-bench.exp

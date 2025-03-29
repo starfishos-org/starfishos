@@ -25,7 +25,7 @@ array set program_args {
 }
 
 array set program_expects {
-    "hello" "[1] hello"
+    "hello" "hello world"
     "leveldb" "version 1.23"
     "matmul" "Running /test_matmul.bin"
     "linpack" "Running /test_linpack.bin"
