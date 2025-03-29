@@ -7,7 +7,6 @@
 #include "atomic.h"
 #include "libc.h"
 #include "chcore/defs.h"
-#include "rpmalloc.h"
 
 static void dummy(void) {}
 weak_alias(dummy, _init);

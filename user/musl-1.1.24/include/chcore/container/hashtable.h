@@ -14,11 +14,14 @@ struct htable {
 	int size;
 };
 
+extern void *internel_calloc(size_t n, size_t size);
+extern void internel_free(void *p);
+
 static inline void init_htable(struct htable *ht, int size)
 {
 	ht->size = size;
 	ht->buckets =
-		(struct hlist_head *)calloc(1, sizeof(*ht->buckets) * size);
+		(struct hlist_head *)internel_calloc(1, sizeof(*ht->buckets) * size);
 }
 
 static inline void htable_add(struct htable *ht, u32 key,
@@ -57,7 +60,7 @@ static inline int htable_free(struct htable *ht)
 	// we don't free individual buckets (i.e., the hlist) since their nodes
 	// a not allocated by htable_xxx or hlist_xxx
 
-	free(ht->buckets);
+	internel_free(ht->buckets);
 
 	return 0;
 }

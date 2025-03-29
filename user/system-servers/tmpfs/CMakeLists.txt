@@ -9,6 +9,6 @@ target_sources(tmpfs.srv PRIVATE incbin_ramdisk.S)
 
 target_link_libraries(tmpfs.srv PRIVATE fs_base)
 
-add_dependencies(tmpfs.srv libc-static)
-
 target_link_options(tmpfs.srv PRIVATE -static)
+
+target_link_libraries(tmpfs.srv PRIVATE libc-static)

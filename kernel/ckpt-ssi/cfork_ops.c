@@ -66,6 +66,7 @@ int start_all_threads(struct list_head *thread_list)
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
+        print_thread(thread);
         switch (thread->thread_ctx->type) {
             case TYPE_USER:
                 start_user_thread(thread);
@@ -98,6 +99,8 @@ int stop_all_threads(struct list_head *thread_list)
 
     for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
         thread->thread_ctx->thread_exit_state = TE_EXITING;
+
+        print_thread(thread);
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:

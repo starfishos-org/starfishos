@@ -16,15 +16,17 @@ if (NOT EXISTS ${libc_install_dir}/lib/libffi.so)
   add_custom_target(
     libffi
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
-    COMMAND ./configure CXX=${MUSL_CXX} CC=${MUSL_CC} --disable-docs --host=x86_64-linux-musl --prefix=${libc_install_dir}
-    COMMAND make -j$(_nproc)
+    COMMAND ./configure CXX=${CMAKE_CXX_COMPILER} CC=${CMAKE_C_COMPILER} --disable-docs --host=x86_64-linux-musl --prefix=${libc_install_dir}
+    COMMAND make -j$(_nproc) LDFLAGS="-L${libc_install_dir}/lib" CFLAGS="-I${libc_install_dir}/include"
     COMMAND make install
+    COMMAND rsync -a ${libc_install_dir}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so.8
     DEPENDS
   )
 else()
   add_custom_target(
     libffi
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    COMMAND rsync -a ${libc_install_dir}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so.8
     DEPENDS
   )
 endif()
@@ -41,14 +43,19 @@ if (NOT EXISTS ${libc_install_dir}/lib/libz.so)
     zlib
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
     COMMAND ./configure --prefix=${libc_install_dir}
-    COMMAND make -j$(_nproc) CC=${MUSL_CC} CXX=${MUSL_CXX}
+    COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} -j$(_nproc) -B
     COMMAND make install
+    COMMAND rsync -a ${libc_install_dir}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so.1
     DEPENDS
   )
 else()
 add_custom_target(
     zlib
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    # COMMAND ./configure --prefix=${libc_install_dir}
+    # COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} -j$(_nproc) -B
+    # COMMAND make install
+    COMMAND rsync -a ${libc_install_dir}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so.1
     DEPENDS
   )
 endif()

@@ -1,0 +1,24 @@
+#!/usr/bin/expect  
+
+set timeout 120
+set matrix_size [lindex $argv 0]
+
+if { $matrix_size == "" } {
+    set matrix_size 2000
+}
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "test_linpack.bin $matrix_size 0 \n"
+expect "done"
+sleep 1
+send -- "test_linpack.bin $matrix_size 1 \n"
+expect "done"
+sleep 1
+send -- "test_linpack.bin $matrix_size 2 \n"
+expect "done"
+sleep 1
+exit
