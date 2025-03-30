@@ -2,7 +2,6 @@
 add_executable(procmgr.srv proc_node.c procmgr.c recycle.c shell_msg_handler.c
                            srvmgr.c)
 target_link_options(procmgr.srv PRIVATE -static)
-add_dependencies(procmgr.srv libc)
 
 macro(_procmgr_incbin _target_name _binary_name _binary_path)
     set(_binary_name ${_binary_name})
@@ -31,3 +30,5 @@ add_custom_target(
     DEPENDS procmgr.srv procmgr.bin)
 
 chcore_objcopy_binary(procmgr.srv procmgr.bin)
+
+target_link_libraries(procmgr.srv PRIVATE libc-static)

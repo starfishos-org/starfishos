@@ -16,6 +16,8 @@
 #define inline inline __attribute__((always_inline))
 #endif
 
+int memory_malloc_type = MALLOC_TYPE_DEFAULT;
+
 static struct {
 	volatile uint64_t binmap;
 	struct bin bins[64];
@@ -475,7 +477,6 @@ void __malloc_donate(char *start, char *end)
 
 void *internel_malloc(size_t n)
 {
-	printf("internel malloc called\n");
 	struct chunk *c;
 	int i, j;
 
@@ -530,7 +531,7 @@ void *internel_calloc(size_t m, size_t n)
 		return 0;
 	}
 	n *= m;
-	void *p = malloc(n);
+	void *p = internel_malloc(n);
 	if (!p) return p;
 	if (!__malloc_replaced) {
 		if (IS_MMAPPED(MEM_TO_CHUNK(p)))
@@ -547,7 +548,7 @@ void *internel_realloc(void *p, size_t n)
 	size_t n0, n1;
 	void *new;
 
-	if (!p) return malloc(n);
+	if (!p) return internel_malloc(n);
 
 	if (adjust_size(&n) < 0) return 0;
 
@@ -561,7 +562,7 @@ void *internel_realloc(void *p, size_t n)
 		size_t newlen = n + extra;
 		/* Crash on realloc of freed chunk */
 		if (extra & 1) a_crash();
-		if (newlen < PAGE_SIZE && (new = malloc(n-OVERHEAD))) {
+		if (newlen < PAGE_SIZE && (new = internel_malloc(n-OVERHEAD))) {
 			n0 = n;
 			goto copy_free_ret;
 		}
@@ -604,14 +605,14 @@ void *internel_realloc(void *p, size_t n)
 
 copy_realloc:
 	/* As a last resort, allocate a new chunk and copy to it. */
-	new = malloc(n-OVERHEAD);
+	new = internel_malloc(n-OVERHEAD);
 	if (!new) return 0;
 copy_free_ret:
 	/* CHCORE FIX: Adopt the fix from
-	 * https://git.musl-libc.org/cgit/musl/tree/src/malloc/oldmalloc/malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
+	 * https://git.musl-libc.org/cgit/musl/tree/src/internel_malloc/oldmalloc/internel_malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
 	n0 = (n0 > n) ? n : n0;
 	memcpy(new, p, n0-OVERHEAD);
-	free(CHUNK_TO_MEM(self));
+	internel_free(CHUNK_TO_MEM(self));
 	return new;
 }
 
@@ -642,9 +643,9 @@ void *internel_memalign(size_t align, size_t len)
 	}
 
 	if (align <= SIZE_ALIGN)
-		return malloc(len);
+		return internel_malloc(len);
 
-	if (!(mem = malloc(len + align-1)))
+	if (!(mem = internel_malloc(len + align-1)))
 		return 0;
 
 	new = (void *)((uintptr_t)mem + align-1 & -align);
@@ -690,79 +691,45 @@ int internel_posix_memalign(void **res, size_t align, size_t len)
 	return 0;
 }
 
-// #define RPMALLOC
-#define MALLOC_CXL
+// void *internel_malloc(size_t n)
+// {
+// 	return internel_malloc(n);
+// }
 
-void *malloc(size_t n)
-{
-	#ifdef RPMALLOC
-		return rpmalloc(n);
-	#elif defined MALLOC_CXL
-		return mixed_malloc(n, MALLOC_TYPE_SHARED);
-	#else
-		return internel_malloc(n);
-	#endif
-}
-void *realloc(void *p, size_t n)
-{
-	#ifdef RPMALLOC
-	return rprealloc(p, n);
-	#elif defined MALLOC_CXL
-	return mixed_realloc(p, n, MALLOC_TYPE_SHARED);
-	#else
-	return internel_realloc(p, n);
-	#endif
-}
-void *calloc(size_t n, size_t m)
-{
-	#ifdef RPMALLOC
-	return rpcalloc(n, m);
-	#elif defined MALLOC_CXL
-	return mixed_calloc(n, m, MALLOC_TYPE_SHARED);
-	#else
-	return internel_calloc(n, m);
-	#endif
-}
-void *aligned_alloc(size_t a, size_t n)
-{
-	#ifdef RPMALLOC
-	return rpaligned_alloc(a, n);
-	#else
-	return internel_aligned_alloc(a, n);
-	#endif
-}
-void free(void *p)
-{
-	#ifdef RPMALLOC
-	return rpfree(p);
-	#else
-	return internel_free(p);
-	#endif
-}
-void *memalign(size_t a, size_t n)
-{
-	#ifdef RPMALLOC
-	return rpmemalign(a, n);
-	#else
-	return internel_memalign(a, n);
-	#endif
-}
-void *valloc(size_t n)
-{
-	#ifdef RPMALLOC
-	return rpmemalign(PAGE_SIZE ,n);
-	#else
-	return internel_memalign(PAGE_SIZE, n);
-	#endif
-}
-int posix_memalign(void **res, size_t align, size_t len)
-{
-	#ifdef RPMALLOC
-	return rpposix_memalign(res, align, len);
-	#else
-	return internel_posix_memalign(res, align, len);
-	#endif
-}
+// void *realloc(void *p, size_t n)
+// {
+// 	return internel_realloc(p, n);
+// }
+
+// void *calloc(size_t n, size_t m)
+// {
+// 	return internel_calloc(n, m);
+// }
+
+// void *aligned_alloc(size_t a, size_t n)
+// {
+// 	return internel_aligned_alloc(a, n);
+// }
+
+// void internel_free(void *p)
+// {
+// 	return internel_free(p);
+// }
+
+// void *memalign(size_t a, size_t n)
+// {
+// 	return internel_memalign(a, n);
+// }
+
+// void *valloc(size_t n)
+// {
+// 	return internel_memalign(PAGE_SIZE, n);
+// }
+
+// int posix_memalign(void **res, size_t align, size_t len)
+// {
+// 	return internel_posix_memalign(res, align, len);
+// }
 
 void *__mixed_expand_heap(size_t *pn, int flags) {
 	flags = MALLOC_TYPE_DEFAULT;
@@ -793,7 +760,10 @@ void *__mixed_expand_heap(size_t *pn, int flags) {
 	void *area = NULL;
 	if (flags == MALLOC_TYPE_SHARED) {
 		area = __mmap(0, n, PROT_READ|PROT_WRITE,
-		MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+		MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_SHARED, -1, 0);
+	} else if (flags == MALLOC_TYPE_PRIVATE) {
+		area = __mmap(0, n, PROT_READ|PROT_WRITE,
+		MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_PRIVATE, -1, 0);
 	} else {
 		area = __mmap(0, n, PROT_READ|PROT_WRITE,
 		MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
@@ -840,21 +810,23 @@ static struct chunk *mixed_expand_heap(size_t n, int flags) {
 }
 
 void *mixed_malloc(size_t n, int flags) {
-	// printf("mixed malloc called\n");
 	struct chunk *c;
 	int i, j;
 
 	if (adjust_size(&n) < 0) return NULL;
-
+	// fprintf(stderr, "mixed_malloc called memory_malloc_type: %d size: %ld MMAP_THRESHOLD: %d\n", memory_malloc_type, n, MMAP_THRESHOLD);
 	if (n > MMAP_THRESHOLD) {
 		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
 		char *base;
 		if (flags == MALLOC_TYPE_DEFAULT) {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+		} else if (flags == MALLOC_TYPE_SHARED) {
+			base = __mmap(0, len, PROT_READ|PROT_WRITE,
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_SHARED, -1, 0);
 		} else {
 			base = __mmap(0, len, PROT_READ|PROT_WRITE,
-			MAP_PRIVATE|MAP_ANONYMOUS|MAP_CXL, -1, 0);
+			MAP_PRIVATE|MAP_ANONYMOUS|MAP_FLAG_PRIVATE, -1, 0);
 		}
 		
 		if (base == (void *)-1) return 0;
@@ -921,7 +893,7 @@ void *mixed_realloc(void *p, size_t n, int flags)
 	size_t n0, n1;
 	void *new;
 
-	if (!p) return malloc(n);
+	if (!p) return internel_malloc(n);
 
 	if (adjust_size(&n) < 0) return 0;
 
@@ -982,9 +954,9 @@ copy_realloc:
 	if (!new) return 0;
 copy_free_ret:
 	/* CHCORE FIX: Adopt the fix from
-	 * https://git.musl-libc.org/cgit/musl/tree/src/malloc/oldmalloc/malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
+	 * https://git.musl-libc.org/cgit/musl/tree/src/internel_malloc/oldmalloc/internel_malloc.c?id=cfdfd5ea3ce14c6abf7fb22a531f3d99518b5a1b#n429 */
 	n0 = (n0 > n) ? n : n0;
 	memcpy(new, p, n0-OVERHEAD);
-	free(CHUNK_TO_MEM(self));
+	internel_free(CHUNK_TO_MEM(self));
 	return new;
 }

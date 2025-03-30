@@ -1,13 +1,23 @@
 #!/usr/bin/expect  
 
-set timeout 60
+set timeout 120
 set thread_num [lindex $argv 0]
+
+if { $thread_num == "" } {
+    set thread_num 1
+}
 
 # start
 spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "pca.bin -c 1000 -r 1000 -t $thread_num & \r"
-
-interact
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 1 \n"
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 1 \n"
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 2 \n"
+send -- "pca -c 4000 -r 4000 -t $thread_num -m 2 \n"
+expect "done"
+expect "done"
+expect "done"
+expect "done"
+exit

@@ -1,0 +1,29 @@
+#!/usr/bin/expect  
+
+set timeout 120
+set length [lindex $argv 0]
+set iterations [lindex $argv 1]
+
+if { $length == "" } {
+    set length 2000000
+}
+
+if { $iterations == "" } {
+    set iterations 100
+}
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "test_pyaes.bin $length $iterations 0 \n"
+expect "done"
+sleep 1
+send -- "test_pyaes.bin $length $iterations 1 \n"
+expect "done"
+sleep 1
+send -- "test_pyaes.bin $length $iterations 2 \n"
+expect "done"
+sleep 1
+exit

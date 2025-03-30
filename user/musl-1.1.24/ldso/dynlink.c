@@ -24,7 +24,6 @@
 #include "libc.h"
 #include "dynlink.h"
 #include "malloc_impl.h"
-#include "rpmalloc.h"
 #include <chcore/defs.h>
 #include <chcore/syscall.h>
 

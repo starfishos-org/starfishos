@@ -1,13 +1,23 @@
 #!/usr/bin/expect  
 
-set timeout 60
+set timeout 120
 set thread_num [lindex $argv 0]
+
+if { $thread_num == "" } {
+    set thread_num 1
+}
 
 # start
 spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "matrix_multiply.bin 5000 5000 -t=16 & \r"
-
-interact
+send -- "matrix_multiply -l 1000 -r 1000 -t $thread_num -m 1 -c 0 \n"
+send -- "matrix_multiply -l 1000 -r 1000 -t $thread_num -m 1 -c 0 \n"
+send -- "matrix_multiply -l 1000 -r 1000 -t $thread_num -m 2 -c 0 \n"
+send -- "matrix_multiply -l 1000 -r 1000 -t $thread_num -m 2 -c 0 \n"
+expect "done"
+expect "done"
+expect "done"
+expect "done"
+exit

@@ -113,7 +113,7 @@ struct log_entry {
  * Given BUDDY_MAX_ORDER is 14, the max allocated chunk is 32M.
  */
 #define BUDDY_PAGE_SIZE (0x1000)
-#define BUDDY_MAX_ORDER (18UL)
+#define BUDDY_MAX_ORDER (20UL)
 
 /* One page size is 4K, so the order is 12. */
 #define BUDDY_PAGE_SIZE_ORDER (12)

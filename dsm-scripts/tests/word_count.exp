@@ -7,5 +7,5 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "word_count.bin word_10MB.txt & \r"
+send -- "word_count word_10MB.txt & \r"
 interact

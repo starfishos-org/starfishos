@@ -93,7 +93,7 @@ int chcore_pread(int fd, void *buf, size_t count, off_t offset) {
 }
 
 int chcore_pwrite(int fd, const void *buf, size_t count, off_t offset) {
-	return fd_dic[fd]->fd_op->pwrite(fd, buf, count, offset);
+	return fd_dic[fd]->fd_op->pwrite(fd, (void *)buf, count, offset);
 }
 
 int chcore_close(int fd)

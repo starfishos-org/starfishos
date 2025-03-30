@@ -24,6 +24,6 @@ target_compile_definitions(tcp_example.bin PRIVATE ${LWIP_DEFINITIONS})
 target_link_libraries(tcp_example.bin PRIVATE lwipcore)
 
 target_link_options(lwip.srv PRIVATE -static)
-add_dependencies(lwip.srv libc)
+target_link_libraries(lwip.srv PRIVATE libc-static)
 
 chcore_copy_all_targets_to_ramdisk()

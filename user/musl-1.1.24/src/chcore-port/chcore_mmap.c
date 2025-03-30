@@ -94,11 +94,13 @@ fail_out:
         __initial_common_stack_success = false;
 }
 
+extern void *internel_malloc(size_t n);
+
 static struct pmo_node *new_pmo_node(int cap, vaddr_t va, size_t length)
 {
         struct pmo_node *node;
 
-        node = (struct pmo_node *)malloc(sizeof(struct pmo_node));
+        node = (struct pmo_node *)internel_malloc(sizeof(struct pmo_node));
         node->cap = cap;
         node->va = va;
         node->pmo_size = length;
@@ -109,7 +111,7 @@ static struct pmo_node *new_pmo_node(int cap, vaddr_t va, size_t length)
 static inline void free_pmo_node(struct pmo_node *node)
 {
         if (node) {
-                free(node);
+                internel_free(node);
         }
 }
 
@@ -192,9 +194,9 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         }
 
         /* Check @flags */
-        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_CXL)) {
-                printf("%s: here only supports anonymous, private and shared mapping\n",
-                       __func__);
+        if (flags != (MAP_ANONYMOUS | MAP_PRIVATE) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_SHARED) && flags != (MAP_ANONYMOUS | MAP_PRIVATE | MAP_FLAG_PRIVATE)) {
+                printf("%s: here only supports anonymous, private and shared mapping flags: %lx\n",
+                       __func__, flags);
                 goto err_exit;
         }
 
@@ -207,8 +209,10 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
 
         /* pmo create */
         if (pmo_cap == 0) {
-                if (flags & MAP_CXL) {
+                if (flags & MAP_FLAG_SHARED) {
                         pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_SHARED);
+                } else if (flags & MAP_FLAG_PRIVATE) {
+                        pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_PRIVATE);
                 } else {
                         pmo_cap = usys_create_pmo(length, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
                 }

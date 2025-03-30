@@ -44,10 +44,10 @@ spawn ./build/simulate.sh 0
 expect "Welcome to ChCore shell!"
 
 # start the program
-send -- "$program_name $args & \r"
-expect "$expect_line"
+send -- "$program_name $args & \n"
+expect $expect_line
 
 # prepare the checkpoint
-send -- "test_cfork_prepare.bin $program_name & \r"
+send -- "test_cfork_prepare.bin $program_name & \n"
 
 interact
