@@ -691,46 +691,6 @@ int internel_posix_memalign(void **res, size_t align, size_t len)
 	return 0;
 }
 
-// void *internel_malloc(size_t n)
-// {
-// 	return internel_malloc(n);
-// }
-
-// void *realloc(void *p, size_t n)
-// {
-// 	return internel_realloc(p, n);
-// }
-
-// void *calloc(size_t n, size_t m)
-// {
-// 	return internel_calloc(n, m);
-// }
-
-// void *aligned_alloc(size_t a, size_t n)
-// {
-// 	return internel_aligned_alloc(a, n);
-// }
-
-// void internel_free(void *p)
-// {
-// 	return internel_free(p);
-// }
-
-// void *memalign(size_t a, size_t n)
-// {
-// 	return internel_memalign(a, n);
-// }
-
-// void *valloc(size_t n)
-// {
-// 	return internel_memalign(PAGE_SIZE, n);
-// }
-
-// int posix_memalign(void **res, size_t align, size_t len)
-// {
-// 	return internel_posix_memalign(res, align, len);
-// }
-
 void *__mixed_expand_heap(size_t *pn, int flags) {
 	flags = MALLOC_TYPE_DEFAULT;
 	static uintptr_t brk;
@@ -960,3 +920,51 @@ copy_free_ret:
 	internel_free(CHUNK_TO_MEM(self));
 	return new;
 }
+
+void *__malloc(size_t n)
+{
+	return internel_malloc(n);
+}
+
+void *__realloc(void *p, size_t n)
+{
+	return internel_realloc(p, n);
+}
+
+void *__calloc(size_t n, size_t m)
+{
+	return internel_calloc(n, m);
+}
+
+void *__aligned_alloc(size_t a, size_t n)
+{
+	return internel_aligned_alloc(a, n);
+}
+
+void __free(void *p)
+{
+	internel_free(p);
+}
+
+void *__memalign(size_t a, size_t n)
+{
+	return internel_memalign(a, n);
+}
+
+void *__valloc(size_t n)
+{
+	return internel_memalign(PAGE_SIZE, n);
+}
+
+int __posix_memalign(void **res, size_t align, size_t len)
+{
+	return internel_posix_memalign(res, align, len);
+}
+
+weak_alias(__malloc, malloc);
+weak_alias(__calloc, calloc);
+weak_alias(__realloc, realloc);
+weak_alias(__memalign, memalign);
+weak_alias(__free, free);
+weak_alias(__posix_memalign, posix_memalign);
+weak_alias(__aligned_alloc, aligned_alloc);
