@@ -15,8 +15,6 @@
 #define inline inline __attribute__((always_inline))
 #endif
 
-int memory_malloc_type = MALLOC_TYPE_DEFAULT;
-
 static struct {
 	volatile uint64_t binmap;
 	struct bin bins[64];

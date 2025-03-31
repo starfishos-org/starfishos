@@ -270,35 +270,7 @@ if(CHCORE_DEMOS_LLAMACPP)
 endif()
 
 if(CHCORE_DEMOS_DBX1000)
-  add_custom_target(
-    dbx1000-clean
-    WORKING_DIRECTORY ${build_demos_dir}/dbx1000
-    COMMAND make clean
-  )
-  list(APPEND _demos_clean_targets dbx1000-clean)
-  add_custom_target(
-    dbx1000 ALL
-    WORKING_DIRECTORY ${build_demos_dir}/dbx1000
-    COMMAND make CC=${MUSL_CXX} -j
-    DEPENDS)
-  # add_custom_target(
-  #   dbx1000 ALL
-  #   WORKING_DIRECTORY ${build_demos_dir}/dbx1000
-  #   COMMAND cmake -B build 
-  #     -DCMAKE_C_COMPILER=${MUSL_CC}
-  #     -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-  #     -DCMAKE_CROSSCOMPILING=1 
-  #     -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
-  #     -DCMAKE_SKIP_RPATH=ON
-  #   COMMAND cmake --build build -- -j
-  #   DEPENDS)
-  add_custom_command(
-    TARGET dbx1000
-    POST_BUILD
-    COMMAND rsync -a ${build_demos_dir}/dbx1000/rundb ${build_ramdisk_dir}/rundb.bin
-    COMMAND rsync -a ${build_demos_dir}/dbx1000/benchmarks/*.txt ${build_ramdisk_dir}/
-  )
-  add_dependencies(ramdisk dbx1000)
+  add_subdirectory(${build_demos_dir}/dbx1000)
 endif()
 
 
@@ -411,8 +383,9 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 add_custom_target(
   coremark
   WORKING_DIRECTORY ${build_demos_dir}/coremark
-  COMMAND make PORT_DIR=simple link
-  COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/
+  COMMAND make clean
+  COMMAND make PORT_DIR=simple link CC=${CMAKE_C_COMPILER}
+  COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/coremark.bin
 )
 
 add_dependencies(ramdisk coremark)
