@@ -210,44 +210,8 @@ if(CHCORE_DEMOS_ROCKSDB)
 endif()
 
 if(CHCORE_DEMOS_PHOENIX)
-  # Define variables for commonly used paths
   set(PHOENIX_DIR ${build_demos_dir}/phoenix-2.0)
-  set(PHOENIX_SRC_DIR ${PHOENIX_DIR}/src)
-  set(PHOENIX_TESTS_DIR ${PHOENIX_DIR}/tests)
-
-  # Add the custom clean target
-  add_custom_target(
-    phoenix-clean
-    WORKING_DIRECTORY ${PHOENIX_DIR}
-    COMMAND make clean
-  )
-  list(APPEND _demos_clean_targets phoenix-clean)
-
-  # Define the list of tests to build
-  set(TESTS kmeans pca word_count matrix_multiply basic)
-
-  # Add the custom target for building Phoenix
-  add_custom_target(
-      phoenix ALL
-      WORKING_DIRECTORY ${PHOENIX_DIR}
-      COMMAND cd ${PHOENIX_SRC_DIR} && make clean && make MALLOC=libc CC=${MUSL_CC}
-      DEPENDS
-  )
-
-  add_custom_command(
-      TARGET phoenix
-      POST_BUILD
-      # COMMAND rsync -a ${PHOENIX_DIR}/data/word_count_datafiles/word_10MB.txt ${build_ramdisk_dir}/word_10MB.txt
-      COMMAND rsync -a ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_A.txt ${build_ramdisk_dir}/
-      COMMAND rsync -a ${PHOENIX_DIR}/data/matrix_datafiles/matrix_file_B.txt ${build_ramdisk_dir}/
-  )
-  add_custom_command(
-    TARGET phoenix
-    POST_BUILD
-    COMMAND cd ${PHOENIX_TESTS_DIR} && make CC=${MUSL_CC}
-    COMMAND rsync -a ${PHOENIX_TESTS_DIR}/bin/* ${build_ramdisk_dir}/
-  )
-  add_dependencies(ramdisk phoenix)
+  add_subdirectory(${PHOENIX_DIR})
 endif()
 
 if(CHCORE_DEMOS_GEMM)
@@ -443,3 +407,12 @@ if (CHCORE_DEMOS_CPYTHON)
 endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
+
+add_custom_target(
+  coremark
+  WORKING_DIRECTORY ${build_demos_dir}/coremark
+  COMMAND make PORT_DIR=simple link
+  COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/
+)
+
+add_dependencies(ramdisk coremark)

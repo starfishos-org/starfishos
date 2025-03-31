@@ -22,3 +22,6 @@
 	path = user/libraries/zlib
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/zlib.git
 	branch = master
+[submodule "user/libraries/rpmalloc"]
+	path = user/libraries/rpmalloc
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/rpmalloc.git
