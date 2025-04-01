@@ -730,13 +730,13 @@ noreturn void terminal_run(struct terminal *terminal)
 	/* Create a thread to repaint the terminal periodically. The terminal 
 	 * does not repaint every time its state is updated to avoid repainting 
 	 * too frequently. */
-	check_ret(chcore_pthread_create(&tid, NULL, repainting_loop, terminal));
+	check_ret(chcore_pthread_create_services(&tid, NULL, repainting_loop, terminal));
 
 	/* Create a thread to handle keyboard input periodically. The Wayland 
 	 * compositor only sends key events when keys are pressed or released. 
 	 * To implement long-press, the thread keeps polling the array of 
 	 * currently pressed keys. */
-	check_ret(chcore_pthread_create(
+	check_ret(chcore_pthread_create_services(
 		&tid, NULL, keyboard_handling_loop, terminal));
 
 	/* Wayland main loop */

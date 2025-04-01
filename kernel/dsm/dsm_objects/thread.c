@@ -121,6 +121,13 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
+    /* Do not demote server threads */
+    if (src_thread->thread_ctx->type == TYPE_SERVICES) {
+        DSM_TIER_LOG_DEBUG("server thread %s; skip demote and not add to cap group\n", 
+            src_thread->cap_group->cap_group_name);
+        return 0;
+    }
+
     /* Copy thread context */
     dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
     BUG_ON(!dst_thread->thread_ctx);
@@ -148,7 +155,6 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     struct object *dst_cap_group_object = 
         dsm_get_object_by_mem_type(src_cap_group_object, mem_type, false);
     if (!dst_cap_group_object) {
-        // TODO: thread is a server thread and its cap group will not be demoted
         DSM_TIER_LOG_DEBUG("server thread %s; skip adding to cap group\n", 
             src_thread->cap_group->cap_group_name);
         return 0;

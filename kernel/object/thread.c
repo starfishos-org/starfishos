@@ -18,6 +18,7 @@
 #include <ipc/futex.h>
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
+#include <uapi/thread.h>
 
 #include "thread_env.h"
 
@@ -257,7 +258,7 @@ void create_root_thread(void)
                       stack,
                       meta.entry,
                       ROOT_THREAD_PRIO,
-                      TYPE_USER,
+                      TYPE_SERVICES,
                       smp_get_cpu_id() + CPU_RANGE_LOW);
     BUG_ON(ret != 0);
 
@@ -346,7 +347,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
     /* ret is thread_cap in the current_cap_group */
     if (cap_group != current_cap_group)
         cap = cap_copy(cap_group, current_cap_group, cap);
-    if (type == TYPE_USER) {
+    if (type == TYPE_USER || type == TYPE_SERVICES) {
         thread->thread_ctx->state = TS_INTER;
         BUG_ON(sched_enqueue(thread));
     } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
@@ -416,10 +417,27 @@ struct thread_args {
     u64 arg;
     u32 prio;
     u64 tls;
-    /* 0: TYPE_USER; 1: TYPE_SHADOW; 2: TYPE_REGISTER */
+    // defined in user: <chcore/uapi/thread.h> and kernel: <uapi/thread.h>
     u32 type;
     int *clear_child_tid;
 };
+
+static int thread_type_to_kernel_type(u32 type)
+{
+    switch (type) {
+    case THREAD_TYPE_USER:
+        return TYPE_USER;
+    case THREAD_TYPE_SHADOW:
+        return TYPE_SHADOW;
+    case THREAD_TYPE_REGISTER:
+        return TYPE_REGISTER;
+    case THREAD_TYPE_SERVICES:
+        return TYPE_SERVICES;
+    default:
+        kinfo("%s: invalid thread type.\n", __func__);
+        return -EINVAL;
+    }
+}
 
 /*
  * Create a pthread in some process
@@ -435,22 +453,14 @@ int sys_create_thread(u64 thread_args_p)
     u32 type;
 
     r = copy_from_user((char *)&args, (char *)thread_args_p, sizeof(args));
-    BUG_ON(r);
+    if (r) {
+        return -EINVAL;
+    }
 
     cap_group = obj_get(current_cap_group, args.cap_group_cap, TYPE_CAP_GROUP);
 
-    switch (args.type) {
-    case 0:
-        type = TYPE_USER;
-        break;
-    case 1:
-        type = TYPE_SHADOW;
-        break;
-    case 2:
-        type = TYPE_REGISTER;
-        break;
-    default:
-        kinfo("%s: invalid thread type.\n", __func__);
+    type = thread_type_to_kernel_type(args.type);
+    if (type == -EINVAL) {
         thread_cap = -EINVAL;
         goto out;
     }

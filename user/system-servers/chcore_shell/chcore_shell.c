@@ -481,7 +481,7 @@ int main(void)
 		&receive_char_thread_pid, NULL, other_plat_get_char, NULL);
 #endif /* CHCORE_PLAT_RASPI3 */
 	shell_ipc_server_cap =
-		chcore_pthread_create(&shell_pid, NULL, shell_server, NULL);
+		chcore_pthread_create_services(&shell_pid, NULL, shell_server, NULL);
 	pthread_mutex_init(&job_mutex, NULL);
 
 	init_buildin_cmd();

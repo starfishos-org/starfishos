@@ -104,7 +104,7 @@ int chcore_pipe2(int pipefd[2], int flags)
 	 */
 	if (unlikely(pipe_server_thread_cap == 0)) {
 		pipe_server_thread_cap =
-			chcore_pthread_create(&thread_id, NULL, init_pipe_server, NULL);
+			chcore_pthread_create_services(&thread_id, NULL, init_pipe_server, NULL);
 		a_barrier();
 		while (!pipe_server_inited)
 			usys_yield();

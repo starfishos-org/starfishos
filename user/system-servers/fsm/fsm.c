@@ -88,6 +88,7 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 		info("Mounting fs from local binary: %s...\n", path);
 
 		fs_cap = boot_tmpfs();
+		info("Mounting TMPFS, cap = %d\n", fs_cap);
 
 		if (fs_cap <= 0) {
 			info("Fails to launch TMPFS, which returns %d\n", ret);

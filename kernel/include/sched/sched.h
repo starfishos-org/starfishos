@@ -73,9 +73,7 @@ enum thread_type {
     /* Use as the IPC register callback threads (for recycling) */
     TYPE_REGISTER = 4,
     TYPE_TESTS = 5, /* TESTS thread is used by kernel tests */
-#ifdef DSM_ENABLED
-    TYPE_SERVICES = 6, /* Cross-shared thread is shared between machines */
-#endif
+    TYPE_SERVICES = 6, /* SERVICES thread is system servers */
 };
 
 typedef struct sched_cont {

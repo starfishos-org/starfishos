@@ -46,7 +46,7 @@ static void register_ipc_server()
 	pthread_t tid;
 
 	check_ret(ipc_server_cap =
-			  chcore_pthread_create(&tid, NULL, ipc_server, NULL));
+			  chcore_pthread_create_services(&tid, NULL, ipc_server, NULL));
 
 	check_ptr(ipc_msg = ipc_create_msg(
 			  procmgr_ipc_struct, sizeof *proc_req, 1));

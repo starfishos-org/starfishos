@@ -10,6 +10,7 @@
 #include <chcore/proc.h>
 #include <chcore/syscall.h>
 #include <chcore/ipc.h>
+#include <chcore/uapi/thread.h>
 
 static void dummy_0()
 {
@@ -280,9 +281,7 @@ static void init_file_lock(FILE *f)
 	if (f && f->lock<0) f->lock = 0;
 }
 
-#define TYPE_USER     0   /* A normal user-level thread */
-#define TYPE_SHADOW   1   /* A shadow thread for serving IPC requests */
-#define TYPE_REGISTER 2   /* A register cb thread for serving IPC registration */
+#include <chcore/uapi/thread.h>
 
 /*
  * ChCore-specific.
@@ -462,8 +461,8 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
 		stack = (unsigned char *)(((u64)stack & (u64)-16) - 8);
 
 		_args.stack = (u64)stack;
-		_args.pc = (type != TYPE_USER ? (u64)entry : (u64)(c11 ? start_c11 : start));
-		_args.arg = (type != TYPE_USER ? (u64)arg : (u64)args);
+		_args.pc = ((type != THREAD_TYPE_USER && type != THREAD_TYPE_SERVICES) ? (u64)entry : (u64)(c11 ? start_c11 : start));
+		_args.arg = ((type != THREAD_TYPE_USER && type != THREAD_TYPE_SERVICES) ? (u64)arg : (u64)args);
 		_args.prio = attr._a_sched? attr._a_prio: CHILD_THREAD_PRIO;
 		_args.tls = (u64)TP_ADJ(new);
 		_args.type = type;
@@ -511,7 +510,7 @@ int __pthread_create(pthread_t *restrict res,
 		     void *(*entry)(void *),
 		     void *restrict arg)
 {
-	int ret = __pthread_create_internal(TYPE_USER, res, attrp, entry, arg);
+	int ret = __pthread_create_internal(THREAD_TYPE_USER, res, attrp, entry, arg);
 
 	return ret < 0? ret: 0;
 }
@@ -522,7 +521,7 @@ int chcore_pthread_create(pthread_t *restrict res,
 			  void *(*entry)(void *),
 			  void *restrict arg)
 {
-	return __pthread_create_internal(TYPE_USER, res, attrp, entry, arg);
+	return __pthread_create_internal(THREAD_TYPE_USER, res, attrp, entry, arg);
 }
 
 /*
@@ -536,7 +535,7 @@ int chcore_pthread_create_shadow(pthread_t *restrict res,
 				 void *(*entry)(void *),
 				 void *restrict arg)
 {
-	return __pthread_create_internal(TYPE_SHADOW, res, attrp, entry, arg);
+	return __pthread_create_internal(THREAD_TYPE_SHADOW, res, attrp, entry, arg);
 }
 
 /* Separating shadow thread and register cb thread is only for resouce recycling */
@@ -545,9 +544,16 @@ int chcore_pthread_create_register_cb(pthread_t *restrict res,
 				 void *(*entry)(void *),
 				 void *restrict arg)
 {
-	return __pthread_create_internal(TYPE_REGISTER, res, attrp, entry, arg);
+	return __pthread_create_internal(THREAD_TYPE_REGISTER, res, attrp, entry, arg);
 }
 
+int chcore_pthread_create_services(pthread_t *restrict res,
+				 const pthread_attr_t *restrict attrp,
+				 void *(*entry)(void *),
+				 void *restrict arg)
+{
+	return __pthread_create_internal(THREAD_TYPE_SERVICES, res, attrp, entry, arg);
+}
 
 weak_alias(__pthread_exit, pthread_exit);
 weak_alias(__pthread_create, pthread_create);

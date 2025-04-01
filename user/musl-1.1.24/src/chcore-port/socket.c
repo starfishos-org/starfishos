@@ -986,7 +986,7 @@ void ensure_tcp_server(void)
 		return;
 
 	tcp_server_ready = false;
-	tcp_server_cap = chcore_pthread_create(&tid, NULL,
+	tcp_server_cap = chcore_pthread_create_services(&tid, NULL,
 					       tcp_server_loop, NULL);
 
 	// printf("tcp server cap: %d\n", tcp_server_cap);

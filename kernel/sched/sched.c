@@ -39,7 +39,7 @@ extern void record_history_cpu(struct vmspace *vmspcae, u32 cpuid);
 struct sched_ops *cur_sched_ops;
 
 char thread_type[][TYPE_STR_LEN] =
-        {"IDLE", "KERNEL", "USER", "SHADOW", "REGISTER", "TESTS"};
+        {"IDLE", "KERNEL", "USER", "SHADOW", "REGISTER", "TESTS", "SERVICES"};
 
 char thread_state[][STATE_STR_LEN] = {
         "TS_INIT      ",

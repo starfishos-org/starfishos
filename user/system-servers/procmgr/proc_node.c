@@ -6,6 +6,7 @@
 #include <chcore-internal/fs_defs.h>
 #include <chcore/container/hashtable.h>
 #include <chcore/proc.h>
+#include <chcore/uapi/thread.h>
 
 #include "proc_node.h"
 #include "procmgr_dbg.h"
@@ -108,15 +109,19 @@ struct proc_node *new_proc_node(struct proc_node *parent, char *name)
 	if (strcmp(name, "procmgr") == 0) {
 		proc->pcid = PROCMGR_PCID;
 		proc->badge = PROCMGR_BADGE;
+		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else if (strcmp(name, "fsm") == 0) {
 		proc->pcid = FSM_PCID;
 		proc->badge = FSM_BADGE;
+		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else if (strcmp(name, "lwip") == 0) {
 		proc->pcid = LWIP_PCID;
 		proc->badge = LWIP_BADGE;
+		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else {
 		proc->pcid = alloc_id(&pcid_mgr);
 		proc->badge = generate_badge(proc);
+		proc->thread_type = THREAD_TYPE_USER;
 	}
 	BUG_ON(proc->pcid == -EINVAL);
 

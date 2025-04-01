@@ -3,6 +3,7 @@
 #include <chcore/proc.h>
 #include <chcore/syscall.h>
 #include <chcore-internal/procmgr_defs.h>
+#include <chcore/uapi/thread.h>
 #include <string.h>
 
 #include "proc_node.h"
@@ -117,6 +118,7 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
         lp_args.badge = proc_node->badge;
         lp_args.pid = proc_node->pid;
         lp_args.pcid = proc_node->pcid;
+        lp_args.type = proc_node->thread_type;
 
         /* Launch process */
         // debug("free mem before launch process size: 0x%lx\n",

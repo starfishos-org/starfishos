@@ -37,6 +37,8 @@ int readelf_from_kernel_cpio(const char *filename, struct user_elf *user_elf)
 const char *fsm_srv = "/fsm.srv";
 const char *tmpfs_srv = "/tmpfs.srv";
 
+#include <chcore/uapi/thread.h>
+
 int run_cmd_from_kernel_cpio(const char *filename, int *new_thread_cap,
 			     struct pmo_map_request *pmo_map_reqs,
 			     int nr_pmo_map_reqs, u64 badge)
@@ -89,7 +91,7 @@ int run_cmd_from_kernel_cpio(const char *filename, int *new_thread_cap,
 	lp_args.badge = badge;
 	/* Note: kservice has no PID */
 	lp_args.pid = 0;
-	lp_args.type = 6;
+	lp_args.type = THREAD_TYPE_SERVICES;
 
 	/* Determine which pcid will be assigned to current launching process */
 	if (!strcmp(filename, fsm_srv))

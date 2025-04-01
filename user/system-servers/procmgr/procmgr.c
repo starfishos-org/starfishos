@@ -419,7 +419,7 @@ int main(int argc, char *argv[], char *envp[])
         pthread_create(&recycle_thread, NULL, recycle_routine, NULL);
 
         init_procmgr();
-        ret = chcore_pthread_create(
+        ret = chcore_pthread_create_services(
                 &procmgr_handler_tid, NULL, handler_thread_routine, NULL);
 
         __procmgr_server_cap = ret;
