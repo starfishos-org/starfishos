@@ -9,6 +9,7 @@
 #include <mm/mm.h>
 #include <mm/slab.h>
 #include <machine.h>
+#include <uapi/types.h>
 
 // #define DSM_DEBUG
 
@@ -47,8 +48,8 @@
 /**
  * machine ID of current machine
  */
-u32 machine_id;
-#define MACHINE_ID (machine_id)
+mid_t machine_id;
+#define CUR_MACHINE_ID (machine_id)
 
 /**
  * cpu range of current machine
@@ -163,7 +164,7 @@ typedef struct {
 dsm_metadata_t *dsm_meta;
 
 /* local meta of current machine */
-// #define local_meta (dsm_meta->local_meta[MACHINE_ID]);
+// #define local_meta (dsm_meta->local_meta[CUR_MACHINE_ID]);
 
 static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
@@ -206,7 +207,7 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
     && paddr < dsm_meta->local_meta[machineid].local_paddr + \
     dsm_meta->local_meta[machineid].local_mem_size)
 #define IS_INVALID_PADDR(paddr) ( \
-    !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, MACHINE_ID)))
+    !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, CUR_MACHINE_ID)))
 
 void dsm_add_machine(void);
 

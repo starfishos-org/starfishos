@@ -269,9 +269,9 @@ void sys_shutdown(int flag)
     handle_shutdown(flag);
 }
 
-u32 sys_get_machine_id(void)
+mid_t sys_get_machine_id(void)
 {
-    return machine_id;
+    return CUR_MACHINE_ID;
 }
 
 #ifdef IPC_PERF_ENABLED

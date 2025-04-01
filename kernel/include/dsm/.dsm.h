@@ -1,3 +1,4 @@
+#if 0
 // all structures should be packed
 #pragma pack(1)
 
@@ -11,10 +12,6 @@
 
 #define DSM_CONFIG_DEV_SZ      (8 * (u64)SIZE_1G)
 #define DSM_CONFIG_MACHINE_NUM (2)
-
-u32 CUR_MACHINE_ID;
-// #define CUR_MACHINE_ID   (1001)
-#define CUR_MACHINE_META (dsm_current_machine.meta)
 
 #define DSM_MAX_MACHINE_NUM         (16)
 #define DSM_PER_MACHINE_MAX_DEV_NUM (1)
@@ -116,3 +113,4 @@ void dsm_followers_init_metadata(void);
 
 void dsm_devs_init(u64 start, size_t size, u8 type);
 #pragma pack()
+#endif

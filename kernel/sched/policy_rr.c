@@ -19,7 +19,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
-#define rr_cur_shared_queue (dsm_meta->shared_queue[MACHINE_ID])
+#define rr_cur_shared_queue (dsm_meta->shared_queue[CUR_MACHINE_ID])
 #endif
 
 /* in arch/sched/idle.S */
@@ -176,7 +176,7 @@ int rr_sched_migrate_from_shared_queue()
         lcpuid = cpuid_g2l(gcpuid);
 
         /* move thread from shared queue to local queue */
-        ret = __rr_sched_dequeue_shared(thread, MACHINE_ID);
+        ret = __rr_sched_dequeue_shared(thread, CUR_MACHINE_ID);
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
 

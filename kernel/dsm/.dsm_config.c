@@ -1,4 +1,5 @@
-#include <dsm/dsm.h>
+#if 0
+#include <dsm/dsm-single.h>
 #include <common/size.h>
 
 static dsm_mem_dev_t *dsm_find_in_visible_memdevs(u64 start, size_t size)
@@ -153,3 +154,4 @@ void dsm_devs_init(u64 start, size_t size, u8 type)
         }
     }
 }
+#endif

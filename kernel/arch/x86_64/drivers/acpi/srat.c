@@ -2,7 +2,7 @@
 #include "actbl3.h"
 
 #ifdef DSM_ENABLED
-#include <dsm/dsm.h>
+#include <dsm/dsm-single.h>
 #endif
 
 #include <mm/numa.h>

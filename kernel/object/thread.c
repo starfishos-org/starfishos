@@ -72,7 +72,7 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
 
     thread->sleep_state.cb = NULL;
 
-    thread->machine_id = MACHINE_ID;
+    thread->machine_id = CUR_MACHINE_ID;
 
 #ifdef TRACK_TIME
     thread->tracking = 0;

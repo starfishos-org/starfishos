@@ -83,7 +83,7 @@ struct thread {
     int *clear_child_tid;
 
     /* Machine ID of the thread */
-    u32 machine_id;
+    mid_t machine_id;
 };
 
 void create_root_thread(void);

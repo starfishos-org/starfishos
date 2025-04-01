@@ -562,7 +562,7 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
     return sys_register_client_helper(client, server ,shm_config_ptr, false);
 }
 
-u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
+cap_t sys_register_fs_client(mid_t target_machine_id, u64 shm_config_ptr)
 {
     struct thread *client;
     struct thread *server;
@@ -574,11 +574,11 @@ u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
     return sys_register_client_helper(client, server, shm_config_ptr, true);
 }
 
-u32 sys_register_fs_server(u32 fs_cap)
+cap_t sys_register_fs_server(cap_t fs_cap)
 {
     struct thread *tmpfs_thread = obj_get(current_cap_group, fs_cap, TYPE_THREAD);
-    dsm_meta->tmpfs_thread[MACHINE_ID] = tmpfs_thread;
-    tmpfs_thread->machine_id = MACHINE_ID;
+    dsm_meta->tmpfs_thread[CUR_MACHINE_ID] = tmpfs_thread;
+    tmpfs_thread->machine_id = CUR_MACHINE_ID;
     obj_put(tmpfs_thread);
     return 0;
 }
