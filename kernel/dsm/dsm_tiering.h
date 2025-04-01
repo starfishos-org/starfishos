@@ -3,6 +3,8 @@
 #include <object/object.h>
 #include <dsm/tiering.h>
 
+#include "log.h"
+
 /* Copy policy */
 typedef int (*dsm_copy_func)(struct object *src_obj, struct object *dst_obj);
 
@@ -13,3 +15,5 @@ int dsm_copy_connection(struct object *src_obj, struct object *dst_obj);
 int dsm_copy_notification(struct object *src_obj, struct object *dst_obj);
 int dsm_copy_irq(struct object *src_obj, struct object *dst_obj);
 int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj);
+
+int dsm_copy_page_table(struct object *src_obj, struct object *dst_obj);

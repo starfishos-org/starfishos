@@ -26,7 +26,7 @@ static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
     return true;
 }
 
-static int slot_table_init(struct slot_table *slot_table, unsigned int size,
+int slot_table_init(struct slot_table *slot_table, unsigned int size,
                            bool init_lock)
 {
     int r;
@@ -189,7 +189,7 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
 #ifndef DSM_ENABLED
     object = slot->object;
 #else
-    object = dsm_tiering_get_object(slot->object, true);
+    object = dsm_get_object(slot->object, true);
 #endif
     BUG_ON(object == NULL);
 

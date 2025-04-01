@@ -17,6 +17,17 @@ extern void notification_deinit(void *);
 extern void vmspace_deinit(void *);
 extern void cap_group_deinit(void *);
 
+const char* obj_name_tbl[TYPE_NR] = {
+    [0 ... TYPE_NR - 1] = 0,
+    [TYPE_CAP_GROUP] = "cap group",
+    [TYPE_THREAD] = "thread",
+    [TYPE_CONNECTION] = "connection",
+    [TYPE_NOTIFICATION] = "notification",
+    [TYPE_IRQ] = "irq notification",
+    [TYPE_PMO] = "pmobject",
+    [TYPE_VMSPACE] = "vmspace"
+};
+
 const obj_deinit_func obj_deinit_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
         [TYPE_CAP_GROUP] = cap_group_deinit,
@@ -129,6 +140,9 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
 
     BUG_ON(object->refcount != 0);
     object->refcount = 1;
+#ifdef DSM_ENABLED
+    object->status = DSM_STATUS_INUSE;
+#endif
 
     install_slot(cap_group, slot_id, slot);
 

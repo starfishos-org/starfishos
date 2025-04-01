@@ -41,11 +41,11 @@ static struct futex_entry *new_futex_entry(int *uaddr, struct hlist_head *bucket
         struct notification *notifc;
         struct futex_entry *new_entry;
 
-        new_entry = kmalloc(sizeof(struct futex_entry), __DEFAULT__);
+        new_entry = kmalloc(sizeof(struct futex_entry), __MT_DEFAULT__);
         if (!new_entry)
                 goto out_fail;
 
-        notifc = kmalloc(sizeof(*notifc), __DEFAULT__);
+        notifc = kmalloc(sizeof(*notifc), __MT_DEFAULT__);
         if (!notifc) {
                 goto out_free_entry;
         }

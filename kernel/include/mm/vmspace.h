@@ -165,7 +165,7 @@ struct pmobject {
 };
 
 /* explore for ckpt/restore */
-struct vmregion *alloc_vmregion(void);
+struct vmregion *alloc_vmregion(mem_t mem_type);
 void free_vmregion(struct vmregion *vmr);
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr);
 

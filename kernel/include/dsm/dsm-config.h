@@ -12,6 +12,8 @@ inline static bool is_system_services(struct cap_group *cg)
         return true;
     }
 
+    kinfo("is_cross_shared_obj: cap group %s\n", cg->cap_group_name);
+
     return false;
 }
 
@@ -22,7 +24,11 @@ inline static bool is_system_services_thread(struct thread *thread)
     // }
     // struct ipc_config *ipc_config = (struct ipc_config *)thread->general_ipc_config;
     // return (ipc_config->config_type == IPC_SERVER);
-    return (thread->general_ipc_config != NULL);
+    if (thread->general_ipc_config != NULL) {
+        kinfo("is_cross_shared_obj: server thread %s\n", thread->cap_group->cap_group_name);
+        return true;
+    }
+    return false;
 }
 
 inline static bool is_cross_shared_obj(struct object *obj)
@@ -32,6 +38,12 @@ inline static bool is_cross_shared_obj(struct object *obj)
             return is_system_services((struct cap_group *)obj->opaque);
         case TYPE_THREAD:
             return is_system_services_thread((struct thread *)obj->opaque);
+        // case TYPE_NOTIFICATION:
+        //     kinfo("notification: %p\n", obj);
+        //     return true;
+        // case TYPE_CONNECTION:
+        //     kinfo("ipc connection: %p\n", obj);
+        //     return true;
         default:
             break;
     }

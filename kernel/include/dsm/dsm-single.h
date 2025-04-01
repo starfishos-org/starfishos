@@ -199,9 +199,10 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
 #define IS_SHM_PADDR(paddr) ( \
     paddr >= dsm_meta->shm_paddr \
     && paddr < dsm_meta->shm_paddr + dsm_meta->shm_size)
-#define IS_LOCAL_PADDR(paddr, cpuid) ( \
-    paddr >= dsm_meta->local_meta[cpuid].local_paddr \
-    && paddr < dsm_meta->local_meta[cpuid].local_paddr + dsm_meta->local_meta[cpuid].local_mem_size)
+#define IS_LOCAL_PADDR(paddr, machineid) ( \
+    paddr >= dsm_meta->local_meta[machineid].local_paddr \
+    && paddr < dsm_meta->local_meta[machineid].local_paddr + \
+    dsm_meta->local_meta[machineid].local_mem_size)
 #define IS_INVALID_PADDR(paddr) ( \
     !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, MACHINE_ID)))
 

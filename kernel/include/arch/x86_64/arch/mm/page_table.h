@@ -94,7 +94,7 @@
 /* table format */
 typedef union {
     struct {
-        u64 present : 1, writeable : 1, user : 1, write_through : 1,
+        unsigned long present : 1, writeable : 1, user : 1, write_through : 1,
                 cache_disable : 1, accessed : 1, ignored1 : 1, /* no dirty bit
                                                                 */
                 is_page : 1, /* must be 0 */
@@ -106,7 +106,7 @@ typedef union {
     } table; /* pml4, pdpte, pde */
 
     struct {
-        u64 present : 1, writeable : 1, user : 1, write_through : 1,
+        unsigned long present : 1, writeable : 1, user : 1, write_through : 1,
                 cache_disable : 1, accessed : 1, dirty : 1, is_page : 1, /* must
                                                                             be 1
                                                                           */
@@ -121,7 +121,7 @@ typedef union {
     } pte_1G;
 
     struct {
-        u64 present : 1, writeable : 1, user : 1, write_through : 1,
+        unsigned long present : 1, writeable : 1, user : 1, write_through : 1,
                 cache_disable : 1, accessed : 1, dirty : 1, is_page : 1, /* must
                                                                             be 1
                                                                           */
@@ -136,7 +136,7 @@ typedef union {
     } pte_2M;
 
     struct {
-        u64 present : 1, writeable : 1, user : 1, write_through : 1,
+        unsigned long present : 1, writeable : 1, user : 1, write_through : 1,
                 cache_disable : 1, accessed : 1, dirty : 1, pat : 1, /* memory
                                                                         type */
                 global : 1, /* global TLB entry */
@@ -147,7 +147,7 @@ typedef union {
                 nx : 1; /* bit 63: execution disable */
     } pte_4K;
 
-    u64 pteval;
+    unsigned long pteval;
 } pte_t;
 
 /* one page table page */
@@ -167,3 +167,13 @@ typedef struct {
  */
 #define remove_pcid(pgtbl) (void *)(((u64)pgtbl) & (~PCID_MASK))
 #define get_pcid(pgtbl)    (((u64)pgtbl) & (PCID_MASK))
+
+// #include <mm/vmspace.h>
+
+// int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry);
+// pte_t get_and_clear_pte(pte_t *pte);
+// int remap_page_in_pgtbl(pte_t *entry, paddr_t new_pa);
+// int set_pte_flags(pte_t *entry, vmr_prop_t flags, int kind);
+// int set_pte_write_flag(pte_t *entry, bool flag);
+// int is_pte_dirty(pte_t *entry);
+// void clear_pte_dirty(pte_t *entry);

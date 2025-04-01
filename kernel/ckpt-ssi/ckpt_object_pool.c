@@ -26,19 +26,6 @@ static u64 obj_size[TYPE_NR] = {
         [TYPE_VMSPACE] = sizeof(struct vmspace)
 };
 
-#if CFORK_LOG_LEVEL >= CFORK_LOG_LEVEL_DEBUG
-static char* obj_name[TYPE_NR] = {
-        [0 ... TYPE_NR - 1] = 0,
-        [TYPE_CAP_GROUP] = "cap group",
-        [TYPE_THREAD] = "thread",
-        [TYPE_CONNECTION] = "connection",
-        [TYPE_NOTIFICATION] = "notification",
-        [TYPE_IRQ] = "irq notification",
-        [TYPE_PMO] = "pmobject",
-        [TYPE_VMSPACE] = "vmspace"
-};
-#endif
-
 static u64 ckpt_obj_size[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = 0,
         [TYPE_CAP_GROUP] = sizeof(struct ckpt_cap_group),
@@ -341,7 +328,7 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
 out:
     BUG_ON(!ckpt_obj);
     CFORK_LOG_DEBUG("%s: ckpt_obj_root: %p obj: %p, type: %s, cross-shared: %d\n", 
-        __func__, ckpt_obj_root, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
+        __func__, ckpt_obj_root, obj, obj_name_tbl[obj->type], ckpt_obj_root->cross_shared);
     return ckpt_obj;
 }
 
@@ -435,7 +422,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
 
 out:
     CFORK_LOG_DEBUG("%s: obj: %p, type: %s, cross-shared: %d\n", 
-        __func__, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
+        __func__, obj, obj_name_tbl[obj->type], ckpt_obj_root->cross_shared);
     return obj;
 }
 

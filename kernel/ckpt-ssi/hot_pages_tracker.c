@@ -22,9 +22,9 @@ void sys_set_dyn_args(u64 hotness, u64 access_interval)
     dyn_access_interval = access_interval;
 }
 
-extern int set_pte_write_flag(pte_t *entry, bool flag);
-extern int clear_pte_dirty(pte_t *entry);
-extern int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry);
+// extern int set_pte_write_flag(pte_t *entry, bool flag);
+// extern int clear_pte_dirty(pte_t *entry);
+// extern int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry);
 
 struct list_head active_list[MIGRATE_CPU_NUM];
 struct lock active_list_lock[MIGRATE_CPU_NUM];

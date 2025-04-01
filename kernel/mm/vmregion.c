@@ -37,11 +37,11 @@ static void remove_vmr_from_virt_vmregion(struct vmregion *vmr)
 }
 #endif
 
-struct vmregion *alloc_vmregion(void)
+struct vmregion *alloc_vmregion(mem_t mem_type)
 {
     struct vmregion *vmr;
 
-    vmr = kmalloc(sizeof(*vmr), __MT_OBJECT__);
+    vmr = kmalloc(sizeof(*vmr), mem_type);
 
     return vmr;
 }
@@ -298,7 +298,7 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
     va = ROUND_DOWN(va, PAGE_SIZE);
     if (len < PAGE_SIZE)
         len = PAGE_SIZE;
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         ret = -ENOMEM;
         goto out_fail;
@@ -567,7 +567,7 @@ struct vmregion *init_heap_vmr(struct vmspace *vmspace, vaddr_t va,
 {
     struct vmregion *vmr;
 
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         kwarn("%s fails\n", __func__);
         return NULL;
@@ -611,7 +611,7 @@ u64 vmspace_mmap_with_pmo(struct vmspace *vmspace, struct pmobject *pmo,
     struct vmregion *vmr;
     int ret;
 
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         kwarn("%s fails\n", __func__);
         goto out_fail;
@@ -831,7 +831,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
             goto out_fail;
         }
         /* Create new vmregion */
-        new_vmr = alloc_vmregion();
+        new_vmr = alloc_vmregion(__MT_OBJECT__);
         if (!new_vmr) {
             r = -ENOMEM;
             kwarn("%s fails\n", __func__);

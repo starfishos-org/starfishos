@@ -218,6 +218,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
         u64 badge = lp_args->badge;
         int pid = lp_args->pid;
         u64 pcid = lp_args->pcid;
+        u32 type = lp_args->type;
 
         /* for usys_creat_thread */
         struct thread_args args;
@@ -389,7 +390,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
         args.arg = (u64)NULL;
         args.prio = MAIN_THREAD_PRIO;
         args.tls = cpuid;
-        args.type = 0;
+        args.type = type;
         main_thread_cap = usys_create_thread((u64)&args);
 
         if (child_process_cap)

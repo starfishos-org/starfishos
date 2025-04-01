@@ -2,33 +2,100 @@
 
 #include "../dsm_tiering.h"
 
+extern int slot_table_init(struct slot_table *slot_table, unsigned int size,
+                           bool init_lock);
+
+int dsm_copy_slot_table(struct slot_table *src_slot_table, struct slot_table *dst_slot_table, mem_t mem_type)
+{
+    int src_slot_size = src_slot_table->slots_size;
+
+    /* Allocate new slots_bmp and slots if the size is different */
+    if (dst_slot_table->slots_size != src_slot_size) {
+        if (dst_slot_table->slots) {
+            kfree(dst_slot_table->slots);
+        }
+        if (dst_slot_table->slots_bmp) {
+            kfree(dst_slot_table->slots_bmp);
+        }
+        if (dst_slot_table->full_slots_bmp) {
+            kfree(dst_slot_table->full_slots_bmp);
+        }
+        slot_table_init(dst_slot_table, src_slot_size, true);
+    }
+
+    /* Copy slots_bmp */
+    // NOTE: can not skip as number is the same but data can be different
+    memcpy(dst_slot_table->slots_bmp, src_slot_table->slots_bmp, 
+           sizeof(unsigned long) * BITS_TO_LONGS(src_slot_table->slots_size));
+
+    /* Copy slots */
+    // NOTE: should use new object slot to accelerate object access
+    int slot_id;
+    struct object_slot *src_slot, *dst_slot;
+    struct object *dst_object;
+    for_each_set_bit (slot_id, src_slot_table->slots_bmp, src_slot_size) {
+        src_slot = src_slot_table->slots[slot_id];
+        BUG_ON(src_slot == NULL);
+
+        /* 1st cap is cap_group */
+        if (slot_id == CAP_GROUP_OBJ_ID)
+            continue;
+
+        /* demote object */
+        int ret = dsm_demote_object(src_slot->object);
+        if (ret) {
+            DSM_TIER_LOG_ERR("failed to demote object %d type %s", 
+                src_slot->object, obj_name_tbl[src_slot->object->type]);
+            return ret;
+        }
+
+        dst_slot = dst_slot_table->slots[slot_id];
+        if (!dst_slot) {
+            dst_slot = kmalloc(sizeof(struct object_slot), __MT_SHARED__);
+            BUG_ON(dst_slot == NULL);
+        }
+
+        /* now dst object should be several cases */
+        dst_object = dsm_get_object(src_slot->object, true);
+        BUG_ON(dst_object == NULL);
+
+        /* copy object */
+        struct cap_group *dst_cap_group = 
+            container_of(dst_object, struct cap_group, slot_table);
+        dst_slot->slot_id = slot_id;
+        dst_slot->cap_group = dst_cap_group;
+        dst_slot->isvalid = true;
+        dst_slot->rights = src_slot->rights;
+        dst_slot->object = dst_object;
+    }
+
+    return 0;
+}
+
 int dsm_copy_cap_group(struct object *src_obj, struct object *dst_obj)
 {
     struct cap_group *src_cap_group = (struct cap_group *)src_obj->opaque;
     struct cap_group *dst_cap_group = (struct cap_group *)dst_obj->opaque;
+    int is_demote = is_private_object(src_obj);
 
-    /* Copy basic fields */
+    DSM_TIER_LOG_DEBUG("src_cg: %p, src_cg_object: %p\n", 
+        src_cap_group, src_obj);
+
+    /* Copy basic info */
     dst_cap_group->badge = src_cap_group->badge;
-    dst_cap_group->notify_recycler = src_cap_group->notify_recycler;
-    memcpy(dst_cap_group->cap_group_name, src_cap_group->cap_group_name, MAX_GROUP_NAME_LEN);
-
-    /* Copy slot table */
-    dst_cap_group->slot_table.slots_size = src_cap_group->slot_table.slots_size;
-    dst_cap_group->slot_table.slots_bmp = kmalloc(sizeof(unsigned long) * BITS_TO_LONGS(src_cap_group->slot_table.slots_size), __MT_SHARED__);
-    if (!dst_cap_group->slot_table.slots_bmp) {
-        return -ENOMEM;
-    }
-    memcpy(dst_cap_group->slot_table.slots_bmp, src_cap_group->slot_table.slots_bmp, 
-           sizeof(unsigned long) * BITS_TO_LONGS(src_cap_group->slot_table.slots_size));
+    memcpy(dst_cap_group->cap_group_name, src_cap_group->cap_group_name, 
+           MAX_GROUP_NAME_LEN);
+    init_list_head(&dst_cap_group->thread_list);
+    lock_init(&dst_cap_group->threads_lock);
+    /* thread_cnt will wait for the thread to be inserted */
+    dst_cap_group->thread_cnt = 0;
+    /* TODO: notify_recycler should be set to new recycler */
+    dst_cap_group->notify_recycler = 0;
 
     /* Copy slots */
-    dst_cap_group->slot_table.slots = kmalloc(sizeof(struct object *) * src_cap_group->slot_table.slots_size, __MT_SHARED__);
-    if (!dst_cap_group->slot_table.slots) {
-        kfree(dst_cap_group->slot_table.slots_bmp);
-        return -ENOMEM;
-    }
-    memcpy(dst_cap_group->slot_table.slots, src_cap_group->slot_table.slots,
-           sizeof(struct object *) * src_cap_group->slot_table.slots_size);
+    dsm_copy_slot_table(&src_cap_group->slot_table, 
+                        &dst_cap_group->slot_table, 
+                        is_demote ? __MT_SHARED__ : __MT_PRIVATE__);
 
     return 0;
 }

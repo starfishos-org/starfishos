@@ -3,8 +3,6 @@
 #include "../ckpt_page.h"
 #include "../ckpt_ws.h"
 
-extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl);
-
 #ifdef PMO_CHECKSUM
 unsigned long mem_checksum(unsigned char *start, int size)
 {

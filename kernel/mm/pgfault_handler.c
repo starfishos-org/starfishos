@@ -108,6 +108,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
      * from adding the same mapping twice.
      */
     read_lock(&vmspace->vmspace_lock);
+    if (vmspace->flags & VM_FLAG_PRESERVE) {
+        kinfo("handle cfork trans fault for %p\n", fault_addr);
+    }
     vmr = find_vmr_for_va(vmspace, fault_addr);
     if (vmr == NULL) {
         kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n", fault_addr);
@@ -181,14 +184,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         }
 
         if (pa == 0) {
-            /* Not committed before. Then, allocate the physical
-             * page. */
+            /* Not committed before. Then, allocate the physical page. */
             void *new_va;
-#if 0
-                        if (pmo->type == PMO_CROSS_SHM)
-                                new_va = get_cxl_pages(0);
-                        else
-#endif
             new_va = get_pages(0, pmo->mm_type);
             BUG_ON(new_va == NULL);
             pa = virt_to_phys(new_va);

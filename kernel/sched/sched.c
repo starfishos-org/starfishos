@@ -215,6 +215,7 @@ void sched_to_thread(struct thread *target)
      */
 
     is_fpu_owner = target->thread_ctx->is_fpu_owner;
+    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
     if ((is_fpu_owner >= 0) && (is_fpu_owner != smp_get_cpu_id())) {
         /*
@@ -308,6 +309,7 @@ s32 get_cpubind(struct thread *thread)
     local_cpuid = smp_get_cpu_id();
     affinity = thread->thread_ctx->affinity;
     is_fpu_owner = thread->thread_ctx->is_fpu_owner;
+    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
 #ifdef DSM_ENABLED
     if (!is_local_cpu(affinity))

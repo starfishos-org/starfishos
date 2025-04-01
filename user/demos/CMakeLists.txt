@@ -380,12 +380,11 @@ endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 
-add_custom_target(
-  coremark
-  WORKING_DIRECTORY ${build_demos_dir}/coremark
-  COMMAND make clean
-  COMMAND make PORT_DIR=simple link CC=${CMAKE_C_COMPILER}
-  COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/coremark.bin
-)
+# add_custom_target(
+#   coremark
+#   WORKING_DIRECTORY ${build_demos_dir}/coremark
+#   COMMAND make PORT_DIR=simple link
+#   COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/
+# )
 
-add_dependencies(ramdisk coremark)
+# add_dependencies(ramdisk coremark)

@@ -75,21 +75,12 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
 
     fault_addr = get_fault_addr();
 
-    // TODO(FN): handle this case in handle_trans_fault
-#if 0
-	if (errorcode & FLAG_P) {
-		kinfo("[pgfault handler] permission error.\n");
-		if (errorcode & FLAG_RW)
-			kinfo("Cannot write at %p.\n", fault_addr);
-		else
-			kinfo("Cannot read at %p.\n", fault_addr);
-		ret = -1;
-	} else {
-#endif
-    if (current_thread == NULL) {
-        kinfo("Fault_addr %p fault_ins_addr %p\n", fault_addr, fault_ins_addr);
+    if (current_thread == NULL || fault_addr == 0) {
+        kinfo("%s: fault addr %p fault ip %p\n", 
+            __func__, fault_addr, fault_ins_addr);
         BUG_ON(1);
     }
+
     ret = handle_trans_fault(current_thread->vmspace,
                              fault_addr,
                              errorcode & FLAG_P,
@@ -98,9 +89,7 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
            __func__,
            current_thread->vmspace,
            fault_addr);
-#if 0
-	}
-#endif
+
     if (ret != 0) {
         if (errorcode & FLAG_ID)
             kinfo("Fault caused by instruction fetch\n");

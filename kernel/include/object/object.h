@@ -62,13 +62,15 @@ enum object_type {
     TYPE_IRQ,
     TYPE_PMO,
     TYPE_VMSPACE,
-    TYPE_NR,
 #ifdef CHCORE_KERNEL_VIRT
     TYPE_VM,
     TYPE_VCPU,
     TYPE_IPA_REGION,
 #endif /* CHCORE_KERNEL_VIRT */
+    TYPE_NR,
 };
+
+extern const char* obj_name_tbl[TYPE_NR];
 
 struct cap_group;
 
@@ -77,6 +79,9 @@ extern const obj_deinit_func obj_deinit_tbl[TYPE_NR];
 
 #define is_private_object(obj) ((obj)->mem_type == __MT_PRIVATE__)
 #define is_shared_object(obj) ((obj)->mem_type == __MT_SHARED__)
+
+#define obj2object(obj) (container_of(obj, struct object, opaque))
+#define object2obj(object) (object->opaque)
 
 void *obj_get(struct cap_group *cap_group, int slot_id, int type);
 void obj_put(void *obj);

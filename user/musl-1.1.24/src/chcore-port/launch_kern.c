@@ -89,6 +89,8 @@ int run_cmd_from_kernel_cpio(const char *filename, int *new_thread_cap,
 	lp_args.badge = badge;
 	/* Note: kservice has no PID */
 	lp_args.pid = 0;
+	lp_args.type = 6;
+
 	/* Determine which pcid will be assigned to current launching process */
 	if (!strcmp(filename, fsm_srv))
 		lp_args.pcid = FSM_PCID;

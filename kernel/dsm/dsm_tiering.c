@@ -1,4 +1,5 @@
 #include <object/object.h>
+#include <object/cap_group.h>
 #include <common/types.h>
 #include <dsm/tiering.h>
 
@@ -20,18 +21,18 @@ static int __dsm_tiering_start_migration(struct object *obj)
     int ret = 0;
 
     /* already migrating or not in use */
-    if (obj->status != DSM_STATUS_INUSE) {
+    if (unlikely(obj->status != DSM_STATUS_INUSE)) {
         ret = -EINVAL;
         goto out_ret;
     }
 
-    if (!try_lock(&obj->tiering_lock)) {
+    if (try_lock(&obj->tiering_lock) != 0) {
         ret = -EAGAIN;
-        goto out_unlock;
+        goto out_ret;
     }
 
     /* check again to avoid race */
-    if (obj->status != DSM_STATUS_INUSE) {
+    if (unlikely(obj->status != DSM_STATUS_INUSE)) {
         ret = -EINVAL;
         goto out_unlock;
     }
@@ -50,6 +51,10 @@ static inline int __dsm_tiering_finish_migration(struct object *obj)
     if (!target || obj->status != DSM_STATUS_MIGRATING 
         || target->status != DSM_STATUS_INVALID) {
         return -EINVAL;
+    }
+    if (obj->dirty_bit) {
+        /* TODO: flush dirty pages */
+        return -EAGAIN;
     }
     /* nobody should be using the obj or target here */
     obj->status = DSM_STATUS_MIGRATED;
@@ -71,42 +76,56 @@ int dsm_demote_object(struct object *obj)
 
     /* Check object is real private */
     if (!is_private_object(obj)) {
-        return -EINVAL;
+        DSM_TIER_LOG_DEBUG("obj is shared object\n");
+        return 0;
     }
 
-    ret = __dsm_tiering_start_migration(obj);
-    if (ret == -EINVAL && obj->status == DSM_STATUS_MIGRATED) {
+    if (obj->status == DSM_STATUS_MIGRATED) {
         /* already migrated; demote is done by other thread */
+        BUG_ON(!obj->pair_obj || obj->pair_obj->status != DSM_STATUS_INUSE);
+        DSM_TIER_LOG_DEBUG("%s: obj (type %s) is already migrated\n", 
+            __func__, obj_name_tbl[obj->type]);
         return 0;
-    } else if (ret) {
+    }
+
+    if ((ret = __dsm_tiering_start_migration(obj)) != 0) {
+        DSM_TIER_LOG_ERR("%s: failed to start migration\n", __func__);
         return ret;
     } // else ret == 0; start migration
 
     /* Malloc shared object */
-    target = obj->pair_obj;
-    if (!target) {
-        target = kmalloc(sizeof(struct object), __MT_SHARED__);
-        if (!target) {
-            return -ENOMEM;
-        }
-        obj->pair_obj = target;
-    } else {
-        /* already allocated target, should make sure it is invalid */
-        if (target->status != DSM_STATUS_INVALID) {
-            return -EAGAIN;
+    if (!obj->pair_obj) {
+        if ((ret = dsm_alloc_pair_object(obj, __MT_SHARED__)) != 0) {
+            DSM_TIER_LOG_ERR("%s: failed to alloc pair object\n", __func__);
+            return ret;
         }
     }
+
+    target = obj->pair_obj;
+    BUG_ON(!target);
+
+    DSM_TIER_LOG_DEBUG("demote object %p, target %p, type %s\n", 
+        obj, target, obj_name_tbl[obj->type]);
+
+
+copy_again:
+    /* clear dirty bit first */
+    obj->dirty_bit = 0;
 
     /* copy data from obj to target */
     dsm_copy_func func = dsm_copy_tbl[obj->type];
     if (!func) {
+        DSM_TIER_LOG_ERR("dsm tiering copy function not found\n");
         return -EINVAL;
     }
     func(obj, target);
 
     /* Enable shared object */
     ret = __dsm_tiering_finish_migration(obj);
-    if (ret) {
+    if (ret == -EAGAIN) {
+        /* clear dirty bit and try to copy the object again */
+        goto copy_again;
+    } else if (ret) {
         return ret;
     }
 
@@ -123,6 +142,158 @@ int dsm_demote_object(struct object *obj)
 
 int dsm_promote_object(struct object *obj)
 {
-    kwarn("dsm_promote_object: not implemented\n");
-    return -ENOSYS;
+    struct object *target;
+    int ret = 0;
+
+    /* Check object is real private */
+    if (!is_shared_object(obj)) {
+        DSM_TIER_LOG_DEBUG("obj is not a shared object\n");
+        return 0;
+    }
+
+    if (obj->status == DSM_STATUS_MIGRATED) {
+        /* already migrated; demote is done by other thread */
+        if (obj->pair_obj && is_private_object(obj->pair_obj) && 
+            obj->pair_obj->status == DSM_STATUS_INUSE) {
+            DSM_TIER_LOG_DEBUG("%s: obj (type %s) is already migrated\n", 
+                __func__, obj_name_tbl[obj->type]);
+            return 0;
+        }
+    }
+
+    if ((ret = __dsm_tiering_start_migration(obj)) != 0) {
+        DSM_TIER_LOG_ERR("%s: failed to start migration\n", __func__);
+        return ret;
+    } // else ret == 0; start migration
+
+    /* Malloc shared object */
+    if (!obj->pair_obj) {
+        if ((ret = dsm_alloc_pair_object(obj, __MT_SHARED__)) != 0) {
+            DSM_TIER_LOG_ERR("%s: failed to alloc pair object\n", __func__);
+            return ret;
+        }
+    } else {
+        DSM_TIER_LOG_WARN("%s: should free it!! but this object is not allocated on this machine\n", __func__);
+        // TODO: should free it! but this object is not allocated on this machine
+    }
+
+    target = obj->pair_obj;
+    BUG_ON(!target);
+
+    DSM_TIER_LOG_DEBUG("promote object %p, target %p, type %s\n", 
+        obj, target, obj_name_tbl[obj->type]);
+
+copy_again:
+    /* clear dirty bit first */
+    obj->dirty_bit = 0;
+
+    /* copy data from obj to target */
+    dsm_copy_func func = dsm_copy_tbl[obj->type];
+    if (!func) {
+        DSM_TIER_LOG_ERR("dsm tiering copy function not found\n");
+        return -EINVAL;
+    }
+    func(obj, target);
+
+    /* Enable shared object */
+    ret = __dsm_tiering_finish_migration(obj);
+    if (ret == -EAGAIN) {
+        /* clear dirty bit and try to copy the object again */
+        goto copy_again;
+    } else if (ret) {
+        return ret;
+    }
+
+    return 0;
+}
+
+static inline int __demote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+{
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    int ret = 0;
+    for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+
+        if (!(type_mask & (1L << (object->type)))) {
+            continue;
+        }
+
+        // kinfo("try to demote object %p type: %d\n", object, object->type);
+        ret = dsm_demote_object(object);
+        if (ret) {
+            DSM_TIER_LOG_DEBUG("Failed to demote object %p\n", object);
+            return ret;
+        }
+    }
+    return 0;
+}
+
+static inline int __promote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+{
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    int ret = 0;
+    for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+
+        if (!(type_mask & (1L << (object->type)))) {
+            continue;
+        }
+
+        kinfo("try to promote object %p type: %d\n", object, object->type);
+        ret = dsm_promote_object(object);
+        if (ret) {
+            DSM_TIER_LOG_DEBUG("Failed to promote object %p\n", object);
+            return ret;
+        }
+    }
+    return 0;
+}
+
+int demote_process(struct object *root_cg_obj)  
+{
+    int flags = 0;
+    int ret = 0;
+    
+    /* mask out cap group and thread */
+    flags = ~((1L << TYPE_CAP_GROUP) | (1L << TYPE_THREAD));
+
+    /* demote all objects except cap group and thread */
+    ret = __demote_each_object_in_cap_group(
+        (struct cap_group *)object2obj(root_cg_obj), flags);
+    if (ret) {
+        DSM_TIER_LOG_ERR("%s: failed to demote objects in cap group %p\n", __func__, root_cg_obj);
+        return ret;
+    }
+
+    return 0;
+}
+
+int demote_stopped_process(struct object *root_cg_obj)
+{
+    int ret = 0;
+    // struct cap_group *cap_group = (struct cap_group *)object2obj(root_cg_obj);
+
+    /* demote the cap group and objects that are not checkpointed */
+    // ret = __demote_each_object_in_cap_group(cap_group, 1L << TYPE_THREAD);
+    // if (ret) {
+    //     DSM_TIER_LOG_ERR("%s: failed to demote thread\n", __func__);
+    //     return ret;
+    // }
+
+    /* demote the cap group finially */
+    ret = dsm_demote_object(root_cg_obj);
+    if (ret) {
+        DSM_TIER_LOG_ERR("%s: failed to demote cap group\n", __func__);
+        return ret;
+    }
+
+    return 0;
 }

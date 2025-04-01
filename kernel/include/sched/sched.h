@@ -74,7 +74,7 @@ enum thread_type {
     TYPE_REGISTER = 4,
     TYPE_TESTS = 5, /* TESTS thread is used by kernel tests */
 #ifdef DSM_ENABLED
-    TYPE_CROSS_SHARED = 6, /* Cross-shared thread is shared between machines */
+    TYPE_SERVICES = 6, /* Cross-shared thread is shared between machines */
 #endif
 };
 

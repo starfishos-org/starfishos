@@ -52,6 +52,7 @@ int dsm_copy_notification(struct object *src_obj, struct object *dst_obj)
             thread_obj = container_of(thread, struct object, opaque);;
             /* a shared notification can not notify a private thread */
             if (is_demote && is_private_object(thread_obj)) {
+                // TODO: deadlock is possible here
                 dsm_demote_object(thread_obj);
             }
         }

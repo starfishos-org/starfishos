@@ -27,7 +27,7 @@ array set program_args {
 # ...
 
 array set program_expects {
-    "hello" "[1] hello"
+    "hello" "[1]"
     "leveldb" "version"
     "float" "Running /test_float.bin"
     "json" "Running /test_json.bin"

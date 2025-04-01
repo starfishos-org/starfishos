@@ -8,6 +8,7 @@
 #include <irq/ipi.h>
 
 #include <arch/mm/page_table.h>
+#include <arch/mm/tlb.h>
 
 /* Operations that invalidate TLBs and Paging-Structure Caches */
 
