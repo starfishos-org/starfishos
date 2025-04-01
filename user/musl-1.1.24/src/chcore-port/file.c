@@ -1223,6 +1223,32 @@ u64 chcore_file_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, off_
 #endif
 }
 
+#ifdef IPC_PERF_ENABLED
+int chcore_ipc_perf(int fd)
+{
+	ipc_msg_t *ipc_msg;
+	ipc_struct_t *_fs_ipc_struct;
+	struct fd_record_extension *fd_ext;
+	struct fs_request *fr_ptr;
+	int ret = 0;
+
+	if (fd_not_exists(fd))
+		return -EBADF;
+
+	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+
+	BUG_ON(fd_ext->mount_id < 0);
+	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE); // san check
+	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
+	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
+	fr_ptr->req = FS_REQ_IPC_PERF;
+	ret = ipc_call(_fs_ipc_struct, ipc_msg);
+	ipc_destroy_msg(ipc_msg);
+	return ret;	
+}
+#endif
+
 /* FILE */
 struct fd_ops file_ops = {
 	.read = chcore_file_read,

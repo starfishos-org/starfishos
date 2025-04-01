@@ -154,10 +154,11 @@ if(CHCORE_DEMOS_LEVELDB)
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . --parallel
+            && cmake --build . -j$(_nproc)
     COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
   add_dependencies(ramdisk leveldb)
+  add_dependencies(leveldb libstdc++)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
@@ -203,7 +204,6 @@ if(CHCORE_DEMOS_ROCKSDB)
     COMMAND cmake --build . -- -j$(_nproc)
     COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
     COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
-    COMMAND ls ${build_ramdisk_dir}
     DEPENDS)
   add_dependencies(rocksdb gflags)
   add_dependencies(ramdisk rocksdb)

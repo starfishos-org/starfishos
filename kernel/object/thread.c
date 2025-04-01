@@ -72,6 +72,8 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
 
     thread->sleep_state.cb = NULL;
 
+    thread->machine_id = MACHINE_ID;
+
 #ifdef TRACK_TIME
     thread->tracking = 0;
     thread->track_time_kernel = 0;

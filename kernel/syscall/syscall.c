@@ -269,6 +269,61 @@ void sys_shutdown(int flag)
     handle_shutdown(flag);
 }
 
+u32 sys_get_machine_id(void)
+{
+    return machine_id;
+}
+
+#ifdef IPC_PERF_ENABLED
+
+#define IPC_PERF_TIME_SIZE 10240
+extern volatile bool ipc_perf_enabled;
+extern volatile u64 ipc_perf_count_p2;
+extern volatile u64 ipc_perf_count_p3;
+extern volatile u64 ipc_perf_count_p7;
+extern volatile u64 ipc_perf_count_p8;
+extern u64 ipc_perf_time_p2[IPC_PERF_TIME_SIZE];
+extern u64 ipc_perf_time_p3[IPC_PERF_TIME_SIZE];
+extern u64 ipc_perf_time_p7[IPC_PERF_TIME_SIZE];
+extern u64 ipc_perf_time_p8[IPC_PERF_TIME_SIZE];
+
+void sys_ipc_perf_start(void)
+{
+    printk("\033[31mipc_perf_start\033[0m\n");
+    ipc_perf_enabled = true;
+    ipc_perf_count_p2 = 0;
+    ipc_perf_count_p3 = 0;
+    for (int i = 0; i < IPC_PERF_TIME_SIZE; i++) {
+        ipc_perf_time_p2[i] = 0;
+        ipc_perf_time_p3[i] = 0;
+        ipc_perf_time_p7[i] = 0;
+        ipc_perf_time_p8[i] = 0;
+    }
+}
+
+void sys_ipc_perf_end(void)
+{
+    printk("\033[31mipc_perf_end\033[0m\n");
+    ipc_perf_enabled = false;
+    printk("printing p2 count: %lu\n", ipc_perf_count_p2);
+    for (int i = 0; i < ipc_perf_count_p2; i++) {
+        printk("%lu ", ipc_perf_time_p2[i]);
+    }
+    printk("\n");
+    printk("printing p3 count: %lu\n", ipc_perf_count_p3);
+    for (int i = 0; i < ipc_perf_count_p3; i++) {
+        printk("%lu ", ipc_perf_time_p3[i]);
+    }
+    printk("\n");
+    printk("printing p7 count: %lu\n", ipc_perf_count_p7);
+    for (int i = 0; i < ipc_perf_count_p7; i++) {
+        printk("%lu ", ipc_perf_time_p7[i]);
+    }
+    printk("\n");
+}
+
+#endif
+
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 void sys_ipi_stop_all();
 void sys_ipi_start_all();
@@ -415,4 +470,11 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_futex] = sys_futex,
         [SYS_set_tid_address] = sys_set_tid_address,
 
+        [SYS_get_machine_id] = sys_get_machine_id,
+        [SYS_register_fs_client] = sys_register_fs_client,
+        [SYS_register_fs_server] = sys_register_fs_server,
+#ifdef IPC_PERF_ENABLED
+        [SYS_ipc_perf_start] = sys_ipc_perf_start,
+        [SYS_ipc_perf_end] = sys_ipc_perf_end,
+#endif
 };

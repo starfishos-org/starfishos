@@ -21,6 +21,9 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #endif
+#ifdef IPC_PERF_ENABLED
+#include <arch/machine/pmu.h>
+#endif
 
 struct thread *current_threads[PLAT_CPU_NUM];
 struct thread idle_threads[PLAT_CPU_NUM];
@@ -206,6 +209,8 @@ void sched_to_thread(struct thread *target)
      * IPC returns (a very small time window),
      * so we need to wait until its stack is free.
      */
+
+    // 50 cycles
     wait_for_kernel_stack(target);
 
     /*
@@ -291,6 +296,7 @@ u64 switch_context(void)
     }
 #endif /* CHCORE_KERNEL_TEST */
 
+    // 74 cycles
     arch_switch_context(target_thread);
 
     return (u64)target_ctx;

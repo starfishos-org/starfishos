@@ -44,6 +44,21 @@
 #include <sched/context.h>
 #include <irq/irq.h>
 #include <ckpt/ckpt.h>
+#include <dsm/dsm-single.h>
+
+#ifdef IPC_PERF_ENABLED
+#include <arch/machine/pmu.h>
+#define IPC_PERF_TIME_SIZE 10240
+volatile bool ipc_perf_enabled;
+volatile u64 ipc_perf_count_p2;
+volatile u64 ipc_perf_count_p3;
+volatile u64 ipc_perf_count_p7;
+volatile u64 ipc_perf_count_p8;
+u64 ipc_perf_time_p2[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p3[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p7[IPC_PERF_TIME_SIZE];
+u64 ipc_perf_time_p8[IPC_PERF_TIME_SIZE];
+#endif
 
 /*
  * An extern declaration.
@@ -368,6 +383,20 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 #endif
 
     /* Switch to the target thread */
+    // TODO(yjs): check whether the target is tmpfs thread
+    // if (strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
+    //     extern void flush_tlb_all(void);
+    //     flush_tlb_all();
+    // }
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p3;
+            extern u64 ipc_perf_time_p3[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p3[ipc_perf_count_p3++] = rdtsc();
+        }
+    #endif
     sched_to_thread(target);
 
     /* Function never return */
@@ -382,6 +411,15 @@ static void thread_migrate_to_client(struct thread *client, u64 ret_value)
     arch_set_thread_return(client, ret_value);
 
     /* Switch to the client thread */
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p7;
+            extern u64 ipc_perf_time_p7[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p7[ipc_perf_count_p7++] = rdtsc();
+        }
+    #endif
     sched_to_thread(client);
 
     /* Function never return */
@@ -403,11 +441,8 @@ int sys_register_server(unsigned long ipc_routine,
         current_thread, ipc_routine, register_thread_cap, destructor);
 }
 
-cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
+static cap_t sys_register_client_helper(struct thread *client, struct thread *server, u64 shm_config_ptr, bool trans_machine) 
 {
-    struct thread *client;
-    struct thread *server;
-
     /*
      * No need to initialize actually.
      * However, fbinfer will complain without zeroing because
@@ -421,9 +456,6 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
     struct thread *register_cb_thread;
     struct ipc_server_register_cb_config *register_cb_config;
 
-    client = current_thread;
-
-    server = obj_get(current_cap_group, server_cap, TYPE_THREAD);
     if (!server) {
         r = -ECAPBILITY;
         goto out_fail;
@@ -477,6 +509,8 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
         goto out_fail_unlock;
     }
 
+    res.conn->trans_machine = trans_machine;
+
     /* Record the connection cap of the client process */
     register_cb_config->conn_cap_in_client = res.client_conn_cap;
     register_cb_config->conn_cap_in_server = res.server_conn_cap;
@@ -493,7 +527,8 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
                             register_cb_config->register_cb_entry);
     arch_set_thread_arg0(register_cb_thread,
                          server_config->declared_ipc_routine_entry);
-    obj_put(server);
+    if (!trans_machine)
+        obj_put(server);
 
     /* Pass the scheduling context */
     register_cb_thread->thread_ctx->sc = current_thread->thread_ctx->sc;
@@ -508,9 +543,44 @@ cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
 out_fail_unlock:
     unlock(&register_cb_config->register_lock);
 out_fail: /* Maybe EAGAIN */
-    if (server)
+    kdebug("%s failed\n", __func__);
+
+    if (server && !trans_machine)
         obj_put(server);
     return r;
+}
+
+cap_t sys_register_client(cap_t server_cap, u64 shm_config_ptr)
+{
+    struct thread *client;
+    struct thread *server;
+
+    client = current_thread;
+
+    server = obj_get(current_cap_group, server_cap, TYPE_THREAD);
+
+    return sys_register_client_helper(client, server ,shm_config_ptr, false);
+}
+
+u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
+{
+    struct thread *client;
+    struct thread *server;
+
+    client = current_thread;
+
+    server = dsm_meta->tmpfs_thread[target_machine_id];
+
+    return sys_register_client_helper(client, server, shm_config_ptr, true);
+}
+
+u32 sys_register_fs_server(u32 fs_cap)
+{
+    struct thread *tmpfs_thread = obj_get(current_cap_group, fs_cap, TYPE_THREAD);
+    dsm_meta->tmpfs_thread[MACHINE_ID] = tmpfs_thread;
+    tmpfs_thread->machine_id = MACHINE_ID;
+    obj_put(tmpfs_thread);
+    return 0;
 }
 
 // TODO (tmac): why 8?
@@ -617,6 +687,16 @@ static void ipc_send_cap_to_client(struct ipc_connection *conn, u64 cap_num)
 /* Issue an IPC request */
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg_in_client, u64 cap_num)
 {
+    // TODO: 
+    #ifdef IPC_PERF_ENABLED
+        extern volatile bool ipc_perf_enabled;
+        if (ipc_perf_enabled) {        
+            extern volatile u64 ipc_perf_count_p2;
+            extern u64 ipc_perf_time_p2[10240];
+            extern u64 rdtsc(void);
+            ipc_perf_time_p2[ipc_perf_count_p2++] = rdtsc();
+        }
+    #endif
     struct ipc_connection *conn;
     u64 ipc_msg_in_server;
     int r = 0;

@@ -143,6 +143,9 @@ struct ipc_connection {
     int conn_cap_in_client;
     int conn_cap_in_server;
     int state;
+    int is_valid;
+    
+    bool trans_machine;
 };
 
 /*
@@ -161,6 +164,8 @@ int sys_register_server(unsigned long ipc_rountine,
                         cap_t register_cb_cap,
                         unsigned long destructor);
 cap_t sys_register_client(cap_t server_cap, u64 vm_config_ptr);
+u32 sys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
+u32 sys_register_fs_server(u32 fs_cap);
 int sys_ipc_register_cb_return(u64, u64, u64);
 
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg, u64 cap_num);

@@ -81,6 +81,9 @@ struct thread {
     struct sleep_state sleep_state;
 
     int *clear_child_tid;
+
+    /* Machine ID of the thread */
+    u32 machine_id;
 };
 
 void create_root_thread(void);

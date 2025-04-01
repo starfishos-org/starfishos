@@ -107,6 +107,8 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
               fault_ins_addr,
               fault_addr,
               errorcode);
+        kinfo("thread 0x%lx, current_thread->machine_id: %d\n", current_thread, current_thread->machine_id);
+        print_thread(current_thread);
 
         query_in_pgtbl(
                 current_thread->vmspace->pgtbl, fault_addr, &pte_pa, &pte);

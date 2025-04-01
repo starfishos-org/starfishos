@@ -156,6 +156,8 @@ typedef struct {
     /* A KVS to accelerate the lookup of ckpt cap_group */
     struct kvs *ckpt_cg_kvs;
 #endif
+    // TODO(yjs): struct
+    struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;

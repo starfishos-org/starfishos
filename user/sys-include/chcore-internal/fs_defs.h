@@ -65,7 +65,11 @@ enum fs_req_type {
 	
 	FS_CHILD_FINISH_FORK,
 	
-	FS_REQ_MAX
+#ifdef IPC_PERF_ENABLED
+	FS_REQ_IPC_PERF,
+#endif
+
+	FS_REQ_MAX,
 
 };
 
@@ -232,9 +236,13 @@ struct fsm_request {
 	/* Response */
 	int mount_id;
 	int new_cap_flag;
+	int target_machine_id;
 	
 	unsigned long parentBagde; // for finish_fork
 };
+
+#define MAX_MOUNT_ID 32
+#define MAX_REMOTE_MACHINE_NUM 16
 
 
 #ifdef __cplusplus

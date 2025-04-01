@@ -1,0 +1,14 @@
+#!/usr/bin/expect  
+
+set timeout 30
+
+set data_index [lindex $argv 0]
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "rocksdb-simple_example &\r"
+
+interact

@@ -13,3 +13,10 @@ static inline u64 pmu_read_real_cycle(void)
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
     return (((u64)hi) << 32) | lo;
 }
+
+static inline u64 rdtsc(void)
+{
+    u32 lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return (((u64)hi) << 32) | lo;
+}

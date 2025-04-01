@@ -23,8 +23,7 @@ extern int cwd_len;
 
 /* ++++++++++++++++++++++++ Client IPC Pool +++++++++++++++++++++++++++++++ */
 
-#define MAX_MOUNT_ID 32
-extern int mounted_fs_cap[MAX_MOUNT_ID];
+extern int mounted_fs_cap[MAX_MOUNT_ID + MAX_REMOTE_MACHINE_NUM];
 extern pthread_key_t mounted_fs_key;
 
 ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id);

@@ -214,3 +214,15 @@
 /* FUTEX */
 #define CHCORE_SYS_futex 254
 #define CHCORE_SYS_set_tid_address 255
+
+/* Machine ID */
+#define CHCORE_SYS_get_machine_id       256
+
+/* File System */
+#define CHCORE_SYS_register_fs_client   257
+#define CHCORE_SYS_register_fs_server   258
+
+#ifdef IPC_PERF_ENABLED
+#define CHCORE_SYS_ipc_perf_start       259
+#define CHCORE_SYS_ipc_perf_end         260
+#endif

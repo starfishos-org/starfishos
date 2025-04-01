@@ -1046,3 +1046,24 @@ int fs_finish_fork(ipc_msg_t *ipc_msg, u64 child_badge, u64 parent_badge)
 out_fail:
 	return ret;
 }
+
+#ifdef IPC_PERF_ENABLED
+int fs_wrapper_ipc_perf(ipc_msg_t *ipc_msg, struct fs_request *fr)
+{
+	extern u64 fs_server_dispatch_begin_time[10240];
+	extern u64 fs_server_dispatch_end_time[10240];
+	extern u64 fs_server_dispatch_begin_count;
+	extern u64 fs_server_dispatch_end_count;
+	printf("printing p4 count: %ld\n", fs_server_dispatch_begin_count);
+	for (int i = 0; i < fs_server_dispatch_begin_count; i++) {
+		printf("%lu ", fs_server_dispatch_begin_time[i]);
+	}
+	printf("\n");
+	printf("printing p5 count: %ld\n", fs_server_dispatch_end_count);
+	for (int i = 0; i < fs_server_dispatch_end_count; i++) {
+		printf("%lu ", fs_server_dispatch_end_time[i]);
+	}
+	printf("\n");
+	return 0;
+}
+#endif

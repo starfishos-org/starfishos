@@ -441,30 +441,30 @@ class Benchmark {
     std::fprintf(stderr, "Date:       %s",
                  ctime(&now));  // ctime() adds newline
 
-    FILE* cpuinfo = std::fopen("/proc/cpuinfo", "r");
-    if (cpuinfo != nullptr) {
-      char line[1000];
-      int num_cpus = 0;
-      std::string cpu_type;
-      std::string cache_size;
-      while (fgets(line, sizeof(line), cpuinfo) != nullptr) {
-        const char* sep = strchr(line, ':');
-        if (sep == nullptr) {
-          continue;
-        }
-        Slice key = TrimSpace(Slice(line, sep - 1 - line));
-        Slice val = TrimSpace(Slice(sep + 1));
-        if (key == "model name") {
-          ++num_cpus;
-          cpu_type = val.ToString();
-        } else if (key == "cache size") {
-          cache_size = val.ToString();
-        }
-      }
-      std::fclose(cpuinfo);
-      std::fprintf(stderr, "CPU:        %d * %s\n", num_cpus, cpu_type.c_str());
-      std::fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
-    }
+    // FILE* cpuinfo = std::fopen("/proc/cpuinfo", "r");
+    // if (cpuinfo != nullptr) {
+    //   char line[1000];
+    //   int num_cpus = 0;
+    //   std::string cpu_type;
+    //   std::string cache_size;
+    //   while (fgets(line, sizeof(line), cpuinfo) != nullptr) {
+    //     const char* sep = strchr(line, ':');
+    //     if (sep == nullptr) {
+    //       continue;
+    //     }
+    //     Slice key = TrimSpace(Slice(line, sep - 1 - line));
+    //     Slice val = TrimSpace(Slice(sep + 1));
+    //     if (key == "model name") {
+    //       ++num_cpus;
+    //       cpu_type = val.ToString();
+    //     } else if (key == "cache size") {
+    //       cache_size = val.ToString();
+    //     }
+    //   }
+    //   std::fclose(cpuinfo);
+    //   std::fprintf(stderr, "CPU:        %d * %s\n", num_cpus, cpu_type.c_str());
+    //   std::fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
+    // }
 #endif
   }
 
@@ -1035,10 +1035,6 @@ int main(int argc, char** argv) {
   FLAGS_open_files = leveldb::Options().max_open_files;
   std::string default_db_path;
 
-  std::fprintf(stdout, "db bench called\n");
-
-  mkdir("tmp", 0777); // for chos
-
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
@@ -1090,7 +1086,7 @@ int main(int argc, char** argv) {
   }
 
   leveldb::g_env = leveldb::Env::Default();
-  std::fprintf(stdout, "after default\n");
+  std::fprintf(stdout, "env default\n");
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == nullptr) {
@@ -1099,7 +1095,11 @@ int main(int argc, char** argv) {
     FLAGS_db = default_db_path.c_str();
   }
 
+
+  mkdir(FLAGS_db, 0755); // for chos
+
   leveldb::Benchmark benchmark;
   benchmark.Run();
+  std::fprintf(stderr, "Benchmark finished\n");
   return 0;
 }

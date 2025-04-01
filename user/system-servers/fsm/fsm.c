@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <chcore-internal/procmgr_defs.h>
 #include <chcore/string.h>
+#include <chcore-internal/fs_defs.h>
 
 #include "fsm_client_cap.h"
 #include "mount_info.h"
@@ -66,6 +67,7 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 {
 	int fs_cap, ret;
 	struct mount_point_info_node *mp_node;
+	int machine_id;
 
 	ret = -1;
 	if (fs_num == MAX_FS_NUM) {
@@ -96,12 +98,22 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 		}
 
 		pthread_rwlock_wrlock(&mount_point_infos_rwlock);
-		mp_node = set_mount_point("/", 1, fs_cap);
+		machine_id = usys_get_machine_id();
+		mp_node = set_mount_point("/", 1, fs_cap, machine_id);
+
+		// Register remote fs and server
+		for (int i = 0; i < MAX_REMOTE_MACHINE_NUM; i++) {
+			char path[MAX_MOUNT_POINT_LEN + 1];
+			snprintf(path, sizeof(path), "/%d", i);
+			set_mount_point(path, strlen(path), -1, i);
+		}
+		usys_register_fs_server(fs_cap);
+
 		info("TMPFS is up, with cap = %d\n", fs_cap);
 	} else {
 		fs_cap = mount_storage_device(path);
 		pthread_rwlock_wrlock(&mount_point_infos_rwlock);
-		mp_node = set_mount_point(mount_point, strlen(mount_point), fs_cap);
+		mp_node = set_mount_point(mount_point, strlen(mount_point), fs_cap, -1);
 	}
 
 	/* Connect to the FS that we mount now. */
@@ -213,7 +225,11 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 			pthread_rwlock_rdlock(&mount_point_infos_rwlock);
 			mpinfo = get_mount_point(fsm_req->path, strlen(fsm_req->path));
 			pthread_mutex_lock(&fsm_client_cap_table_lock);
-			mount_id = fsm_get_client_cap(client_badge, mpinfo->fs_cap);
+			if (mpinfo->fs_cap == -1) {
+				mount_id = mpinfo->target_machine_id + MAX_MOUNT_ID;
+			} else {
+				mount_id = fsm_get_client_cap(client_badge, mpinfo->fs_cap);
+			}
 
 			if (mount_id == -1) {
 				/* Client not hold corresponding fs_cap */

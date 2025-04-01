@@ -11,6 +11,10 @@
 #include "fs_vnode.h"
 #include "fs_page_fault.h"
 
+#ifdef IPC_PERF_ENABLED
+#include <chcore/perf.h>
+#endif
+
 /* fs server private data */
 struct list_head server_entry_mapping;
 pthread_rwlock_t fs_wrapper_meta_rwlock;
@@ -208,8 +212,18 @@ void translate_fd_to_fid(u64 client_badge, struct fs_request *fr)
 	}
 }
 
+#define IPC_PERF_TIME_SIZE 10240
+u64 fs_server_dispatch_begin_time[IPC_PERF_TIME_SIZE];
+u64 fs_server_dispatch_end_time[IPC_PERF_TIME_SIZE];
+u64 fs_server_dispatch_begin_count = 0;
+u64 fs_server_dispatch_end_count = 0;
+
 void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 {
+	#ifdef IPC_PERF_ENABLED
+	fs_server_dispatch_begin_time[fs_server_dispatch_begin_count++] = rdtsc();
+	#endif
+
 	struct fs_request *fr;
 	long ret;
 	bool ret_with_cap = false;
@@ -340,6 +354,11 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 	case FS_CHILD_FINISH_FORK:
 		ret = fs_finish_fork(ipc_msg, fr->fork.childBadge, fr->fork.parentBagde);
 		break;
+#ifdef IPC_PERF_ENABLED
+	case FS_REQ_IPC_PERF:
+		ret = fs_wrapper_ipc_perf(ipc_msg, fr);
+		break;
+#endif
 	default:
 		printf("[Error] Strange FS Server request number %d\n", fr->req);
 		ret = -EINVAL;
@@ -348,6 +367,9 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 
 out:
 	pthread_rwlock_unlock(&fs_wrapper_meta_rwlock);
+	#ifdef IPC_PERF_ENABLED
+	fs_server_dispatch_end_time[fs_server_dispatch_end_count++] = rdtsc();
+	#endif
 	if (ret_with_cap)
 		ipc_return_with_cap(ipc_msg, ret);
 	else

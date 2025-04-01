@@ -163,6 +163,11 @@ if(CHCORE_SLS)
     target_compile_definitions(${kernel_target} PRIVATE OMIT_BENCHMARK)
   endif()
 endif()
+
+if(CHCORE_IPC_PERF_ENABLED)
+  target_compile_definitions(${kernel_target} PRIVATE IPC_PERF_ENABLED)
+endif()
+
 # correctness check
 # target_compile_definitions(${kernel_target} PRIVATE PMO_CHECKSUM)
 

@@ -50,3 +50,4 @@ test-on-linux
 user/demos/phoenix-2.0/data/linear_regression_datafiles/*
 user/demos/phoenix-2.0/data/matrix_datafiles/*
 user/demos/phoenix-2.0/data/word_count_datafiles/*
+third_party/
