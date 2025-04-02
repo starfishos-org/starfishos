@@ -2,7 +2,9 @@
 
 #include <common/types.h>
 #include <common/list.h>
+#ifdef CHCORE
 #include <mm/kmalloc.h>
+#endif
 
 struct htable {
     struct hlist_head *buckets;

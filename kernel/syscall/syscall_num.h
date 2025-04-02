@@ -1,6 +1,6 @@
 #pragma once
 
-#define NR_SYSCALL 512
+#define NR_SYSCALL 256
 
 /* Character */
 #define SYS_putc 0
@@ -130,7 +130,3 @@
 #define SYS_cfork_ckpt    252
 #define SYS_cfork_restore 253
 #endif
-
-/* FUTEX */
-#define SYS_futex 254
-#define SYS_set_tid_address 255
