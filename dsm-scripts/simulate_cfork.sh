@@ -6,6 +6,8 @@ session_name=$USER-qemu
 window_name="window0"
 window_start_index=0
 
+make clean-dsm
+
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
 tmux new -d -s $session_name -n $window_name
 

@@ -7,6 +7,8 @@ if [ "$1" == "build" ]; then
 	./chbuild build
 fi
 
+make clean-dsm
+
 session_name=$USER-qemu
 window_name="window0"
 window_start_index=0

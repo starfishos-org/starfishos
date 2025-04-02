@@ -1,0 +1,17 @@
+#!/usr/bin/expect  
+
+set timeout 120
+set thread_num [lindex $argv 0]
+
+if { $thread_num == "" } {
+    set thread_num 1
+}
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "pca.bin -c 2000 -r 2000 -t $thread_num -m 1 \n"
+expect "done"
+exit
