@@ -164,8 +164,15 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     struct object *dst_vmspace_object = 
         dsm_get_object_by_mem_type(src_vmspace_object, mem_type, false);
     if (!dst_vmspace_object) {
-        DSM_TIER_LOG_ERR("%s: vmspace is not demoted\n", __func__, src_obj);
-        return -EINVAL;
+        if (is_demote) {
+            DSM_TIER_LOG_ERR("%s: vmspace is not demoted\n", __func__);
+            return -EINVAL;
+        } else {
+            // for promote, we allow using the shared vmspace
+            dst_thread->vmspace = (struct vmspace *)object2obj(src_vmspace_object);
+            DSM_TIER_LOG_DEBUG("promote thread %p, use shared vmspace %p\n", 
+                dst_thread, dst_thread->vmspace);
+        }
     }
     dst_thread->vmspace = (struct vmspace *)object2obj(dst_vmspace_object);
 

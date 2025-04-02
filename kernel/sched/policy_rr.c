@@ -118,8 +118,10 @@ int rr_sched_migrate_to_remote(struct thread *thread)
     if (thread->thread_ctx->is_fpu_owner >= 0) {
         dsm_debug(
                 "%s: save and release fpu of thread (%p)\n", __func__, thread);
+#if FPU_SAVING_MODE == LAZY_FPU_MODE
         /* sys_set_aff -> sched -> save_and_release_fpu */
         save_and_release_fpu(thread);
+#endif
     }
 
     gcpuid = affinitiy;
@@ -366,16 +368,21 @@ struct thread *rr_sched_choose_thread(void)
             goto again;
         }
 
-        if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
+        switch (thread->thread_ctx->thread_exit_state) {
+        case TE_EXITING:
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
             thread->thread_ctx->thread_exit_state = TE_EXITED;
             goto again;
-        }
-
-        if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+        case TE_STOPPING:
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             goto again;
+        case TE_STOPPED:
+        case TE_MIGRATING:
+        case TE_EXITED:
+            goto again;
+        default:
+            break;
         }
 
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
@@ -439,16 +446,19 @@ int rr_sched(void)
             rr_sched_migrate_to_remote(old);
             break;
         case TE_STOPPING:
-            if (old->thread_ctx->is_fpu_owner >= 0) {
-                save_and_release_fpu(old);
-            }
             old->thread_ctx->thread_exit_state = TE_STOPPED;
-            break;
+            /* DO NOT break, and follow to next case */
         case TE_STOPPED:
+#if FPU_SAVING_MODE == LAZY_FPU_MODE
             if (old->thread_ctx->is_fpu_owner >= 0) {
                 save_and_release_fpu(old);
+                // With this bit set, after migrated will force a FPU restore
+                old->thread_ctx->is_fpu_state_modified = 1;
             }
-            break;
+#else
+            save_fpu_state(old);
+#endif
+            goto out;
 #endif
         default:
             BUG("Unexpected thread exit state: %d", old->thread_ctx->thread_exit_state);
@@ -481,6 +491,7 @@ int rr_sched(void)
         }
     }
 
+out:
     new = rr_sched_choose_thread();
     BUG_ON(!new);
     switch_to_thread(new);

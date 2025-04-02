@@ -15,6 +15,7 @@
 #include <object/irq.h>
 #include <object/user_fault.h>
 #include <sched/sched.h>
+#include <sched/fpu.h>
 #include <ipc/connection.h>
 #include <irq/timer.h>
 #include <irq/irq.h>
@@ -163,7 +164,6 @@ void handle_shutdown(int reset)
     init_fpu_owner_locks();
 
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
-    extern void disable_fpu_usage();
     disable_fpu_usage();
 #endif
 

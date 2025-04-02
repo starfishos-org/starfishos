@@ -143,6 +143,10 @@ int switch_to_thread(struct thread *target)
     restore_fpu_state(target);
 #else
     /* FPU_SAVING_MODE == LAZY_FPU_MODE */
+    if (target->thread_ctx->is_fpu_state_modified) {
+        restore_fpu_state(target);
+        target->thread_ctx->is_fpu_state_modified = 0;
+    }
     if (target->thread_ctx->type > TYPE_KERNEL)
         disable_fpu_usage();
 #endif
@@ -346,7 +350,9 @@ s32 get_cpubind(struct thread *thread)
         if (affinity == local_cpuid || affinity == NO_AFF) {
             return cpuid_l2g(local_cpuid);
         } else {
+#if FPU_SAVING_MODE == LAZY_FPU_MODE
             save_and_release_fpu(thread);
+#endif
             return affinity;
         }
     } else {

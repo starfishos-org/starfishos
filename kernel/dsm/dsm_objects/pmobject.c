@@ -3,6 +3,12 @@
 
 #include "../dsm_tiering.h"
 
+static void dsm_copy_page(vaddr_t dst, vaddr_t src)
+{
+    // __asm__ __volatile__("clflush %0" : : "m"(src));
+    pagecpy((void *)dst, (void *)src);
+}
+
 static int __dsm_copy_radix(struct radix_node *src,
                             struct radix_node *dst,
                             int node_level,
@@ -21,12 +27,12 @@ static int __dsm_copy_radix(struct radix_node *src,
                 continue;
             }
             if (dst->values[i]) {
-                pagecpy((void *)phys_to_virt(dst->values[i]),
-                        (void *)phys_to_virt(src->values[i]));
+                dsm_copy_page(phys_to_virt(dst->values[i]),
+                        phys_to_virt(src->values[i]));
             } else {
                 void *newpage = get_pages(0, page_mem_type);
                 BUG_ON(!newpage);
-                pagecpy(newpage, (void *)phys_to_virt(src->values[i]));
+                dsm_copy_page((vaddr_t)newpage, phys_to_virt(src->values[i]));
                 dst->values[i] = (void *)virt_to_phys(newpage);
             }
         }
@@ -108,8 +114,7 @@ int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj)
         for (int i = 0; i < DIV_ROUND_UP(src_pmo->size, PAGE_SIZE); i++) {
             u64 dst_pa = dst_pmo->start + i * PAGE_SIZE;
             u64 src_pa = src_pmo->start + i * PAGE_SIZE;
-            pagecpy((void *)phys_to_virt(dst_pa),
-                         (void *)phys_to_virt(src_pa));
+            dsm_copy_page(phys_to_virt(dst_pa), phys_to_virt(src_pa));
         }
     } else if (is_radix_pmo(src_pmo)) {
         /* init radix tree if not exists*/

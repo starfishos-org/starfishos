@@ -58,6 +58,8 @@ int sys_cfork_prepare(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+    CFORK_LOG_INFO("prepare %s done\n", pname);
+
 out:
     kfree(pname);
     return ret;
@@ -107,6 +109,8 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         CFORK_LOG_ERR("cfork_ckpt: add_ckpt_obj_root_by_name failed\n");
         goto out;
     }
+
+    CFORK_LOG_INFO("checkpoint %s done\n", pname);
 
 out:
     kfree(pname);
@@ -166,6 +170,8 @@ retry:
         ret = -ENOENT;
         goto out;
     }
+
+    CFORK_LOG_INFO("restore %s done\n", pname);
 
 out:
     kfree(pname);
