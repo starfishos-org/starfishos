@@ -1,9 +1,7 @@
 #ifndef __DSM_MMCONFIG_H__
 #define __DSM_MMCONFIG_H__
 
-#ifndef mem_t
-typedef int mem_t;
-#endif
+#include <uapi/types.h>
 
 enum mem_type {
     __MT_INVALID__ = 0,

@@ -20,7 +20,7 @@ int dsm_copy_connection(struct object *src_obj, struct object *dst_obj)
     dst_conn->current_client_thread = NULL;
     dst_conn->server_handler_thread = NULL;
 
-    kinfo("copy connection finished%p\n", dst_conn);
+    // kinfo("copy connection finished%p\n", dst_conn);
 
     return 0;
 }

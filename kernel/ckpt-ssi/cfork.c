@@ -90,8 +90,8 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
     // checkpoint the remaining part to the shared memory
     // ret = cfork_ckpt_process(ckpt_obj_root);
-    ret = demote_process(ckpt_obj_root->obj_src);
-    ret = demote_stopped_process(ckpt_obj_root->obj_src);
+    ret = dsm_migrate_process_prepare(ckpt_obj_root->obj_src);
+    ret = dsm_migrate_process_ckpt(ckpt_obj_root->obj_src);
     if (ret) {
         CFORK_LOG_ERR("cfork_ckpt: cfork_ckpt_process failed\n");
         ret = -ENOENT;
@@ -136,7 +136,7 @@ int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
     //     ret = -ENOENT;
     //     goto out;
     // }
-    restored_cg = (struct cap_group *)(ckpt_obj_root->obj_dst->opaque);
+    restored_cg = (struct cap_group *)object2obj(ckpt_obj_root->obj_dst);
     CFORK_LOG_DEBUG("cfork_restore: restored_cg: %p\n", restored_cg);
 
     // add the restored sub cap group to the cap tree

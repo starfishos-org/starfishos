@@ -36,8 +36,23 @@ struct object {
 #define DSM_STATUS_INUSE       (1) // the object is in use
 #define DSM_STATUS_MIGRATING   (2) // the object is being migrated
 #define DSM_STATUS_MIGRATED    (3) // the object is migrated
-    u16 status;
-    u16 dirty_bit;  // the object is dirty during migration
+    u8 status;
+
+    /*
+     * Three cases for object tiering
+     * 1. DSM_TYPE_NORMAL: normal object that can be used
+     * 2. DSM_TYPE_BRIDGE: a shared object for two machines to connect; should *    never be used, and old private obj will be deleted
+     *    e.g., thread: private -> bridge -> private
+     * 3. DSM_TYPE_CROSS_SHARED: a cross-shared object that can be used
+     *    e.g., ipc, notification shared by many threads
+     *    e.g., root_cap_group: private old machine's root_cap_group -> bridge  *          -> private new machine's root_cap_group
+     */
+#define DSM_TYPE_NORMAL         (0) 
+#define DSM_TYPE_BRIDGE         (1)
+#define DSM_TYPE_CROSS_SHARED   (2)
+    u8 dsm_type;
+    
+    u8 dirty_bit;  // the object is dirty during migration
     /*
      * For tiering, link the object to another object.
      */

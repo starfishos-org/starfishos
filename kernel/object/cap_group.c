@@ -189,7 +189,7 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
 #ifndef DSM_ENABLED
     object = slot->object;
 #else
-    object = dsm_get_object(slot->object, true);
+    object = dsm_get_inuse_object(slot->object, true);
 #endif
     BUG_ON(object == NULL);
 

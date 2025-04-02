@@ -142,8 +142,20 @@ typedef struct {
      */
     struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
 
+    struct {
+        struct cap_group *root_cap_group;
+        struct thread *procmgr_thread;
+        struct thread *fsm_thread;
+        struct thread *lwip_thread;
+    } local_service_table[CLUSTER_MAX_MACHINE_NUM];
+
     /**
-     * 6. checkpoint data
+     * 6. for fsm
+     */
+    struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
+
+    /**
+     * 7. checkpoint data
      */
 #if defined CHCORE_SSI_SLS
     /* crash_last_time = 1 means unexpected */
@@ -157,8 +169,6 @@ typedef struct {
     /* A KVS to accelerate the lookup of ckpt cap_group */
     struct kvs *ckpt_cg_kvs;
 #endif
-    // TODO(yjs): struct
-    struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -200,12 +210,12 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
 }
 
 #define IS_SHM_PADDR(paddr) ( \
-    paddr >= dsm_meta->shm_paddr \
-    && paddr < dsm_meta->shm_paddr + dsm_meta->shm_size)
+    (u64)paddr >= (u64)dsm_meta->shm_paddr \
+    && (u64)paddr < (u64)dsm_meta->shm_paddr + (u64)dsm_meta->shm_size)
 #define IS_LOCAL_PADDR(paddr, machineid) ( \
-    paddr >= dsm_meta->local_meta[machineid].local_paddr \
-    && paddr < dsm_meta->local_meta[machineid].local_paddr + \
-    dsm_meta->local_meta[machineid].local_mem_size)
+    (u64)paddr >= (u64)dsm_meta->local_meta[machineid].local_paddr \
+    && (u64)paddr < (u64)dsm_meta->local_meta[machineid].local_paddr + \
+    (u64)dsm_meta->local_meta[machineid].local_mem_size)
 #define IS_INVALID_PADDR(paddr) ( \
     !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, CUR_MACHINE_ID)))
 

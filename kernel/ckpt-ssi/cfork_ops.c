@@ -90,6 +90,8 @@ int start_all_threads(struct list_head *thread_list)
         }
     }
 
+    CFORK_LOG_DEBUG("all threads have been started\n");
+
     return 0;
 }
 
@@ -206,7 +208,7 @@ cfork_prepare_ckpt_process(struct object *root_cg_obj)
     root_cg_obj_root->cfork_ckpt_obj = ckpt_obj_alloc(TYPE_CAP_GROUP);
 
     /* demote everything except cap group */
-    // demote_process(root_cg_obj)
+    // dsm_migrate_process_prepare(root_cg_obj)
 
     return root_cg_obj_root;
 }

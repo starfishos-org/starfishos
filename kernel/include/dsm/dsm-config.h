@@ -1,5 +1,6 @@
 #include <common/util.h>
 #include <object/cap_group.h>
+#include <object/thread.h>
 
 inline static bool is_system_services(struct cap_group *cg)
 {
@@ -12,40 +13,55 @@ inline static bool is_system_services(struct cap_group *cg)
         return true;
     }
 
-    kinfo("is_cross_shared_obj: cap group %s\n", cg->cap_group_name);
-
     return false;
 }
 
 inline static bool is_system_services_thread(struct thread *thread)
 {
-    // if (!thread->general_ipc_config) {
-    //     return false;
-    // }
-    // struct ipc_config *ipc_config = (struct ipc_config *)thread->general_ipc_config;
-    // return (ipc_config->config_type == IPC_SERVER);
-    if (thread->general_ipc_config != NULL) {
-        kinfo("is_cross_shared_obj: server thread %s\n", thread->cap_group->cap_group_name);
+    if (thread->thread_ctx->type == TYPE_SERVICES 
+        || is_system_services(thread->cap_group)) {
         return true;
     }
     return false;
 }
 
-inline static bool is_cross_shared_obj(struct object *obj)
+inline static bool is_local_notification(struct notification *notification)
 {
+    return true;
+}
+
+inline static bool is_system_services_ipc_connection(struct ipc_connection *conn)
+{
+    return is_system_services_thread(conn->server_handler_thread);
+}
+
+inline static bool is_system_services_object(struct object *obj)
+{
+    int ret = false;
+
+    // if (obj->dsm_type == DSM_TYPE_CROSS_SHARED) {
+    //     return true;
+    // }
+
     switch (obj->type) {
         case TYPE_CAP_GROUP:
-            return is_system_services((struct cap_group *)obj->opaque);
+            ret = is_system_services((struct cap_group *)obj->opaque);
+            break;
         case TYPE_THREAD:
-            return is_system_services_thread((struct thread *)obj->opaque);
+            ret = is_system_services_thread((struct thread *)obj->opaque);
+            break;
         // case TYPE_NOTIFICATION:
-        //     kinfo("notification: %p\n", obj);
-        //     return true;
+        //     ret = !is_local_notification((struct notification *)obj->opaque);
+        //     break;
         // case TYPE_CONNECTION:
-        //     kinfo("ipc connection: %p\n", obj);
-        //     return true;
+        //     ret = is_system_services_ipc_connection((struct ipc_connection *)obj->opaque);
+        //     break;
         default:
             break;
     }
-    return false;
+
+    // if (ret) {
+    //     obj->dsm_type = DSM_TYPE_CROSS_SHARED;
+    // }
+    return ret;
 }

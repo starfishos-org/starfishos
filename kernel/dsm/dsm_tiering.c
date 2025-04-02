@@ -2,6 +2,7 @@
 #include <object/cap_group.h>
 #include <common/types.h>
 #include <dsm/tiering.h>
+#include <dsm/dsm-config.h>
 
 #include "dsm_tiering.h"
 
@@ -80,14 +81,21 @@ int dsm_demote_object(struct object *obj)
         return 0;
     }
 
+    /* Already migrated; demote is done by other thread */
     if (obj->status == DSM_STATUS_MIGRATED) {
-        /* already migrated; demote is done by other thread */
         BUG_ON(!obj->pair_obj || obj->pair_obj->status != DSM_STATUS_INUSE);
         DSM_TIER_LOG_DEBUG("%s: obj (type %s) is already migrated\n", 
             __func__, obj_name_tbl[obj->type]);
         return 0;
     }
 
+    /* A system services object that should not be migrated */
+    if (is_system_services_object(obj)) {
+        target = dsm_get_inuse_object_by_mem_type(obj, __MT_SHARED__, true);
+        return !target ? -ENOMEM : 0;
+    }
+
+    /* Start migration */
     if ((ret = __dsm_tiering_start_migration(obj)) != 0) {
         DSM_TIER_LOG_ERR("%s: failed to start migration\n", __func__);
         return ret;
@@ -207,7 +215,7 @@ copy_again:
     return 0;
 }
 
-static inline int __demote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+int demote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
     int slot_id;
@@ -232,7 +240,7 @@ static inline int __demote_each_object_in_cap_group(struct cap_group *cap_group,
     return 0;
 }
 
-static inline int __promote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+int promote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
     int slot_id;
@@ -254,46 +262,5 @@ static inline int __promote_each_object_in_cap_group(struct cap_group *cap_group
             return ret;
         }
     }
-    return 0;
-}
-
-int demote_process(struct object *root_cg_obj)  
-{
-    int flags = 0;
-    int ret = 0;
-    
-    /* mask out cap group and thread */
-    flags = ~((1L << TYPE_CAP_GROUP) | (1L << TYPE_THREAD));
-
-    /* demote all objects except cap group and thread */
-    ret = __demote_each_object_in_cap_group(
-        (struct cap_group *)object2obj(root_cg_obj), flags);
-    if (ret) {
-        DSM_TIER_LOG_ERR("%s: failed to demote objects in cap group %p\n", __func__, root_cg_obj);
-        return ret;
-    }
-
-    return 0;
-}
-
-int demote_stopped_process(struct object *root_cg_obj)
-{
-    int ret = 0;
-    // struct cap_group *cap_group = (struct cap_group *)object2obj(root_cg_obj);
-
-    /* demote the cap group and objects that are not checkpointed */
-    // ret = __demote_each_object_in_cap_group(cap_group, 1L << TYPE_THREAD);
-    // if (ret) {
-    //     DSM_TIER_LOG_ERR("%s: failed to demote thread\n", __func__);
-    //     return ret;
-    // }
-
-    /* demote the cap group finially */
-    ret = dsm_demote_object(root_cg_obj);
-    if (ret) {
-        DSM_TIER_LOG_ERR("%s: failed to demote cap group\n", __func__);
-        return ret;
-    }
-
     return 0;
 }

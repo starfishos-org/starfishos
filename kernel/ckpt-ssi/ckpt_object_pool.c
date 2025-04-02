@@ -290,7 +290,7 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
     }
 
     /* skip checkpointing shared objects */
-    if ((flags & FLAGS_CFORK) && is_cross_shared_obj(obj)) {
+    if ((flags & FLAGS_CFORK) && is_system_services_object(obj)) {
         ckpt_obj_root->cross_shared = true;
         /* for cross-shared object, we have the same obj_dst and obj_src */
         ckpt_obj_root->obj_dst = obj;

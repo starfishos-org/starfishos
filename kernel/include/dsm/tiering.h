@@ -8,21 +8,23 @@
 #include <mm/vmspace.h>
 
 static inline struct object *
-dsm_get_object(struct object *obj, bool waiting)
+dsm_get_inuse_object(struct object *obj, bool waiting)
 {
     switch (obj->status) {
-        case DSM_STATUS_INVALID:
-        case DSM_STATUS_INUSE:
-            return obj;
-        case DSM_STATUS_MIGRATING:
-            if (!waiting) return NULL;
-            /* waiting for the object to be migrated */
-            while (obj->status != DSM_STATUS_MIGRATED);
-        case DSM_STATUS_MIGRATED:
-            BUG_ON(!obj->pair_obj || obj->pair_obj->status != DSM_STATUS_INUSE);
-            return obj->pair_obj;
-        default:
-            BUG("invalid object status");
+    case DSM_STATUS_INVALID:
+        return (obj->pair_obj && obj->pair_obj->status == DSM_STATUS_INUSE) ? 
+            obj->pair_obj : NULL;
+    case DSM_STATUS_INUSE:
+        return obj;
+    case DSM_STATUS_MIGRATING:
+        if (!waiting) return NULL;
+        /* waiting for the object to be migrated */
+        while (obj->status != DSM_STATUS_MIGRATED);
+    case DSM_STATUS_MIGRATED:
+        BUG_ON(!obj->pair_obj || obj->pair_obj->status != DSM_STATUS_INUSE);
+        return obj->pair_obj;
+    default:
+        BUG("invalid object status");
     }
 }
 
@@ -45,7 +47,7 @@ dsm_alloc_pair_object(struct object *obj, mem_t mem_type)
 }
 
 static inline struct object *
-dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
+dsm_get_inuse_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
 {
     BUG_ON(!IS_VALID_MEM_TYPE(mem_type));
     if (obj->mem_type == mem_type) {
@@ -71,8 +73,8 @@ dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
 int dsm_demote_object(struct object *obj);
 int dsm_promote_object(struct object *obj);
 
-int demote_process(struct object *root_cg_obj);
-int demote_stopped_process(struct object *root_cg_obj);
+int dsm_migrate_process_prepare(struct object *root_cg_obj);
+int dsm_migrate_process_ckpt(struct object *root_cg_obj);
 
 int dsm_demote_page(struct vmspace *vmspace, void *dst_va, void *src_va, bool retry);
 

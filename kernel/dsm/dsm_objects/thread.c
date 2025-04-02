@@ -121,6 +121,9 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
+    // print_thread(src_thread);
+    // kprint_vmr(src_thread->vmspace);
+
     /* Do not demote server threads */
     if (src_thread->thread_ctx->type == TYPE_SERVICES) {
         DSM_TIER_LOG_DEBUG("server thread %s; skip demote and not add to cap group\n", 
@@ -142,44 +145,33 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
                     dst_thread->general_ipc_config, 
                     mem_type);
         if (ret) {
-            kinfo("Failed to copy ipc config for thread %p\n", src_obj);
+            DSM_TIER_LOG_ERR("%s: failed for thread %p\n", __func__, src_obj);
             return ret;
         }
     } else {
         dst_thread->general_ipc_config = NULL;
     }
 
-    struct object *src_cap_group_object = obj2object(src_thread->cap_group);
-    // DSM_TIER_LOG_DEBUG("src_cg: %p, src_cg_object: %p\n", 
-    //     src_thread->cap_group, src_cap_group_object);
-    struct object *dst_cap_group_object = 
-        dsm_get_object_by_mem_type(src_cap_group_object, mem_type, false);
-    if (!dst_cap_group_object) {
-        DSM_TIER_LOG_DEBUG("server thread %s; skip adding to cap group\n", 
-            src_thread->cap_group->cap_group_name);
-        return 0;
-    }
-
-    /* add the thread to the dst cap group */
-    dst_thread->cap_group = (struct cap_group *)object2obj(dst_cap_group_object);
-    list_add(&dst_thread->node, &dst_thread->cap_group->thread_list);
-    dst_thread->cap_group->thread_cnt++;
-    // printk("add thread %p to cap group %s\n", dst_thread, 
-    //     dst_thread->cap_group->cap_group_name);
-    // print_thread(dst_thread);
-
     /* get the vmspace object */
     struct object *src_vmspace_object = obj2object(src_thread->vmspace);
     struct object *dst_vmspace_object = 
-        dsm_get_object_by_mem_type(src_vmspace_object, mem_type, false);
+        dsm_get_inuse_object_by_mem_type(src_vmspace_object, mem_type, false);
     if (!dst_vmspace_object) {
-        kinfo("Failed to get vmspace object for thread %p\n", src_obj);
-        return -ENOMEM;
+        DSM_TIER_LOG_ERR("%s: vmspace is not demoted\n", __func__, src_obj);
+        return -EINVAL;
     }
     dst_thread->vmspace = (struct vmspace *)object2obj(dst_vmspace_object);
 
-    print_thread(src_thread);
-    kprint_vmr(dst_thread->vmspace);
+    return 0;
+}
 
+int add_thread_to_cap_group(struct thread *dst_thread, struct cap_group *dst_cap_group)
+{
+    /* add the thread to the dst cap group */
+    dst_thread->cap_group = dst_cap_group;
+    list_add(&dst_thread->node, &dst_cap_group->thread_list);
+    dst_cap_group->thread_cnt++;
+    DSM_TIER_LOG_DEBUG("add thread %p to cap group %s\n", 
+        dst_thread, dst_cap_group->cap_group_name);
     return 0;
 }
