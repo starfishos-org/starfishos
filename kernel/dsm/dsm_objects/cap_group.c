@@ -4,7 +4,7 @@
 
 extern int slot_table_init(struct slot_table *slot_table, unsigned int size,
                            bool init_lock, mem_t mem_type);
-extern int free_slot_table(struct slot_table *slot_table);
+extern int slot_table_free(struct slot_table *slot_table);
 
 int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_cap_group, mem_t mem_type)
 {
@@ -14,11 +14,10 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
 
     /* Allocate new slots_bmp and slots if the size is different */
     if (dst_slot_table->slots_size != src_slot_size) {
-        free_slot_table(dst_slot_table);
+        slot_table_free(dst_slot_table);
         slot_table_init(dst_slot_table, src_slot_size, true, mem_type);
     }
 
-    /* Copy slots_bmp */
     // NOTE: can not skip as number is the same but data can be different
     // memcpy(dst_slot_table->slots_bmp, src_slot_table->slots_bmp, 
     //        sizeof(unsigned long) * BITS_TO_LONGS(src_slot_table->slots_size));

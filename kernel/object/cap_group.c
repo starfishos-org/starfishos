@@ -28,21 +28,21 @@ static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
 }
 
 int slot_table_init(struct slot_table *slot_table, unsigned int size,
-                           bool init_lock)
+                           bool init_lock, mem_t mem_type)
 {
     int r;
 
     size = DIV_ROUND_UP(size, BASE_OBJECT_NUM) * BASE_OBJECT_NUM;
     slot_table->slots_size = size;
     /* XXX: vmalloc is better? */
-    slot_table->slots = kzalloc(size * sizeof(*slot_table->slots), __MT_OBJECT__);
+    slot_table->slots = kzalloc(size * sizeof(*slot_table->slots), mem_type);
     if (!slot_table->slots) {
         r = -ENOMEM;
         goto out_fail;
     }
 
     slot_table->slots_bmp =
-            kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long), __MT_OBJECT__);
+            kzalloc(BITS_TO_LONGS(size) * sizeof(unsigned long), mem_type);
     if (!slot_table->slots_bmp) {
         r = -ENOMEM;
         goto out_free_slots;
@@ -50,7 +50,7 @@ int slot_table_init(struct slot_table *slot_table, unsigned int size,
 
     slot_table->full_slots_bmp =
             kzalloc(BITS_TO_LONGS(BITS_TO_LONGS(size)) * sizeof(unsigned long),
-                    __MT_OBJECT__);
+                    mem_type);
     if (!slot_table->full_slots_bmp) {
         r = -ENOMEM;
         goto out_free_slots_bmp;
@@ -68,11 +68,25 @@ out_fail:
     return r;
 }
 
+int slot_table_free(struct slot_table *slot_table)
+{
+    if (slot_table->slots) {
+        kfree(slot_table->slots);
+    }
+    if (slot_table->slots_bmp) {
+        kfree(slot_table->slots_bmp);
+    }
+    if (slot_table->full_slots_bmp) {
+        kfree(slot_table->full_slots_bmp);
+    }
+    return 0;
+}
+
 int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
 
-    BUG_ON(slot_table_init(slot_table, size, true));
+    BUG_ON(slot_table_init(slot_table, size, true, __MT_OBJECT__));
     init_list_head(&cap_group->thread_list);
     lock_init(&cap_group->threads_lock);
     cap_group->thread_cnt = 0;
@@ -107,7 +121,7 @@ static int expand_slot_table(struct slot_table *slot_table)
 
     old_size = slot_table->slots_size;
     new_size = old_size + BASE_OBJECT_NUM;
-    r = slot_table_init(&new_slot_table, new_size, false);
+    r = slot_table_init(&new_slot_table, new_size, false, __MT_OBJECT__);
     if (r < 0)
         return r;
 
