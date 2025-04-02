@@ -155,7 +155,7 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     /* get the vmspace object */
     struct object *src_vmspace_object = obj2object(src_thread->vmspace);
     struct object *dst_vmspace_object = 
-        dsm_get_inuse_object_by_mem_type(src_vmspace_object, mem_type, false);
+        dsm_get_object_by_mem_type(src_vmspace_object, mem_type, false);
     if (!dst_vmspace_object) {
         DSM_TIER_LOG_ERR("%s: vmspace is not demoted\n", __func__, src_obj);
         return -EINVAL;

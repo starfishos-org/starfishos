@@ -47,7 +47,7 @@ dsm_alloc_pair_object(struct object *obj, mem_t mem_type)
 }
 
 static inline struct object *
-dsm_get_inuse_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
+dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
 {
     BUG_ON(!IS_VALID_MEM_TYPE(mem_type));
     if (obj->mem_type == mem_type) {
@@ -75,6 +75,7 @@ int dsm_promote_object(struct object *obj);
 
 int dsm_migrate_process_prepare(struct object *root_cg_obj);
 int dsm_migrate_process_ckpt(struct object *root_cg_obj);
+int dsm_migrate_process_restore(struct cap_group *new_cap_group);
 
 int dsm_demote_page(struct vmspace *vmspace, void *dst_va, void *src_va, bool retry);
 

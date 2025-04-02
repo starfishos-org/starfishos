@@ -56,7 +56,8 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
             // }
 
             /* now dst object should be several cases */
-            dst_object = dsm_get_inuse_object(src_slot->object, true);
+            dst_object = dsm_get_object_by_mem_type(
+                            src_slot->object, mem_type, false);
             BUG_ON(dst_object == NULL);
         }
 
@@ -64,6 +65,7 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
         if (!dst_slot) {
             dst_slot = kmalloc(sizeof(struct object_slot), mem_type);
             BUG_ON(dst_slot == NULL);
+            dst_slot_table->slots[slot_id] = dst_slot;
         }
 
         /* copy object */
@@ -72,6 +74,9 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
         dst_slot->isvalid = true;
         dst_slot->rights = src_slot->rights;
         dst_slot->object = dst_object;
+
+        DSM_TIER_LOG_DEBUG("[table=%p] install slot: ID %d, object: %p\n", 
+            dst_slot_table, slot_id, dst_object);
     }
 
     return 0;

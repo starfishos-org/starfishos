@@ -1,4 +1,5 @@
 #include <mm/vmspace.h>
+#include <arch/mm/page_table.h>
 
 #include "../dsm_tiering.h"
 
@@ -16,7 +17,7 @@ int dsm_copy_vmregion(struct vmregion *src_vmr, struct vmregion *dst_vmr, mem_t 
     if (ret) {
         return ret;
     }
-    dst_pmo_obj = dsm_get_inuse_object_by_mem_type(src_pmo_obj, mem_type, false);
+    dst_pmo_obj = dsm_get_object_by_mem_type(src_pmo_obj, mem_type, false);
     if (!dst_pmo_obj) {
         return -ENOMEM;
     }
@@ -61,6 +62,7 @@ int dsm_copy_vmspace(struct object *src_obj, struct object *dst_obj)
 
     /* Init page table */
     dst_vmspace->pgtbl = get_pages(0, mem_type);
+    memset(dst_vmspace->pgtbl, 0, PAGE_SIZE);
     dst_vmspace->flags |= VM_FLAG_PRESERVE;
 
     return 0;

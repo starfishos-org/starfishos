@@ -55,7 +55,7 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     }
 
     dst_cap_group = (struct cap_group *)object2obj(
-        dsm_get_inuse_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false));
+        dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false));
     BUG_ON(!dst_cap_group);
 
     /* add the threads to the cap group */
@@ -63,17 +63,19 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     for_each_in_list_safe (src_thread, tmp, node, &src_cap_group->thread_list) {
         /* get the dst thread */
         dst_thread = (struct thread *)object2obj(
-            dsm_get_inuse_object_by_mem_type(
+            dsm_get_object_by_mem_type(
                 obj2object(src_thread), __MT_SHARED__, false));
         BUG_ON(!dst_thread);
 
         /* add the thread to the cap group */
         add_thread_to_cap_group(dst_thread, dst_cap_group);
-#if 1
+#if 0
     // Check the validity of the dst thread
     print_thread(dst_thread);
     kprint_vmr(dst_thread->vmspace);
-    kinfo("thread_ctx->tls_base_reg[TLS_FS]: %p [TLS_GS]: %p\n", dst_thread->thread_ctx->tls_base_reg[TLS_FS], dst_thread->thread_ctx->tls_base_reg[TLS_GS]);
+    memcpy(dst_cap_group->cap_group_name, "restored", 10);
+    kinfo("src TLS_FS: %p [TLS_GS]: %p\n", src_thread->thread_ctx->tls_base_reg[TLS_FS], src_thread->thread_ctx->tls_base_reg[TLS_GS]);
+    kinfo("dst TLS_FS: %p [TLS_GS]: %p\n", dst_thread->thread_ctx->tls_base_reg[TLS_FS], dst_thread->thread_ctx->tls_base_reg[TLS_GS]);
 #endif
     }
 
@@ -82,11 +84,14 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     return 0;
 }
 
+extern void arch_vmspace_init(struct vmspace *);
 int dsm_migrate_process_restore(struct cap_group *new_cap_group)
 {
     /* Restore the cap group */
     
     /* Mark all as inuse */
+    struct vmspace *vmspace = obj_get(new_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+    arch_vmspace_init(vmspace);
 
     reinstall_system_services(new_cap_group);
     

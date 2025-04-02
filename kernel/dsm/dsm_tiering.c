@@ -91,7 +91,7 @@ int dsm_demote_object(struct object *obj)
 
     /* A system services object that should not be migrated */
     if (is_system_services_object(obj)) {
-        target = dsm_get_inuse_object_by_mem_type(obj, __MT_SHARED__, true);
+        target = dsm_get_object_by_mem_type(obj, __MT_SHARED__, true);
         return !target ? -ENOMEM : 0;
     }
 

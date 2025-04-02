@@ -22,7 +22,8 @@ static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
     if (!get_bit(slot_id, slot_table->slots_bmp))
         return false;
     if (slot_table->slots[slot_id] == NULL)
-        BUG("slot NULL while bmp is not\n");
+        BUG("[table=%p] slot NULL while bmp is not, slot id: %d\n", 
+            slot_table, slot_id);
     return true;
 }
 
