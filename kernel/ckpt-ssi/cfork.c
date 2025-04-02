@@ -99,6 +99,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
     }
 
     ckpt_obj_root->obj_dst = ckpt_obj_root->obj_src->pair_obj;
+    ckpt_obj_root->valid = true;
 
     // add the cap group to the kvs
     ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
@@ -121,11 +122,17 @@ int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
 
     pname = pname_to_pname_ptr(pname_ptr, pname_len);
 
+retry:
     // find cap group in the checkpointed cap tree
     if (!(ckpt_obj_root = find_ckpt_obj_root_by_name(pname, pname_len))) {
         CFORK_LOG_ERR("cfork_restore: ckpt_obj_root not found\n");
         ret = -ENOENT;
         goto out;
+    }
+
+    if (!ckpt_obj_root->valid) {
+        CFORK_LOG_ERR("cfork_restore: ckpt_obj_root is not valid\n");
+        goto retry;
     }
 
     CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p\n", ckpt_obj_root);

@@ -354,6 +354,8 @@ int signal_notific(struct notification *notifc)
         target->thread_ctx->state = TS_INTER;
         if (target->thread_ctx->thread_exit_state == TE_EXITING) {
             target->thread_ctx->thread_exit_state = TE_EXITED;
+        } else if (target->thread_ctx->thread_exit_state == TE_STOPPING) {
+            target->thread_ctx->thread_exit_state = TE_STOPPED;
         } else {
             BUG_ON(sched_enqueue(target));
         }

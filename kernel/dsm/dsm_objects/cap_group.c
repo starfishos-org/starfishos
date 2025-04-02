@@ -57,6 +57,9 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
         cap_insert(dst_cap_group, dst_object, src_slot->rights, slot_id, mem_type);
         // BUG_ON(!dst_slot_table->slots[slot_id]);
         // BUG_ON(!get_bit(slot_id, dst_slot_table->slots_bmp));
+
+        DSM_TIER_LOG_DEBUG("[table=%p] install slot: slot_id: %d, object: %p, type: %s\n", 
+            dst_slot_table, slot_id, dst_object, obj_name_tbl[dst_object->type]);
     }
 
     return 0;

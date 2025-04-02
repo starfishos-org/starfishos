@@ -16,7 +16,7 @@ array set program_names {
 array set program_args {
     "hello" ""
     "leveldb" "--benchmarks=fillbatch --num=1000000"
-    "matmul" "2000 2"
+    "matmul" "4000 2"
     "linpack" "2000 2"
     "float" "10000000 2"
     "json" "english.json 2"
@@ -29,6 +29,8 @@ array set program_args {
 array set program_expects {
     "hello" "[1]"
     "leveldb" "version"
+    "matmul" "Running /test_matmul.bin"
+    "linpack" "Running /test_linpack.bin"
     "float" "Running /test_float.bin"
     "json" "Running /test_json.bin"
     "pyaes" "Running /test_pyaes.bin"

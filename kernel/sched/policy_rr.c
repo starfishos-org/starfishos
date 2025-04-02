@@ -253,6 +253,11 @@ int rr_sched_enqueue(struct thread *thread)
         return 0;
     }
 
+    if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+        thread->thread_ctx->thread_exit_state = TE_STOPPED;
+        return 0;
+    }
+
     cpubind = get_cpubind(thread);
     gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
 
@@ -368,6 +373,11 @@ struct thread *rr_sched_choose_thread(void)
             goto again;
         }
 
+        if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
+            goto again;
+        }
+
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
         return thread;
     }
@@ -427,6 +437,17 @@ int rr_sched(void)
         case TE_MIGRATING:
             /* schedule migrate thread to remote */
             rr_sched_migrate_to_remote(old);
+            break;
+        case TE_STOPPING:
+            if (old->thread_ctx->is_fpu_owner >= 0) {
+                save_and_release_fpu(old);
+            }
+            old->thread_ctx->thread_exit_state = TE_STOPPED;
+            break;
+        case TE_STOPPED:
+            if (old->thread_ctx->is_fpu_owner >= 0) {
+                save_and_release_fpu(old);
+            }
             break;
 #endif
         default:

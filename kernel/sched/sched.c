@@ -55,9 +55,14 @@ char thread_state[][STATE_STR_LEN] = {
 };
 
 char thread_exit_state[][STATE_STR_LEN] = {
-    "TE_RUNNING",
-    "TE_EXITED",
-    "TE_EXITING",
+        "TE_RUNNING",
+        "TE_EXITED",
+        "TE_EXITING",
+#ifdef DSM_ENABLED
+        "TE_MIGRATING",
+        "TE_STOPPING",
+        "TE_STOPPED",
+#endif
 };
 
 void print_thread(struct thread *thread)
