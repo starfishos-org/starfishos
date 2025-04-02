@@ -13,8 +13,8 @@ ivshmem_dev="/dev/shm/ivshmem-$USER"
 conn_size=16G
 ivshmem_conn_dev="/dev/shm/ivshmem-conn-$USER"
 dram_size=128G # 20GB shared memory
-cxl_size=8G # 32GB shared memory
-plat_cpu_name=48 # 48 CPUs
+cxl_size=16G # 32GB shared memory
+plat_cpu_name=24 # 48 CPUs
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
 

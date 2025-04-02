@@ -115,16 +115,25 @@ cfork-matmul-restore:
 	./dsm-scripts/tests/cfork_restore.exp matmul
 
 pca: clean-dsm
-	./dsm-scripts/tests/pca.exp 48
+	./dsm-scripts/tests/phoenix/pca.exp 96
 
-matrix: clean-dsm
-	./dsm-scripts/tests/matrix.exp 1
+matrix_multiply: clean-dsm
+	./dsm-scripts/tests/phoenix/matrix_multiply.exp 16
 
 kmeans: clean-dsm
-	./dsm-scripts/tests/kmeans.exp 1
+	./dsm-scripts/tests/phoenix/kmeans.exp 16
 
 string_match: clean-dsm
-	./dsm-scripts/tests/string_match.exp 1
+	./dsm-scripts/tests/phoenix/string_match.exp 16
+
+linear_regression: clean-dsm
+	./dsm-scripts/tests/phoenix/linear_regression.exp 16
+
+word_count: clean-dsm
+	./dsm-scripts/tests/phoenix/word_count.exp 16
+
+histogram: clean-dsm
+	./dsm-scripts/tests/phoenix/histogram.exp 16
 
 clean-ramdisk:
 	rm -rf ./user/build/ramdisk/*

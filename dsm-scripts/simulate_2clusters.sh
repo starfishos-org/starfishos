@@ -19,8 +19,8 @@ tmux split-window -h -t $session_name:$window_name
 
 ## Run the ROS programs sequentially.
 tmux send -t $session_name:$window_name.$window_start_index "./build/simulate.sh 0 > exec_log | tee exec_log1" ENTER
-sleep 1
+sleep 5
 tmux send -t $session_name:$window_name.$((window_start_index + 1)) "./build/simulate.sh 1 > exec_log | tee exec_log2" ENTER
 
 ## Attach the Tmux session to the front.
-tmux a -t $session_name
+tmux a -t $session_name:$window_name.0
