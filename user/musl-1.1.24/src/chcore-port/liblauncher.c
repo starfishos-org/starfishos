@@ -123,7 +123,7 @@ int parse_elf_from_binary(const char *binary, struct user_elf *user_elf)
                              - ROUND_DOWN(p_vaddr, PAGE_SIZE);
 
                 user_elf->user_elf_seg[j].elf_pmo =
-                        usys_create_pmo(seg_map_sz, PMO_DATA, MALLOC_TYPE_DEFAULT);
+                        usys_create_pmo(seg_map_sz, PMO_CODE, MALLOC_TYPE_DEFAULT);
                 BUG_ON(user_elf->user_elf_seg[j].elf_pmo < 0);
 
                 tmp_seg = chcore_auto_map_pmo(user_elf->user_elf_seg[j].elf_pmo,

@@ -120,16 +120,21 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
     pmo = vmr->pmo;
     switch (pmo->type) {
     case PMO_DATA:
+    case PMO_SHM:
+    case PMO_ANONYM:
     case PMO_FILE:
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+#if defined CHCORE_SLS
     case PMO_RING_BUFFER:
     case PMO_RING_BUFFER_RADIX:
 #endif
-    case PMO_ANONYM:
-#ifdef USE_CXL_MEM
+#ifdef DSM_ENABLED
+    case PMO_CODE:
+    case PMO_STACK:
+    case PMO_HEAP:
     case PMO_CROSS_SHM:
+    case PMO_IPC_BUFFER:
 #endif
-    case PMO_SHM: {
+    {
         vmr_prop_t perm;
 
         perm = vmr->perm;
@@ -269,7 +274,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #endif /* CHCORE_SLS */
             /* handle COW */
             if (!is_shared_pmo(pmo)) {
-                if (use_continuous_pages(pmo)) {
+                if (is_continuous_pmo(pmo)) {
                     page = virt_to_page((void *)phys_to_virt(pmo->start));
                     lock(&page->lock);
                     if (page->ref_cnt > 1) {

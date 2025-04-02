@@ -276,7 +276,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
 
         /* create pmos in current process */
         pmo_requests[0].size = MAIN_THREAD_STACK_SIZE;
-        pmo_requests[0].type = PMO_ANONYM;
+        pmo_requests[0].type = PMO_STACK;
 
         pmo_requests[1].size = PAGE_SIZE;
         pmo_requests[1].type = PMO_FORBID;

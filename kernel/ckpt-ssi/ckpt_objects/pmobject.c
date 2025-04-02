@@ -15,7 +15,7 @@ unsigned long mem_checksum(unsigned char *start, int size)
 
 u64 pmo_checksum(struct pmobject *pmo)
 {
-    if (use_continuous_pages(pmo)) {
+    if (is_continuous_pmo(pmo)) {
         if (pmo->dram_cache.array == NULL) {
             return (u64)mem_checksum((unsigned char *)phys_to_virt(pmo->start),
                                      pmo->size);
@@ -34,7 +34,7 @@ u64 pmo_checksum(struct pmobject *pmo)
             kfree(pages);
             return checksum;
         }
-    } else if (use_radix(pmo))
+    } else if (is_radix_pmo(pmo))
         return (u64)radix_checksum(pmo->radix);
     else
         return 0;
@@ -593,7 +593,7 @@ int init_ckpt_page_radix(struct ckpt_pmobject *ckpt_pmo, struct pmobject *pmo)
     ckpt_page_radix = ckpt_pmo->radix;
 
     /* copy all pages in pmo to ckpt page in ckpt pmo*/
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         r = __init_ckpt_page_radix(pmo_radix->root, ckpt_page_radix->root, 0);
     }
 
@@ -615,12 +615,12 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
     ckpt_pmo->type = pmo->type;
 
     if (flags & FLAGS_CFORK) {
-        if (use_radix(pmo)) {
+        if (is_radix_pmo(pmo)) {
             r = init_ckpt_page_radix(ckpt_pmo, pmo);
-        } else if (use_continuous_pages(pmo)) {
+        } else if (is_continuous_pmo(pmo)) {
             r = continuous_pmo_ckpt(pmo, ckpt_pmo);
         }
-    } else if (use_continuous_pages(pmo) || use_radix(pmo)) {
+    } else if (is_continuous_pmo(pmo) || is_radix_pmo(pmo)) {
         if (unlikely(!ckpt_pmo->radix)) {
             /* If the radix tree is not created, try to reuse the
              * previous version of the radix tree */
@@ -645,7 +645,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
     }
     /* check ckpt_pmo (for debug) */
 #ifdef PMO_CHECKSUM
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         if (!ckpt_pmo->radix_backup) {
             ckpt_pmo->radix_backup = new_radix(__MT_OBJECT__);
             init_radix(ckpt_pmo->radix_backup);
@@ -655,7 +655,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
         ckpt_pmo->checksum = pmo_checksum(pmo);
     }
 
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         u64 ckpt_checksum = ckpt_pmo_checksum(ckpt_pmo);
         if (ckpt_checksum != ckpt_pmo->checksum) {
             printk("type:%d, verison:%d, %lx pmo_ckpt erratic: %lx, %lx\n",
@@ -693,7 +693,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
     init_list_head(&pmo->reverse_list);
 #endif
 
-    if (use_continuous_pages(pmo)) {
+    if (is_continuous_pmo(pmo)) {
         continuous_pmo_restore(pmo, ckpt_pmo, flags);
 #ifdef PMO_CHECKSUM
         if (pmo_checksum(pmo) != ckpt_pmo->checksum
@@ -712,7 +712,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
                    ckpt_pmo->checksum);
         }
 #endif
-    } else if (use_radix(pmo)) {
+    } else if (is_radix_pmo(pmo)) {
         /* restore radix tree */
         r = radix_pmo_restore(pmo, ckpt_pmo, flags);
 

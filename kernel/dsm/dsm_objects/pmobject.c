@@ -97,7 +97,7 @@ int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj)
     }
 
     /* Copy radix tree */
-    if (use_continuous_pages(src_pmo)) {
+    if (is_continuous_pmo(src_pmo)) {
         void *new_va = kmalloc(dst_pmo->size, page_mem_type);
         if (!new_va) {
             return -ENOMEM;
@@ -111,7 +111,7 @@ int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj)
             pagecpy((void *)phys_to_virt(dst_pa),
                          (void *)phys_to_virt(src_pa));
         }
-    } else if (use_radix(src_pmo)) {
+    } else if (is_radix_pmo(src_pmo)) {
         /* init radix tree if not exists*/
         if (!dst_pmo->radix) {
             dst_pmo->radix = new_radix(page_mem_type);

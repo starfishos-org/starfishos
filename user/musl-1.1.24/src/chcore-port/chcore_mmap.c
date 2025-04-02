@@ -60,7 +60,7 @@ static void initial_common_stack(void)
         pthread_spin_init(&common_stack_lock, 0);
 
         common_stack_pmo_cap =
-                usys_create_pmo(UNMAPSELF_STACK_SIZE, PMO_ANONYM, MALLOC_TYPE_DEFAULT);
+                usys_create_pmo(UNMAPSELF_STACK_SIZE, PMO_STACK, MALLOC_TYPE_DEFAULT);
         if (common_stack_pmo_cap < 0) {
                 printf("Error occur on create unmapself pmo\n");
                 ret = common_stack_pmo_cap;

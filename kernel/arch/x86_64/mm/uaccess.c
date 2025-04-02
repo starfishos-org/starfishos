@@ -46,9 +46,28 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
     pmo = vmr->pmo;
     BUG_ON(pmo == NULL);
 
+    /* Check if pmo is valid first */
+    if (pmo->type < PMO_ANONYM || pmo->type >= PMO_TYPE_NR || pmo->type == PMO_FORBID) {
+        BUG("pmo type: %d is invalid\n", pmo->type);
+    }
+
     va = ROUND_DOWN((u64)user_buf, PAGE_SIZE);
     offset = va - vmr->start;
     index = offset / PAGE_SIZE;
+
+    /*
+    * Boundary check.
+    *
+    * No boundary check for PMO_FILE because a file can
+    * be mapped to a larger (larger than the file size) vmr.
+    * (allowed in Linux)
+    *
+    * TODO: make the behaviour more accurate in ChCore
+    */
+    BUG_ON(pmo->type != PMO_FILE && offset >= pmo->size);
+
+    /* Get the physical page with vaddr */
+    pa = get_page_from_pmo(pmo, index);
 
     /*
      * A special case: the address is mapped with an anonymous pmo
@@ -59,124 +78,61 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
      *
      * pmo->type is data: must be mapped
      */
-    switch (pmo->type) {
-    case PMO_DATA:
-    case PMO_DATA_NOCACHE:
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-    case PMO_RING_BUFFER: {
-        /*
-         * Calculate the kva for the user_buf:
-         * kva = start_addr + offset
-         */
-        // pa = vmr->pmo->start + (paddr_t)(user_buf - vmr->start);
-        pa = get_page_from_pmo(pmo, offset / PAGE_SIZE);
-        kva = phys_to_virt(pa);
-        break;
-    }
-#endif /* CHCORE_SLS */
-    case PMO_ANONYM: {
-        /* Boundary check */
-        BUG_ON(offset >= pmo->size);
-        /* Get the physical page for va according to the radix tree in
-         * the pmo */
-        pa = get_page_from_pmo(pmo, index);
 
-        if (pa == 0) {
-            /* No physical page allocated to it before */
-            // void *new_va = get_dram_pages(0);
-            void *new_va = get_pages(0, pmo->mm_type);
-            BUG_ON(new_va == NULL);
-            pa = virt_to_phys(new_va);
-            BUG_ON(pa == 0);
-            memset(new_va, 0, PAGE_SIZE);
-#ifdef RMAP_ENABLED
-            commit_page_to_pmo(pmo, index, pa);
-#endif
-            pte_t *pte;
-            lock(&vmspace->pgtbl_lock);
-            map_page_in_pgtbl(vmspace->pgtbl, va, pa, vmr->perm, &pte);
-            unlock(&vmspace->pgtbl_lock);
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-#ifndef OMIT_PF
-            if ((vmspace->flags & VM_FLAG_PRESERVE)
-                && !is_external_sync_pmo(pmo)) {
-                struct page *page = virt_to_page(new_va);
-                BUG_ON(page->pmo != pmo);
-                // int ckpt_ret =
-#ifndef OMIT_BENCHMARK
-#ifdef CHCORE_SSI_SLS
-                ckpt_dsm_page(pmo, new_va, index);
-#else
-                ckpt_nvm_page(pmo, new_va, index);
-#endif
 
-#endif
-                add_pte_patch_to_pool(vmspace, pte, page);
-                // if(ckpt_ret) {
-                // 	track_access(page);
-                // }
-                // track_access(page);
-            }
-#endif
-#endif /* CHCORE_SLS */
-        }
-        /*
-         * Return: start address of the newly allocated page +
-         *         offset in the page (last 12 bits).
-         */
-        kva = phys_to_virt(pa) + (((vaddr_t)user_buf) & PAGE_OFFSET_MASK);
-        break;
-    }
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
-    case PMO_RING_BUFFER_RADIX:
-#endif /* CHCORE_SLS */
-    case PMO_SHM:
-#ifdef USE_CXL_MEM
-    case PMO_CROSS_SHM:
-#endif
-    case PMO_FILE: {
-        /*
-         * Boundary check.
-         *
-         * No boundary check for PMO_FILE because a file can
-         * be mapped to a larger (larger than the file size) vmr.
-         * (allowed in Linux)
-         *
-         * TODO: make the behaviour more accurate in ChCore
-         */
-        if (pmo->type == PMO_SHM || pmo->type == PMO_RING_BUFFER_RADIX)
-            BUG_ON(offset >= pmo->size);
-
-#ifdef USE_CXL_MEM
-        if (pmo->type == PMO_CROSS_SHM)
-            BUG_ON(offset >= pmo->size);
-#endif
-        /* Get the physical page for va according to the radix tree in
-         * the pmo */
-        pa = get_page_from_pmo(pmo, index);
-
-        if (pa == 0) {
+    if (pa == 0) {
+        if (pmo->type != PMO_SHM && pmo->type != PMO_FILE)
+        {
             /*
-             * No physical page allocated to it before.
-             * SHM should not be accessed by kernel first.
-             */
-            kwarn("kernel accessing PMO_SHM before user\n");
-            BUG_ON(1);
+            * No physical page allocated to it before.
+            * SHM should not be accessed by kernel first.
+            */
+            BUG("kernel accessing PMO_SHM or PMO_FILE before user\n");
         }
-        /*
-         * Return: start address of the newly allocated page +
-         *         offset in the page (last 12 bits).
-         */
-        kva = phys_to_virt(pa) + (((vaddr_t)user_buf) & PAGE_OFFSET_MASK);
-        break;
+        /* No physical page allocated to it before */
+        void *new_va = get_pages(0, pmo->mm_type);
+        BUG_ON(new_va == NULL);
+
+        pa = virt_to_phys(new_va);
+        BUG_ON(pa == 0);
+
+        memset(new_va, 0, PAGE_SIZE);
+#ifdef RMAP_ENABLED
+        commit_page_to_pmo(pmo, index, pa);
+#endif
+        pte_t *pte;
+        lock(&vmspace->pgtbl_lock);
+        map_page_in_pgtbl(vmspace->pgtbl, va, pa, vmr->perm, &pte);
+        unlock(&vmspace->pgtbl_lock);
+#if defined CHCORE_SLS
+#ifndef OMIT_PF
+        if ((vmspace->flags & VM_FLAG_PRESERVE)
+            && !is_external_sync_pmo(pmo)) {
+            struct page *page = virt_to_page(new_va);
+            BUG_ON(page->pmo != pmo);
+            // int ckpt_ret =
+#ifndef OMIT_BENCHMARK
+            ckpt_nvm_page(pmo, new_va, index);
+#endif
+            add_pte_patch_to_pool(vmspace, pte, page);
+        }
+#endif
+#elif defined CHCORE_SSI_SLS
+        if (vmspace->flags & VM_FLAG_PRESERVE){
+            struct page *page = virt_to_page(new_va);
+            BUG_ON(page->pmo != pmo);
+            ckpt_dsm_page(pmo, new_va, index);
+        }
+#endif /* CHCORE_SLS */
     }
-    default: {
-        kinfo("bug: kernel accessing pmo type: %d\n", pmo->type);
-        BUG_ON(1);
-        break;
-    }
-    }
-#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+
+    /*
+    * Return: start address of the newly allocated page +
+    *         offset in the page (last 12 bits).
+    */
+    kva = phys_to_virt(pa) + (((vaddr_t)user_buf) & PAGE_OFFSET_MASK);
+
+#if defined CHCORE_SLS
     struct page *page = virt_to_page((void *)phys_to_virt(pa));
     if (write && (vmspace->flags & VM_FLAG_PRESERVE)
         && !is_external_sync_pmo(pmo)) {
@@ -211,6 +167,7 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         }
     }
 #endif /* CHCORE_SLS */
+
     write_unlock(&vmspace->vmspace_lock);
 
     obj_put(vmspace);

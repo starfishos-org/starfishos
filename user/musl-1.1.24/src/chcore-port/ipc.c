@@ -285,20 +285,10 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	int shm_cap;
 
 	/*
-	 * Before registering client on the server,
-	 * the client allocates the shm (and shares it with
-	 * the server later).
-	 *
-	 * Now we used PMO_DATA instead of PMO_SHM because:
-	 * - SHM (IPC_PER_SHM_SIZE) only contains one page and
-	 *   PMO_DATA is thus more efficient.
-	 *
-	 * If the SHM becomes larger, we can use PMO_SHM instead.
-	 * Both types are tested and can work well.
+	 * We use a new type 
 	 */
 
-	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
-	// shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
+	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_IPC_BUFFER, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		printf("usys_create_pmo ret %d\n", shm_cap);
 		usys_exit(-1);
@@ -346,20 +336,10 @@ ipc_struct_t *ipc_register_fs_client(int target_machine_id)
 	int shm_cap;
 
 	/*
-	 * Before registering client on the server,
-	 * the client allocates the shm (and shares it with
-	 * the server later).
-	 *
-	 * Now we used PMO_DATA instead of PMO_SHM because:
-	 * - SHM (IPC_PER_SHM_SIZE) only contains one page and
-	 *   PMO_DATA is thus more efficient.
-	 *
-	 * If the SHM becomes larger, we can use PMO_SHM instead.
-	 * Both types are tested and can work well.
+	 * We now use special type PMO_IPC_BUFFER for ipc_msg.
 	 */
 
 	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
-	// shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		printf("usys_create_pmo ret %d\n", shm_cap);
 		usys_exit(-1);
