@@ -63,18 +63,21 @@ static int start_user_thread(struct thread *thread)
 int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
-    // int ret;
+    int ret;
+
+    CFORK_LOG_INFO("start_all_threads:\n");
 
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
+        print_thread(thread);
+
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
 
         /* promote the thread to local memory */
-        // ret = dsm_promote_object(obj2object(thread));
-        // if (ret) {
-        //     CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
-        // }
-        print_thread(thread);
+        ret = dsm_promote_object(obj2object(thread));
+        if (ret) {
+            CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
+        }
 
         /* start the thread */
         switch (thread->thread_ctx->type) {

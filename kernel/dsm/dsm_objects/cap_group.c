@@ -3,7 +3,8 @@
 #include "../dsm_tiering.h"
 
 extern int slot_table_init(struct slot_table *slot_table, unsigned int size,
-                           bool init_lock);
+                           bool init_lock, mem_t mem_type);
+extern int slot_table_free(struct slot_table *slot_table);
 
 int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_cap_group, mem_t mem_type)
 {
@@ -13,28 +14,20 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
 
     /* Allocate new slots_bmp and slots if the size is different */
     if (dst_slot_table->slots_size != src_slot_size) {
-        if (dst_slot_table->slots) {
-            kfree(dst_slot_table->slots);
-        }
-        if (dst_slot_table->slots_bmp) {
-            kfree(dst_slot_table->slots_bmp);
-        }
-        if (dst_slot_table->full_slots_bmp) {
-            kfree(dst_slot_table->full_slots_bmp);
-        }
-        slot_table_init(dst_slot_table, src_slot_size, true);
+        slot_table_free(dst_slot_table);
+        slot_table_init(dst_slot_table, src_slot_size, true, mem_type);
     }
 
     /* Copy slots_bmp */
     // NOTE: can not skip as number is the same but data can be different
-    memcpy(dst_slot_table->slots_bmp, src_slot_table->slots_bmp, 
-           sizeof(unsigned long) * BITS_TO_LONGS(src_slot_table->slots_size));
+    // memcpy(dst_slot_table->slots_bmp, src_slot_table->slots_bmp, 
+    //        sizeof(unsigned long) * BITS_TO_LONGS(src_slot_table->slots_size));
 
     /* Copy slots */
     // NOTE: should use new object slot to accelerate object access
     int slot_id;
-    struct object_slot *src_slot, *dst_slot;
     struct object *dst_object;
+    struct object_slot *src_slot;
     
     for_each_set_bit (slot_id, src_slot_table->slots_bmp, src_slot_size) {
         src_slot = src_slot_table->slots[slot_id];
@@ -61,22 +54,10 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
             BUG_ON(dst_object == NULL);
         }
 
-        dst_slot = dst_slot_table->slots[slot_id];
-        if (!dst_slot) {
-            dst_slot = kmalloc(sizeof(struct object_slot), mem_type);
-            BUG_ON(dst_slot == NULL);
-            dst_slot_table->slots[slot_id] = dst_slot;
-        }
-
-        /* copy object */
-        dst_slot->slot_id = slot_id;
-        dst_slot->cap_group = dst_cap_group;
-        dst_slot->isvalid = true;
-        dst_slot->rights = src_slot->rights;
-        dst_slot->object = dst_object;
-
-        DSM_TIER_LOG_DEBUG("[table=%p] install slot: ID %d, object: %p\n", 
-            dst_slot_table, slot_id, dst_object);
+        /* insert cap */
+        cap_insert(dst_cap_group, dst_object, src_slot->rights, slot_id, mem_type);
+        // BUG_ON(!dst_slot_table->slots[slot_id]);
+        // BUG_ON(!get_bit(slot_id, dst_slot_table->slots_bmp));
     }
 
     return 0;

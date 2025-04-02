@@ -88,7 +88,14 @@ static void dsm_copy_thread_ctx(struct thread_ctx *src_ctx, struct thread_ctx *d
     dst_ctx->thread_exit_state = src_ctx->thread_exit_state;
     dst_ctx->state = src_ctx->state;
     dst_ctx->is_fpu_owner = src_ctx->is_fpu_owner;
-    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, dst_ctx->is_fpu_owner);
+
+    if (src_ctx->sc) {
+        if (!dst_ctx->sc) {
+            dst_ctx->sc = kzalloc(sizeof(struct sched_cont), mem_type);
+            BUG_ON(!dst_ctx->sc);
+        }
+        dst_ctx->sc->budget = src_ctx->sc->budget;
+    }
 
     /* Only available for x86 */
     if (src_ctx->fpu_state) {

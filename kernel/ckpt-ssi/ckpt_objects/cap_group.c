@@ -140,7 +140,7 @@ int slot_table_restore(struct cap_group *cap_group,
 #endif
 
     /* put the cap of the cap_group its self on the first slot */
-    cap = cap_insert(cap_group, cap_group, 0, CAP_GROUP_OBJ_ID);
+    cap = cap_insert(cap_group, obj2object(cap_group), 0, CAP_GROUP_OBJ_ID, __MT_DEFAULT__);
     if (cap < 0) {
         r = cap;
         BUG("insert cap error\n");
@@ -163,7 +163,7 @@ int slot_table_restore(struct cap_group *cap_group,
             r = -ENOMEM;
             goto out_free_prev_obj;
         }
-        cap = cap_insert(cap_group, new_obj->opaque, 0, slot_id);
+        cap = cap_insert(cap_group, new_obj, 0, slot_id, __MT_DEFAULT__);
         if (cap < 0) {
             r = cap;
             BUG("insert cap error\n");

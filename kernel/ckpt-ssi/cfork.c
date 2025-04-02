@@ -137,6 +137,13 @@ int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
     //     goto out;
     // }
     restored_cg = (struct cap_group *)object2obj(ckpt_obj_root->obj_dst);
+    CFORK_LOG_DEBUG("restored_cg: %p\n", restored_cg);
+    ret = dsm_migrate_process_restore(restored_cg);
+    if (ret) {
+        CFORK_LOG_ERR("cfork_restore: dsm_migrate_process_restore failed\n");
+        ret = -ENOENT;
+        goto out;
+    }
     CFORK_LOG_DEBUG("cfork_restore: restored_cg: %p\n", restored_cg);
 
     // add the restored sub cap group to the cap tree

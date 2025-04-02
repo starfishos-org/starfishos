@@ -110,10 +110,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
      */
     read_lock(&vmspace->vmspace_lock);
 
-    if (vmspace->flags & VM_FLAG_PRESERVE) {
-        kinfo("handle cfork trans fault for %p\n", fault_addr);
-    }
-
     vmr = find_vmr_for_va(vmspace, fault_addr);
     if (vmr == NULL) {
         kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n", fault_addr);

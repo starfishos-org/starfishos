@@ -122,5 +122,5 @@ int sys_cap_move(u64 dest_cap_group_cap, u64 src_slot_id);
 int sys_get_all_caps(u64 cap_group_cap);
 int sys_revoke_cap(u64 obj_cap);
 
-int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id);
-int cap_replace(struct cap_group *cap_group, void *obj, int slot_id);
+int cap_insert(struct cap_group *cap_group, struct object *object, u64 rights, int slot_id, mem_t mem_type);
+int cap_replace(struct cap_group *cap_group, struct object *object, int slot_id);
