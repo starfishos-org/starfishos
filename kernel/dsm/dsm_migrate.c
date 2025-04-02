@@ -87,10 +87,26 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 extern void arch_vmspace_init(struct vmspace *);
 int dsm_migrate_process_restore(struct cap_group *new_cap_group)
 {
+    struct vmspace *vmspace;
+
     /* Restore the cap group */
     
     /* Mark all as inuse */
-    struct vmspace *vmspace = obj_get(new_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+    int i;
+    struct slot_table *slot_table = &new_cap_group->slot_table;
+    for_each_set_bit(i, slot_table->slots_bmp, slot_table->slots_size) {
+        if (!slot_table->slots[i]) {
+            BUG("slot is NULL while bmp is not, slot id: %d\n", i);
+        }
+        slot_table->slots[i]->object->status = DSM_STATUS_INUSE;
+        slot_table->slots[i]->object->pair_obj = NULL;
+        DSM_TIER_LOG_DEBUG("[table=%p] restore slot: ID %d, object: %p, type: %s\n", 
+            slot_table, i, slot_table->slots[i]->object, obj_name_tbl[slot_table->slots[i]->object->type]);
+    }
+
+    /* Re-init vmspace*/
+    vmspace = (struct vmspace *)obj_get(new_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+    BUG_ON(!vmspace);
     arch_vmspace_init(vmspace);
 
     reinstall_system_services(new_cap_group);

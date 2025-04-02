@@ -54,17 +54,23 @@ char thread_state[][STATE_STR_LEN] = {
         "TS_WAITING_IPC",
 };
 
+char thread_exit_state[][STATE_STR_LEN] = {
+    "TE_RUNNING",
+    "TE_EXITED",
+    "TE_EXITING",
+};
+
 void print_thread(struct thread *thread)
 {
-    printk("Thread %p\tType: %s\tState: %s\tCPU %d\tAFF %d\t"
+    printk("Thread %p\tType: %s\tState: %s\tExit State: %s\tCPU %d\tAFF %d\t"
            "Budget %d\tPrio: %d\tIP: %p\tCMD: %s\n",
            thread,
            thread_type[thread->thread_ctx->type],
            thread_state[thread->thread_ctx->state],
+           thread_exit_state[thread->thread_ctx->thread_exit_state],
            thread->thread_ctx->cpuid,
            thread->thread_ctx->affinity,
-           /* REGISTER and SHADOW threads may have no sc, so just print -1.
-            */
+           /* REGISTER and SHADOW threads may have no sc, so just print -1. */
            thread->thread_ctx->sc ? thread->thread_ctx->sc->budget : -1,
            thread->thread_ctx->prio,
            arch_get_thread_next_ip(thread),

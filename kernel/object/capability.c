@@ -536,16 +536,13 @@ int sys_revoke_cap(u64 obj_cap)
     return ret;
 }
 
-int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id)
+int cap_insert(struct cap_group *cap_group, struct object *object, u64 rights, int slot_id, mem_t mem_type)
 {
-    struct object *object;
     struct slot_table *slot_table;
     struct object_slot *slot;
     int r;
 
-    object = container_of(obj, struct object, opaque);
     slot_table = &cap_group->slot_table;
-
     write_lock(&slot_table->table_guard);
     /* TODO: check whether slot_id is allocated */
     /* set bmp */
@@ -555,10 +552,15 @@ int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id)
         == ~((unsigned long)0))
         set_bit(slot_id / BITS_PER_LONG, slot_table->full_slots_bmp);
 
-    slot = kmalloc(sizeof(*slot), __MT_DEFAULT__);
-    if (!slot) {
-        r = -ENOMEM;
-        goto out_free_slot_id;
+    if (!slot_table->slots[slot_id]) {
+        slot = kmalloc(sizeof(*slot), mem_type);
+        if (!slot) {
+            r = -ENOMEM;
+            goto out_free_slot_id;
+        }
+    } else {
+        // avoid memory leak
+        slot = slot_table->slots[slot_id];
     }
     slot->slot_id = slot_id;
     slot->cap_group = cap_group;
@@ -578,14 +580,12 @@ out_free_slot_id:
     return r;
 }
 
-int cap_replace(struct cap_group *cap_group, void *obj, int slot_id)
+int cap_replace(struct cap_group *cap_group, struct object *object, int slot_id)
 {
     struct object *old_obj;
-    struct object *object;
     struct slot_table *slot_table;
     struct object_slot *slot;
 
-    object = container_of(obj, struct object, opaque);
     slot_table = &cap_group->slot_table;
 
     write_lock(&slot_table->table_guard);
