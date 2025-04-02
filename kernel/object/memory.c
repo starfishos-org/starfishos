@@ -101,7 +101,6 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     case PMO_STACK:
     case PMO_HEAP:
     case PMO_CROSS_SHM:
-    case PMO_IPC_BUFFER:
     {
         /*
          * For PMO_ANONYM (e.g., stack and heap) or PMO_SHM,

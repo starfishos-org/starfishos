@@ -133,7 +133,6 @@ typedef u64 pmo_type_t;
 #define PMO_CODE              10 /* code, PMO_DATA */
 #define PMO_STACK             11 /* stack, PMO_ANONYM */
 #define PMO_HEAP              12 /* heap, PMO_ANONYM */
-#define PMO_IPC_BUFFER        13 /* ipc buffer, PMO_SHM */
 #define PMO_CROSS_SHM         14 /* shared memory accross machine, PMO_SHM */
 #define PMO_TYPE_NR           15
 

@@ -288,7 +288,7 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	 * We use a new type 
 	 */
 
-	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_IPC_BUFFER, MALLOC_TYPE_DEFAULT);
+	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		printf("usys_create_pmo ret %d\n", shm_cap);
 		usys_exit(-1);
@@ -336,7 +336,7 @@ ipc_struct_t *ipc_register_fs_client(int target_machine_id)
 	int shm_cap;
 
 	/*
-	 * We now use special type PMO_IPC_BUFFER for ipc_msg.
+	 * We now use special type PMO_SHM for ipc_msg.
 	 */
 
 	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
