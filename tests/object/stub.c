@@ -70,7 +70,7 @@ struct thread *create_user_thread_stub(struct cap_group *cap_group)
 	int thread_cap, r;
 	struct thread *thread;
 
-	thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __OBJECT_MALLOC_TYPE__);
+	thread = obj_alloc(TYPE_THREAD, sizeof(*thread), __MT_OBJECT__);
 	assert(thread != NULL);
 	thread_init(thread, cap_group, 0, 0, 0, TYPE_USER, 0);
 	r = cap_alloc(cap_group, thread, 0);

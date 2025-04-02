@@ -53,7 +53,7 @@ paddr_t get_page_table(void)
 /*
  * the 3rd arg means the kind of PTE (user or kernel PTE)
  */
-static int set_pte_flags(pte_t *entry, vmr_prop_t flags, int kind)
+int set_pte_flags(pte_t *entry, vmr_prop_t flags, int kind)
 {
     /* For enabling MPK, we set U bit everywhere */
     BUG_ON(kind != USER_PTE);
@@ -166,7 +166,7 @@ int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va, ptp_t **next_ptp,
 #if defined USE_NVM && defined USE_DRAM
             new_ptp = (ptp_t *)get_dram_pages(0);
 #else
-            new_ptp = (ptp_t *)get_pages(0, __PGTABLE_MALLOC_TYPE__);
+            new_ptp = (ptp_t *)get_pages(0, __MT_PGTABLE__);
 #endif
             BUG_ON(new_ptp == NULL);
             memset((void *)new_ptp, 0, PAGE_SIZE);
@@ -745,7 +745,7 @@ int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len,
     return 0;
 }
 
-int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level)
+int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level, mem_t mem_type)
 {
     pte_t *src_entry, *dst_entry;
     int err;
@@ -780,12 +780,7 @@ int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level)
             paddr_t new_ptp_paddr;
 
             /* get 2^0 physical page */
-#if defined USE_NVM && defined USE_DRAM
-            new_ptp = (ptp_t *)get_dram_pages(0);
-#else
-            /* FIXME(FN): need to specify flags in function */
-            new_ptp = (ptp_t *)get_pages(0, __PGTABLE_MALLOC_TYPE__);
-#endif
+            new_ptp = (ptp_t *)get_pages(0, mem_type);
             BUG_ON(new_ptp == NULL);
             memset((void *)new_ptp, 0, PAGE_SIZE);
             new_ptp_paddr = virt_to_phys((void *)new_ptp);
@@ -794,7 +789,7 @@ int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level)
             dst_entry->pteval = src_entry->pteval;
             dst_entry->table.next_table_addr = new_ptp_paddr >> PAGE_SHIFT;
             src_next_ptp = (ptp_t *)GET_NEXT_PTP(src_entry);
-            err = __pgtbl_deep_copy(src_next_ptp, new_ptp, level + 1);
+            err = __pgtbl_deep_copy(src_next_ptp, new_ptp, level + 1, mem_type);
             if (err) {
                 return err;
             }
@@ -803,7 +798,7 @@ int __pgtbl_deep_copy(ptp_t *src_ptp, ptp_t *dst_ptp, u32 level)
     return 0;
 }
 
-int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl)
+int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl, mem_t mem_type)
 {
     ptp_t *src_l0_ptp, *dst_l0_ptp;
     int ret;
@@ -813,7 +808,7 @@ int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl)
     /* L0 page table / pml4 */
     src_l0_ptp = (ptp_t *)remove_pcid(src_pgtbl);
     dst_l0_ptp = (ptp_t *)remove_pcid(dst_pgtbl);
-    ret = __pgtbl_deep_copy(src_l0_ptp, dst_l0_ptp, 0);
+    ret = __pgtbl_deep_copy(src_l0_ptp, dst_l0_ptp, 0, mem_type);
     return ret;
 }
 
@@ -880,4 +875,14 @@ int remap_page_in_pgtbl(pte_t *entry, paddr_t new_pa)
     entry->pte_4K.pfn = new_pa >> PAGE_SHIFT;
 
     return 0;
+}
+
+
+pte_t get_and_clear_pte(pte_t *pte)
+{
+    u64 old_pte_value = pte->pteval;
+    u64 pte_val = compare_and_swap_64((s64*)&(pte->pteval), (s64)old_pte_value, 0);
+    pte_t ret_val;
+    ret_val.pteval = pte_val;
+    return ret_val;
 }

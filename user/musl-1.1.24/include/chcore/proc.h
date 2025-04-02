@@ -57,6 +57,7 @@ struct launch_process_args {
 	u64 badge;
 	int pid;
 	u64 pcid;
+	u32 type;
 };
 
 /* Fixed badge for root process and servers */

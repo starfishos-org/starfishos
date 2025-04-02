@@ -21,7 +21,7 @@ struct kvs *cap_kvs;
 static void init_cg_kvs(void)
 {
     if (unlikely(!cap_kvs)) {
-        cap_kvs = new_kvs(KVS_SIZE, __PRIVATE__);
+        cap_kvs = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     }
 }
 
@@ -139,7 +139,7 @@ int add_ckpt_obj_root_by_name(struct ckpt_obj_root *ckpt_obj_root, char *pname, 
     int ret;
     u64 hash_val = __pname_hash(pname, pname_len);
 
-    pname_kvs_value = kmalloc(sizeof(*pname_kvs_value), __SHARED__);
+    pname_kvs_value = kmalloc(sizeof(*pname_kvs_value), __MT_SHARED__);
     if (!pname_kvs_value) {
         CFORK_LOG_ERR("add_ckpt_capgroup_by_name: kmalloc failed");
         return -ENOMEM;

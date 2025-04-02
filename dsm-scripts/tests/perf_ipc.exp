@@ -1,0 +1,22 @@
+#!/usr/bin/expect  
+
+set timeout 30
+
+set data_path [lindex $argv 0]
+
+if { $data_path == "" } {
+    set data_path "/tmp"
+}
+
+puts "data path: $data_path"
+
+# start
+spawn ./build/simulate.sh
+expect "Welcome to ChCore shell!"
+# run anything you like here
+# interact
+send -- "ipc_perf $data_path \r"
+
+expect "perf finished"
+
+exit 0

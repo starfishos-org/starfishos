@@ -20,7 +20,7 @@ void tst_malloc(void)
     char **buf;
     unsigned long start, end;
 
-    buf = (char **)kmalloc(sizeof(char *) * MALLOC_TEST_NUM, __DEFAULT__);
+    buf = (char **)kmalloc(sizeof(char *) * MALLOC_TEST_NUM, __MT_DEFAULT__);
 
     /* ============ Start Barrier ============ */
     lock(&big_kernel_lock);
@@ -35,7 +35,7 @@ void tst_malloc(void)
     for (int round = 0; round < MALLOC_TEST_ROUND; round++) {
         for (int i = 0; i < MALLOC_TEST_NUM; i++) {
             int size = 0x1 + i;
-            buf[i] = kmalloc(size, __DEFAULT__);
+            buf[i] = kmalloc(size, __MT_DEFAULT__);
             BUG_ON(!buf[i]);
             for (int j = 0; j < size; j++) {
                 buf[i][j] = (char)(i + size);
@@ -101,7 +101,7 @@ void tst_malloc_latency(bool one_cpu)
 
     for (i = 0; i < ITERATIONS; i++) {
         start = plat_get_mono_time();
-        memory = kmalloc(ALLOC_SIZE, __PRIVATE__);
+        memory = kmalloc(ALLOC_SIZE, __MT_PRIVATE__);
         end = plat_get_mono_time();
         // kfree(memory);
         if (i % 1000 == 0) {
@@ -122,7 +122,7 @@ void tst_malloc_latency(bool one_cpu)
 
     for (i = 0; i < ITERATIONS; i++) {
         start = plat_get_mono_time();
-        memory = kmalloc(ALLOC_SIZE, __SHARED__);
+        memory = kmalloc(ALLOC_SIZE, __MT_SHARED__);
         end = plat_get_mono_time();
         // kfree(memory);
         if (i % 1000 == 0) {

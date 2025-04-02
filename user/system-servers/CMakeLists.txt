@@ -33,4 +33,3 @@ endif()
 if(CHCORE_SERVER_POSIX_SHM)
     add_subdirectory(posix_shm)
 endif()
-

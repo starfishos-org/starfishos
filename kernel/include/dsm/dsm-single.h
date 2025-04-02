@@ -9,6 +9,7 @@
 #include <mm/mm.h>
 #include <mm/slab.h>
 #include <machine.h>
+#include <uapi/types.h>
 
 // #define DSM_DEBUG
 
@@ -47,8 +48,8 @@
 /**
  * machine ID of current machine
  */
-u32 machine_id;
-#define MACHINE_ID (machine_id)
+mid_t machine_id;
+#define CUR_MACHINE_ID (machine_id)
 
 /**
  * cpu range of current machine
@@ -141,8 +142,20 @@ typedef struct {
      */
     struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
 
+    struct {
+        struct cap_group *root_cap_group;
+        struct thread *procmgr_thread;
+        struct thread *fsm_thread;
+        struct thread *lwip_thread;
+    } local_service_table[CLUSTER_MAX_MACHINE_NUM];
+
     /**
-     * 6. checkpoint data
+     * 6. for fsm
+     */
+    struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
+
+    /**
+     * 7. checkpoint data
      */
 #if defined CHCORE_SSI_SLS
     /* crash_last_time = 1 means unexpected */
@@ -161,7 +174,7 @@ typedef struct {
 dsm_metadata_t *dsm_meta;
 
 /* local meta of current machine */
-// #define local_meta (dsm_meta->local_meta[MACHINE_ID]);
+// #define local_meta (dsm_meta->local_meta[CUR_MACHINE_ID]);
 
 static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
@@ -195,6 +208,16 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
         dsm_meta->max_paddr = local_paddr;
     }
 }
+
+#define IS_SHM_PADDR(paddr) ( \
+    (u64)paddr >= (u64)dsm_meta->shm_paddr \
+    && (u64)paddr < (u64)dsm_meta->shm_paddr + (u64)dsm_meta->shm_size)
+#define IS_LOCAL_PADDR(paddr, machineid) ( \
+    (u64)paddr >= (u64)dsm_meta->local_meta[machineid].local_paddr \
+    && (u64)paddr < (u64)dsm_meta->local_meta[machineid].local_paddr + \
+    (u64)dsm_meta->local_meta[machineid].local_mem_size)
+#define IS_INVALID_PADDR(paddr) ( \
+    !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, CUR_MACHINE_ID)))
 
 void dsm_add_machine(void);
 

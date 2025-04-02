@@ -19,7 +19,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
-#define rr_cur_shared_queue (dsm_meta->shared_queue[MACHINE_ID])
+#define rr_cur_shared_queue (dsm_meta->shared_queue[CUR_MACHINE_ID])
 #endif
 
 /* in arch/sched/idle.S */
@@ -175,7 +175,7 @@ int rr_sched_migrate_from_shared_queue()
         lcpuid = cpuid_g2l(gcpuid);
 
         /* move thread from shared queue to local queue */
-        ret = __rr_sched_dequeue_shared(thread, MACHINE_ID);
+        ret = __rr_sched_dequeue_shared(thread, CUR_MACHINE_ID);
         thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
@@ -250,6 +250,11 @@ int rr_sched_enqueue(struct thread *thread)
 
     if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
         thread->thread_ctx->thread_exit_state = TE_EXITED;
+        return 0;
+    }
+
+    if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+        thread->thread_ctx->thread_exit_state = TE_STOPPED;
         return 0;
     }
 
@@ -368,6 +373,11 @@ struct thread *rr_sched_choose_thread(void)
             goto again;
         }
 
+        if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
+            goto again;
+        }
+
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
         return thread;
     }
@@ -428,6 +438,17 @@ int rr_sched(void)
             /* schedule migrate thread to remote */
             rr_sched_migrate_to_remote(old);
             goto out;
+        case TE_STOPPING:
+            if (old->thread_ctx->is_fpu_owner >= 0) {
+                save_and_release_fpu(old);
+            }
+            old->thread_ctx->thread_exit_state = TE_STOPPED;
+            break;
+        case TE_STOPPED:
+            if (old->thread_ctx->is_fpu_owner >= 0) {
+                save_and_release_fpu(old);
+            }
+            break;
 #endif
         default:
             BUG("Unexpected thread exit state: %d", old->thread_ctx->thread_exit_state);

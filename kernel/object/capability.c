@@ -17,6 +17,17 @@ extern void notification_deinit(void *);
 extern void vmspace_deinit(void *);
 extern void cap_group_deinit(void *);
 
+const char* obj_name_tbl[TYPE_NR] = {
+    [0 ... TYPE_NR - 1] = 0,
+    [TYPE_CAP_GROUP] = "cap group",
+    [TYPE_THREAD] = "thread",
+    [TYPE_CONNECTION] = "connection",
+    [TYPE_NOTIFICATION] = "notification",
+    [TYPE_IRQ] = "irq notification",
+    [TYPE_PMO] = "pmobject",
+    [TYPE_VMSPACE] = "vmspace"
+};
+
 const obj_deinit_func obj_deinit_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
         [TYPE_CAP_GROUP] = cap_group_deinit,
@@ -31,7 +42,7 @@ const obj_deinit_func obj_deinit_tbl[TYPE_NR] = {
 /*
  * object_alloc: allocate an object and return the opaque pointer
  */
-struct object *object_alloc(u64 type, u64 size, int flags)
+struct object *object_alloc(u64 type, u64 size, mem_t flags)
 {
     u64 total_size;
     struct object *object;
@@ -45,6 +56,12 @@ struct object *object_alloc(u64 type, u64 size, int flags)
     object->size = size;
     object->refcount = 0;
     object->obj_root = NULL;
+#ifdef DSM_ENABLED
+    object->mem_type = flags;
+    object->status = DSM_STATUS_INVALID;
+    object->pair_obj = NULL;
+    lock_init(&object->tiering_lock);
+#endif
 
     /*
      * If the cap of the object is copied, then the copied cap (slot) is
@@ -63,7 +80,7 @@ struct object *object_alloc(u64 type, u64 size, int flags)
  * initialize the obj;
  * cap_alloc(obj);
  */
-void *obj_alloc(u64 type, u64 size, int flags)
+void *obj_alloc(u64 type, u64 size, mem_t flags)
 {
     struct object *object = object_alloc(type, size, flags);
     if (!object) {
@@ -109,7 +126,7 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
         goto out_unlock_table;
     }
 
-    slot = kmalloc(sizeof(*slot), __DEFAULT__);
+    slot = kmalloc(sizeof(*slot), __MT_DEFAULT__);
     if (!slot) {
         r = -ENOMEM;
         goto out_free_slot_id;
@@ -123,6 +140,9 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
 
     BUG_ON(object->refcount != 0);
     object->refcount = 1;
+#ifdef DSM_ENABLED
+    object->status = DSM_STATUS_INUSE;
+#endif
 
     install_slot(cap_group, slot_id, slot);
 
@@ -299,7 +319,7 @@ int cap_copy(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,
         goto out_unlock;
     }
 
-    dest_slot = kmalloc(sizeof(*dest_slot), __DEFAULT__);
+    dest_slot = kmalloc(sizeof(*dest_slot), __MT_DEFAULT__);
     if (!dest_slot) {
         r = -ENOMEM;
         goto out_free_slot_id;
@@ -447,8 +467,8 @@ int sys_transfer_caps(u64 dest_group_cap, u64 src_caps_buf, int nr_caps,
         return -ECAPBILITY;
 
     size = sizeof(int) * nr_caps;
-    src_caps = kmalloc(size, __DEFAULT__);
-    dst_caps = kmalloc(size, __DEFAULT__);
+    src_caps = kmalloc(size, __MT_DEFAULT__);
+    dst_caps = kmalloc(size, __MT_DEFAULT__);
 
     /* get args from user buffer */
     copy_from_user((void *)src_caps, (void *)src_caps_buf, size);
@@ -516,16 +536,13 @@ int sys_revoke_cap(u64 obj_cap)
     return ret;
 }
 
-int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id)
+int cap_insert(struct cap_group *cap_group, struct object *object, u64 rights, int slot_id, mem_t mem_type)
 {
-    struct object *object;
     struct slot_table *slot_table;
     struct object_slot *slot;
     int r;
 
-    object = container_of(obj, struct object, opaque);
     slot_table = &cap_group->slot_table;
-
     write_lock(&slot_table->table_guard);
     /* TODO: check whether slot_id is allocated */
     /* set bmp */
@@ -535,10 +552,15 @@ int cap_insert(struct cap_group *cap_group, void *obj, u64 rights, int slot_id)
         == ~((unsigned long)0))
         set_bit(slot_id / BITS_PER_LONG, slot_table->full_slots_bmp);
 
-    slot = kmalloc(sizeof(*slot), __DEFAULT__);
-    if (!slot) {
-        r = -ENOMEM;
-        goto out_free_slot_id;
+    if (!slot_table->slots[slot_id]) {
+        slot = kmalloc(sizeof(*slot), mem_type);
+        if (!slot) {
+            r = -ENOMEM;
+            goto out_free_slot_id;
+        }
+    } else {
+        // avoid memory leak
+        slot = slot_table->slots[slot_id];
     }
     slot->slot_id = slot_id;
     slot->cap_group = cap_group;
@@ -558,14 +580,12 @@ out_free_slot_id:
     return r;
 }
 
-int cap_replace(struct cap_group *cap_group, void *obj, int slot_id)
+int cap_replace(struct cap_group *cap_group, struct object *object, int slot_id)
 {
     struct object *old_obj;
-    struct object *object;
     struct slot_table *slot_table;
     struct object_slot *slot;
 
-    object = container_of(obj, struct object, opaque);
     slot_table = &cap_group->slot_table;
 
     write_lock(&slot_table->table_guard);

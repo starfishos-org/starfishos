@@ -8,6 +8,7 @@
 #include <irq/timer.h>
 #include <sched/sched.h>
 #include <ckpt/ckpt.h>
+#include <dsm/tiering.h>
 
 #include "cfork.h"
 #include "ckpt_object_pool.h"
@@ -18,16 +19,14 @@ static int start_user_thread(struct thread *thread)
     int ret = 0;
     BUG_ON(thread->thread_ctx->type != TYPE_USER);
 
-    // stopped thread should be TE_EXITED
-    BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
     thread->thread_ctx->thread_exit_state = TE_RUNNING;
 
     // TODO: handle thread with affinity or fpu_owner
     if (thread->thread_ctx->affinity != NO_AFF 
             || thread->thread_ctx->is_fpu_owner >= 0) {
-        CFORK_LOG_WARN("illegal thread: %p, affinity: %d, is_fpu_owner: %d\n", 
+        CFORK_LOG_DEBUG("thread with affinity or fpu_owner: %p, affinity: %d, is_fpu_owner: %d\n", 
             thread, thread->thread_ctx->affinity, thread->thread_ctx->is_fpu_owner);
-        return -EINVAL;
+        // return -EINVAL;
     }
     thread->thread_ctx->cpuid = NO_AFF;
     thread->thread_ctx->is_fpu_owner = -1;
@@ -62,11 +61,24 @@ static int start_user_thread(struct thread *thread)
 int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
+    int ret;
+
+    CFORK_LOG_INFO("start_all_threads:\n");
 
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
-        BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
         print_thread(thread);
+        kprint_vmr(thread->vmspace);
+
+        BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
+
+        /* promote the thread to local memory */
+        ret = dsm_promote_object(obj2object(thread));
+        if (ret) {
+            CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
+        }
+
+        /* start the thread */
         switch (thread->thread_ctx->type) {
             case TYPE_USER:
                 start_user_thread(thread);
@@ -79,6 +91,8 @@ int start_all_threads(struct list_head *thread_list)
                 return -EINVAL;
         }
     }
+
+    CFORK_LOG_DEBUG("all threads have been started\n");
 
     return 0;
 }
@@ -98,9 +112,8 @@ int stop_all_threads(struct list_head *thread_list)
     init_list_head(&waiting_thread_list);
 
     for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
-        thread->thread_ctx->thread_exit_state = TE_EXITING;
-
         print_thread(thread);
+        thread->thread_ctx->thread_exit_state = TE_STOPPING;
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:
@@ -126,7 +139,7 @@ int stop_all_threads(struct list_head *thread_list)
              * this thread is really stopped
              */
             else {
-                thread->thread_ctx->thread_exit_state = TE_EXITED;
+                thread->thread_ctx->thread_exit_state = TE_STOPPED;
             }
             break;
         case TS_WAITING_IPC:
@@ -136,17 +149,21 @@ int stop_all_threads(struct list_head *thread_list)
         case TS_WAITING:
             /* If waiting for timer, remove it from sleeping queue */
             if (thread->sleep_state.cb != NULL) {
+                // kinfo("try to remove timeout for thread: %p\n", thread);
                 extern void try_remove_timeout(struct thread *);
                 try_remove_timeout(thread);
+                thread->thread_ctx->state = TS_READY;
             }
-            
             /* directly checkpoint */
-            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
         case TS_INTER:
-        default:
-            add_to_waiting_list(&waiting_thread_list, (void *)thread);
+        case TS_INIT:
+            /* mark the thread as TE_STOPPED */
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
+        default:
+            BUG("unsupported thread state: %s\n", thread_state[thread->thread_ctx->state]);
         }
     }
 
@@ -154,9 +171,10 @@ int stop_all_threads(struct list_head *thread_list)
     while (!list_empty(&waiting_thread_list)) {
         for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
             thread = (struct thread *)node->data;
-            if (thread->thread_ctx->thread_exit_state == TE_EXITED) {
+            if (thread->thread_ctx->thread_exit_state == TE_STOPPED) {
                 // check thread is not holding the kernel stack
                 BUG_ON(thread->thread_ctx->kernel_stack_state != KS_FREE);
+                BUG_ON(thread->thread_ctx->state == TS_EXIT);
                 remove_from_waiting_list(&waiting_thread_list, node);
             } else {
                 // print_thread(thread);
@@ -171,7 +189,10 @@ int stop_all_threads(struct list_head *thread_list)
         handle_ipi();
     }
 
-    CFORK_LOG_DEBUG("%s: all threads have been stoped\n", __func__);
+    CFORK_LOG_DEBUG("%s: all threads have been stoped:\n", __func__);
+    for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
+        print_thread(thread);
+    }
 
     return 0;
 }
@@ -191,6 +212,9 @@ cfork_prepare_ckpt_process(struct object *root_cg_obj)
 
     /* prepare the ckpt_objs for the cap group */
     root_cg_obj_root->cfork_ckpt_obj = ckpt_obj_alloc(TYPE_CAP_GROUP);
+
+    /* demote everything except cap group */
+    // dsm_migrate_process_prepare(root_cg_obj)
 
     return root_cg_obj_root;
 }
@@ -214,7 +238,7 @@ int cfork_ckpt_process(struct ckpt_obj_root *root_cg_obj_root)
     int ret = 0;
 
     BUG_ON(!root_cg_obj_root);
-    
+
     /* checkpoint the cap group */
     ckpt_obj = ckpt_obj_get(root_cg_obj_root, FLAGS_ALLOC | FLAGS_CFORK);
     if (!ckpt_obj) {
@@ -237,7 +261,7 @@ int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group 
     struct cap_group *cg;
     
     // contains tmp mapping from ckpt_obj_root to the restored object
-    obj_map = new_kvs(KVS_SIZE, __PRIVATE__);
+    obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!obj_map) {
         CFORK_LOG_ERR("Failed to allocate the obj_map");
         return -ENOMEM;

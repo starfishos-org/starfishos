@@ -20,9 +20,6 @@ extern struct phys_mem_pool *global_dram_mem[];
 /* Declaration */
 void *get_dram_pages(int order)
 {
-// #if !defined USE_NVM || !defined USE_DRAM
-//         return get_pages(order, __DEFAULT__);
-// #endif
 #if TRACK_THREAD_MM == ON
     if (current_thread)
         current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));

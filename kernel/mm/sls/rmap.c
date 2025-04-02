@@ -26,7 +26,7 @@ void pmo_add_reverse_node(struct pmobject *pmo, struct vmregion *vmr)
 
     /* Track vmregion info */
     if (!has_vmr) {
-        rnode = kmalloc(sizeof(*rnode), __DEFAULT__);
+        rnode = kmalloc(sizeof(*rnode), __MT_DEFAULT__);
         rnode->vmr = vmr;
         list_add(&(rnode->node), &(pmo->reverse_list));
     }

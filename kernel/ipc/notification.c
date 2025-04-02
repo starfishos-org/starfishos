@@ -269,6 +269,10 @@ void try_remove_timeout(struct thread *target)
     target->sleep_state.pending_notific = NULL;
 }
 
+/**
+ * signal_notific -- wake up one waiting thread
+ * enqueue target thread to ready_queue
+ */
 int signal_notific(struct notification *notifc)
 {
     struct thread *target = NULL;
@@ -334,7 +338,13 @@ int signal_notific(struct notification *notifc)
         // BUG_ON(count);
 
         target->thread_ctx->state = TS_INTER;
-        BUG_ON(sched_enqueue(target));
+        if (target->thread_ctx->thread_exit_state == TE_EXITING) {
+            target->thread_ctx->thread_exit_state = TE_EXITED;
+        } else if (target->thread_ctx->thread_exit_state == TE_STOPPING) {
+            target->thread_ctx->thread_exit_state = TE_STOPPED;
+        } else {
+            BUG_ON(sched_enqueue(target));
+        }
 
         unlock(&target->sleep_state.queue_lock);
     }
@@ -350,7 +360,7 @@ int sys_create_notifc(void)
     int notifc_cap = 0;
     int ret = 0;
 
-    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __OBJECT_MALLOC_TYPE__);
+    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __MT_OBJECT__);
     if (!notifc) {
         ret = -ENOMEM;
         goto out_fail;

@@ -360,6 +360,16 @@ void trap_c(arch_exec_ctx_t *ec)
         BUG_ON(1);
     }
 
+    #ifdef IPC_PERF_TRAP
+        extern volatile bool ipc_perf_enabled;
+        u64 begin = 0, end = 0; 
+        (void)begin;
+        (void)end;
+        if (ipc_perf_enabled) {
+            begin = plat_get_mono_time();
+        }
+    #endif
+
     switch (trapno) {
     case T_DE:
         kinfo("Divide Error\n");
@@ -388,6 +398,9 @@ void trap_c(arch_exec_ctx_t *ec)
         kdebug("Device (ChCore considers FPU only) Not Available:\n");
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
         change_fpu_owner();
+        #ifdef IPC_PERF_TRAP
+            goto perf_end;
+        #endif
         return;
 #else
         break;
@@ -437,6 +450,9 @@ void trap_c(arch_exec_ctx_t *ec)
         break;
     default:
         handle_irq(trapno);
+        #ifdef IPC_PERF_TRAP
+            goto perf_end;
+        #endif
         return;
     }
 
@@ -446,6 +462,18 @@ void trap_c(arch_exec_ctx_t *ec)
      *
      * Rescheduling only happens after IRQ_TIMER or IRQ_IPI_RESCHED.
      */
+
+    #ifdef IPC_PERF_TRAP
+    perf_end:
+        if (ipc_perf_enabled) {
+            end = plat_get_mono_time();
+            extern volatile u64 ipc_perf_sum_count;
+            extern volatile u64 ipc_perf_sum_time;
+            ipc_perf_sum_count += 1;
+            ipc_perf_sum_time += end - begin;
+        }
+    #endif
+
     return;
 }
 

@@ -85,9 +85,6 @@ struct page {
 };
 
 #define IS_SHM_PAGE(page) (page->pool->type == CXL_MEM_PAGE)
-#define IS_SHM_PADDR(paddr) ( \
-    paddr >= dsm_meta->shm_paddr \
-    && paddr < dsm_meta->shm_paddr + dsm_meta->shm_size)
 
 struct free_list {
     struct list_head free_list;

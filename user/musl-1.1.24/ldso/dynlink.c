@@ -1962,7 +1962,6 @@ void __dls3(size_t *sp)
 	reclaim_gaps(&app);
 	reclaim_gaps(&ldso);
 
-
 	/* Load preload/needed libraries, add symbols to global namespace. */
 	ldso.deps = (struct dso **)no_deps;
 	if (env_preload) load_preload(env_preload);

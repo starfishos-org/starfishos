@@ -67,7 +67,7 @@ int sys_pcie_control(u64 usr_req_buf)
     int ret = 0;
 
     req = (struct pci_control_req *)kmalloc(
-        sizeof(struct pci_control_req), __PRIVATE__);
+        sizeof(struct pci_control_req), __MT_PRIVATE__);
     if (!req) {
         ret = -ENOMEM;
         goto out;

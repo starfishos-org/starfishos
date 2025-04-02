@@ -21,11 +21,12 @@ struct radix_node {
 struct radix {
     struct radix_node *root;
     struct lock radix_lock;
+    mem_t mem_type;
     void (*value_deleter)(void *);
 };
 
 /* interfaces */
-struct radix *new_radix(void);
+struct radix *new_radix(mem_t flags);
 void init_radix(struct radix *radix);
 int radix_add(struct radix *radix, u64 key, void *value);
 void *radix_get(struct radix *radix, u64 key);
@@ -33,7 +34,7 @@ int radix_free(struct radix *radix);
 int radix_del(struct radix *radix, u64 key);
 
 void init_radix_w_deleter(struct radix *radix, void (*value_deleter)(void *));
-int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc);
+int radix_deep_copy(struct radix *src, struct radix *dst, int phy_alloc, mem_t page_mem_type);
 
 unsigned long radix_checksum(struct radix *tree);
 

@@ -78,8 +78,8 @@ struct ckpt_page_pair *get_page_pair(struct page *page, u64 index)
     /* lock to avoid concurrent*/
     lock(&ckpt_pmo->lock);
     if (unlikely(!page_pair)) {
-        page_pair = kzalloc(sizeof(*page_pair), __SHARED__);
-        page_pair->pages[0].va = (vaddr_t)get_pages(0, __SHARED__);
+        page_pair = kzalloc(sizeof(*page_pair), __MT_SHARED__);
+        page_pair->pages[0].va = (vaddr_t)get_pages(0, __MT_SHARED__);
         page_pair->pages[1].va = (vaddr_t)page_to_virt(page);
         radix_add(ckpt_pmo->radix, index, page_pair);
     }
@@ -134,7 +134,7 @@ int ckpt_dsm_page(struct pmobject *pmo, void *kva, u64 index)
              */
             kinfo("ckpt_nvm_page: page %lx is refered by time traveling ckpt\n",
                   kva);
-            ckpt_page->va = (vaddr_t)get_pages(0, __SHARED__);
+            ckpt_page->va = (vaddr_t)get_pages(0, __MT_SHARED__);
             ckpt_page->tt_page = NULL;
         }
 

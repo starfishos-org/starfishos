@@ -21,6 +21,9 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #endif
+#ifdef IPC_PERF_ENABLED
+#include <arch/machine/pmu.h>
+#endif
 
 struct thread *current_threads[PLAT_CPU_NUM];
 struct thread idle_threads[PLAT_CPU_NUM];
@@ -39,7 +42,7 @@ extern void record_history_cpu(struct vmspace *vmspcae, u32 cpuid);
 struct sched_ops *cur_sched_ops;
 
 char thread_type[][TYPE_STR_LEN] =
-        {"IDLE", "KERNEL", "USER", "SHADOW", "REGISTER", "TESTS"};
+        {"IDLE", "KERNEL", "USER", "SHADOW", "REGISTER", "TESTS", "SERVICES"};
 
 char thread_state[][STATE_STR_LEN] = {
         "TS_INIT      ",
@@ -51,17 +54,28 @@ char thread_state[][STATE_STR_LEN] = {
         "TS_WAITING_IPC",
 };
 
+char thread_exit_state[][STATE_STR_LEN] = {
+        "TE_RUNNING",
+        "TE_EXITED",
+        "TE_EXITING",
+#ifdef DSM_ENABLED
+        "TE_MIGRATING",
+        "TE_STOPPING",
+        "TE_STOPPED",
+#endif
+};
+
 void print_thread(struct thread *thread)
 {
-    printk("Thread %p\tType: %s\tState: %s\tCPU %d\tAFF %d\t"
+    printk("Thread %p\tType: %s\tState: %s\tExit State: %s\tCPU %d\tAFF %d\t"
            "Budget %d\tPrio: %d\tIP: %p\tCMD: %s\n",
            thread,
            thread_type[thread->thread_ctx->type],
            thread_state[thread->thread_ctx->state],
+           thread_exit_state[thread->thread_ctx->thread_exit_state],
            thread->thread_ctx->cpuid,
            thread->thread_ctx->affinity,
-           /* REGISTER and SHADOW threads may have no sc, so just print -1.
-            */
+           /* REGISTER and SHADOW threads may have no sc, so just print -1. */
            thread->thread_ctx->sc ? thread->thread_ctx->sc->budget : -1,
            thread->thread_ctx->prio,
            arch_get_thread_next_ip(thread),
@@ -206,6 +220,8 @@ void sched_to_thread(struct thread *target)
      * IPC returns (a very small time window),
      * so we need to wait until its stack is free.
      */
+
+    // 50 cycles
     wait_for_kernel_stack(target);
 
     /*
@@ -215,6 +231,7 @@ void sched_to_thread(struct thread *target)
      */
 
     is_fpu_owner = target->thread_ctx->is_fpu_owner;
+    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
     if ((is_fpu_owner >= 0) && (is_fpu_owner != smp_get_cpu_id())) {
         /*
@@ -290,6 +307,7 @@ u64 switch_context(void)
     }
 #endif /* CHCORE_KERNEL_TEST */
 
+    // 74 cycles
     arch_switch_context(target_thread);
 
     return (u64)target_ctx;
@@ -308,6 +326,7 @@ s32 get_cpubind(struct thread *thread)
     local_cpuid = smp_get_cpu_id();
     affinity = thread->thread_ctx->affinity;
     is_fpu_owner = thread->thread_ctx->is_fpu_owner;
+    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
 #ifdef DSM_ENABLED
     if (!is_local_cpu(affinity))
@@ -475,7 +494,7 @@ static void init_idle_threads(void)
     struct vmspace *idle_vmspace;
 
     /* Create a fake idle cap group to store the name */
-    idle_cap_group = kzalloc(sizeof(*idle_cap_group), __DEFAULT__);
+    idle_cap_group = kzalloc(sizeof(*idle_cap_group), __MT_PRIVATE__);
     idle_name_len = MIN(idle_name_len, MAX_GROUP_NAME_LEN);
     memcpy(idle_cap_group->cap_group_name, idle_name, idle_name_len);
     init_list_head(&idle_cap_group->thread_list);

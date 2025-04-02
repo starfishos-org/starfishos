@@ -115,6 +115,8 @@ struct vmspace {
 };
 
 typedef u64 pmo_type_t;
+
+// TODO(FN): move to uapi.h
 #define PMO_ANONYM            0 /* lazy allocation */
 #define PMO_DATA              1 /* immediate allocation */
 #define PMO_FILE              2 /* file backed */
@@ -122,10 +124,17 @@ typedef u64 pmo_type_t;
 #define PMO_USER_PAGER        4 /* support user pager */
 #define PMO_DEVICE            5 /* memory mapped device registers */
 #define PMO_DATA_NOCACHE      6 /* non-cacheable immediate allocation */
-#define PMO_RING_BUFFER       7 /* pages that need to sync with external */
-#define PMO_RING_BUFFER_RADIX 8 /* same as PMO_RING_BUFFER; for test*/
-#define PMO_CROSS_SHM         9 /* shared memory accross machine */
-#define PMO_FORBID            10 /* Forbidden area: avoid overflow */
+#define PMO_FORBID            7 /* Forbidden area: avoid overflow */
+
+// Following type are actually mapped to previous types
+#define PMO_RING_BUFFER       8 /* pages that need to sync with external, PMO_DATA */
+#define PMO_RING_BUFFER_RADIX 9 /* same as PMO_RING_BUFFER; for test, PMO_ANONYM */
+// More types for partioned process
+#define PMO_CODE              10 /* code, PMO_DATA */
+#define PMO_STACK             11 /* stack, PMO_ANONYM */
+#define PMO_HEAP              12 /* heap, PMO_ANONYM */
+#define PMO_CROSS_SHM         14 /* shared memory accross machine, PMO_SHM */
+#define PMO_TYPE_NR           15
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 struct page_patch {
@@ -150,7 +159,7 @@ struct pmobject {
     paddr_t start;
     size_t size;
     pmo_type_t type;
-    mm_malloc_type_t mm_type;
+    mem_t mm_type;
 
     /*
      * 'private' depends on 'type'.
@@ -165,7 +174,7 @@ struct pmobject {
 };
 
 /* explore for ckpt/restore */
-struct vmregion *alloc_vmregion(void);
+struct vmregion *alloc_vmregion(mem_t mem_type);
 void free_vmregion(struct vmregion *vmr);
 int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr);
 
@@ -173,7 +182,7 @@ struct vmspace *get_current_vmspace();
 int vmspace_init(struct vmspace *vmspace);
 
 struct cap_group;
-int create_pmo(u64 size, u64 type, mm_malloc_type_t flags, struct cap_group *cap_group,
+int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,
                struct pmobject **new_pmo);
 int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo);
 
@@ -207,8 +216,9 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
                   struct cap_group *dst_cap_group);
 int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow);
 
-bool use_radix(struct pmobject *pmo);
-bool use_continuous_pages(struct pmobject *pmo);
+bool is_radix_pmo(struct pmobject *pmo);
+bool is_continuous_pmo(struct pmobject *pmo);
+bool is_unchangeable_pmo(struct pmobject *pmo);
 bool is_external_sync_pmo(struct pmobject *pmo);
 bool is_shared_pmo(struct pmobject *pmo);
 

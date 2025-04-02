@@ -22,6 +22,10 @@
 #include "pthread_impl.h"
 #include "fs_client_defs.h"
 
+#ifdef IPC_PERF_ENABLED
+#include <chcore/perf.h>
+#endif
+
 /*
  * **fsm_ipc_struct** is an address that points to the per-thread
  * system_ipc_fsm in the pthread_t struct.
@@ -281,20 +285,10 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	int shm_cap;
 
 	/*
-	 * Before registering client on the server,
-	 * the client allocates the shm (and shares it with
-	 * the server later).
-	 *
-	 * Now we used PMO_DATA instead of PMO_SHM because:
-	 * - SHM (IPC_PER_SHM_SIZE) only contains one page and
-	 *   PMO_DATA is thus more efficient.
-	 *
-	 * If the SHM becomes larger, we can use PMO_SHM instead.
-	 * Both types are tested and can work well.
+	 * We use a new type 
 	 */
 
 	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
-	// shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_DATA, MALLOC_TYPE_DEFAULT);
 	if (shm_cap < 0) {
 		printf("usys_create_pmo ret %d\n", shm_cap);
 		usys_exit(-1);
@@ -302,9 +296,6 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 
 	shm_config.shm_cap = shm_cap;
 	shm_config.shm_addr = chcore_alloc_vaddr(IPC_PER_SHM_SIZE);
-
-	//printf("%s: register_client with shm_addr 0x%lx\n",
-	//      __func__, shm_config.shm_addr);
 
 	while (1) {
 		conn_cap = usys_register_client((u32)server_thread_cap,
@@ -336,6 +327,57 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	return client_ipc_struct;
 }
 
+ipc_struct_t *ipc_register_fs_client(int target_machine_id)
+{
+	int conn_cap;
+	ipc_struct_t *client_ipc_struct;
+
+	struct client_shm_config shm_config;
+	int shm_cap;
+
+	/*
+	 * We now use special type PMO_SHM for ipc_msg.
+	 */
+
+	shm_cap = usys_create_pmo(IPC_PER_SHM_SIZE, PMO_SHM, MALLOC_TYPE_DEFAULT);
+	if (shm_cap < 0) {
+		printf("usys_create_pmo ret %d\n", shm_cap);
+		usys_exit(-1);
+	}
+
+	shm_config.shm_cap = shm_cap;
+	shm_config.shm_addr = chcore_alloc_vaddr(IPC_PER_SHM_SIZE);
+
+	while (1) {
+		conn_cap = usys_register_fs_client((u32)target_machine_id,
+						(u64)&shm_config);
+
+		if (conn_cap == -EIPCRETRY) {
+			// printf("client: Try to connect again ...\n");
+			/* The server IPC may be not ready. */
+			usys_yield();
+		}
+		else if (conn_cap < 0) {
+			printf("client: %s failed (return %d), target_machine_id is %d\n", __func__,
+			       conn_cap, target_machine_id);
+			return NULL;
+		}
+		else {
+			/* Success */
+			break;
+		}
+	}
+
+	client_ipc_struct = malloc(sizeof(ipc_struct_t));
+
+	client_ipc_struct->lock = 0;
+	client_ipc_struct->shared_buf = shm_config.shm_addr;
+	client_ipc_struct->shared_buf_len = IPC_PER_SHM_SIZE;
+	client_ipc_struct->conn_cap = conn_cap;
+
+	return client_ipc_struct;
+}
+
 /* Client uses **ipc_call** to issue an IPC request */
 s64 ipc_call(ipc_struct_t *icb, ipc_msg_t *ipc_msg)
 {
@@ -348,8 +390,18 @@ s64 ipc_call(ipc_struct_t *icb, ipc_msg_t *ipc_msg)
 	}
 
 	do {
+		#ifdef IPC_PERF_ENABLED
+        if (ipc_perf_enabled) {        
+            ipc_perf_time_p1[ipc_perf_count_p1++] = rdtsc();
+        }
+		#endif
 		ret = usys_ipc_call(icb->conn_cap, (u64)ipc_msg,
 			    ipc_msg->cap_slot_number);
+		#ifdef IPC_PERF_ENABLED
+				if (ipc_perf_enabled) {        
+						ipc_perf_time_p6[ipc_perf_count_p6++] = rdtsc();
+				}
+		#endif
 	} while (ret == -EIPCRETRY);
 
 	return ret;

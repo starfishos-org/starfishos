@@ -125,7 +125,7 @@ int sys_user_fault_register(int notific_cap, vaddr_t msg_buffer)
 
     /* Create a fmap_fault_pool and add to list */
     pool_iter =
-            (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter), __DEFAULT__);
+            (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter), __MT_DEFAULT__);
     if (!pool_iter) {
         unlock(&fmap_fault_pool_list_lock);
         return -ENOMEM;
@@ -228,19 +228,19 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
             return -EINVAL;
         new_pa = pa;
     } else {
-        // new_page = get_dram_pages(0);
-        new_page = get_pages(0, __DEFAULT__);
-        if (remap_va)
-            memcpy(new_page, (void *)phys_to_virt(pa), PAGE_SIZE);
-        else
-            memset(new_page, 0, PAGE_SIZE);
-        new_pa = (paddr_t)virt_to_phys(new_page);
-
         vmr = find_vmr_for_va(fault_vmspace, fault_va);
         BUG_ON(vmr == NULL);
         pmo = vmr->pmo;
         offset = fault_va - vmr->start;
         index = offset / PAGE_SIZE;
+
+        // new_page = get_dram_pages(0);
+        new_page = get_pages(0, pmo->mm_type);
+        if (remap_va)
+            memcpy(new_page, (void *)phys_to_virt(pa), PAGE_SIZE);
+        else
+            memset(new_page, 0, PAGE_SIZE);
+        new_pa = (paddr_t)virt_to_phys(new_page);
         commit_page_to_pmo(pmo, index, new_pa);
 
         if (offset + PAGE_SIZE > pmo->size) {
@@ -301,7 +301,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Record (fault_badge, fault_va) -> thread here.
      */
     pending_thread = (struct fault_pending_thread *)kmalloc(
-            sizeof(*pending_thread), __DEFAULT__);
+            sizeof(*pending_thread), __MT_DEFAULT__);
     if (!pending_thread) {
         /* TODO: handle no memory */
         BUG_ON(1);
@@ -334,17 +334,19 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Give up the control flow here.
      * The thread will wake up when map finished.
      */
-    current_thread->thread_ctx->state = TS_WAITING_IPC;
+    current_thread->thread_ctx->state = TS_WAITING;
 
-    sched();
     /*
      * To avoid sys_user_fault_map get pending thread too early,
      *      or modify thread->state early than here.
      * Release lock here.
      */
     unlock(&fault_pool->lock);
+
+    sched();
     eret_to_thread(switch_context());
 }
+
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
 {
@@ -374,10 +376,10 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
         struct fault_pending_thread *pt;
 #ifdef CHCORE_SLS
         ckpt_pool_iter =
-                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __DEFAULT__);
+                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_DEFAULT__);
 #else
         ckpt_pool_iter =
-                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __SHARED__);
+                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_SHARED__);
 #endif
         init_list_head(&ckpt_pool_iter->ckpt_fault_pending_thread_list);
 
@@ -387,10 +389,10 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
                           &pool_iter->pending_threads) {
 #ifdef CHCORE_SLS
             ckpt_pt = kmalloc(sizeof(struct ckpt_fault_pending_thread),
-                              __DEFAULT__);
+                              __MT_DEFAULT__);
 #else
             ckpt_pt = kmalloc(sizeof(struct ckpt_fault_pending_thread),
-                              __SHARED__);
+                              __MT_SHARED__);
 #endif
 
             ckpt_pt->fault_badge = pt->fault_badge;
@@ -439,9 +441,9 @@ int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,
                           &ckpt_pool_iter->ckpt_fault_pending_thread_list) {
             struct fault_pending_thread *pt;
 #ifdef CHCORE_SLS
-            pt = kmalloc(sizeof(struct fault_pending_thread), __DEFAULT__);
+            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_DEFAULT__);
 #else
-            pt = kmalloc(sizeof(struct fault_pending_thread), __SHARED__);
+            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_SHARED__);
 #endif
 
             pt->fault_badge = ckpt_pt->fault_badge;

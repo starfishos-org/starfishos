@@ -82,6 +82,7 @@ typedef void (*server_handler)();
 
 /* Registeration interfaces */
 ipc_struct_t *ipc_register_client(int server_thread_cap);
+ipc_struct_t *ipc_register_fs_client(int target_machine_id);
 
 void *register_cb(void *ipc_handler);
 void *register_cb_single(void *ipc_handler);

@@ -31,17 +31,24 @@
  * And this turns out useful to catch old ioctl numbers in header
  * files for us.
  */
+#ifndef _IOC_NONE
 #define _IOC_NONE	0U
+#endif
+#ifndef _IOC_READ
 #define _IOC_READ	1U
+#endif
+#ifndef _IOC_WRITE
 #define _IOC_WRITE	2U
+#endif
 
+#ifndef _IOC
 #define _IOC(dir,type,nr,size)			\
 	((unsigned int)				\
 	 (((dir)  << _IOC_DIRSHIFT) |		\
 	  ((type) << _IOC_TYPESHIFT) |		\
 	  ((nr)   << _IOC_NRSHIFT) |		\
 	  ((size) << _IOC_SIZESHIFT)))
-
+#endif
 /* used to create numbers */
 #define _IO(type,nr)		_IOC(_IOC_NONE,(type),(nr),0)
 #define _IOR(type,nr,size)	_IOC(_IOC_READ,(type),(nr),sizeof(size))

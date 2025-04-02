@@ -5,4 +5,8 @@ target_include_directories(fs_base PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_options(fs_base PRIVATE -static)
 target_link_libraries(fs_base PRIVATE libc-static)
 
+if(CHCORE_IPC_PERF_ENABLED)
+    target_compile_definitions(fs_base PRIVATE IPC_PERF_ENABLED)
+endif()
+
 chcore_copy_all_targets_to_ramdisk()

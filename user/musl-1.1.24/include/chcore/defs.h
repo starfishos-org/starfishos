@@ -34,6 +34,7 @@
 /*
  * TODO (tmac): uapi can help us to clean the code,
  * i.e., only keepping one MARCO for both kernel and user.
+ * TODO(FN): move to uapi.h
  */
 
 /* cache operations */
@@ -49,18 +50,29 @@
 #define VM_FORBID (0)
 
 /* PMO types */
-#define PMO_ANONYM 0
-#define PMO_DATA   1
-#define PMO_FILE   2
-#define PMO_SHM          3
-#define PMO_DATA_NOCACHE 6
-#define PMO_RING_BUFFER  7
-#define PMO_RING_BUFFER_RADIX  8
-#define PMO_FORBID       10
+#define PMO_ANONYM            0 /* lazy allocation */
+#define PMO_DATA              1 /* immediate allocation */
+#define PMO_FILE              2 /* file backed */
+#define PMO_SHM               3 /* shared memory */
+#define PMO_USER_PAGER        4 /* support user pager */
+#define PMO_DEVICE            5 /* memory mapped device registers */
+#define PMO_DATA_NOCACHE      6 /* non-cacheable immediate allocation */
+#define PMO_FORBID            7 /* Forbidden area: avoid overflow */
 
-#define MALLOC_TYPE_DEFAULT 0
-#define MALLOC_TYPE_PRIVATE 1
-#define MALLOC_TYPE_SHARED  2
+// Following type are actually mapped to previous types
+#define PMO_RING_BUFFER       8 /* pages that need to sync with external, PMO_DATA */
+#define PMO_RING_BUFFER_RADIX 9 /* same as PMO_RING_BUFFER; for test, PMO_ANONYM */
+// More types for partioned process
+#define PMO_CODE              10 /* code, PMO_DATA */
+#define PMO_STACK             11 /* stack, PMO_ANONYM */
+#define PMO_HEAP              12 /* heap, PMO_ANONYM */
+// #define PMO_IPC_BUFFER        13 /* ipc buffer, PMO_SHM */
+#define PMO_CROSS_SHM         14 /* shared memory accross machine, PMO_SHM */
+#define PMO_TYPE_NR           15
+
+#define MALLOC_TYPE_PRIVATE (1)
+#define MALLOC_TYPE_SHARED  (2)
+#define MALLOC_TYPE_DEFAULT (MALLOC_TYPE_PRIVATE)
 
 /* a thread's own cap_group */
 #define SELF_CAP 0
@@ -210,3 +222,19 @@
 #define CHCORE_SYS_cfork_prepare 251
 #define CHCORE_SYS_cfork_ckpt    252
 #define CHCORE_SYS_cfork_restore 253
+
+/* FUTEX */
+#define CHCORE_SYS_futex 254
+#define CHCORE_SYS_set_tid_address 255
+
+/* Machine ID */
+#define CHCORE_SYS_get_machine_id       256
+
+/* File System */
+#define CHCORE_SYS_register_fs_client   257
+#define CHCORE_SYS_register_fs_server   258
+
+#ifdef IPC_PERF_ENABLED
+#define CHCORE_SYS_ipc_perf_start       259
+#define CHCORE_SYS_ipc_perf_end         260
+#endif

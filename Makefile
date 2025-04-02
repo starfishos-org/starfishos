@@ -140,3 +140,6 @@ clean-ramdisk:
 
 clean-libc:
 	rm -rf ./user/musl-1.1.24/build/*
+
+clean-dsm-meta:
+	./dsm-scripts/config_memdev.sh cxl

@@ -12,6 +12,12 @@ source_file_list = [
 user_name = os.getenv('USER')
 shm_device_path = f'/dev/shm/ivshmem-conn-{user_name}'
 
+if not os.path.exists(shm_device_path):
+    print(f"Shared memory device file {shm_device_path} does not exist.")
+    # dd if=/dev/zero of=$devName bs=1M count=1024
+    os.system(f"dd if=/dev/zero of={shm_device_path} bs=1G count=16")
+    print(f"Shared memory device file {shm_device_path} created.")
+
 # 头部信息，格式为
 file_info_list= []
 

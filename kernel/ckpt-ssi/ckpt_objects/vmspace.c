@@ -6,7 +6,7 @@ extern int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len,
                               bool flag);
 extern int set_pte_write_flag(pte_t *entry, bool flag);
 extern int is_pte_dirty(pte_t *entry);
-extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl);
+extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl, mem_t mem_type);
 extern void *create_patch_pool();
 
 #ifdef REPORT
@@ -71,7 +71,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
         if (ckpt_vmspace->ckpt_vmrs)
             kfree(ckpt_vmspace->ckpt_vmrs);
         ckpt_vmr_array =
-                kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __SHARED__);
+                kmalloc(sizeof(struct ckpt_vmregion) * vmr_count, __MT_SHARED__);
     }
 
     ckpt_vmspace->user_current_mmap_addr =
@@ -173,7 +173,7 @@ int vmspace_ckpt(struct vmspace *target_vmspace,
 #endif
     /* now we don't save pgtable */
 #ifdef COPY_PGTBL
-    pgtbl_deep_copy(target_vmspace->pgtbl, ckpt_vmspace->pgtbl);
+    pgtbl_deep_copy(target_vmspace->pgtbl, ckpt_vmspace->pgtbl, mem_type);
 #endif
     return 0;
 }
@@ -190,7 +190,7 @@ static struct vmregion *vmr_restore(struct ckpt_vmregion *ckpt_vmr,
     if (!pmo_obj) {
         BUG_ON(1);
     }
-    target_vmr = alloc_vmregion();
+    target_vmr = alloc_vmregion(__MT_OBJECT__);
     if (!target_vmr) {
         kwarn("%s fails\n", __func__);
         goto out_fail;
@@ -249,7 +249,7 @@ int vmspace_restore(struct object *vm_obj, struct ckpt_object *ckpt_vm_obj,
     BUG_ON(!check_vmspace_unwritable(target_vmspace));
 #endif
 #if COPY_PGTBL
-    r = pgtbl_deep_copy(ckpt_vmspace->pgtbl, target_vmspace->pgtbl);
+    r = pgtbl_deep_copy(ckpt_vmspace->pgtbl, target_vmspace->pgtbl, mem_type);
     if (r)
         BUG_ON(1);
 #endif
@@ -273,7 +273,7 @@ int ckpt_vmspace_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
 
     /* Allocate memory for ckpt_vmrs */
     dst_vmspace->ckpt_vmrs = kmalloc(
-            src_vmspace->vmr_count * sizeof(struct ckpt_vmregion), __SHARED__);
+            src_vmspace->vmr_count * sizeof(struct ckpt_vmregion), __MT_SHARED__);
     if (!dst_vmspace->ckpt_vmrs) {
         return -ENOMEM;
     }

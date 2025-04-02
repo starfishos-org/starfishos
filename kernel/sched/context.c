@@ -51,7 +51,7 @@ struct thread_ctx *create_thread_ctx(u32 type)
     // FIXME: what about kernel stack overflow?
 #ifdef CHCORE_KERNEL_RT
     void *kernel_stack = NULL;
-    kernel_stack = kzalloc(DEFAULT_KERNEL_STACK_SZ, __THREADCTX_MALLOC_TYPE__);
+    kernel_stack = kzalloc(DEFAULT_KERNEL_STACK_SZ, __MT_THREADCTX__);
     if (kernel_stack == NULL) {
         kwarn("create_thread_ctx fails due to lack of memory\n");
         return NULL;
@@ -60,7 +60,7 @@ struct thread_ctx *create_thread_ctx(u32 type)
                                 - sizeof(struct thread_ctx));
 #else
     ctx = (struct thread_ctx *)kzalloc(sizeof(struct thread_ctx),
-                                       __THREADCTX_MALLOC_TYPE__);
+                                       __MT_THREADCTX__);
     if (ctx == NULL) {
         kwarn("create_thread_ctx fails due to lack of memory\n");
         return NULL;
@@ -75,7 +75,7 @@ struct thread_ctx *create_thread_ctx(u32 type)
         ctx->sc = NULL;
     } else {
         /* Allocate a scheduling context for threads of other types */
-        sc = kzalloc(sizeof(sched_cont_t), __THREADCTX_MALLOC_TYPE__);
+        sc = kzalloc(sizeof(sched_cont_t), __MT_THREADCTX__);
         if (sc == NULL) {
             kwarn("create_thread_ctx fails due to lack of memory\n");
 #ifdef CHCORE_KERNEL_RT

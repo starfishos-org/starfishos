@@ -40,7 +40,7 @@ static int vfio_do_map_dma(struct vfio_iommu_type1_dma_map *map, struct pci_dev 
     pci_ioctl_debug("map->iova: %lx, map->size: %lx, map->vaddr: %lx\n", 
             map->iova, map->size, map->vaddr);
     // ret = create_device_pmo(map->iova, map->size, &pmo);
-    ret = create_pmo(map->size, PMO_DATA, __DEFAULT__, 
+    ret = create_pmo(map->size, PMO_DATA, __MT_DEFAULT__, 
             current_cap_group, &pmo);
     if (ret < 0) {
         pci_ioctl_debug("create_pmo failed\n");
@@ -97,7 +97,7 @@ static int vfio_iommu_type1_map_dma(struct pci_dev *pdev, struct vfio_iommu_type
  */
 int vfio_handle_ioctl(u32 req_type, struct pci_dev *pdev, u64 arg_ptr, u64 arg_sz) {
     int ret = 0;
-    void *kargs = kmalloc(arg_sz, __DEFAULT__);
+    void *kargs = kmalloc(arg_sz, __MT_DEFAULT__);
     if (!kargs) {
         return -ENOMEM;
     }

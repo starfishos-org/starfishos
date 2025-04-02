@@ -51,7 +51,7 @@ int slot_table_ckpt(struct cap_group *cap_group,
 
     ckpt_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
             (ckpt_cap_group->table_size) * sizeof(struct ckpt_object_slot),
-            __SHARED__);
+            __MT_SHARED__);
 
     count = 0;
     for (i = 0; i < bmp_long_count; i++) {
@@ -140,7 +140,7 @@ int slot_table_restore(struct cap_group *cap_group,
 #endif
 
     /* put the cap of the cap_group its self on the first slot */
-    cap = cap_insert(cap_group, cap_group, 0, CAP_GROUP_OBJ_ID);
+    cap = cap_insert(cap_group, obj2object(cap_group), 0, CAP_GROUP_OBJ_ID, __MT_DEFAULT__);
     if (cap < 0) {
         r = cap;
         BUG("insert cap error\n");
@@ -163,7 +163,7 @@ int slot_table_restore(struct cap_group *cap_group,
             r = -ENOMEM;
             goto out_free_prev_obj;
         }
-        cap = cap_insert(cap_group, new_obj->opaque, 0, slot_id);
+        cap = cap_insert(cap_group, new_obj, 0, slot_id, __MT_DEFAULT__);
         if (cap < 0) {
             r = cap;
             BUG("insert cap error\n");
@@ -235,7 +235,7 @@ int ckpt_cap_group_copy(struct ckpt_object *src_obj,
     memcpy(dst_cap_group, src_cap_group, sizeof(struct ckpt_cap_group));
     dst_cap_group->slots = (struct ckpt_object_slot *)kmalloc(
             (dst_cap_group->table_size) * sizeof(struct ckpt_object_slot),
-            __SHARED__);
+            __MT_SHARED__);
 
     kinfo("copy cap group: size %u (%u), badge %lx, name %s\n",
           dst_cap_group->table_size,

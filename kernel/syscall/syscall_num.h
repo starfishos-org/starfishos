@@ -130,3 +130,19 @@
 #define SYS_cfork_ckpt    252
 #define SYS_cfork_restore 253
 #endif
+
+/* FUTEX */
+#define SYS_futex 254
+#define SYS_set_tid_address 255
+
+/* Machine ID */
+#define SYS_get_machine_id 256
+
+/* File System */
+#define SYS_register_fs_client 257
+#define SYS_register_fs_server 258
+
+#ifdef IPC_PERF_ENABLED
+#define SYS_ipc_perf_start 259
+#define SYS_ipc_perf_end 260
+#endif

@@ -3,8 +3,6 @@
 #include "../ckpt_page.h"
 #include "../ckpt_ws.h"
 
-extern int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl);
-
 #ifdef PMO_CHECKSUM
 unsigned long mem_checksum(unsigned char *start, int size)
 {
@@ -17,12 +15,12 @@ unsigned long mem_checksum(unsigned char *start, int size)
 
 u64 pmo_checksum(struct pmobject *pmo)
 {
-    if (use_continuous_pages(pmo)) {
+    if (is_continuous_pmo(pmo)) {
         if (pmo->dram_cache.array == NULL) {
             return (u64)mem_checksum((unsigned char *)phys_to_virt(pmo->start),
                                      pmo->size);
         } else {
-            char *pages = kmalloc(pmo->size, __SHARED__);
+            char *pages = kmalloc(pmo->size, __MT_SHARED__);
             memcpy(pages, (unsigned char *)phys_to_virt(pmo->start), pmo->size);
             for (int i = 0; i < pmo->size / PAGE_SIZE; i++) {
                 if (pmo->dram_cache.array[i]) {
@@ -36,7 +34,7 @@ u64 pmo_checksum(struct pmobject *pmo)
             kfree(pages);
             return checksum;
         }
-    } else if (use_radix(pmo))
+    } else if (is_radix_pmo(pmo))
         return (u64)radix_checksum(pmo->radix);
     else
         return 0;
@@ -368,14 +366,14 @@ static int __radix_pmo_restore(struct pmobject *pmo,
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (ckpt_page_node->children[i] || page_node->children[i]) {
             if (!page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __SHARED__);
+                new = kzalloc(sizeof(*new), __MT_SHARED__);
                 if (!new) {
                     return -ENOMEM;
                 }
                 page_node->children[i] = new;
             }
             if (!ckpt_page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __SHARED__);
+                new = kzalloc(sizeof(*new), __MT_SHARED__);
                 if (!new) {
                     return -ENOMEM;
                 }
@@ -404,14 +402,14 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
     struct radix_node *new_node;
 
     if (!pmo_radix) {
-        pmo_radix = new_radix();
+        pmo_radix = new_radix(__MT_OBJECT__);
         pmo->radix = pmo_radix;
     }
 
     lock_init(&pmo_radix->radix_lock);
 
     if (!ckpt_page_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __SHARED__);
+        new_node = kzalloc(sizeof(*new_node), __MT_SHARED__);
         if (!new_node) {
             r = -ENOMEM;
         }
@@ -419,7 +417,7 @@ int radix_pmo_restore(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo,
     }
 
     if (!pmo_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __SHARED__);
+        new_node = kzalloc(sizeof(*new_node), __MT_SHARED__);
         if (!new_node) {
             r = -ENOMEM;
         }
@@ -438,7 +436,7 @@ int continuous_pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo)
         ckpt_pmo->start = pmo->start;
     } else {
         // allocate a new region of shared memory
-        vaddr_t ckpt_va = (vaddr_t)kmalloc(pmo->size, __SHARED__);
+        vaddr_t ckpt_va = (vaddr_t)kmalloc(pmo->size, __MT_SHARED__);
         memcpy((void *)ckpt_va, (void *)ckpt_va, pmo->size);
         ckpt_pmo->start = virt_to_phys((void *)ckpt_va);
     }
@@ -501,7 +499,7 @@ int continuous_pmo_restore(struct pmobject *pmo,
     struct radix *ckpt_page_radix = ckpt_pmo->radix;
 
     if (!ckpt_page_radix->root) {
-        new_node = kzalloc(sizeof(*new_node), __SHARED__);
+        new_node = kzalloc(sizeof(*new_node), __MT_SHARED__);
         if (!new_node) {
             r = -ENOMEM;
         }
@@ -531,7 +529,7 @@ static int __init_ckpt_page_radix(struct radix_node *page_node,
             page_pa = (paddr_t)page_node->values[i];
             if (page_pa) {
                 /* allocate a page pair for the page */
-                page_pair = kzalloc(sizeof(*page_pair), __SHARED__);
+                page_pair = kzalloc(sizeof(*page_pair), __MT_SHARED__);
                 if (!page_pair) {
                     return -ENOMEM;
                 }
@@ -545,7 +543,7 @@ static int __init_ckpt_page_radix(struct radix_node *page_node,
                     ckpt_page_va = page_va;
                 } else {
                     /* case2: page is not on SHM */
-                    ckpt_page_va = (vaddr_t)get_pages(0, __SHARED__);
+                    ckpt_page_va = (vaddr_t)get_pages(0, __MT_SHARED__);
                     pagecpy((void *)ckpt_page_va, (void *)page_va);
                 }
 
@@ -565,7 +563,7 @@ static int __init_ckpt_page_radix(struct radix_node *page_node,
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (page_node->children[i]) {
             if (!ckpt_page_node->children[i]) {
-                new = kzalloc(sizeof(*new), __SHARED__);
+                new = kzalloc(sizeof(*new), __MT_SHARED__);
                 if (!new) {
                     return -ENOMEM;
                 }
@@ -590,12 +588,12 @@ int init_ckpt_page_radix(struct ckpt_pmobject *ckpt_pmo, struct pmobject *pmo)
     struct radix *pmo_radix = pmo->radix;
     struct radix *ckpt_page_radix;
 
-    ckpt_pmo->radix = new_radix();
+    ckpt_pmo->radix = new_radix(__MT_OBJECT__);
     init_radix(ckpt_pmo->radix);
     ckpt_page_radix = ckpt_pmo->radix;
 
     /* copy all pages in pmo to ckpt page in ckpt pmo*/
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         r = __init_ckpt_page_radix(pmo_radix->root, ckpt_page_radix->root, 0);
     }
 
@@ -617,12 +615,12 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
     ckpt_pmo->type = pmo->type;
 
     if (flags & FLAGS_CFORK) {
-        if (use_radix(pmo)) {
+        if (is_radix_pmo(pmo)) {
             r = init_ckpt_page_radix(ckpt_pmo, pmo);
-        } else if (use_continuous_pages(pmo)) {
+        } else if (is_continuous_pmo(pmo)) {
             r = continuous_pmo_ckpt(pmo, ckpt_pmo);
         }
-    } else if (use_continuous_pages(pmo) || use_radix(pmo)) {
+    } else if (is_continuous_pmo(pmo) || is_radix_pmo(pmo)) {
         if (unlikely(!ckpt_pmo->radix)) {
             /* If the radix tree is not created, try to reuse the
              * previous version of the radix tree */
@@ -647,9 +645,9 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
     }
     /* check ckpt_pmo (for debug) */
 #ifdef PMO_CHECKSUM
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         if (!ckpt_pmo->radix_backup) {
-            ckpt_pmo->radix_backup = new_radix();
+            ckpt_pmo->radix_backup = new_radix(__MT_OBJECT__);
             init_radix(ckpt_pmo->radix_backup);
         }
         radix_deep_copy(pmo->radix, ckpt_pmo->radix_backup, true);
@@ -657,7 +655,7 @@ int pmo_ckpt(struct pmobject *pmo, struct ckpt_pmobject *ckpt_pmo, int flags)
         ckpt_pmo->checksum = pmo_checksum(pmo);
     }
 
-    if (use_radix(pmo)) {
+    if (is_radix_pmo(pmo)) {
         u64 ckpt_checksum = ckpt_pmo_checksum(ckpt_pmo);
         if (ckpt_checksum != ckpt_pmo->checksum) {
             printk("type:%d, verison:%d, %lx pmo_ckpt erratic: %lx, %lx\n",
@@ -695,7 +693,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
     init_list_head(&pmo->reverse_list);
 #endif
 
-    if (use_continuous_pages(pmo)) {
+    if (is_continuous_pmo(pmo)) {
         continuous_pmo_restore(pmo, ckpt_pmo, flags);
 #ifdef PMO_CHECKSUM
         if (pmo_checksum(pmo) != ckpt_pmo->checksum
@@ -714,7 +712,7 @@ int pmo_restore(struct object *pmo_obj, struct ckpt_object *ckpt_pmo_obj,
                    ckpt_pmo->checksum);
         }
 #endif
-    } else if (use_radix(pmo)) {
+    } else if (is_radix_pmo(pmo)) {
         /* restore radix tree */
         r = radix_pmo_restore(pmo, ckpt_pmo, flags);
 
@@ -773,7 +771,7 @@ static int __radix_deep_copy_with_hybird_mem(struct radix_node *src,
                     unlock(&page->lock);
                     dst->values[i] = src_pa;
                 } else {
-                    void *newpage = get_pages(0, __SHARED__);
+                    void *newpage = get_pages(0, __MT_SHARED__);
                     BUG_ON(!newpage);
                     pagecpy(newpage, (void *)phys_to_virt(src->values[i]));
                     dst->values[i] = (void *)virt_to_phys(newpage);
@@ -785,7 +783,7 @@ static int __radix_deep_copy_with_hybird_mem(struct radix_node *src,
 
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (src->children[i]) {
-            new = kzalloc(sizeof(struct radix_node), __SHARED__);
+            new = kzalloc(sizeof(struct radix_node), __MT_SHARED__);
             if (IS_ERR(new)) {
                 return -ENOMEM;
             }
@@ -816,7 +814,7 @@ int radix_deep_copy_with_hybird_mem(struct radix *src, struct radix *dst)
     }
 
     if (!dst->root) {
-        new = kzalloc(sizeof(struct radix_node), __SHARED__);
+        new = kzalloc(sizeof(struct radix_node), __MT_SHARED__);
         if (IS_ERR(new)) {
             r = -ENOMEM;
         }
@@ -850,7 +848,7 @@ static int __ckpt_radix_deep_copy(struct radix_node *src,
                     dst_page_pair->refcnt++;
                 } else {
                     dst_page_pair =
-                            kzalloc(sizeof(struct ckpt_page_pair), __SHARED__);
+                            kzalloc(sizeof(struct ckpt_page_pair), __MT_SHARED__);
                     dst_page_pair->type = CKPT_PP_TT;
                     dst_page_pair->refcnt = 1;
                     page->tt_page = dst_page_pair;
@@ -859,7 +857,7 @@ static int __ckpt_radix_deep_copy(struct radix_node *src,
                 /* copy according to type */
                 if (src_page_pair->type == CKPT_PP_DRAM) {
                     /* direct copt dram cached page */
-                    void *newpage = get_pages(0, __SHARED__);
+                    void *newpage = get_pages(0, __MT_SHARED__);
                     BUG_ON(!newpage);
                     pagecpy(newpage, (void *)page->va);
                     dst_page_pair->pages[0].va = (u64)newpage;
@@ -878,7 +876,7 @@ static int __ckpt_radix_deep_copy(struct radix_node *src,
 
     for (i = 0; i < RADIX_NODE_SIZE; i++) {
         if (src->children[i]) {
-            new = kzalloc(sizeof(struct radix_node), __SHARED__);
+            new = kzalloc(sizeof(struct radix_node), __MT_SHARED__);
             if (IS_ERR(new)) {
                 return -ENOMEM;
             }
@@ -912,7 +910,7 @@ int ckpt_radix_deep_copy(struct radix *src, struct radix *dst,
     }
 
     if (!dst->root) {
-        new = kzalloc(sizeof(struct radix_node), __SHARED__);
+        new = kzalloc(sizeof(struct radix_node), __MT_SHARED__);
         if (IS_ERR(new)) {
             r = -ENOMEM;
         }
@@ -942,7 +940,7 @@ int ckpt_pmo_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
     /* Copy radix tree */
     if (src_pmo->radix) {
         /* init radix tree */
-        dst_pmo->radix = kzalloc(sizeof(struct radix), __SHARED__);
+        dst_pmo->radix = kzalloc(sizeof(struct radix), __MT_SHARED__);
         if (!dst_pmo->radix) {
             return -ENOMEM;
         }

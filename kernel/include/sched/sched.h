@@ -53,6 +53,8 @@ enum thread_exit_state {
     TE_EXITED,
 #ifdef DSM_ENABLED
     TE_MIGRATING, /* migrating to remote */
+    TE_STOPPING, /* stopping */
+    TE_STOPPED, /* stopped */
 #endif
 };
 
@@ -75,9 +77,7 @@ enum thread_type {
     /* Use as the IPC register callback threads (for recycling) */
     TYPE_REGISTER = 4,
     TYPE_TESTS = 5, /* TESTS thread is used by kernel tests */
-#ifdef DSM_ENABLED
-    TYPE_CROSS_SHARED = 6, /* Cross-shared thread is shared between machines */
-#endif
+    TYPE_SERVICES = 6, /* SERVICES thread is system servers */
 };
 
 typedef struct sched_cont {

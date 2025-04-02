@@ -14,7 +14,7 @@ struct htable {
 static inline void init_htable(struct htable *ht, int size)
 {
     ht->size = size;
-    ht->buckets = kzalloc(sizeof(*ht->buckets) * size, __DEFAULT__);
+    ht->buckets = kzalloc(sizeof(*ht->buckets) * size, __MT_DEFAULT__);
 }
 
 static inline void htable_add(struct htable *ht, u32 key,

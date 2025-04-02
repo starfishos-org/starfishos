@@ -20,7 +20,7 @@ static inline struct virtual_vmregion *alloc_virt_vmregion(struct vmregion *vmr)
 {
 	struct virtual_vmregion *virt_vmr;
 
-	virt_vmr = kmalloc(sizeof(*virt_vmr), __DEFAULT__);
+	virt_vmr = kmalloc(sizeof(*virt_vmr), __MT_OBJECT__);
 	lock_init(&(virt_vmr->lock));
 	virt_vmr->vmr = vmr;
 
@@ -37,11 +37,40 @@ static void remove_vmr_from_virt_vmregion(struct vmregion *vmr)
 }
 #endif
 
-struct vmregion *alloc_vmregion(void)
+const char* pmo_type_str[PMO_TYPE_NR] = {
+    [0 ... PMO_TYPE_NR - 1] = 0,
+    [PMO_ANONYM] = "ANONYM",
+    [PMO_DATA] = "DATA",
+    [PMO_FILE] = "FILE",
+    [PMO_SHM] = "SHM",
+    [PMO_USER_PAGER] = "USER_PAGER",
+    [PMO_DEVICE] = "DEVICE",
+    [PMO_DATA_NOCACHE] = "DATA_NOCACHE",
+    [PMO_FORBID] = "FORBID",
+    [PMO_RING_BUFFER] = "RING_BUFFER",
+    [PMO_RING_BUFFER_RADIX] = "RING_BUFFER_RADIX",
+    [PMO_CROSS_SHM] = "CROSS_SHM",
+    [PMO_CODE] = "CODE",
+    [PMO_STACK] = "STACK",
+    [PMO_HEAP] = "HEAP",
+};
+
+static inline const char* get_vmr_prop_str(vmr_prop_t prop)
+{
+    // return r--, rwx, multiple
+    static char str[4];
+    str[0] = (prop & VMR_READ) ? 'r' : '-';
+    str[1] = (prop & VMR_WRITE) ? 'w' : '-';
+    str[2] = (prop & VMR_EXEC) ? 'x' : '-';
+    str[3] = '\0';
+    return str;
+}
+
+struct vmregion *alloc_vmregion(mem_t mem_type)
 {
     struct vmregion *vmr;
 
-    vmr = kmalloc(sizeof(*vmr), __DEFAULT__);
+    vmr = kmalloc(sizeof(*vmr), mem_type);
 
     return vmr;
 }
@@ -260,11 +289,11 @@ void kprint_vmr(struct vmspace *vmspace)
         vmr = rb_entry(node, struct vmregion, tree_node);
         start = vmr->start;
         end = start + vmr->size;
-        kinfo("[%p] [vmregion] start=%p end=%p. vmr->pmo->type=%d\n",
-              vmspace,
+        kinfo("[vmregion] start=%p end=%p perm=%s pmo->type=%s\n",
               start,
               end,
-              vmr->pmo->type);
+              get_vmr_prop_str(vmr->perm),
+              pmo_type_str[vmr->pmo->type]);
     }
     read_unlock(&vmspace->vmspace_lock);
 }
@@ -292,13 +321,13 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
     int ret;
 
     /* Check whether the pmo type is supported */
-    BUG_ON((pmo->type < PMO_ANONYM) || pmo->type > PMO_FORBID);
+    BUG_ON((pmo->type < PMO_ANONYM) || pmo->type > PMO_TYPE_NR);
 
     /* Align a vmr to PAGE_SIZE */
     va = ROUND_DOWN(va, PAGE_SIZE);
     if (len < PAGE_SIZE)
         len = PAGE_SIZE;
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         ret = -ENOMEM;
         goto out_fail;
@@ -567,7 +596,7 @@ struct vmregion *init_heap_vmr(struct vmspace *vmspace, vaddr_t va,
 {
     struct vmregion *vmr;
 
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         kwarn("%s fails\n", __func__);
         return NULL;
@@ -611,7 +640,7 @@ u64 vmspace_mmap_with_pmo(struct vmspace *vmspace, struct pmobject *pmo,
     struct vmregion *vmr;
     int ret;
 
-    vmr = alloc_vmregion();
+    vmr = alloc_vmregion(__MT_OBJECT__);
     if (!vmr) {
         kwarn("%s fails\n", __func__);
         goto out_fail;
@@ -735,7 +764,7 @@ int vmspace_init(struct vmspace *vmspace)
 #if defined USE_NVM && defined USE_DRAM
     vmspace->pgtbl = get_dram_pages(0);
 #else
-    vmspace->pgtbl = get_pages(0, __DEFAULT__);
+    vmspace->pgtbl = get_pages(0, __MT_PGTABLE__);
 #endif
     BUG_ON(vmspace->pgtbl == NULL);
     memset((void *)vmspace->pgtbl, 0, PAGE_SIZE);
@@ -814,7 +843,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
 
     for_each_in_list_safe (vmr, tmp, list_node, &(src_vmspace->vmr_list)) {
         /* Create new pmo */
-        new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject), __OBJECT_MALLOC_TYPE__);
+        new_pmo = obj_alloc(TYPE_PMO, sizeof(struct pmobject), __MT_OBJECT__);
         if (!new_pmo) {
             r = -ENOMEM;
             goto out_fail;
@@ -831,7 +860,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
             goto out_fail;
         }
         /* Create new vmregion */
-        new_vmr = alloc_vmregion();
+        new_vmr = alloc_vmregion(__MT_OBJECT__);
         if (!new_vmr) {
             r = -ENOMEM;
             kwarn("%s fails\n", __func__);
@@ -851,7 +880,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
          * map it in the page table. For PMO based on radix tree, it
          * will be automatically mapped when the page fault occurs.
          */
-        if (use_continuous_pages(new_pmo))
+        if (is_continuous_pmo(new_pmo))
             fill_page_table(dst_vmspace, new_vmr);
 
         if (vmr == src_vmspace->heap_vmr)
@@ -862,7 +891,7 @@ int vmspace_clone(struct vmspace *dst_vmspace, struct vmspace *src_vmspace,
                                           vaddr_t va,
                                           size_t len,
                                           bool flag);
-            if (use_continuous_pages(new_pmo))
+            if (is_continuous_pmo(new_pmo))
                 set_write_in_pgtbl(
                         dst_vmspace, new_vmr->start, new_vmr->size, false);
             set_write_in_pgtbl(src_vmspace, vmr->start, vmr->size, false);
@@ -899,46 +928,25 @@ int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo)
     dst_pmo->type = src_pmo->type;
     dst_pmo->size = src_pmo->size;
 
-    switch (src_pmo->type) {
-    case PMO_DATA:
-    case PMO_RING_BUFFER:
+    if (is_continuous_pmo(src_pmo)) {
         dst_pmo->start = src_pmo->start;
-        break;
-    case PMO_FILE: /* PMO backed by a file. It also uses the radix. */
-    case PMO_ANONYM:
-    case PMO_SHM:
-    case PMO_RING_BUFFER_RADIX: {
+    } else if (is_radix_pmo(src_pmo)) {
         int phy_alloc = (src_pmo->type == PMO_SHM
                          || src_pmo->type == PMO_RING_BUFFER_RADIX) ?
                                 1 :
                                 0;
-        dst_pmo->radix = new_radix();
+        dst_pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(dst_pmo->radix);
-        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, phy_alloc);
+        r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, 
+                            phy_alloc, __MT_OBJECT__);
         if (r) {
             kinfo("radix deep copy fail\n");
-            goto out_fail;
+            return r;
         }
-        break;
-    }
-    case PMO_DEVICE: {
-        BUG_ON(1);
-        dst_pmo->start = src_pmo->start;
-        break;
-    }
-    case PMO_FORBID: {
-        /* This type marks the corresponding area cannot be accessed */
-        break;
-    }
-    default: {
-        kinfo("Unsupported pmo type: %d\n", src_pmo->type);
-        BUG_ON(1);
-        break;
-    }
+    } else {
+        BUG("%s: unsupported pmo type: %d\n", __func__, src_pmo->type);
     }
     return 0;
-out_fail:
-    return r;
 }
 
 #ifdef REPORT

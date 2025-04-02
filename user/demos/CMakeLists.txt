@@ -154,10 +154,11 @@ if(CHCORE_DEMOS_LEVELDB)
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
             -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . --parallel
+            && cmake --build . -j$(_nproc)
     COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
     DEPENDS)
   add_dependencies(ramdisk leveldb)
+  add_dependencies(leveldb libstdc++)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
@@ -203,7 +204,6 @@ if(CHCORE_DEMOS_ROCKSDB)
     COMMAND cmake --build . -- -j$(_nproc)
     COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
     COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
-    COMMAND ls ${build_ramdisk_dir}
     DEPENDS)
   add_dependencies(rocksdb gflags)
   add_dependencies(ramdisk rocksdb)
@@ -275,6 +275,63 @@ endif()
 
 
 if (CHCORE_DEMOS_CPYTHON)
+if (NOT EXISTS ${libc_install_dir}/lib/libffi.so)
+  add_custom_target(
+    libffi
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    COMMAND ./configure CXX=${MUSL_CXX} CC=${MUSL_CC} --disable-docs --host=x86_64-linux-musl --prefix=${libc_install_dir}
+    COMMAND make -j$(_nproc)
+    COMMAND make install
+    # install libffi.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
+    DEPENDS
+  )
+else()
+  add_custom_target(
+    libffi
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    # install libffi.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
+    DEPENDS
+  )
+endif()
+
+add_custom_target(
+    libffi-clean
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
+    COMMAND make clean
+)
+add_dependencies(ramdisk libffi)
+
+if (NOT EXISTS ${libc_install_dir}/lib/libz.so)
+  add_custom_target(
+    zlib
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    COMMAND ./configure --prefix=${libc_install_dir}
+    COMMAND make -j$(_nproc) CC=${MUSL_CC} CXX=${MUSL_CXX}
+    COMMAND make install
+    # install libz.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
+    DEPENDS
+  )
+else()
+add_custom_target(
+    zlib
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    # install libz.so
+    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
+    DEPENDS
+  )
+endif()
+add_custom_target(
+    zlib-clean
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    COMMAND make clean
+)
+add_dependencies(ramdisk zlib)
+endif()
+
+if (CHCORE_DEMOS_CPYTHON)
     set(cpython_install_dir ${CMAKE_CURRENT_BINARY_DIR}/cpython)
     if (EXISTS ${cpython_install_dir})
       add_custom_target(
@@ -323,12 +380,11 @@ endif()
 
 add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 
-add_custom_target(
-  coremark
-  WORKING_DIRECTORY ${build_demos_dir}/coremark
-  COMMAND make clean
-  COMMAND make PORT_DIR=simple link CC=${CMAKE_C_COMPILER}
-  COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/coremark.bin
-)
+# add_custom_target(
+#   coremark
+#   WORKING_DIRECTORY ${build_demos_dir}/coremark
+#   COMMAND make PORT_DIR=simple link
+#   COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/
+# )
 
-add_dependencies(ramdisk coremark)
+# add_dependencies(ramdisk coremark)

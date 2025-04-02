@@ -32,15 +32,15 @@
 #define E_NAMEX_NOENT 201
 
 #define PREFIX "[tmpfs]"
-#define info(fmt, ...) printf(PREFIX " " fmt, ##__VA_ARGS__)
+#define info(fmt, ...) fprintf(stderr, PREFIX " " fmt, ##__VA_ARGS__)
 #if 0
 #define debug(fmt, ...) \
 	printf(PREFIX "<%s:%d>: " fmt, __func__, __LINE__, ##__VA_ARGS__)
 #else
 #define debug(fmt, ...) do { } while (0)
 #endif
-#define warn(fmt, ...) printf(PREFIX " " fmt, ##__VA_ARGS__)
-#define error(fmt, ...) printf(PREFIX " " fmt, ##__VA_ARGS__)
+#define warn(fmt, ...) fprintf(stderr, PREFIX " " fmt, ##__VA_ARGS__)
+#define error(fmt, ...) fprintf(stderr, PREFIX " " fmt, ##__VA_ARGS__)
 
 struct string {
 	char *str;

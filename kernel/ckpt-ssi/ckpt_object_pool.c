@@ -26,19 +26,6 @@ static u64 obj_size[TYPE_NR] = {
         [TYPE_VMSPACE] = sizeof(struct vmspace)
 };
 
-#if CFORK_LOG_LEVEL >= CFORK_LOG_LEVEL_DEBUG
-static char* obj_name[TYPE_NR] = {
-        [0 ... TYPE_NR - 1] = 0,
-        [TYPE_CAP_GROUP] = "cap group",
-        [TYPE_THREAD] = "thread",
-        [TYPE_CONNECTION] = "connection",
-        [TYPE_NOTIFICATION] = "notification",
-        [TYPE_IRQ] = "irq notification",
-        [TYPE_PMO] = "pmobject",
-        [TYPE_VMSPACE] = "vmspace"
-};
-#endif
-
 static u64 ckpt_obj_size[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = 0,
         [TYPE_CAP_GROUP] = sizeof(struct ckpt_cap_group),
@@ -63,7 +50,7 @@ const obj_restore_func obj_restore_tbl[TYPE_NR] = {
 struct ckpt_ws_data *init_ckpt_ws_data()
 {
     struct ckpt_ws_data *data;
-    data = kzalloc(sizeof(*data), __SHARED__);
+    data = kzalloc(sizeof(*data), __MT_SHARED__);
     if (!data) {
         return NULL;
     }
@@ -108,7 +95,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
     //      Thus the address of object-defined data is always 8-byte
     //      aligned.
     total_size = sizeof(*object) + ckpt_obj_size[type];
-    object = kzalloc(total_size, __SHARED__);
+    object = kzalloc(total_size, __MT_SHARED__);
     /* TODO: errno ecoded in pointer */
     if (!object)
         return NULL;
@@ -120,7 +107,7 @@ struct ckpt_object *ckpt_obj_alloc(u64 type)
 struct ckpt_obj_root *ckpt_obj_root_alloc(int flags)
 {
     struct ckpt_obj_root *root;
-    root = kmalloc(sizeof(*root), __SHARED__);
+    root = kmalloc(sizeof(*root), __MT_SHARED__);
     if (!root)
         return NULL;
 
@@ -303,7 +290,7 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
     }
 
     /* skip checkpointing shared objects */
-    if ((flags & FLAGS_CFORK) && is_cross_shared_obj(obj)) {
+    if ((flags & FLAGS_CFORK) && is_system_services_object(obj)) {
         ckpt_obj_root->cross_shared = true;
         /* for cross-shared object, we have the same obj_dst and obj_src */
         ckpt_obj_root->obj_dst = obj;
@@ -341,7 +328,7 @@ struct ckpt_object *ckpt_obj_get(struct ckpt_obj_root *ckpt_obj_root, int flags)
 out:
     BUG_ON(!ckpt_obj);
     CFORK_LOG_DEBUG("%s: ckpt_obj_root: %p obj: %p, type: %s, cross-shared: %d\n", 
-        __func__, ckpt_obj_root, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
+        __func__, ckpt_obj_root, obj, obj_name_tbl[obj->type], ckpt_obj_root->cross_shared);
     return ckpt_obj;
 }
 
@@ -395,7 +382,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
         } else {
             // always allocate a new object for CFORK
             BUG_ON(!ckpt_obj);
-            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __MT_SHARED__);
             BUG_ON(!obj);
             obj->obj_root = ckpt_obj_root;
             ckpt_obj_root->obj_dst = obj;
@@ -403,7 +390,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
     } else {
         // allocate object if not allocated
         if (!obj && (flags & FLAGS_ALLOC)) {
-            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __SHARED__);
+            obj = object_alloc(ckpt_obj->type, obj_size[ckpt_obj->type], __MT_SHARED__);
             BUG_ON(!obj);
             obj->obj_root = ckpt_obj_root;
             ckpt_obj_root->obj = obj;
@@ -435,7 +422,7 @@ struct object *restore_obj_get_by_cap_group(struct ckpt_obj_root *ckpt_obj_root,
 
 out:
     CFORK_LOG_DEBUG("%s: obj: %p, type: %s, cross-shared: %d\n", 
-        __func__, obj, obj_name[obj->type], ckpt_obj_root->cross_shared);
+        __func__, obj, obj_name_tbl[obj->type], ckpt_obj_root->cross_shared);
     return obj;
 }
 

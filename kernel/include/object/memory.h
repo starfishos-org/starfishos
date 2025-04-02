@@ -4,7 +4,7 @@
 
 /* Syscalls */
 int sys_create_device_pmo(u64 paddr, u64 size);
-int sys_create_pmo(u64 size, u64 type, mm_malloc_type_t flags);
+int sys_create_pmo(u64 size, u64 type, mem_t flags);
 int sys_create_pmos(u64 user_buf, u64 cnt, int flags);
 int sys_write_pmo(u64 pmo_cap, u64 offset, u64 user_ptr, u64 len);
 int sys_read_pmo(u64 pmo_cap, u64 offset, u64 user_ptr, u64 len);

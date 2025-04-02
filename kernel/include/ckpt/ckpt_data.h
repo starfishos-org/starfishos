@@ -325,6 +325,7 @@ struct ckpt_obj_root {
     int flip_flag;
     u64 refcnt;
     bool time_traveling;
+    bool valid;
 };
 
 struct ckpt_ipc_server_handler_config {

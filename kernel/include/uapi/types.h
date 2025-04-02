@@ -14,4 +14,5 @@
 
 typedef int cap_t;
 typedef int badge_t;
-typedef char mm_malloc_type_t;
+typedef int mem_t;
+typedef int mid_t;

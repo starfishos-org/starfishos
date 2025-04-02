@@ -1179,3 +1179,6 @@ option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
 endif()
+
+add_executable(simple_example examples/simple_example.cc)
+target_link_libraries(simple_example ${ROCKSDB_STATIC_LIB})
