@@ -80,8 +80,6 @@ struct thread {
 
     struct sleep_state sleep_state;
 
-    int *clear_child_tid;
-
     /* Machine ID of the thread */
     mid_t machine_id;
 };

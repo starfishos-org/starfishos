@@ -223,10 +223,6 @@
 #define CHCORE_SYS_cfork_ckpt    252
 #define CHCORE_SYS_cfork_restore 253
 
-/* FUTEX */
-#define CHCORE_SYS_futex 254
-#define CHCORE_SYS_set_tid_address 255
-
 /* Machine ID */
 #define CHCORE_SYS_get_machine_id       256
 
