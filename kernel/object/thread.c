@@ -316,7 +316,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
      * Check the exiting state: do not create new threads if exiting (e.g.,
      * after sys_exit_group is executed.
      */
-    if (current_thread->thread_ctx->thread_exit_state == TE_EXITING) {
+    if (current_thread->thread_ctx->thread_exit_state != TE_RUNNING) {
         unlock(&cap_group->threads_lock);
         obj_free(thread);
         obj_put(cap_group);

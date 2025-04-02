@@ -19,14 +19,12 @@ static int start_user_thread(struct thread *thread)
     int ret = 0;
     BUG_ON(thread->thread_ctx->type != TYPE_USER);
 
-    // stopped thread should be TE_EXITED
-    BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
     thread->thread_ctx->thread_exit_state = TE_RUNNING;
 
     // TODO: handle thread with affinity or fpu_owner
     if (thread->thread_ctx->affinity != NO_AFF 
             || thread->thread_ctx->is_fpu_owner >= 0) {
-        CFORK_LOG_WARN("illegal thread: %p, affinity: %d, is_fpu_owner: %d\n", 
+        CFORK_LOG_DEBUG("thread with affinity or fpu_owner: %p, affinity: %d, is_fpu_owner: %d\n", 
             thread, thread->thread_ctx->affinity, thread->thread_ctx->is_fpu_owner);
         // return -EINVAL;
     }
@@ -70,8 +68,9 @@ int start_all_threads(struct list_head *thread_list)
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
         print_thread(thread);
+        kprint_vmr(thread->vmspace);
 
-        BUG_ON(thread->thread_ctx->thread_exit_state != TE_EXITED);
+        BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
         ret = dsm_promote_object(obj2object(thread));
@@ -114,7 +113,7 @@ int stop_all_threads(struct list_head *thread_list)
 
     for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
         print_thread(thread);
-        thread->thread_ctx->thread_exit_state = TE_EXITING;
+        thread->thread_ctx->thread_exit_state = TE_STOPPING;
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:
@@ -140,7 +139,7 @@ int stop_all_threads(struct list_head *thread_list)
              * this thread is really stopped
              */
             else {
-                thread->thread_ctx->thread_exit_state = TE_EXITED;
+                thread->thread_ctx->thread_exit_state = TE_STOPPED;
             }
             break;
         case TS_WAITING_IPC:
@@ -156,12 +155,12 @@ int stop_all_threads(struct list_head *thread_list)
                 thread->thread_ctx->state = TS_READY;
             }
             /* directly checkpoint */
-            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
         case TS_INTER:
         case TS_INIT:
-            /* mark the thread as TE_EXITED */
-            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            /* mark the thread as TE_STOPPED */
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
         default:
             BUG("unsupported thread state: %s\n", thread_state[thread->thread_ctx->state]);
@@ -172,9 +171,10 @@ int stop_all_threads(struct list_head *thread_list)
     while (!list_empty(&waiting_thread_list)) {
         for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
             thread = (struct thread *)node->data;
-            if (thread->thread_ctx->thread_exit_state == TE_EXITED) {
+            if (thread->thread_ctx->thread_exit_state == TE_STOPPED) {
                 // check thread is not holding the kernel stack
                 BUG_ON(thread->thread_ctx->kernel_stack_state != KS_FREE);
+                BUG_ON(thread->thread_ctx->state == TS_EXIT);
                 remove_from_waiting_list(&waiting_thread_list, node);
             } else {
                 // print_thread(thread);
@@ -189,7 +189,10 @@ int stop_all_threads(struct list_head *thread_list)
         handle_ipi();
     }
 
-    CFORK_LOG_DEBUG("%s: all threads have been stoped\n", __func__);
+    CFORK_LOG_DEBUG("%s: all threads have been stoped:\n", __func__);
+    for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
+        print_thread(thread);
+    }
 
     return 0;
 }

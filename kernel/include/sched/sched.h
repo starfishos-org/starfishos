@@ -51,6 +51,8 @@ enum thread_exit_state {
     TE_EXITED,
 #ifdef DSM_ENABLED
     TE_MIGRATING, /* migrating to remote */
+    TE_STOPPING, /* stopping */
+    TE_STOPPED, /* stopped */
 #endif
 };
 
