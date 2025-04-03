@@ -11,15 +11,17 @@
 
 struct thread;
 
+#define CONFIG_HZ 1000
+
 /* Timer ticks in system */
 #if LOG_LEVEL == DEBUG
 /* BUDGET represents the number of TICKs */
 #define DEFAULT_BUDGET 1
-#define TICK_MS        3000
+#define TICK_MS        (1000 / CONFIG_HZ)
 #else
 /* BUDGET represents the number of TICKs */
 #define DEFAULT_BUDGET	1
-#define TICK_MS		1000
+#define TICK_MS		(1000 / CONFIG_HZ)
 #endif
 
 #define MAX_PRIO     255

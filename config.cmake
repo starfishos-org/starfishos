@@ -5,7 +5,7 @@ chcore_config(CHCORE_CHPM_INSTALL_TO_RAMDISK BOOL OFF "Copy installed ChPM packa
 chcore_config(CHCORE_VERBOSE_BUILD BOOL OFF "Generate verbose build log?")
 chcore_config(CHCORE_QEMU_SDCARD_IMG PATH "" "Path to SD card image file for QEMU (raspi3)")
 chcore_config(CHCORE_ENABLE_FMAP BOOL ON "Enable file fd mmap?")
-chcore_config(CHCORE_IPC_PERF_ENABLED BOOL ON "Enable IPC performance measurement?")
+chcore_config(CHCORE_IPC_PERF_ENABLED BOOL OFF "Enable IPC performance measurement?")
 
 chcore_config_include(kernel/config.cmake)
 chcore_config_include(user/config.cmake)

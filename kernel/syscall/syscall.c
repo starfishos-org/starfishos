@@ -20,7 +20,7 @@
 #include <irq/timer.h>
 #include <irq/irq.h>
 #include <drivers/pci.h>
-#include <ipc/futex.h>
+
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -466,9 +466,6 @@ const void *syscall_table[NR_SYSCALL] = {
 #endif
 
         [SYS_shutdown] = sys_shutdown,
-
-        [SYS_futex] = sys_futex,
-        [SYS_set_tid_address] = sys_set_tid_address,
 
         [SYS_get_machine_id] = sys_get_machine_id,
         [SYS_register_fs_client] = sys_register_fs_client,

@@ -1,3 +1,4 @@
+#ifdef CHCORE
 #include <mm/kmalloc.h>
 #include <common/kprint.h>
 #include <common/macro.h>
@@ -5,6 +6,7 @@
 #include <mm/mm.h>
 #include <mm/page.h>
 #include <ckpt/ckpt_data.h>
+#endif
 
 #include <common/errno.h>
 

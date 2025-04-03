@@ -78,7 +78,7 @@ int __rr_sched_enqueue_shared(struct thread *thread, u32 m_id)
               m_id);
     list_append(&(thread->shared_queue_node),
                 &(rr_shared_queue[m_id].queue_head));
-    queue->queue_len--;
+    queue->queue_len++;
     // unlock(&(queue->queue_lock));
     return 0;
 }
@@ -94,7 +94,7 @@ int __rr_sched_dequeue_shared(struct thread *thread, u32 m_id)
               thread,
               thread->thread_ctx);
     list_del(&(thread->shared_queue_node));
-    queue->queue_len++;
+    queue->queue_len--;
     // unlock(&(queue->queue_lock));
     return 0;
 }
@@ -126,7 +126,7 @@ int rr_sched_migrate_to_remote(struct thread *thread)
 
     gcpuid = affinitiy;
     m_id = cpuid_g2mid(gcpuid);
-    dsm_info("sched task(%s, %p) to remote MACHINE %d\n",
+    dsm_debug("sched task(%s, %p) to remote MACHINE %d\n",
              thread->cap_group->cap_group_name,
              thread,
              m_id);
@@ -144,8 +144,8 @@ int rr_sched_migrate_to_remote(struct thread *thread)
  */
 int rr_sched_migrate_from_shared_queue()
 {
-    int gcpuid, lcpuid;
-    struct thread *thread;
+    int gcpuid = 0, lcpuid = 0;
+    struct thread *thread, *tmp;
     int ret = 0;
 
     /* Fast path: fast check queue_len */
@@ -168,8 +168,7 @@ int rr_sched_migrate_from_shared_queue()
         return ret;
     }
 
-    for_each_in_list (thread,
-                      struct thread,
+    for_each_in_list_safe (thread, tmp,
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
@@ -179,6 +178,7 @@ int rr_sched_migrate_from_shared_queue()
 
         /* move thread from shared queue to local queue */
         ret = __rr_sched_dequeue_shared(thread, CUR_MACHINE_ID);
+        thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
 
@@ -186,7 +186,7 @@ int rr_sched_migrate_from_shared_queue()
         ret = __rr_sched_enqueue(thread, lcpuid);
         unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
-        dsm_info("find remote task(%s, %p), sched to %d\n",
+        dsm_debug("find remote task(%s, %p), sched to %d\n",
                  thread->cap_group->cap_group_name,
                  thread,
                  lcpuid);
@@ -428,7 +428,7 @@ int rr_sched(void)
         case TE_MIGRATING:
             /* schedule migrate thread to remote */
             rr_sched_migrate_to_remote(old);
-            break;
+            goto out;
         case TE_STOPPING:
             old->thread_ctx->thread_exit_state = TE_STOPPED;
             /* DO NOT break, and follow to next case */
@@ -474,6 +474,10 @@ int rr_sched(void)
     }
 
 out:
+#ifdef DSM_ENABLED
+    rr_sched_migrate_from_shared_queue();
+#endif
+
     new = rr_sched_choose_thread();
     BUG_ON(!new);
     switch_to_thread(new);
