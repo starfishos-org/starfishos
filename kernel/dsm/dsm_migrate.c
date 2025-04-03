@@ -94,14 +94,19 @@ int dsm_migrate_process_restore(struct cap_group *new_cap_group)
     /* Mark all as inuse */
     int i;
     struct slot_table *slot_table = &new_cap_group->slot_table;
+    struct object *object;
     for_each_set_bit(i, slot_table->slots_bmp, slot_table->slots_size) {
         if (!slot_table->slots[i]) {
             BUG("slot is NULL while bmp is not, slot id: %d\n", i);
         }
-        slot_table->slots[i]->object->status = DSM_STATUS_INUSE;
-        slot_table->slots[i]->object->pair_obj = NULL;
+        object = slot_table->slots[i]->object;
+        // TODO(FN): check if it is a bridge object
+        if (object->type != TYPE_THREAD) {
+            object->status = DSM_STATUS_INUSE;
+            object->pair_obj = NULL;
+        }
         DSM_TIER_LOG_DEBUG("[table=%p] restore slot: ID %d, object: %p, type: %s\n", 
-            slot_table, i, slot_table->slots[i]->object, obj_name_tbl[slot_table->slots[i]->object->type]);
+            slot_table, i, object, obj_name_tbl[object->type]);
     }
 
     /* Re-init vmspace*/

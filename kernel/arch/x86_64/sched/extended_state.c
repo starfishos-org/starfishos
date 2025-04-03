@@ -116,15 +116,15 @@ static void fxrstor(void *register_state)
 
 void save_fpu_state(struct thread *thread)
 {
-    if (likely((thread) && (thread->thread_ctx->type > TYPE_KERNEL))) {
-        thread->thread_ctx->is_fpu_state_modified = 1;
+    if (likely((thread) && (thread->thread_ctx->type > TYPE_KERNEL) && thread->thread_ctx->thread_exit_state == TE_RUNNING)) {
+        thread->thread_ctx->fpu_state_flags |= FPU_STATE_MODIFIED;
         fxsave(thread->thread_ctx->fpu_state);
     }
 }
 
 void restore_fpu_state(struct thread *thread)
 {
-    if (likely((thread) && (thread->thread_ctx->type > TYPE_KERNEL))) {
+    if (likely((thread) && (thread->thread_ctx->type > TYPE_KERNEL) && thread->thread_ctx->thread_exit_state == TE_RUNNING)) {
         fxrstor(thread->thread_ctx->fpu_state);
     }
 }
@@ -132,20 +132,18 @@ void restore_fpu_state(struct thread *thread)
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
 
 extern struct lock fpu_owner_locks[];
-void change_fpu_owner()
+void change_fpu_owner(struct thread *target)
 {
     struct thread *fpu_owner;
     u32 cpuid;
 
 #ifdef DSM_ENABLED
-    BUG_ON(!current_thread);
-    BUG_ON(!current_thread->thread_ctx);
     /* do not change fpu owner to a remote thread */
-    if (!is_local_cpu(current_thread->thread_ctx->affinity)) {
+    if (!is_local_cpu(target->thread_ctx->affinity)) {
         dsm_debug("[FPU] try to change fpu owner of thread(%s, %p) to %d\n",
-                  current_thread->cap_group->cap_group_name,
-                  current_thread,
-                  current_thread->thread_ctx->affinity);
+                  target->cap_group->cap_group_name,
+                  target,
+                  target->thread_ctx->affinity);
         return;
     }
 #endif
@@ -169,7 +167,7 @@ void change_fpu_owner()
     fpu_owner = (struct thread *)(cpu_info[cpuid].fpu_owner);
 
     /* A (fpu_owner) -> B (no using fpu) -> A */
-    if (fpu_owner == current_thread) {
+    if (fpu_owner == target) {
         unlock(&fpu_owner_locks[cpuid]);
         return;
     }
@@ -185,7 +183,14 @@ void change_fpu_owner()
         fpu_owner->thread_ctx->is_fpu_owner = -1;
     }
 
-    fpu_owner = current_thread;
+    /* Check if target thread is exited or stopped */
+    if (target->thread_ctx->thread_exit_state != TE_RUNNING) {
+        kdebug("Change fpu owner to a exited thread, thread:\n", target);
+        unlock(&fpu_owner_locks[cpuid]);
+        return;
+    }
+
+    fpu_owner = target;
     BUG_ON(fpu_owner->thread_ctx->type <= TYPE_KERNEL);
 
     /* Set current_thread as the fpu_owner of local CPU */
@@ -193,12 +198,12 @@ void change_fpu_owner()
 
     unlock(&fpu_owner_locks[cpuid]);
 
-    restore_fpu_state(current_thread);
+    restore_fpu_state(target);
     /* Current_thread will not be modified by other CPUs */
-    current_thread->thread_ctx->is_fpu_owner = cpuid;
+    target->thread_ctx->is_fpu_owner = cpuid;
     dsm_debug("set thread (%s, %p) is_fpu_owner to %d\n",
-              current_thread->cap_group->cap_group_name,
-              current_thread,
+              target->cap_group->cap_group_name,
+              target,
               cpuid);
 }
 
@@ -246,8 +251,9 @@ void save_and_release_fpu(struct thread *thread)
 #endif
 
 /* use this function to copy fpu state for checkpoint */
-void copy_fpu_state(void *dst_fpu_state, void *src_fpu_state)
+void copy_fpu_state(void *src_fpu_state, void *dst_fpu_state)
 {
-    extern void memcpy_nt(void *dst, void *src, size_t len);
-    memcpy_nt(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
+    // extern void memcpy_nt(void *dst, void *src, size_t len);
+    // memcpy_nt(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
+    memcpy(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
 }

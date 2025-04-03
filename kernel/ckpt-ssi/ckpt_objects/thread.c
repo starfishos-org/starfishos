@@ -461,8 +461,6 @@ int thread_restore(struct object *thread_obj,
     return 0;
 }
 
-#define STATE_AREA_SIZE (sizeof(struct xsave_area))
-
 int ckpt_thread_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
                      struct kvs *obj_map)
 {

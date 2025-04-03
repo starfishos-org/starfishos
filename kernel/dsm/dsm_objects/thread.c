@@ -88,6 +88,7 @@ static void dsm_copy_thread_ctx(struct thread_ctx *src_ctx, struct thread_ctx *d
     dst_ctx->thread_exit_state = src_ctx->thread_exit_state;
     dst_ctx->state = src_ctx->state;
     dst_ctx->is_fpu_owner = src_ctx->is_fpu_owner;
+    dst_ctx->fpu_state_flags = src_ctx->fpu_state_flags;
 
     if (src_ctx->sc) {
         if (!dst_ctx->sc) {
@@ -100,7 +101,7 @@ static void dsm_copy_thread_ctx(struct thread_ctx *src_ctx, struct thread_ctx *d
     /* Only available for x86 */
     if (src_ctx->fpu_state) {
         if (!dst_ctx->fpu_state) {
-            dst_ctx->fpu_state = kzalloc(STATE_AREA_SIZE, mem_type);
+            dst_ctx->fpu_state = kmalloc(STATE_AREA_SIZE, mem_type);
             BUG_ON(!dst_ctx->fpu_state);
         }
 

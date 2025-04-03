@@ -32,6 +32,7 @@ static int start_user_thread(struct thread *thread)
     thread->thread_ctx->is_fpu_owner = -1;
 
     switch (thread->thread_ctx->state) {
+    case TS_RUNNING:
     case TS_READY:
         /* mark thread as inter state to pass check in __sched_enqueue */
         thread->thread_ctx->state = TS_INTER;
@@ -61,7 +62,7 @@ static int start_user_thread(struct thread *thread)
 int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
-    int ret;
+    // int ret;
 
     CFORK_LOG_INFO("start_all_threads:\n");
 
@@ -73,10 +74,10 @@ int start_all_threads(struct list_head *thread_list)
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
-        ret = dsm_promote_object(obj2object(thread));
-        if (ret) {
-            CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
-        }
+        // ret = dsm_promote_object(obj2object(thread));
+        // if (ret) {
+        //     CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
+        // }
 
         /* start the thread */
         switch (thread->thread_ctx->type) {

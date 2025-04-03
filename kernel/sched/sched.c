@@ -67,14 +67,15 @@ char thread_exit_state[][STATE_STR_LEN] = {
 
 void print_thread(struct thread *thread)
 {
-    printk("Thread %p\tType: %s\tState: %s\tExit State: %s\tCPU %d\tAFF %d\t"
-           "Budget %d\tPrio: %d\tIP: %p\tCMD: %s\n",
+    printk("Thread %p\tType: %s\tState: %s\tExit State: %s\t"
+           "CPU %d\tAFF %d\t FPU %d\tBudget %d\tPrio: %d\tIP: %p\tCMD: %s\n",
            thread,
            thread_type[thread->thread_ctx->type],
            thread_state[thread->thread_ctx->state],
            thread_exit_state[thread->thread_ctx->thread_exit_state],
            thread->thread_ctx->cpuid,
            thread->thread_ctx->affinity,
+           thread->thread_ctx->is_fpu_owner,
            /* REGISTER and SHADOW threads may have no sc, so just print -1. */
            thread->thread_ctx->sc ? thread->thread_ctx->sc->budget : -1,
            thread->thread_ctx->prio,
@@ -143,10 +144,6 @@ int switch_to_thread(struct thread *target)
     restore_fpu_state(target);
 #else
     /* FPU_SAVING_MODE == LAZY_FPU_MODE */
-    if (target->thread_ctx->is_fpu_state_modified) {
-        restore_fpu_state(target);
-        target->thread_ctx->is_fpu_state_modified = 0;
-    }
     if (target->thread_ctx->type > TYPE_KERNEL)
         disable_fpu_usage();
 #endif
@@ -235,7 +232,6 @@ void sched_to_thread(struct thread *target)
      */
 
     is_fpu_owner = target->thread_ctx->is_fpu_owner;
-    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
     if ((is_fpu_owner >= 0) && (is_fpu_owner != smp_get_cpu_id())) {
         /*
@@ -330,7 +326,6 @@ s32 get_cpubind(struct thread *thread)
     local_cpuid = smp_get_cpu_id();
     affinity = thread->thread_ctx->affinity;
     is_fpu_owner = thread->thread_ctx->is_fpu_owner;
-    // kinfo("[**][%s] set is_fpu_owner: %d\n", __func__, is_fpu_owner);
 
 #ifdef DSM_ENABLED
     if (!is_local_cpu(affinity))
@@ -374,9 +369,25 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
     struct thread *thread;
 
     for_each_in_list (thread, struct thread, ready_queue_node, thread_list) {
-        if (thread->thread_ctx->kernel_stack_state == KS_FREE
-            || thread == current_thread) {
-            return thread;
+        switch (thread->thread_ctx->thread_exit_state) {
+        case TE_RUNNING:
+            if (thread->thread_ctx->kernel_stack_state == KS_FREE
+                || thread == current_thread) {
+                return thread;
+            }
+            continue;
+        case TE_EXITING:
+            /* Thread need to exit. Set the state to TS_EXIT */
+            thread->thread_ctx->state = TS_EXIT;
+            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            continue;
+#ifdef DSM_ENABLED
+        case TE_STOPPING:
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
+            continue;
+#endif
+        default:
+            continue;
         }
     }
     return NULL;

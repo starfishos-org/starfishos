@@ -397,7 +397,7 @@ void trap_c(arch_exec_ctx_t *ec)
     case T_NM:
         kdebug("Device (ChCore considers FPU only) Not Available:\n");
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
-        change_fpu_owner();
+        change_fpu_owner(current_thread);
         #ifdef IPC_PERF_TRAP
             goto perf_end;
         #endif

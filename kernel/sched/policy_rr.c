@@ -358,6 +358,7 @@ struct thread *rr_sched_choose_thread(void)
          * to find another thread.
          */
         thread = find_runnable_thread(&(rr_ready_queue_meta[cpuid].queue_head));
+        BUG_ON(thread->thread_ctx->thread_exit_state != TE_RUNNING);
         if (!thread) {
             unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
             goto out;
@@ -366,23 +367,6 @@ struct thread *rr_sched_choose_thread(void)
         ret = __rr_sched_dequeue(thread);
         if (ret < 0) { /* thread is stopped by recycler or ckpt/restore */
             goto again;
-        }
-
-        switch (thread->thread_ctx->thread_exit_state) {
-        case TE_EXITING:
-            /* Thread need to exit. Set the state to TS_EXIT */
-            thread->thread_ctx->state = TS_EXIT;
-            thread->thread_ctx->thread_exit_state = TE_EXITED;
-            goto again;
-        case TE_STOPPING:
-            thread->thread_ctx->thread_exit_state = TE_STOPPED;
-            goto again;
-        case TE_STOPPED:
-        case TE_MIGRATING:
-        case TE_EXITED:
-            goto again;
-        default:
-            break;
         }
 
         unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
@@ -452,8 +436,6 @@ int rr_sched(void)
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
             if (old->thread_ctx->is_fpu_owner >= 0) {
                 save_and_release_fpu(old);
-                // With this bit set, after migrated will force a FPU restore
-                old->thread_ctx->is_fpu_state_modified = 1;
             }
 #else
             save_fpu_state(old);
