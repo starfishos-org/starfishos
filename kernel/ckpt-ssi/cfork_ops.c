@@ -30,6 +30,7 @@ static int start_user_thread(struct thread *thread)
     }
     thread->thread_ctx->cpuid = NO_AFF;
     thread->thread_ctx->is_fpu_owner = -1;
+    thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
 
     switch (thread->thread_ctx->state) {
     case TS_RUNNING:
@@ -68,9 +69,6 @@ int start_all_threads(struct list_head *thread_list)
 
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
-        print_thread(thread);
-        kprint_vmr(thread->vmspace);
-
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
@@ -91,6 +89,9 @@ int start_all_threads(struct list_head *thread_list)
                 CFORK_LOG_ERR("%d: unsupported thread type\n", __LINE__);
                 return -EINVAL;
         }
+
+        print_thread(thread);
+        // kprint_vmr(thread->vmspace);
     }
 
     CFORK_LOG_DEBUG("all threads have been started\n");
