@@ -166,9 +166,9 @@ int rr_sched_migrate_to_remote(struct thread *thread)
                 gcpuid,
                 m_id);
 
-    lock(&(rr_shared_queue[m_id].queue_lock));
+    lock(&(rr_shared_queue[gcpuid].queue_lock));
     ret = __rr_sched_enqueue_shared(thread, gcpuid);
-    unlock(&(rr_shared_queue[m_id].queue_lock));
+    unlock(&(rr_shared_queue[gcpuid].queue_lock));
 
     return ret;
 }
@@ -325,9 +325,9 @@ int rr_sched_enqueue(struct thread *thread)
                     thread->thread_ctx->affinity,
                     gcpuid,
                     m_id);
-        lock(&(rr_shared_queue[m_id].queue_lock));
+        lock(&(rr_shared_queue[gcpuid].queue_lock));
         ret = __rr_sched_enqueue_shared(thread, gcpuid);
-        unlock(&(rr_shared_queue[m_id].queue_lock));
+        unlock(&(rr_shared_queue[gcpuid].queue_lock));
         return ret;
     }
 #endif
