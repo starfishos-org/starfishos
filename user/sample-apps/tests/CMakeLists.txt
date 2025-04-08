@@ -2,6 +2,12 @@ add_executable(perf_libc_malloc.bin perf_libc_malloc.c)
 
 target_compile_options(perf_libc_malloc.bin PRIVATE -O2)
 
+if (CHCORE_USER_STATIC_APPS)
+  target_link_libraries(perf_libc_malloc.bin PRIVATE rpmalloc-static libc-static)
+else()
+  target_link_libraries(perf_libc_malloc.bin PRIVATE rpmalloc-shared)
+endif()
+
 add_custom_command(
   TARGET perf_libc_malloc.bin
   POST_BUILD

@@ -2,25 +2,14 @@
 # demos
 set(MUSL_CC ${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc)
 set(MUSL_CXX ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)
+set(CMAKE_CXX_COMPILER ${MUSL_CXX})
+set(CMAKE_C_COMPILER ${MUSL_CC})
 
 set(_demos_clean_targets)
 chcore_get_nproc(_nproc)
 
 if(CHCORE_DEMOS_LIGRA)
-  add_custom_target(
-    ligra-clean
-    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make clean
-)
-list(APPEND _demos_clean_targets ligra-clean)
-  add_custom_target(
-    ligra ALL
-    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make MALLOC=libc OPENMP=1 PCC=${MUSL_CXX}
-    COMMAND rsync -a ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    # COMMAND rsync -a ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
-    DEPENDS)
-  add_dependencies(ramdisk ligra)
+  add_subdirectory(${build_demos_dir}/ligra)
 endif()
 
 if(CHCORE_DEMOS_REDIS)

@@ -1,3 +1,10 @@
 add_executable(malloc_benchmark.bin main.c benchmark.c thread.c timer.c)
 
-target_link_libraries(malloc_benchmark.bin PRIVATE m pthread)
+if (CHCORE_USER_STATIC_APPS)
+  target_link_options(malloc_benchmark.bin PRIVATE -static)
+  target_link_libraries(malloc_benchmark.bin PRIVATE rpmalloc-static libc-static libstdc++-static)
+else()
+  target_link_libraries(malloc_benchmark.bin PRIVATE rpmalloc-shared)
+  target_compile_options(malloc_benchmark.bin PRIVATE -fPIE -fPIC)
+  target_link_options(malloc_benchmark.bin PRIVATE -pie)
+endif()
