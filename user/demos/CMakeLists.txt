@@ -8,6 +8,8 @@ set(CMAKE_C_COMPILER ${MUSL_CC})
 set(_demos_clean_targets)
 chcore_get_nproc(_nproc)
 
+set(OS CHCORE)
+
 if(CHCORE_DEMOS_LIGRA)
   add_subdirectory(${build_demos_dir}/ligra)
 endif()
@@ -128,26 +130,8 @@ list(APPEND _demos_clean_targets sqlite-clean)
 endif()
 
 if(CHCORE_DEMOS_LEVELDB)
-  add_custom_target(
-    leveldb-clean
-    WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
-    COMMAND rm -rf ./build
-    )
-    list(APPEND _demos_clean_targets leveldb-clean)
-  add_custom_target(
-    leveldb ALL
-    WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
-    COMMAND mkdir -p build && cd build &&
-         cmake -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER=${MUSL_CC}
-            -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
-    DEPENDS)
-  add_dependencies(ramdisk leveldb)
-  add_dependencies(leveldb libstdc++)
+  set(LEVELDB_DIR ${build_demos_dir}/leveldb-1.23)
+  add_subdirectory(${LEVELDB_DIR})
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)

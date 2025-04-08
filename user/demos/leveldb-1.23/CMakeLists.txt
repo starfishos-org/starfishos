@@ -16,6 +16,8 @@ endif(NOT CMAKE_C_STANDARD)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(RUN_HAVE_STD_REGEX 0)
+set(RUN_HAVE_POSIX_REGEX 0)
 
 # C++ standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_CXX_STANDARD)
@@ -434,6 +436,16 @@ if(LEVELDB_BUILD_BENCHMARKS)
 
         "${bench_file}"
     )
+    if (DEFINED OS)
+      if (${OS} STREQUAL "CHCORE")
+        add_custom_target(copy-${bench_target_name}-data ALL
+          COMMAND rsync -a ${CMAKE_CURRENT_BINARY_DIR}/db_bench ${build_ramdisk_dir}/leveldb-dbbench.bin
+          DEPENDS ${bench_target_name}
+        )
+        add_dependencies(ramdisk copy-${bench_target_name}-data)
+      endif()
+    endif()
+
     target_link_libraries("${bench_target_name}" leveldb gmock gtest)
     target_compile_definitions("${bench_target_name}"
       PRIVATE
@@ -453,11 +465,11 @@ if(LEVELDB_BUILD_BENCHMARKS)
     leveldb_bench_nogtest("benchmarks/db_bench.cc")
   endif(NOT BUILD_SHARED_LIBS)
 
-  check_library_exists(sqlite3 sqlite3_open "" HAVE_SQLITE3)
-  if(HAVE_SQLITE3)
-    leveldb_benchmark("benchmarks/db_bench_sqlite3.cc")
-    target_link_libraries(db_bench_sqlite3 sqlite3)
-  endif(HAVE_SQLITE3)
+  # check_library_exists(sqlite3 sqlite3_open "" HAVE_SQLITE3)
+  # if(HAVE_SQLITE3)
+  #   leveldb_benchmark("benchmarks/db_bench_sqlite3.cc")
+  #   target_link_libraries(db_bench_sqlite3 sqlite3)
+  # endif(HAVE_SQLITE3)
 
   # check_library_exists is insufficient here because the library names have
   # different manglings when compiled with clang or gcc, at least when installed
