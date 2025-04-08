@@ -2,7 +2,7 @@
 #include <sched/sched.h>
 #include <ipc/connection.h>
 #include <sched/fpu.h>
-
+#include <sched/context.h>
 #include "../dsm_tiering.h"
 
 static inline void dsm_copy_ipc_server_register_cb_config(void *src_ipc_config, void *dst_ipc_config)
@@ -23,10 +23,14 @@ static inline void dsm_copy_ipc_server_handler_config(void *src_ipc_config, void
     memcpy(dst, src, sizeof(struct ipc_server_handler_config));
 
     if (src->active_conn) {
-        // TODO: copy the active_conn
+        BUG_ON(!dsm_demote_object(obj2object(src->active_conn)));
+        dst->active_conn = (struct ipc_connection *)obj2objpair(src->active_conn);
     } else {
         dst->active_conn = NULL;
     }
+
+    DSM_TIER_LOG_DEBUG("copy ipc server handler config: %p, active conn: %p\n", 
+        dst, dst->active_conn); 
 }
 
 static inline void dsm_copy_ipc_server_config(void *src_ipc_config, void *dst_ipc_config)
@@ -38,37 +42,51 @@ static inline void dsm_copy_ipc_server_config(void *src_ipc_config, void *dst_ip
     memcpy(dst, src, sizeof(struct ipc_server_config));
 
     if (src->register_cb_thread) {
-        // TODO: copy the register_cb_thread
+        // int ret = dsm_demote_object(obj2object(src->register_cb_thread));
+        // if (ret) {
+        //     DSM_TIER_LOG_ERR("%s: failed to demote register cb thread\n", __func__);
+        //     return ret;
+        // }
+        // dst->register_cb_thread = (struct thread *)object2obj(src->register_cb_thread->pair_obj);
     } else {
         dst->register_cb_thread = NULL;
     }
+
+    DSM_TIER_LOG_DEBUG("copy ipc server config: %p, register cb thread: %p\n", 
+        dst, dst->register_cb_thread);
 }
 
-static inline int dsm_copy_ipc_config(void *src_ipc_config, void *dst_ipc_config, mem_t mem_type)
+int dsm_copy_ipc_config(void *src_ipc_config, void **dst_ipc_config, mem_t mem_type)
 {
     switch (((struct ipc_config *)src_ipc_config)->config_type) {
     case IPC_SERVER_REGISTER_CB: {
-        dst_ipc_config = kmalloc(sizeof(struct ipc_server_register_cb_config), mem_type);
-        if (!dst_ipc_config) {
-            return -ENOMEM;
+        if (!*dst_ipc_config) {
+            *dst_ipc_config = kmalloc(sizeof(struct ipc_server_register_cb_config), mem_type);
+            if (!*dst_ipc_config) {
+                return -ENOMEM;
+            }
         }
-        dsm_copy_ipc_server_register_cb_config(src_ipc_config, dst_ipc_config);
+        dsm_copy_ipc_server_register_cb_config(src_ipc_config, *dst_ipc_config);
         break;
     }
     case IPC_SERVER_HANDLER: {
-        dst_ipc_config = kmalloc(sizeof(struct ipc_server_handler_config), mem_type);
-        if (!dst_ipc_config) {
-            return -ENOMEM;
+        if (!*dst_ipc_config) {
+            *dst_ipc_config = kmalloc(sizeof(struct ipc_server_handler_config), mem_type);
+            if (!*dst_ipc_config) {
+                return -ENOMEM;
+            }
         }
-        dsm_copy_ipc_server_handler_config(src_ipc_config, dst_ipc_config);
+        dsm_copy_ipc_server_handler_config(src_ipc_config, *dst_ipc_config);
         break;
     }
     case IPC_SERVER: {
-        dst_ipc_config = kmalloc(sizeof(struct ipc_server_config), mem_type);
-        if (!dst_ipc_config) {
-            return -ENOMEM;
+        if (!*dst_ipc_config) {
+            *dst_ipc_config = kmalloc(sizeof(struct ipc_server_config), mem_type);
+            if (!*dst_ipc_config) {
+                return -ENOMEM;
+            }
         }
-        dsm_copy_ipc_server_config(src_ipc_config, dst_ipc_config);
+        dsm_copy_ipc_server_config(src_ipc_config, *dst_ipc_config);
         break;
     }
     default:
@@ -120,6 +138,18 @@ static void dsm_copy_sleep_state(struct sleep_state *src_sleep_state, struct sle
     dst_sleep_state->sleep_cpu = src_sleep_state->sleep_cpu;
     dst_sleep_state->wakeup_tick = src_sleep_state->wakeup_tick;
 }
+ 
+int dsm_copy_shadow_thread(struct thread *src_thread, struct thread *dst_thread, mem_t mem_type)
+{
+    dst_thread->thread_ctx = create_thread_ctx(TYPE_SHADOW, mem_type);
+    if (!dst_thread->thread_ctx) {
+        DSM_TIER_LOG_ERR("create shadow thread ctx failed\n");
+        return -ENOMEM;
+    }
+    dsm_copy_ipc_config(src_thread->general_ipc_config, 
+        &(dst_thread->general_ipc_config), mem_type);
+    return 0;
+}
 
 int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
 {
@@ -129,7 +159,7 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
-    // print_thread(src_thread);
+    print_thread(src_thread);
     // kprint_vmr(src_thread->vmspace);
 
     /* Do not demote server threads */
@@ -150,7 +180,7 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     /* Copy IPC config */
     if (src_thread->general_ipc_config) {
         ret = dsm_copy_ipc_config(src_thread->general_ipc_config,       
-                    dst_thread->general_ipc_config, 
+                    &dst_thread->general_ipc_config, 
                     mem_type);
         if (ret) {
             DSM_TIER_LOG_ERR("%s: failed for thread %p\n", __func__, src_obj);
@@ -166,7 +196,8 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
         dsm_get_object_by_mem_type(src_vmspace_object, mem_type, false);
     if (!dst_vmspace_object) {
         if (is_demote) {
-            DSM_TIER_LOG_ERR("%s: vmspace is not demoted\n", __func__);
+            BUG("vmspace object %p is not demoted thread %s\n", 
+                src_vmspace_object, src_thread->cap_group->cap_group_name);
             return -EINVAL;
         } else {
             // for promote, we allow using the shared vmspace

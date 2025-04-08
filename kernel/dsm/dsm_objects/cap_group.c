@@ -39,17 +39,10 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
             /* 
             * @NOTE: demote cap group will not demote each object
             *        instead, we demote each object before manually
+            * But, we will create a shared object at here.
             */
-            // int ret = dsm_demote_object(src_slot->object);
-            // if (ret) {
-            //     DSM_TIER_LOG_ERR("failed to demote object %d type %s", 
-            //         src_slot->object, obj_name_tbl[src_slot->object->type]);
-            //     return ret;
-            // }
-
-            /* now dst object should be several cases */
             dst_object = dsm_get_object_by_mem_type(
-                            src_slot->object, mem_type, false);
+                            src_slot->object, mem_type, true);
             BUG_ON(dst_object == NULL);
         }
 

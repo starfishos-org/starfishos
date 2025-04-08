@@ -2,7 +2,7 @@
 
 #include <sched/sched.h>
 
-struct thread_ctx *create_thread_ctx(u32 type);
+struct thread_ctx *create_thread_ctx(u32 type, mem_t mem_type);
 void destroy_thread_ctx(struct thread *thread);
 void init_thread_ctx(struct thread *thread, u64 stack, u64 func, u32 prio,
                      u32 type, s32 aff);

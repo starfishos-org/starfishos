@@ -201,10 +201,10 @@ void change_fpu_owner(struct thread *target)
     restore_fpu_state(target);
     /* Current_thread will not be modified by other CPUs */
     target->thread_ctx->is_fpu_owner = cpuid;
-    dsm_debug("set thread (%s, %p) is_fpu_owner to %d\n",
-              target->cap_group->cap_group_name,
-              target,
-              cpuid);
+    // dsm_debug("set thread (%s, %p) is_fpu_owner to %d\n",
+    //           target->cap_group->cap_group_name,
+    //           target,
+    //           cpuid);
 }
 
 /* This interface is specialized for the scheduler to use */

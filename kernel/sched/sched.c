@@ -189,7 +189,7 @@ void sched_to_thread(struct thread *target)
             __func__, target);
         sched();
         return;
-    }
+    } 
 #endif
     int is_fpu_owner;
 
@@ -521,7 +521,7 @@ static void init_idle_threads(void)
     idle_vmspace = create_idle_vmspace();
 
     for (i = 0; i < PLAT_CPU_NUM; i++) {
-        idle_threads[i].thread_ctx = create_thread_ctx(TYPE_IDLE);
+        idle_threads[i].thread_ctx = create_thread_ctx(TYPE_IDLE, __MT_PRIVATE__);
         BUG_ON(idle_threads[i].thread_ctx == NULL);
 
         init_thread_ctx(

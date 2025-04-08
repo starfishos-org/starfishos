@@ -11,7 +11,7 @@
 #include <machine.h>
 #include <uapi/types.h>
 
-// #define DSM_DEBUG
+#define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
@@ -140,7 +140,7 @@ typedef struct {
     /**
      * 5. shared queue for scheduler
      */
-    struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
+    struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
 
     struct {
         struct cap_group *root_cap_group;

@@ -90,6 +90,12 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+    // ret = stop_all_connections(cap_group);
+    // if (ret) {
+    //     CFORK_LOG_ERR("cfork_ckpt: stop_all_connections failed\n");
+    //     goto out;
+    // }
+
     // checkpoint the remaining part to the shared memory
     // ret = cfork_ckpt_process(ckpt_obj_root);
     ret = dsm_migrate_process_prepare(ckpt_obj_root->obj_src);

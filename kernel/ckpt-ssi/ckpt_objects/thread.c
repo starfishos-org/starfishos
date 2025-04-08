@@ -394,7 +394,7 @@ int thread_restore(struct object *thread_obj,
     struct vmspace *thread_vmspace;
 
     // no matter the arg, thread_ctx_restore will handle sc
-    target->thread_ctx = create_thread_ctx(ckpt_thread->thread_ctx.type);
+    target->thread_ctx = create_thread_ctx(ckpt_thread->thread_ctx.type, __MT_THREADCTX__);
     if (!target->thread_ctx) {
         BUG_ON(1);
         return -ENOMEM;

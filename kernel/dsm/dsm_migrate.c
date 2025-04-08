@@ -19,9 +19,10 @@ int dsm_migrate_process_prepare(struct object *root_cg_obj)
     int flags = 0;
     int ret = 0;
     
-    /* mask out cap group and thread */
-    flags = ~((1L << TYPE_CAP_GROUP) | (1L << TYPE_THREAD));
-
+    /* Check the memory of process first */
+    // flags = ~((1L << TYPE_CAP_GROUP) | (1L << TYPE_THREAD));
+    // flags = ~((1L << TYPE_THREAD) | (1L << TYPE_CONNECTION) | (1L << TYPE_NOTIFICATION));
+    flags = ~((1L << TYPE_THREAD) | (1L << TYPE_CAP_GROUP));
     /* demote all objects except cap group and thread */
     ret = demote_each_object_in_cap_group((struct cap_group *)object2obj(root_cg_obj), flags);
     if (ret) {
@@ -32,16 +33,49 @@ int dsm_migrate_process_prepare(struct object *root_cg_obj)
     return 0;
 }
 
+extern int stop_connection(struct ipc_connection *conn);
+extern int stop_notification(struct notification *notifc);
+
+int stop_all_connections(struct cap_group *cap_group)
+{
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    int ret = 0;
+    for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+
+        if (object->type == TYPE_CONNECTION) {
+            ret = stop_connection((struct ipc_connection *)object->opaque);
+            if (ret) {
+                DSM_TIER_LOG_ERR("%s: failed to stop connection %p\n", __func__, object);
+                return ret;
+            }
+        } else if (object->type == TYPE_NOTIFICATION) {
+            ret = stop_notification((struct notification *)object->opaque);
+            if (ret) {
+                DSM_TIER_LOG_ERR("%s: failed to stop notification %p\n", __func__, object);
+                return ret;
+            }
+        }
+    }
+
+    return 0;
+}
 
 int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 {
-    int ret = 0;
+    int ret = 0, flags;
     struct cap_group *src_cap_group, *dst_cap_group;
 
     src_cap_group = (struct cap_group *)object2obj(src_cap_group_obj);
 
+    flags = (1L << TYPE_THREAD);
+
     /* demote the threads */
-    ret = demote_each_object_in_cap_group(src_cap_group, 1L << TYPE_THREAD);
+    ret = demote_each_object_in_cap_group(src_cap_group, flags);
     if (ret) {
         DSM_TIER_LOG_ERR("%s: failed to demote thread\n", __func__);
         return ret;
@@ -105,8 +139,8 @@ int dsm_migrate_process_restore(struct cap_group *new_cap_group)
             object->status = DSM_STATUS_INUSE;
             object->pair_obj = NULL;
         }
-        DSM_TIER_LOG_DEBUG("[table=%p] restore slot: ID %d, object: %p, type: %s\n", 
-            slot_table, i, object, obj_name_tbl[object->type]);
+        // DSM_TIER_LOG_DEBUG("[table=%p] restore slot: ID %d, object: %p, type: %s\n", 
+        //     slot_table, i, object, obj_name_tbl[object->type]);
     }
 
     /* Re-init vmspace*/

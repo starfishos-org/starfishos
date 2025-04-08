@@ -84,8 +84,8 @@ int dsm_demote_object(struct object *obj)
     /* Already migrated; demote is done by other thread */
     if (obj->status == DSM_STATUS_MIGRATED) {
         BUG_ON(!obj->pair_obj || obj->pair_obj->status != DSM_STATUS_INUSE);
-        DSM_TIER_LOG_DEBUG("%s: obj (type %s) is already migrated\n", 
-            __func__, obj_name_tbl[obj->type]);
+        // DSM_TIER_LOG_DEBUG("%s: obj (type %s) is already migrated\n", 
+        //     __func__, obj_name_tbl[obj->type]);
         return 0;
     }
 
@@ -112,10 +112,6 @@ int dsm_demote_object(struct object *obj)
     target = obj->pair_obj;
     BUG_ON(!target);
 
-    DSM_TIER_LOG_DEBUG("demote object %p, target %p, type %s\n", 
-        obj, target, obj_name_tbl[obj->type]);
-
-
 copy_again:
     /* clear dirty bit first */
     obj->dirty_bit = 0;
@@ -127,6 +123,9 @@ copy_again:
         return -EINVAL;
     }
     func(obj, target);
+
+    DSM_TIER_LOG_DEBUG("demote %s object %p, target %p\n", 
+        obj_name_tbl[obj->type], obj, target);
 
     /* Enable shared object */
     ret = __dsm_tiering_finish_migration(obj);

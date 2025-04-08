@@ -97,6 +97,7 @@ extern const obj_deinit_func obj_deinit_tbl[TYPE_NR];
 
 #define obj2object(obj) (container_of(obj, struct object, opaque))
 #define object2obj(object) (object->opaque)
+#define obj2objpair(obj) (object2obj(obj2object(obj)->pair_obj))
 
 void *obj_get(struct cap_group *cap_group, int slot_id, int type);
 void obj_put(void *obj);

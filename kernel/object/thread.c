@@ -55,7 +55,7 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
     set_benchmark_vmspace(thread, vmspace);
 #endif
     /* Thread context is used as the kernel stack for that thread */
-    thread->thread_ctx = create_thread_ctx(type);
+    thread->thread_ctx = create_thread_ctx(type, __MT_THREADCTX__);
     if (!thread->thread_ctx)
         return -ENOMEM;
     init_thread_ctx(thread, stack, pc, prio, type, aff);

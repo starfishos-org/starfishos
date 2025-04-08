@@ -19,7 +19,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
-#define rr_cur_shared_queue (dsm_meta->shared_queue[CUR_MACHINE_ID])
+#define rr_cur_shared_queue (dsm_meta->shared_queue[cpuid_l2g(smp_get_cpu_id())])
 #endif
 
 /* in arch/sched/idle.S */
@@ -67,7 +67,7 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 }
 
 #ifdef DSM_ENABLED
-int __rr_sched_enqueue_shared(struct thread *thread, u32 m_id)
+int __rr_sched_enqueue_shared_machine(struct thread *thread, u32 m_id)
 {
     struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
     // lock(&(queue->queue_lock));
@@ -84,9 +84,41 @@ int __rr_sched_enqueue_shared(struct thread *thread, u32 m_id)
 }
 
 /* dequeue w/o lock */
-int __rr_sched_dequeue_shared(struct thread *thread, u32 m_id)
+int __rr_sched_dequeue_shared_machine(struct thread *thread, u32 m_id)
 {
     struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
+    // lock(&(queue->queue_lock));
+    dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
+              __func__,
+              thread->cap_group->cap_group_name,
+              thread,
+              thread->thread_ctx);
+    list_del(&(thread->shared_queue_node));
+    queue->queue_len--;
+    // unlock(&(queue->queue_lock));
+    return 0;
+}
+
+int __rr_sched_enqueue_shared(struct thread *thread, u32 cpuid)
+{
+    struct shared_queue_meta *queue = &(rr_shared_queue[cpuid]);
+    // lock(&(queue->queue_lock));
+    dsm_debug("%s: thread (%s, %p) -> cpuid %d\n",
+              __func__,
+              thread->cap_group->cap_group_name,
+              thread,
+              cpuid);
+    list_append(&(thread->shared_queue_node),
+                &(rr_shared_queue[cpuid].queue_head));
+    queue->queue_len++;
+    // unlock(&(queue->queue_lock));
+    return 0;
+}
+
+/* dequeue w/o lock */
+int __rr_sched_dequeue_shared(struct thread *thread, u32 cpuid)
+{
+    struct shared_queue_meta *queue = &(rr_shared_queue[cpuid]);
     // lock(&(queue->queue_lock));
     dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
               __func__,
@@ -135,7 +167,7 @@ int rr_sched_migrate_to_remote(struct thread *thread)
                 m_id);
 
     lock(&(rr_shared_queue[m_id].queue_lock));
-    ret = __rr_sched_enqueue_shared(thread, m_id);
+    ret = __rr_sched_enqueue_shared(thread, gcpuid);
     unlock(&(rr_shared_queue[m_id].queue_lock));
 
     return ret;
@@ -147,7 +179,7 @@ int rr_sched_migrate_to_remote(struct thread *thread)
  */
 int rr_sched_migrate_from_shared_queue()
 {
-    int gcpuid = 0, lcpuid = 0;
+    u32 gcpuid = 0, lcpuid = 0;
     struct thread *thread, *tmp;
     int ret = 0;
 
@@ -175,12 +207,11 @@ int rr_sched_migrate_from_shared_queue()
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
-        if (!is_local_cpu(gcpuid))
-            ;
         lcpuid = cpuid_g2l(gcpuid);
+        BUG_ON(lcpuid == smp_get_cpu_id());
 
         /* move thread from shared queue to local queue */
-        ret = __rr_sched_dequeue_shared(thread, CUR_MACHINE_ID);
+        ret = __rr_sched_dequeue_shared(thread, gcpuid);
         thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
@@ -295,7 +326,7 @@ int rr_sched_enqueue(struct thread *thread)
                     gcpuid,
                     m_id);
         lock(&(rr_shared_queue[m_id].queue_lock));
-        ret = __rr_sched_enqueue_shared(thread, m_id);
+        ret = __rr_sched_enqueue_shared(thread, gcpuid);
         unlock(&(rr_shared_queue[m_id].queue_lock));
         return ret;
     }
@@ -311,8 +342,9 @@ int rr_sched_enqueue(struct thread *thread)
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
-    if (thread->thread_ctx->state != TS_READY 
-        || thread->thread_ctx->thread_exit_state != TE_RUNNING) {
+    if (unlikely((thread->thread_ctx->state != TS_READY 
+                && thread->thread_ctx->state != TS_SCHEDING)
+                || thread->thread_ctx->thread_exit_state != TE_RUNNING)) {
         kdebug("%s: thread %s state is %d exit state is %d\n",
               __func__,
               thread->cap_group->cap_group_name,
@@ -322,7 +354,7 @@ int __rr_sched_dequeue(struct thread *thread)
     }
     list_del(&(thread->ready_queue_node));
     rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len--;
-    thread->thread_ctx->state = TS_INTER;
+    // thread->thread_ctx->state = TS_INTER;
     return 0;
 }
 
@@ -368,10 +400,18 @@ struct thread *rr_sched_choose_thread(void)
          * to find another thread.
          */
         thread = find_runnable_thread(&(rr_ready_queue_meta[cpuid].queue_head));
-        BUG_ON(thread->thread_ctx->thread_exit_state != TE_RUNNING);
-        if (!thread) {
+
+        if (unlikely(!thread)) {
             unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
             goto out;
+        }
+
+        thread->thread_ctx->state = TS_SCHEDING; // serve as lock of the thread
+        // someone else stop this thread
+        if (unlikely(thread->thread_ctx->thread_exit_state != TE_RUNNING)) {
+            __rr_sched_dequeue(thread);
+            thread->thread_ctx->state = TS_INTER;
+            goto again;
         }
 
         ret = __rr_sched_dequeue(thread);
@@ -508,9 +548,11 @@ int rr_sched_init(void)
 
 #ifdef DSM_ENABLED
     /* Initialize owned shared queues */
-    init_list_head(&(rr_cur_shared_queue.queue_head));
-    lock_init(&(rr_cur_shared_queue.queue_lock));
-    rr_cur_shared_queue.queue_len = 0;
+    for (i = 0; i < CLUSTER_MAX_CPU_NUM; i++) {
+        init_list_head(&(rr_shared_queue[i].queue_head));
+        lock_init(&(rr_shared_queue[i].queue_lock));
+        rr_shared_queue[i].queue_len = 0;
+    }
 #endif
     return 0;
 }
