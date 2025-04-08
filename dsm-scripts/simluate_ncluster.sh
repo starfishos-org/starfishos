@@ -33,7 +33,7 @@ kernel_ready() {
   echo "Kernel $1 is ready"
 }
 
-make clean-dsm
+make clean-dsm-meta
 welcome_str="Welcome to ChCore shell!"
 
 echo "num_windows: $num_windows"

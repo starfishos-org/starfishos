@@ -1,5 +1,5 @@
-sudo cpupower frequency-set -g performance > /dev/null
-echo "Performance Mode Enabled"
+sudo cpupower frequency-set -f 2.10GHz > /dev/null
+echo "Performance Fixed to 2.10GHz"
 
 sudo sh -c 'echo 0 > /proc/sys/kernel/numa_balancing'
 echo "NUMA Balancing Disabled"
