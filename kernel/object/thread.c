@@ -545,7 +545,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
             goto out_obj_put;
         }
         /* thread set to remote */
-        if (!is_local_cpu(aff)) {
+        if (!is_local_cpu(aff) && aff != thread->thread_ctx->affinity) {
             thread->thread_ctx->affinity = aff;
             thread->thread_ctx->thread_exit_state = TE_MIGRATING;
         }

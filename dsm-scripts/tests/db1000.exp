@@ -1,6 +1,28 @@
 #!/usr/bin/expect  
 
-set timeout 60
+set timeout 180
+
+set thread_num [lindex $argv 0]
+if {$thread_num == ""} {
+  set thread_num 1
+}
+set read_perc [lindex $argv 1]
+if {$read_perc == ""} {
+  set read_perc 1.0
+}
+set write_perc [lindex $argv 2]
+if {$write_perc == ""} {
+  set write_perc 0.0
+}
+set theta [lindex $argv 3]
+if {$theta == ""} {
+  set theta 0.6
+}
+
+puts "thread_num: $thread_num"
+puts "read_perc: $read_perc"
+puts "write_perc: $write_perc"
+puts "theta: $theta"
 
 # start
 spawn ./dsm-scripts/config.sh cxl
@@ -8,6 +30,7 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "rundb.bin & \r"
+send -- "rundb.bin -t$thread_num -r$read_perc -w$write_perc -z$theta & \r"
 
-interact
+expect "done"
+exit 0

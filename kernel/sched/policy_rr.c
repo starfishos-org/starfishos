@@ -126,10 +126,13 @@ int rr_sched_migrate_to_remote(struct thread *thread)
 
     gcpuid = affinitiy;
     m_id = cpuid_g2mid(gcpuid);
-    dsm_debug("sched task(%s, %p) to remote MACHINE %d\n",
-             thread->cap_group->cap_group_name,
-             thread,
-             m_id);
+    dsm_debug("[%s] enqueue thread (%s, %p, affinity=%d) to cpuid %d machine %d\n",
+                __func__,
+                thread->cap_group->cap_group_name,
+                thread,
+                thread->thread_ctx->affinity,
+                gcpuid,
+                m_id);
 
     lock(&(rr_shared_queue[m_id].queue_lock));
     ret = __rr_sched_enqueue_shared(thread, m_id);
@@ -284,6 +287,13 @@ int rr_sched_enqueue(struct thread *thread)
         //  thread, thread->thread_ctx, gcpuid);
         // print_thread(thread);
         m_id = cpuid_g2mid(gcpuid);
+        dsm_debug("[%s] enqueue thread (%s, %p, affinity=%d) to cpuid %d machine %d\n",
+                    __func__,
+                    thread->cap_group->cap_group_name,
+                    thread,
+                    thread->thread_ctx->affinity,
+                    gcpuid,
+                    m_id);
         lock(&(rr_shared_queue[m_id].queue_lock));
         ret = __rr_sched_enqueue_shared(thread, m_id);
         unlock(&(rr_shared_queue[m_id].queue_lock));

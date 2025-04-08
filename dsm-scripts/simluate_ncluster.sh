@@ -3,12 +3,15 @@
 session_name=$USER-qemu
 window_name="window"
 num_windows=$1
-program=$2
+log_file=$2
+program=$3
+num_numa=4
 
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 <num_windows> <program>"
+if [ $# -ne 3 ]; then
+    echo "Usage: $0 <num_windows> <program> <log_file>"
     echo "num_windows: the number of kernels to create"
     echo "program: the program to run on the kernels"
+    echo "log_file: the log file to save the log"
     exit 1
 fi
 
@@ -38,15 +41,26 @@ tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 > exec_log | tee exec_l
 
 sleep 3
 
+kernel_ready 0
+
 for ((i=1; i<$num_windows; i++)); do
-    tmux new-window -n $i "./build/simulate.sh $i > exec_log | tee exec_log$i.log"
+    tmux new-window -n $i "./build/simulate.sh $((i % $num_numa)) > exec_log | tee exec_log$i.log"
     sleep 1
 done
 
-for ((i=0; i<$num_windows; i++)); do
+for ((i=1; i<$num_windows; i++)); do
     kernel_ready $i
 done
 
 tmux send -t $session_name:0 "$program" ENTER
 
-tmux a -t $session_name:0
+while true; do
+    grep -q "thp=" exec_log0.log
+    
+    if [ $? -eq 0 ]; then
+        grep "thp=" exec_log0.log >> $log_file
+        break
+    fi
+    
+    sleep 1
+done
