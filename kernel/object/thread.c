@@ -81,6 +81,9 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
 
     lock_init(&thread->sleep_state.queue_lock);
 
+    // FN: mark empty to check when deinit thread
+    init_list_head(&thread->ready_queue_node);
+
     return 0;
 }
 
@@ -107,6 +110,13 @@ void thread_deinit(void *thread_ptr)
 
     if (thread->general_ipc_config)
         kfree(thread->general_ipc_config);
+
+    // kinfo("deinit thread %p\n", thread);
+    // print_thread(thread);
+    // if (!list_empty(&thread->ready_queue_node)) {
+    //     kwarn("%s: deinit thread %p is in ready queue\n", __func__, thread);
+    //     print_thread(thread);
+    // }
 
     destroy_thread_ctx(thread);
 

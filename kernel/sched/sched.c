@@ -369,6 +369,10 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
     struct thread *thread;
 
     for_each_in_list (thread, struct thread, ready_queue_node, thread_list) {
+        if (!thread || !thread->thread_ctx) {
+            kwarn("%s: thread %p is not valid\n", __func__, thread);
+            continue;
+        }
         switch (thread->thread_ctx->thread_exit_state) {
         case TE_RUNNING:
             if (thread->thread_ctx->kernel_stack_state == KS_FREE
@@ -377,6 +381,7 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             }
             break;
         case TE_EXITING:
+            sched_dequeue(thread);
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
             kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
@@ -384,6 +389,7 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             break;
 #ifdef DSM_ENABLED
         case TE_STOPPING:
+            sched_dequeue(thread);
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
 #endif

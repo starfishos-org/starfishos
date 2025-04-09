@@ -516,9 +516,6 @@ int rr_sched(void)
             old->thread_ctx->kernel_stack_state = KS_FREE;
             old->thread_ctx->thread_exit_state = TE_EXITED;
             break;
-
-            /* do nothing */
-            break;
 #ifdef DSM_ENABLED
         case TE_MIGRATING:
             /* schedule migrate thread to remote */
