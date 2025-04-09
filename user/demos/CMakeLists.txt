@@ -18,7 +18,6 @@ list(APPEND _demos_clean_targets ligra-clean)
     WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
     COMMAND make MALLOC=libc OPENMP=1 PCC=${MUSL_CXX}
     COMMAND rsync -a ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    # COMMAND rsync -a ${build_demos_dir}/ligra/inputs/* ${build_ramdisk_dir}/
     DEPENDS)
   add_dependencies(ramdisk ligra)
 endif()
@@ -388,3 +387,7 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 # )
 
 # add_dependencies(ramdisk coremark)
+
+if (CHCORE_DEMOS_GEIMINIGRAPH)
+  add_subdirectory(${build_demos_dir}/GeminiGraph)
+endif()
