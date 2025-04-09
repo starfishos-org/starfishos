@@ -550,7 +550,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
             thread->thread_ctx->thread_exit_state = TE_MIGRATING;
         }
 
-        print_thread(current_thread);
+        // print_thread(current_thread);
     }
 #endif
     else {

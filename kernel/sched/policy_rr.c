@@ -512,7 +512,7 @@ int rr_sched(void)
              * Check whether the thread is going to exit.
              */
             old->thread_ctx->state = TS_EXIT;
-            kinfo("%s: thread %s exit\n", old->cap_group->cap_group_name, __func__);
+            kdebug("%s: thread %s exit\n", old->cap_group->cap_group_name, __func__);
             old->thread_ctx->kernel_stack_state = KS_FREE;
             old->thread_ctx->thread_exit_state = TE_EXITED;
             break;

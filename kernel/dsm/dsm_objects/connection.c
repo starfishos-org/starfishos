@@ -63,13 +63,13 @@ int dsm_copy_connection(struct object *src_obj, struct object *dst_obj)
         return ret;
     }
 
-    print_thread(src_conn->server_handler_thread);
+    // print_thread(src_conn->server_handler_thread);
 
     obj = obj2object(src_conn->current_client_thread);
     shared_obj = dsm_get_object_by_mem_type(obj, mem_type, true);
     dst_conn->current_client_thread = (struct thread *)object2obj(shared_obj);
 
-    print_thread(src_conn->current_client_thread);
+    // print_thread(src_conn->current_client_thread);
 
     return 0;
 }
