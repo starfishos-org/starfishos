@@ -55,7 +55,7 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
     set_benchmark_vmspace(thread, vmspace);
 #endif
     /* Thread context is used as the kernel stack for that thread */
-    thread->thread_ctx = create_thread_ctx(type);
+    thread->thread_ctx = create_thread_ctx(type, __MT_THREADCTX__);
     if (!thread->thread_ctx)
         return -ENOMEM;
     init_thread_ctx(thread, stack, pc, prio, type, aff);
@@ -347,7 +347,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
     if (cap_group != current_cap_group)
         cap = cap_copy(cap_group, current_cap_group, cap);
     if (type == TYPE_USER || type == TYPE_SERVICES) {
-        thread->thread_ctx->state = TS_INTER;
+        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
         BUG_ON(sched_enqueue(thread));
     } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
         thread->thread_ctx->state = TS_WAITING;
@@ -399,7 +399,7 @@ void thread_clone(struct cap_group *cap_group, struct thread *thread)
 
     /* The return value for cloned thread should be zero */
     arch_set_thread_return(thread, 0);
-    thread->thread_ctx->state = TS_INTER;
+    thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
     BUG_ON(sched_enqueue(thread));
     return;
 out_free_thread:
@@ -549,6 +549,8 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
             thread->thread_ctx->affinity = aff;
             thread->thread_ctx->thread_exit_state = TE_MIGRATING;
         }
+
+        print_thread(current_thread);
     }
 #endif
     else {

@@ -39,6 +39,7 @@ enum thread_state {
     TS_INIT = 0,
     TS_READY,
     TS_INTER, /* Intermediate stat used by sched (only for debug) */
+    TS_CHOOSE_TO_SCHED, /* Scheduling */
     TS_RUNNING,
     TS_EXIT, /* Only for debug use */
     TS_WAITING, /* Waiting IPC or etc */
@@ -93,7 +94,9 @@ struct thread_ctx {
      * set 0 during checkpoint;
      * set 1 if call save_fpu_state;
      */
-    u32 is_fpu_state_modified;
+#define FPU_STATE_MODIFIED      (1 << 0)
+#define FPU_STATE_NEED_RESTORE  (1 << 1)
+    u32 fpu_state_flags;
     /* FPU States */
     void *fpu_state;
     /* Is FPU owner on some CPU: -1 means No; other means CPU ID */
@@ -207,4 +210,9 @@ struct xsave_area {
     u8 extended_region[];
 };
 
-#define STATE_AREA_SIZE (sizeof(struct xsave_area))
+extern u32 xsave_area_size;
+// #define STATE_AREA_SIZE (xsave_area_size)
+/*
+ * TODO: on x86_64, STATE_AREA_SIZE should be retrived at boot time
+ */
+#define STATE_AREA_SIZE (0x1000)

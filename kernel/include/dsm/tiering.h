@@ -73,6 +73,9 @@ dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
 int dsm_demote_object(struct object *obj);
 int dsm_promote_object(struct object *obj);
 
+int stop_all_threads(struct list_head *thread_list);
+int start_all_threads(struct list_head *thread_list);
+
 int dsm_migrate_process_prepare(struct object *root_cg_obj);
 int dsm_migrate_process_ckpt(struct object *root_cg_obj);
 int dsm_migrate_process_restore(struct cap_group *new_cap_group);

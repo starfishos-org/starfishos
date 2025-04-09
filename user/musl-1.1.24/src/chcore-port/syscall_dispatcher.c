@@ -531,6 +531,7 @@ long __syscall3(long n, long a, long b, long c)
 		return __syscall6(SYS_writev, a, b, c, 0, 0, 0);
 	}
 	case SYS_read: {
+		printf("read: %d, %p, %zu\n", (int)a, (void *)b, (size_t)c);
 		return chcore_read((int)a, (void *)b, (size_t)c);
 	}
 	case SYS_sched_getaffinity: {

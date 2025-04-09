@@ -30,11 +30,13 @@ static int start_user_thread(struct thread *thread)
     }
     thread->thread_ctx->cpuid = NO_AFF;
     thread->thread_ctx->is_fpu_owner = -1;
+    thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
 
     switch (thread->thread_ctx->state) {
+    case TS_RUNNING:
     case TS_READY:
         /* mark thread as inter state to pass check in __sched_enqueue */
-        thread->thread_ctx->state = TS_INTER;
+        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
         ret = sched_enqueue(thread);
         if (ret < 0) {
             CFORK_LOG_ERR("failed to enqueue thread: %p\n", thread);
@@ -61,15 +63,12 @@ static int start_user_thread(struct thread *thread)
 int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
-    int ret;
+    // int ret;
 
     CFORK_LOG_INFO("start_all_threads:\n");
 
     // enqueue all threads to the scheduler
     for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
-        print_thread(thread);
-        kprint_vmr(thread->vmspace);
-
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
@@ -90,6 +89,9 @@ int start_all_threads(struct list_head *thread_list)
                 CFORK_LOG_ERR("%d: unsupported thread type\n", __LINE__);
                 return -EINVAL;
         }
+
+        print_thread(thread);
+        // kprint_vmr(thread->vmspace);
     }
 
     CFORK_LOG_DEBUG("all threads have been started\n");
@@ -117,6 +119,7 @@ int stop_all_threads(struct list_head *thread_list)
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:
+        case TS_CHOOSE_TO_SCHED:
             /* ask the cpu to reschedule a common thread that is running */
             send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
             add_to_waiting_list(&waiting_thread_list, (void *)thread);
@@ -135,7 +138,7 @@ int stop_all_threads(struct list_head *thread_list)
             } 
             /** case 2:
              * @here: thread is TS_READY, dequeue success
-             * @scheduler: fail to dequeue the thread
+             * @scheduler: the scheduler will not see this thread
              * this thread is really stopped
              */
             else {
@@ -157,9 +160,10 @@ int stop_all_threads(struct list_head *thread_list)
             /* directly checkpoint */
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
-        case TS_INTER:
+        case TS_INTER: // dequeue or exit
         case TS_INIT:
-            /* mark the thread as TE_STOPPED */
+        case TS_EXIT:
+            /* Directly mark the thread as TE_STOPPED */
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
         default:
@@ -168,6 +172,7 @@ int stop_all_threads(struct list_head *thread_list)
     }
 
     /* Loop until all threads are stopped */
+    int loop_cnt = 0;
     while (!list_empty(&waiting_thread_list)) {
         for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
             thread = (struct thread *)node->data;
@@ -184,6 +189,14 @@ int stop_all_threads(struct list_head *thread_list)
                 }
             }
         }
+
+        if (loop_cnt % 100000 == 0) {
+            CFORK_LOG_DEBUG("waiting for threads to stop: %d\n", loop_cnt);
+            for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
+                print_thread((struct thread *)node->data);
+            }
+        }
+        loop_cnt++;
 
         /* Handle IPI tx while waiting to avoid deadlock. */
         handle_ipi();

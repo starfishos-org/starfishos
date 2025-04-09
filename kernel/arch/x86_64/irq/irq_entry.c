@@ -169,11 +169,9 @@ void handle_reset_sched(u32 cpuid)
 
 void handle_wait_in_kernel(u32 cpuid)
 {
-    save_fpu_state(current_thread);
-    // struct thread *fpu_owner = (struct thread *)(cpu_info[cpuid].fpu_owner);
-    // if(fpu_owner != NULL) {
-    // 	save_fpu_state(fpu_owner);
-    // }
+    if (current_thread->thread_ctx->is_fpu_owner >= 0) {
+        save_and_release_fpu(current_thread);
+    }
     /* Save FS for thread from */
     if (likely((current_thread)
                && (current_thread->thread_ctx->type > TYPE_KERNEL))) {
@@ -397,7 +395,7 @@ void trap_c(arch_exec_ctx_t *ec)
     case T_NM:
         kdebug("Device (ChCore considers FPU only) Not Available:\n");
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
-        change_fpu_owner();
+        change_fpu_owner(current_thread);
         #ifdef IPC_PERF_TRAP
             goto perf_end;
         #endif

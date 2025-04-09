@@ -58,6 +58,8 @@ int sys_cfork_prepare(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+    CFORK_LOG_INFO("prepare %s done\n", pname);
+
 out:
     kfree(pname);
     return ret;
@@ -88,6 +90,12 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+    // ret = stop_all_connections(cap_group);
+    // if (ret) {
+    //     CFORK_LOG_ERR("cfork_ckpt: stop_all_connections failed\n");
+    //     goto out;
+    // }
+
     // checkpoint the remaining part to the shared memory
     // ret = cfork_ckpt_process(ckpt_obj_root);
     ret = dsm_migrate_process_prepare(ckpt_obj_root->obj_src);
@@ -108,6 +116,8 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+    CFORK_LOG_INFO("checkpoint %s done\n", pname);
+
 out:
     kfree(pname);
     return ret;
@@ -115,7 +125,7 @@ out:
 
 int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
 {
-    int ret = 0;
+    int ret = 0, retry_count = 3;
     char *pname;
     struct ckpt_obj_root *ckpt_obj_root;
     struct cap_group *restored_cg;
@@ -131,8 +141,14 @@ retry:
     }
 
     if (!ckpt_obj_root->valid) {
+        // CFORK_LOG_ERR("cfork_restore: ckpt_obj_root is not valid\n");
+        retry_count--;
+        if (retry_count > 0) {
+            goto retry;
+        }
+        ret = -ENOENT;
         CFORK_LOG_ERR("cfork_restore: ckpt_obj_root is not valid\n");
-        goto retry;
+        goto out;
     }
 
     CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p\n", ckpt_obj_root);
@@ -166,6 +182,8 @@ retry:
         ret = -ENOENT;
         goto out;
     }
+
+    CFORK_LOG_INFO("restore %s done\n", pname);
 
 out:
     kfree(pname);

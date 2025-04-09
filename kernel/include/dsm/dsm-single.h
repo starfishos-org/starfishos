@@ -11,7 +11,7 @@
 #include <machine.h>
 #include <uapi/types.h>
 
-// #define DSM_DEBUG
+#define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
@@ -140,7 +140,7 @@ typedef struct {
     /**
      * 5. shared queue for scheduler
      */
-    struct shared_queue_meta shared_queue[CLUSTER_MAX_MACHINE_NUM];
+    struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
 
     struct {
         struct cap_group *root_cap_group;
@@ -229,4 +229,16 @@ static int inline cpuid_g2mid(u32 gcpuid)
             return i;
     }
     return -1;
+}
+
+static int inline cpuid_l2g_with_mid(u32 lcpuid, u32 mid)
+{
+    int gcpuid = -1;
+    if (lcpuid == NO_AFF) {
+        gcpuid = dsm_meta->local_meta[mid].cpu_range_low;
+    } else {
+        gcpuid = dsm_meta->local_meta[mid].cpu_range_low + lcpuid;
+        BUG_ON(gcpuid > dsm_meta->local_meta[mid].cpu_range_high);
+    }
+    return gcpuid;
 }

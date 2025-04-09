@@ -394,7 +394,7 @@ int thread_restore(struct object *thread_obj,
     struct vmspace *thread_vmspace;
 
     // no matter the arg, thread_ctx_restore will handle sc
-    target->thread_ctx = create_thread_ctx(ckpt_thread->thread_ctx.type);
+    target->thread_ctx = create_thread_ctx(ckpt_thread->thread_ctx.type, __MT_THREADCTX__);
     if (!target->thread_ctx) {
         BUG_ON(1);
         return -ENOMEM;
@@ -439,20 +439,6 @@ int thread_restore(struct object *thread_obj,
            ckpt_obj_root_get(container_of(target, struct object, opaque), flags & ~FLAGS_ALLOC));
 
     target->prev_thread = NULL;
-    // switch (target->thread_ctx->state) {
-    // case TS_INIT:
-    // case TS_INTER:
-    // case TS_RUNNING:
-    // case TS_READY: {
-    //     target->thread_ctx->state = TS_INTER;
-    //     // kinfo("thread %lx enqueue\n",target);
-    //     BUG_ON(sched_enqueue(target));
-    //     break;
-    // }
-    // default: {
-    //     break;
-    // }
-    // }
 
     if (target == current_thread) {
         target->thread_ctx->state = TS_RUNNING;
@@ -460,8 +446,6 @@ int thread_restore(struct object *thread_obj,
 
     return 0;
 }
-
-#define STATE_AREA_SIZE (sizeof(struct xsave_area))
 
 int ckpt_thread_copy(struct ckpt_object *src_obj, struct ckpt_object *dst_obj,
                      struct kvs *obj_map)

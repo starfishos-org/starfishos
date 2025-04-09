@@ -219,6 +219,7 @@ static void recycle_server_shadow_thread(struct ipc_connection *conn,
         * should be set to TS_EXIT here.
         */
         server_thread->thread_ctx->state = TS_EXIT;
+        kinfo("%s: thread %s exit\n", server_thread->cap_group->cap_group_name, __func__);
     }
 }
 
@@ -314,12 +315,8 @@ static int __stop_connection(struct ipc_connection *conn)
 }
 
 /* Wait onging IPCs to finish and stop new IPCs. */
-static void stop_connection(struct object_slot *slot, int *ret)
+void stop_connection(struct ipc_connection *conn, int *ret)
 {
-    struct ipc_connection *conn;
-
-    conn = (struct ipc_connection *)slot->object->opaque;
-
     *ret = __stop_connection(conn);
 }
 
@@ -452,14 +449,12 @@ static void stop_ipc_registration(struct cap_group *cap_group,
      * execute any more.
      */
     thread->thread_ctx->state = TS_EXIT;
+    kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
     thread->thread_ctx->thread_exit_state = TE_EXITED;
 }
 
-void stop_notification(struct object_slot *slot)
+void stop_notification(struct notification *notific)
 {
-    struct notification *notific;
-
-    notific = (struct notification *)slot->object->opaque;
     lock(&notific->notifc_lock);
     notific->state = NOTIFIC_INVALID;
     unlock(&notific->notifc_lock);
@@ -521,11 +516,11 @@ int sys_cap_group_recycle(int cap_group_cap)
         BUG_ON(slot == NULL);
 
         if (slot->object->type == TYPE_CONNECTION) {
-            stop_connection(slot, &ret);
+            stop_connection((struct ipc_connection *)slot->object->opaque, &ret);
         } else if (slot->object->type == TYPE_THREAD) {
             stop_ipc_registration(cap_group, slot, &ret);
         } else if (slot->object->type == TYPE_NOTIFICATION) {
-            stop_notification(slot);
+            stop_notification((struct notification *)slot->object->opaque);
         }
     }
 

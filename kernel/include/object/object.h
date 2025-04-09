@@ -50,6 +50,8 @@ struct object {
 #define DSM_TYPE_NORMAL         (0) 
 #define DSM_TYPE_BRIDGE         (1)
 #define DSM_TYPE_CROSS_SHARED   (2)
+// notify this object, will wake up the true thread on its machine
+#define DSM_TYPE_THREAD_NOTIFY_BRIDGE (3)
     u8 dsm_type;
     
     u8 dirty_bit;  // the object is dirty during migration
@@ -97,6 +99,7 @@ extern const obj_deinit_func obj_deinit_tbl[TYPE_NR];
 
 #define obj2object(obj) (container_of(obj, struct object, opaque))
 #define object2obj(object) (object->opaque)
+#define obj2objpair(obj) (object2obj(obj2object(obj)->pair_obj))
 
 void *obj_get(struct cap_group *cap_group, int slot_id, int type);
 void obj_put(void *obj);

@@ -4,23 +4,27 @@ set default_program "hello"
 
 array set program_names {
     "hello" "test_cfork_hello.bin"
+    "file" "test_file.bin"
     "leveldb" "leveldb-dbbench"
     "matmul" "test_matmul.bin"
     "linpack" "test_linpack.bin"
     "float" "test_float.bin"
     "json" "test_json.bin"
     "pyaes" "test_pyaes.bin"
+    "pca" "pca.bin"
     # ...
 }
 
 array set program_args {
     "hello" ""
+    "file" ""
     "leveldb" "--benchmarks=fillbatch --num=1000000"
-    "matmul" "4000 2"
-    "linpack" "2000 2"
-    "float" "10000000 2"
+    "matmul" "3000 2"
+    "linpack" "4000 2"
+    "float" "100000000 2"
     "json" "english.json 2"
-    "pyaes" "2000000 100 2"
+    "pyaes" "10000000 100 2"
+    "pca" "-c 2000 -r 2000 -t 8 -m 1"
     # ...
 }
 # "leveldb" "--benchmarks=fillbatch --num=1000000"
@@ -28,11 +32,13 @@ array set program_args {
 
 array set program_expects {
     "hello" "[1]"
+    "file" ""
     "leveldb" "version"
     "matmul" "Running /test_matmul.bin"
     "linpack" "Running /test_linpack.bin"
     "float" "Running /test_float.bin"
     "json" "Running /test_json.bin"
     "pyaes" "Running /test_pyaes.bin"
+    "pca" "PCA Mean"
     # ...
 }

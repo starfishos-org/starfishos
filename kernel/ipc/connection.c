@@ -296,6 +296,11 @@ static inline int grab_ipc_lock(struct ipc_connection *conn)
     handler_config =
             (struct ipc_server_handler_config *)target->general_ipc_config;
 
+    if (strstr(current_thread_name, "test_file") != 0 && CUR_MACHINE_ID == 1) {
+        kinfo("handler_config %p, lock: %p\n", 
+            handler_config, &handler_config->ipc_lock);
+    }
+
     /*
      * Grabing the ipc_lock can ensure:
      * First, avoid invoking the same handler thread.
@@ -382,21 +387,17 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
     arch_set_thread_arg1(target, conn->client_badge);
 #endif
 
+#ifdef IPC_PERF_ENABLED
+    extern volatile bool ipc_perf_enabled;
+    if (ipc_perf_enabled) {        
+        extern volatile u64 ipc_perf_count_p3;
+        extern u64 ipc_perf_time_p3[10240];
+        extern u64 rdtsc(void);
+        ipc_perf_time_p3[ipc_perf_count_p3++] = rdtsc();
+    }
+#endif
+
     /* Switch to the target thread */
-    // TODO(yjs): check whether the target is tmpfs thread
-    // if (strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
-    //     extern void flush_tlb_all(void);
-    //     flush_tlb_all();
-    // }
-    #ifdef IPC_PERF_ENABLED
-        extern volatile bool ipc_perf_enabled;
-        if (ipc_perf_enabled) {        
-            extern volatile u64 ipc_perf_count_p3;
-            extern u64 ipc_perf_time_p3[10240];
-            extern u64 rdtsc(void);
-            ipc_perf_time_p3[ipc_perf_count_p3++] = rdtsc();
-        }
-    #endif
     sched_to_thread(target);
 
     /* Function never return */
@@ -411,15 +412,15 @@ static void thread_migrate_to_client(struct thread *client, u64 ret_value)
     arch_set_thread_return(client, ret_value);
 
     /* Switch to the client thread */
-    #ifdef IPC_PERF_ENABLED
-        extern volatile bool ipc_perf_enabled;
-        if (ipc_perf_enabled) {        
-            extern volatile u64 ipc_perf_count_p7;
-            extern u64 ipc_perf_time_p7[10240];
-            extern u64 rdtsc(void);
-            ipc_perf_time_p7[ipc_perf_count_p7++] = rdtsc();
-        }
-    #endif
+#ifdef IPC_PERF_ENABLED
+    extern volatile bool ipc_perf_enabled;
+    if (ipc_perf_enabled) {        
+        extern volatile u64 ipc_perf_count_p7;
+        extern u64 ipc_perf_time_p7[10240];
+        extern u64 rdtsc(void);
+        ipc_perf_time_p7[ipc_perf_count_p7++] = rdtsc();
+    }
+#endif
     sched_to_thread(client);
 
     /* Function never return */
@@ -688,15 +689,15 @@ static void ipc_send_cap_to_client(struct ipc_connection *conn, u64 cap_num)
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg_in_client, u64 cap_num)
 {
     // TODO: 
-    #ifdef IPC_PERF_ENABLED
-        extern volatile bool ipc_perf_enabled;
-        if (ipc_perf_enabled) {        
-            extern volatile u64 ipc_perf_count_p2;
-            extern u64 ipc_perf_time_p2[10240];
-            extern u64 rdtsc(void);
-            ipc_perf_time_p2[ipc_perf_count_p2++] = rdtsc();
-        }
-    #endif
+#ifdef IPC_PERF_ENABLED
+    extern volatile bool ipc_perf_enabled;
+    if (ipc_perf_enabled) {        
+        extern volatile u64 ipc_perf_count_p2;
+        extern u64 ipc_perf_time_p2[10240];
+        extern u64 rdtsc(void);
+        ipc_perf_time_p2[ipc_perf_count_p2++] = rdtsc();
+    }
+#endif
     struct ipc_connection *conn;
     u64 ipc_msg_in_server;
     int r = 0;
@@ -860,6 +861,7 @@ int sys_ipc_return(u64 ret, u64 cap_num)
         conn->state = CONN_INCOME_STOPPED;
         
         current_thread->thread_ctx->state = TS_EXIT;
+        kinfo("%s: thread %s exit\n", current_thread->cap_group->cap_group_name, __func__);
         current_thread->thread_ctx->thread_exit_state = TE_EXITED;
 
         /* Returns an error to the client */
@@ -904,6 +906,7 @@ int sys_ipc_return(u64 ret, u64 cap_num)
             obj_put(conn);
             
             client->thread_ctx->state = TS_EXIT;
+            kinfo("%s: thread %s exit\n", client->cap_group->cap_group_name, __func__);
             client->thread_ctx->thread_exit_state = TE_EXITED;
 
             sched();

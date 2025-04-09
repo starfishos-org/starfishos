@@ -31,3 +31,8 @@ void wait_finish_in_kernel(u32 target_cpu);
 void wait_all_in_kernel(u32 except_cpu);
 void mark_in_kernel_ipi_tx(u32 target_cpu);
 void mark_finish_ipi_tx(u32 target_cpu);
+
+/* stop and start a cpu */
+bool is_cpu_stop_in_kernel(u32 cpuid);
+void sys_ipi_start_cpu(u32 cpuid);
+void sys_ipi_stop_cpu(u32 cpuid);

@@ -202,6 +202,26 @@ void ldmxcsr(u32 mxcsr)
     asm volatile("ldmxcsr %0" ::"m"(mxcsr));
 }
 
+static inline void __cpuid_count(u32 leaf, u32 subleaf, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx)
+{
+    asm volatile("cpuid"
+                : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+                : "a"(leaf), "c"(subleaf)
+                : "memory");
+}
+
+u32 xsave_area_size;
+void arch_get_cpu_xsave_area_size(void)
+{
+    u32 eax, ebx, ecx, edx;
+    
+    __cpuid_count(0xD, 0, &eax, &ebx, &ecx, &edx);
+    
+    xsave_area_size = ROUND_UP(ebx, 0x1000);
+    
+    kdebug("XSAVE area size: %d bytes\n", xsave_area_size);
+}
+
 /* SMP: set the control registers on each core */
 void arch_cpu_init(void)
 {
@@ -265,6 +285,8 @@ void arch_cpu_init(void)
 
     x86_xsetbv(0,
                X86_XSAVE_STATE_X87 | X86_XSAVE_STATE_SSE | X86_XSAVE_STATE_AVX);
+    // get CPU xsave area size
+    arch_get_cpu_xsave_area_size();
 
     cr0 = get_cr0();
     cr4 = get_cr4();

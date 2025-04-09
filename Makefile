@@ -115,7 +115,7 @@ cfork-matmul-restore:
 	./dsm-scripts/tests/cfork_restore.exp matmul
 
 pca: clean-dsm
-	./dsm-scripts/tests/phoenix/pca.exp 96
+	./dsm-scripts/tests/phoenix/pca.exp 24
 
 matrix_multiply: clean-dsm
 	./dsm-scripts/tests/phoenix/matrix_multiply.exp 16
@@ -143,3 +143,6 @@ clean-libc:
 
 clean-dsm-meta:
 	./dsm-scripts/config_memdev.sh cxl
+
+tmux:
+	./dsm-scripts/simulate_tmux.sh
