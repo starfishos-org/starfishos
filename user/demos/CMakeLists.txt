@@ -85,15 +85,15 @@ if(CHCORE_DEMOS_MEMCACHED)
     COMMAND ./autogen.sh
             && ./configure --disable-coverage -with-libevent=/usr/libevent/ --enable-static
             && make CC=${MUSL_CC} -s -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
+    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
     DEPENDS)
     list(APPEND _demos_clean_targets memcached-clean)
   add_custom_target(
     memcached-clean
-    COMMAND make maintainer-clean-local
     WORKING_DIRECTORY ${build_demos_dir}/memcached
-    )
-    add_dependencies(ramdisk memcached)
+    COMMAND make maintainer-clean-local
+  )
+  add_dependencies(ramdisk memcached)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)

@@ -8,6 +8,7 @@
 #include <ipc/connection.h>
 #include <irq/timer.h>
 #include <common/debug.h>
+#include <dsm/dsm-single.h>
 
 extern struct thread *current_threads[PLAT_CPU_NUM];
 #define current_thread (current_threads[smp_get_cpu_id()])
@@ -99,7 +100,7 @@ void thread_clone(struct cap_group *cap_group, struct thread *thread);
 
 #ifndef DSM_ENABLED
 #undef cpuid_l2g
-#define cpuid_l2g(x) (x)
+#define cpuid_l2g(x) (CUR_MACHINE_ID * PLAT_CPU_NUM + x)
 #undef cpuid_g2l
-#define cpuid_g2l(x) (x)
+#define cpuid_g2l(x) (x % PLAT_CPU_NUM)
 #endif
