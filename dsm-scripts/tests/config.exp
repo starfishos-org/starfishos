@@ -24,7 +24,7 @@ array set program_args {
     "float" "100000000 2"
     "json" "english.json 2"
     "pyaes" "10000000 100 2"
-    "pca" "-c 2000 -r 2000 -t 12 -m 1"
+    "pca" "-c 2000 -r 2000 -t 8 -m 1"
     # ...
 }
 # "leveldb" "--benchmarks=fillbatch --num=1000000"

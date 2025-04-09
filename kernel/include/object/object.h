@@ -50,6 +50,8 @@ struct object {
 #define DSM_TYPE_NORMAL         (0) 
 #define DSM_TYPE_BRIDGE         (1)
 #define DSM_TYPE_CROSS_SHARED   (2)
+// notify this object, will wake up the true thread on its machine
+#define DSM_TYPE_THREAD_NOTIFY_BRIDGE (3)
     u8 dsm_type;
     
     u8 dirty_bit;  // the object is dirty during migration

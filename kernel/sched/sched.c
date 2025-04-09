@@ -196,7 +196,7 @@ void sched_to_thread(struct thread *target)
     /* TS_INTER may be set in signal_notific */
     BUG_ON((target->thread_ctx->state != TS_WAITING)
            && (target->thread_ctx->state != TS_WAITING_IPC)
-           && (target->thread_ctx->state != TS_INTER));
+           && (target->thread_ctx->state != TS_CHOOSE_TO_SCHED));
 
     /* Switch to itself? */
     BUG_ON(target == current_thread);
@@ -239,7 +239,7 @@ void sched_to_thread(struct thread *target)
          * local CPU cannot direct switch to it.
          */
 
-        target->thread_ctx->state = TS_INTER;
+        target->thread_ctx->state = TS_CHOOSE_TO_SCHED;
         BUG_ON(sched_enqueue(target));
 
         sched();
@@ -375,19 +375,20 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
                 || thread == current_thread) {
                 return thread;
             }
-            continue;
+            break;
         case TE_EXITING:
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
+            kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
             thread->thread_ctx->thread_exit_state = TE_EXITED;
-            continue;
+            break;
 #ifdef DSM_ENABLED
         case TE_STOPPING:
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
-            continue;
+            break;
 #endif
         default:
-            continue;
+            break;
         }
     }
     return NULL;

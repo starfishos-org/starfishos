@@ -267,6 +267,13 @@ void wait_all_in_kernel(u32 except_cpu)
     }
 }
 
+/* Check if the cpu is stop in kernel */
+bool is_cpu_stop_in_kernel(u32 cpuid)
+{
+    /* already get lock in prepare_ipi_tx */
+    return (ipi_data[cpuid].in_kernel == 1);
+}
+
 /* Mark the receiver (i.e., target_cpu) is handling the tx */
 void mark_in_kernel_ipi_tx(u32 target_cpu)
 {
@@ -300,4 +307,27 @@ void sys_ipi_reset_sched_all()
     }
 
     wait_all_in_kernel(cpuid);
+}
+
+void sys_ipi_stop_cpu(u32 cpuid)
+{
+    // u32 target_cpu;
+
+    // printk("sys_ipi_stop_all\n");
+    if (cpuid == smp_get_cpu_id())
+        return;
+    // wait other cpu to get into ipi
+    prepare_ipi_tx(cpuid);
+    start_ipi_tx(cpuid, IPI_WAIT_IN_KERNEL);
+    // kinfo("send ipi to cpu %d\n", target_cpu);
+
+    // wait_all_in_kernel(cpuid);
+}
+
+void sys_ipi_start_cpu(u32 cpuid)
+{
+    if (cpuid == smp_get_cpu_id())
+        return;
+    // wait other cpu to get into ipi
+    mark_finish_ipi_tx(cpuid);
 }

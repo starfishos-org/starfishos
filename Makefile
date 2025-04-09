@@ -143,3 +143,6 @@ clean-libc:
 
 clean-dsm-meta:
 	./dsm-scripts/config_memdev.sh cxl
+
+tmux:
+	./dsm-scripts/simulate_tmux.sh

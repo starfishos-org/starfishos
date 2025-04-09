@@ -219,6 +219,7 @@ static void recycle_server_shadow_thread(struct ipc_connection *conn,
         * should be set to TS_EXIT here.
         */
         server_thread->thread_ctx->state = TS_EXIT;
+        kinfo("%s: thread %s exit\n", server_thread->cap_group->cap_group_name, __func__);
     }
 }
 
@@ -448,6 +449,7 @@ static void stop_ipc_registration(struct cap_group *cap_group,
      * execute any more.
      */
     thread->thread_ctx->state = TS_EXIT;
+    kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
     thread->thread_ctx->thread_exit_state = TE_EXITED;
 }
 

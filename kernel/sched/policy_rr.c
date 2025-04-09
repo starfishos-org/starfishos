@@ -207,8 +207,8 @@ int rr_sched_migrate_from_shared_queue()
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
+        BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
-        BUG_ON(lcpuid == smp_get_cpu_id());
 
         /* move thread from shared queue to local queue */
         ret = __rr_sched_dequeue_shared(thread, gcpuid);
@@ -265,6 +265,41 @@ static u32 rr_sched_choose_cpu(void)
     return cpuid_l2g(cpuid);
 }
 
+/**
+ * @brief Wake up a thread on another machine
+ * 
+ * @param bridge_thread: link to remote thread
+ * @return success: 0, failed: -1
+ */
+int __get_bridge_thread_gcpuid(struct object *bridge_thread_object)
+{
+    BUG_ON(bridge_thread_object->type != TYPE_THREAD);
+    BUG_ON(bridge_thread_object->mem_type != __MT_SHARED__);
+    BUG_ON(bridge_thread_object->dsm_type != DSM_TYPE_THREAD_NOTIFY_BRIDGE);
+
+    struct thread *bridge_thread = 
+        (struct thread *)object2obj(bridge_thread_object);
+
+    /**
+     * Know which gcpuid to enqueue
+     * Case1: remote thread has a cpuid affinity
+     * Case2: remote thread has no cpuid affinity
+     * However, we can not know this from the bridge thread
+     * so we left it for the target machine to check again
+     * 
+     * refer to dsm_copy_notification() in dsm_objects/notification.c
+     * cpuid here is a cached local cpuid, might differ from the
+     * actual cpuid of the thread on the target machine
+     */
+    if (bridge_thread->thread_ctx->cpuid == NO_AFF) {
+        return bridge_thread->machine_id;
+    } else {
+        // The local 0 cpu on machine_id
+        return cpuid_l2g_with_mid(bridge_thread->thread_ctx->cpuid,
+                             bridge_thread->machine_id);
+    }
+}
+
 /*
  * Sched_enqueue
  * Put `thread` at the end of ready queue of assigned `affinity` and `prio`.
@@ -294,8 +329,17 @@ int rr_sched_enqueue(struct thread *thread)
         return 0;
     }
 
+#ifdef DSM_ENABLED
+    if (unlikely(obj2object(thread)->dsm_type == DSM_TYPE_THREAD_NOTIFY_BRIDGE)) {
+        gcpuid = __get_bridge_thread_gcpuid(obj2object(thread));
+    } else {
+        cpubind = get_cpubind(thread);
+        gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
+    }
+#else
     cpubind = get_cpubind(thread);
     gcpuid = cpubind == NO_AFF ? rr_sched_choose_cpu() : cpubind;
+#endif
 
     /* Check Prio */
     if (unlikely(thread->thread_ctx->prio > MAX_PRIO))
@@ -342,9 +386,8 @@ int rr_sched_enqueue(struct thread *thread)
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
-    if (unlikely((thread->thread_ctx->state != TS_READY 
-                && thread->thread_ctx->state != TS_SCHEDING)
-                || thread->thread_ctx->thread_exit_state != TE_RUNNING)) {
+    if (unlikely(thread->thread_ctx->state != TS_READY 
+                && thread->thread_ctx->state != TS_CHOOSE_TO_SCHED)) {
         kdebug("%s: thread %s state is %d exit state is %d\n",
               __func__,
               thread->cap_group->cap_group_name,
@@ -354,7 +397,6 @@ int __rr_sched_dequeue(struct thread *thread)
     }
     list_del(&(thread->ready_queue_node));
     rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len--;
-    // thread->thread_ctx->state = TS_INTER;
     return 0;
 }
 
@@ -374,6 +416,7 @@ int rr_sched_dequeue(struct thread *thread)
     cpuid = thread->thread_ctx->cpuid;
     lock(&(rr_ready_queue_meta[cpuid].queue_lock));
     ret = __rr_sched_dequeue(thread);
+    thread->thread_ctx->state = TS_INTER;
     unlock(&(rr_ready_queue_meta[cpuid].queue_lock));
     return ret;
 }
@@ -406,7 +449,7 @@ struct thread *rr_sched_choose_thread(void)
             goto out;
         }
 
-        thread->thread_ctx->state = TS_SCHEDING; // serve as lock of the thread
+        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED; // serve as lock of the thread
         // someone else stop this thread
         if (unlikely(thread->thread_ctx->thread_exit_state != TE_RUNNING)) {
             __rr_sched_dequeue(thread);
@@ -415,6 +458,7 @@ struct thread *rr_sched_choose_thread(void)
         }
 
         ret = __rr_sched_dequeue(thread);
+        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
         if (ret < 0) { /* thread is stopped by recycler or ckpt/restore */
             goto again;
         }
@@ -468,6 +512,7 @@ int rr_sched(void)
              * Check whether the thread is going to exit.
              */
             old->thread_ctx->state = TS_EXIT;
+            kinfo("%s: thread %s exit\n", old->cap_group->cap_group_name, __func__);
             old->thread_ctx->kernel_stack_state = KS_FREE;
             old->thread_ctx->thread_exit_state = TE_EXITED;
             break;
@@ -509,7 +554,7 @@ int rr_sched(void)
                 return 0; /* no schedule needed */
             }
             rr_sched_refill_budget(old, DEFAULT_BUDGET);
-            old->thread_ctx->state = TS_INTER;
+            old->thread_ctx->state = TS_CHOOSE_TO_SCHED;
             BUG_ON(rr_sched_enqueue(old) != 0);
             break;
         case TS_WAITING:

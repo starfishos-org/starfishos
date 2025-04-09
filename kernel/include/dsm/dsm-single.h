@@ -230,3 +230,15 @@ static int inline cpuid_g2mid(u32 gcpuid)
     }
     return -1;
 }
+
+static int inline cpuid_l2g_with_mid(u32 lcpuid, u32 mid)
+{
+    int gcpuid = -1;
+    if (lcpuid == NO_AFF) {
+        gcpuid = dsm_meta->local_meta[mid].cpu_range_low;
+    } else {
+        gcpuid = dsm_meta->local_meta[mid].cpu_range_low + lcpuid;
+        BUG_ON(gcpuid > dsm_meta->local_meta[mid].cpu_range_high);
+    }
+    return gcpuid;
+}

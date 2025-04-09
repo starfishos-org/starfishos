@@ -861,6 +861,7 @@ int sys_ipc_return(u64 ret, u64 cap_num)
         conn->state = CONN_INCOME_STOPPED;
         
         current_thread->thread_ctx->state = TS_EXIT;
+        kinfo("%s: thread %s exit\n", current_thread->cap_group->cap_group_name, __func__);
         current_thread->thread_ctx->thread_exit_state = TE_EXITED;
 
         /* Returns an error to the client */
@@ -905,6 +906,7 @@ int sys_ipc_return(u64 ret, u64 cap_num)
             obj_put(conn);
             
             client->thread_ctx->state = TS_EXIT;
+            kinfo("%s: thread %s exit\n", client->cap_group->cap_group_name, __func__);
             client->thread_ctx->thread_exit_state = TE_EXITED;
 
             sched();

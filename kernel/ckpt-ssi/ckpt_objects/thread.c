@@ -439,20 +439,6 @@ int thread_restore(struct object *thread_obj,
            ckpt_obj_root_get(container_of(target, struct object, opaque), flags & ~FLAGS_ALLOC));
 
     target->prev_thread = NULL;
-    // switch (target->thread_ctx->state) {
-    // case TS_INIT:
-    // case TS_INTER:
-    // case TS_RUNNING:
-    // case TS_READY: {
-    //     target->thread_ctx->state = TS_INTER;
-    //     // kinfo("thread %lx enqueue\n",target);
-    //     BUG_ON(sched_enqueue(target));
-    //     break;
-    // }
-    // default: {
-    //     break;
-    // }
-    // }
 
     if (target == current_thread) {
         target->thread_ctx->state = TS_RUNNING;
