@@ -102,7 +102,7 @@ void thread_clone(struct cap_group *cap_group, struct thread *thread);
 
 #ifndef DSM_ENABLED
 #undef cpuid_l2g
-#define cpuid_l2g(x) (CUR_MACHINE_ID * PLAT_CPU_NUM + x)
+#define cpuid_l2g(x) (x)
 #undef cpuid_g2l
-#define cpuid_g2l(x) (x % PLAT_CPU_NUM)
+#define cpuid_g2l(x) (x)
 #endif
