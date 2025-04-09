@@ -449,6 +449,12 @@ struct thread *rr_sched_choose_thread(void)
             goto out;
         }
 
+        if (thread->thread_ctx->thread_exit_state != TE_RUNNING) {
+            __rr_sched_dequeue(thread);
+            // thread->thread_ctx->state = TS_INTER;
+            goto again;
+        }
+
         thread->thread_ctx->state = TS_CHOOSE_TO_SCHED; // serve as lock of the thread
         // someone else stop this thread
         if (unlikely(thread->thread_ctx->thread_exit_state != TE_RUNNING)) {

@@ -58,6 +58,7 @@ struct object *object_alloc(u64 type, u64 size, mem_t flags)
     object->obj_root = NULL;
 #ifdef DSM_ENABLED
     object->mem_type = flags;
+    object->machine_id = CUR_MACHINE_ID;
     object->status = DSM_STATUS_INVALID;
     object->pair_obj = NULL;
     lock_init(&object->tiering_lock);

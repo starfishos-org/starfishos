@@ -72,7 +72,7 @@ int start_all_threads(struct list_head *thread_list)
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
-        ret = dsm_promote_object(obj2object(thread));
+        int ret = dsm_promote_object(obj2object(thread));
         if (ret) {
             CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
         }
@@ -309,5 +309,37 @@ int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group 
 
 int add_cap_group_to_cap_tree(struct cap_group *root_cap_group, struct cap_group *restored_cg)
 {
+    return 0;
+}
+
+/**
+ * cfork_promote_all_threads: promote all threads in the list.
+ * @param thread_list: the list of threads to be promoted
+ * @return 0 if all threads are promoted, -EINVAL otherwise.
+ */
+int cfork_promote_all_threads(struct list_head *thread_list)
+{
+    int ret = 0;
+    struct thread *thread, *new_thread, *thread_tmp;
+    struct object *thread_object, *thread_new_object;
+    for_each_in_list_safe (thread, thread_tmp, node, thread_list) {
+        thread_object = obj2object(thread);
+        ret = dsm_promote_object(thread_object);
+        if (ret) {
+            CFORK_LOG_ERR("%s: failed to promote the thread: %p", __func__, thread);
+            return -EINVAL;
+        }
+        CFORK_LOG_DEBUG("promoted the thread_object: %p pair_object: %p", thread_object, thread_object->pair_obj);
+        thread_new_object = dsm_get_object_by_mem_type(thread_object, __MT_PRIVATE__, false);
+        BUG_ON(!thread_new_object);
+        new_thread = (struct thread *)object2obj(thread_new_object);
+        BUG_ON(!new_thread);
+        if (unlikely(thread->thread_ctx->affinity != NO_AFF && 
+            cpuid_g2mid(thread->thread_ctx->affinity) != CUR_MACHINE_ID)) {
+            thread->thread_ctx->affinity = NO_AFF;
+        }
+        list_del(&thread->node);
+        list_add(&new_thread->node, thread_list);
+    }
     return 0;
 }

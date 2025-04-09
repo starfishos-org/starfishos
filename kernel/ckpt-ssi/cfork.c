@@ -176,6 +176,13 @@ retry:
         goto out;
     }
 
+    // only called by cfork restore
+    if ((ret = cfork_promote_all_threads(&(restored_cg->thread_list)))) {
+        CFORK_LOG_ERR("cfork_restore: cfork_promote_all_threads failed\n");
+        ret = -ENOENT;
+        goto out;
+    }
+
     // start all threads
     if ((ret = start_all_threads(&(restored_cg->thread_list)))) {
         CFORK_LOG_ERR("cfork_restore: cfork_start_threads failed\n");

@@ -24,7 +24,7 @@ int cfork_ckpt_process(struct ckpt_obj_root *ckpt_obj_root);
 int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group **out_root_cg);
 
 int add_cap_group_to_cap_tree(struct cap_group *root_cap_group, struct cap_group *restored_cg);
-
+int cfork_promote_all_threads(struct list_head *thread_list);
 // int dsm_migrate_process_prepare(struct object *root_cg_obj);
 
 #endif // __CKPT_CFORK_H__

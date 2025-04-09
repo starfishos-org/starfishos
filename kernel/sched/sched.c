@@ -381,7 +381,7 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             }
             break;
         case TE_EXITING:
-            sched_dequeue(thread);
+            // sched_dequeue(thread);
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
             kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
@@ -389,11 +389,13 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             break;
 #ifdef DSM_ENABLED
         case TE_STOPPING:
-            sched_dequeue(thread);
+            // sched_dequeue(thread);
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
 #endif
-        default:
+        case TE_STOPPED:
+        case TE_EXITED:
+            // sched_dequeue(thread);
             break;
         }
     }

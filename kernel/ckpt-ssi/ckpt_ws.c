@@ -26,7 +26,6 @@ int ckpt_ws_init(void)
     int ret = 0;
 
     if (CKPT_WS_TABLE) {
-        BUG_ON(!CKPT_WS_TABLE->ckpt_ws_kvs);
         /* name_kvs and ws_list can be null */
         return 0;
     }

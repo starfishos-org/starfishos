@@ -29,6 +29,7 @@ struct object {
      * Memory type of the object.
      */
     mem_t mem_type;
+    mid_t machine_id; // created machine id
     /*
      * For migrating objects, dirty_bit is used to indicate the object is dirty.
      */

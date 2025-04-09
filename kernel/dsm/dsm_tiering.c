@@ -152,7 +152,7 @@ int dsm_promote_object(struct object *obj)
     struct object *target;
     int ret = 0;
 
-    /* Check object is real private */
+    /* Check object is real shared */
     if (!is_shared_object(obj)) {
         DSM_TIER_LOG_DEBUG("obj is not a shared object\n");
         return 0;
@@ -175,7 +175,7 @@ int dsm_promote_object(struct object *obj)
 
     /* Malloc shared object */
     if (!obj->pair_obj) {
-        if ((ret = dsm_alloc_pair_object(obj, __MT_SHARED__)) != 0) {
+        if ((ret = dsm_alloc_pair_object(obj, __MT_PRIVATE__)) != 0) {
             DSM_TIER_LOG_ERR("%s: failed to alloc pair object\n", __func__);
             return ret;
         }
