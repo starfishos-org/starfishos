@@ -14,6 +14,12 @@ static inline void init_list_head(struct list_head *list)
     list->prev = list;
 }
 
+static inline void init_empty_node(struct list_head *node)
+{
+    node->next = node;
+    node->prev = node;
+}
+
 static inline void list_add(struct list_head *new, struct list_head *head)
 {
     new->next = head->next;

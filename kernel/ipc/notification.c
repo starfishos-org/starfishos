@@ -91,7 +91,7 @@ static void notific_timer_cb(struct thread *thread)
     // BUG_ON(count);
 
     arch_set_thread_return(thread, -ETIMEDOUT);
-    thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+    thread->thread_ctx->state = TS_TO_SCHED;
     BUG_ON(sched_enqueue(thread));
 
     unlock(&notifc->notifc_lock);
@@ -330,7 +330,7 @@ int signal_notific(struct notification *notifc)
         list_del(&target->notification_queue_node);
         notifc->waiting_threads_count--;
 
-        target->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+        target->thread_ctx->state = TS_TO_SCHED;
         if (target->thread_ctx->thread_exit_state == TE_EXITING) {
             target->thread_ctx->thread_exit_state = TE_EXITED;
         } else if (target->thread_ctx->thread_exit_state == TE_STOPPING) {

@@ -59,6 +59,12 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
     }
     thread->thread_ctx->cpuid = cpuid;
     thread->thread_ctx->state = TS_READY;
+
+    if (!list_empty(&thread->ready_queue_node)) {
+        kwarn("%s: thread %p is in ready queue\n", __func__, thread);
+        // print_thread(thread);
+    }
+
     list_append(&(thread->ready_queue_node),
                 &(rr_ready_queue_meta[cpuid].queue_head));
     rr_ready_queue_meta[cpuid].queue_len++;
@@ -386,9 +392,10 @@ int rr_sched_enqueue(struct thread *thread)
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
-    if (unlikely(thread->thread_ctx->state != TS_READY 
-                && thread->thread_ctx->state != TS_CHOOSE_TO_SCHED)) {
-        kdebug("%s: thread %s state is %d exit state is %d\n",
+    if (unlikely(thread->thread_ctx->state == TS_RUNNING ||
+                thread->thread_ctx->state == TS_WAITING ||
+                thread->thread_ctx->state == TS_WAITING_IPC)) {
+        kinfo("%s: thread %s state is %d exit state is %d\n",
               __func__,
               thread->cap_group->cap_group_name,
               thread->thread_ctx->state,
@@ -396,6 +403,7 @@ int __rr_sched_dequeue(struct thread *thread)
         return -EINVAL;
     }
     list_del(&(thread->ready_queue_node));
+    init_empty_node(&thread->ready_queue_node);
     rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len--;
     return 0;
 }
@@ -449,22 +457,21 @@ struct thread *rr_sched_choose_thread(void)
             goto out;
         }
 
-        if (thread->thread_ctx->thread_exit_state != TE_RUNNING) {
-            __rr_sched_dequeue(thread);
-            // thread->thread_ctx->state = TS_INTER;
+        BUG_ON(__rr_sched_dequeue(thread));
+        if (unlikely(thread->thread_ctx->thread_exit_state == TE_EXITING)) {
+            thread->thread_ctx->state = TS_EXIT;
+            thread->thread_ctx->thread_exit_state = TE_EXITED;
             goto again;
         }
 
-        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED; // serve as lock of the thread
+        thread->thread_ctx->state = TS_TO_SCHED; // serve as lock of the thread
         // someone else stop this thread
-        if (unlikely(thread->thread_ctx->thread_exit_state != TE_RUNNING)) {
-            __rr_sched_dequeue(thread);
-            thread->thread_ctx->state = TS_INTER;
+        if (unlikely(thread->thread_ctx->thread_exit_state == TE_STOPPING)) {
+            thread->thread_ctx->thread_exit_state = TE_STOPPED;
             goto again;
         }
 
-        ret = __rr_sched_dequeue(thread);
-        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+        thread->thread_ctx->state = TS_TO_SCHED;
         if (ret < 0) { /* thread is stopped by recycler or ckpt/restore */
             goto again;
         }
@@ -509,8 +516,9 @@ int rr_sched(void)
 
         switch (old->thread_ctx->thread_exit_state) {
         case TE_RUNNING:
-        case TE_EXITED:
             break;
+        case TE_EXITED:
+            BUG_ON(1);
         case TE_EXITING:
             /**
              * Set TE_EXITING after check won't cause any trouble, the
@@ -518,10 +526,12 @@ int rr_sched(void)
              * Check whether the thread is going to exit.
              */
             old->thread_ctx->state = TS_EXIT;
-            kinfo("%s: thread %s exit\n", old->cap_group->cap_group_name, __func__);
+            // kinfo("%s: thread %s exit\n", old->cap_group->cap_group_name, __func__);
             old->thread_ctx->kernel_stack_state = KS_FREE;
             old->thread_ctx->thread_exit_state = TE_EXITED;
-            break;
+            BUG_ON(rr_sched_dequeue(old) != 0);
+            old->thread_ctx->state = TS_EXIT;
+            goto out;
 #ifdef DSM_ENABLED
         case TE_MIGRATING:
             /* schedule migrate thread to remote */
@@ -557,7 +567,7 @@ int rr_sched(void)
                 return 0; /* no schedule needed */
             }
             rr_sched_refill_budget(old, DEFAULT_BUDGET);
-            old->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+            old->thread_ctx->state = TS_TO_SCHED;
             BUG_ON(rr_sched_enqueue(old) != 0);
             break;
         case TS_WAITING:

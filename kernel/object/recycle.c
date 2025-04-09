@@ -488,6 +488,7 @@ int sys_cap_group_recycle(int cap_group_cap)
     struct slot_table *slot_table;
     int slot_id;
     struct object *object;
+    char name[MAX_GROUP_NAME_LEN];
 
     if ((ret = hook_sys_cap_group_recycle(cap_group_cap)) != 0)
         return ret;
@@ -496,6 +497,8 @@ int sys_cap_group_recycle(int cap_group_cap)
     if (!cap_group) {
          return -ECAPBILITY;
     }
+
+    memcpy(name, cap_group->cap_group_name, MAX_GROUP_NAME_LEN);
 
 #ifdef CKPT_CAP_GROUP_LAZY_COPY
     cap_group_lazy_copy_ckpt(cap_group);
@@ -556,6 +559,8 @@ int sys_cap_group_recycle(int cap_group_cap)
                 extern void try_remove_timeout(struct thread *);
                 try_remove_timeout(thread);
                 thread->thread_ctx->thread_exit_state = TE_EXITED;
+                // kinfo("recycle thread remove timeout %p\n", thread);
+                // print_thread(thread);
                 continue;
             }
 
@@ -564,7 +569,7 @@ int sys_cap_group_recycle(int cap_group_cap)
     }
 
     if (ret == -EAGAIN) {
-        kdebug("%s: Line: %d\n", __func__, __LINE__);
+        // kinfo("!!!!!!%s: Line: %d\n", __func__, __LINE__);
         goto out;
     }
 
@@ -612,7 +617,7 @@ int sys_cap_group_recycle(int cap_group_cap)
     /* The cap_group will be freed in the following cap_free_all. */
     obj_put(cap_group);
 
-    kdebug("%s is done\n", __func__);
+    kinfo("recycle %s done\n", name);
 
     return ret;
 out:

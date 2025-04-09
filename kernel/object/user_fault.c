@@ -278,7 +278,7 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
     obj_put(fault_vmspace);
 
     /* Pending thread should come back to scheduler */
-    thread_to_wake->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+    thread_to_wake->thread_ctx->state = TS_TO_SCHED;
     BUG_ON(sched_enqueue(thread_to_wake));
 
     return 0;

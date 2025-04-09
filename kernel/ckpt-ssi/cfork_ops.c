@@ -36,7 +36,7 @@ static int start_user_thread(struct thread *thread)
     case TS_RUNNING:
     case TS_READY:
         /* mark thread as inter state to pass check in __sched_enqueue */
-        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+        thread->thread_ctx->state = TS_TO_SCHED;
         ret = sched_enqueue(thread);
         if (ret < 0) {
             CFORK_LOG_ERR("failed to enqueue thread: %p\n", thread);
@@ -119,7 +119,7 @@ int stop_all_threads(struct list_head *thread_list)
 
         switch (thread->thread_ctx->state) {
         case TS_RUNNING:
-        case TS_CHOOSE_TO_SCHED:
+        case TS_TO_SCHED:
             /* ask the cpu to reschedule a common thread that is running */
             send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
             add_to_waiting_list(&waiting_thread_list, (void *)thread);

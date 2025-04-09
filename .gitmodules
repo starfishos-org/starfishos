@@ -25,3 +25,6 @@
 [submodule "user/libraries/rpmalloc"]
 	path = user/libraries/rpmalloc
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/rpmalloc.git
+[submodule "user/demos/GeminiGraph"]
+	path = user/demos/GeminiGraph
+	url = git@ipads.se.sjtu.edu.cn:nvsys/shm-lock/GeminiGraph.git

@@ -258,7 +258,7 @@ bool try_dequeue_sleeper(struct thread *thread)
 
 static void sleep_timer_cb(struct thread *thread)
 {
-    thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+    thread->thread_ctx->state = TS_TO_SCHED;
     /*
      * TODO: directly schedule  to wakeup_thread if the
      * thread can be scheduled in current core.

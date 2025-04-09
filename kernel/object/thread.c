@@ -113,10 +113,15 @@ void thread_deinit(void *thread_ptr)
 
     // kinfo("deinit thread %p\n", thread);
     // print_thread(thread);
-    // if (!list_empty(&thread->ready_queue_node)) {
-    //     kwarn("%s: deinit thread %p is in ready queue\n", __func__, thread);
-    //     print_thread(thread);
-    // }
+    if (!list_empty(&thread->ready_queue_node)) {
+        kwarn("%s: deinit thread %p is in ready queue\n", __func__, thread);
+        // print_thread(thread);
+    }
+
+    if (!list_empty(&thread->notification_queue_node)) {
+        kwarn("%s: deinit thread %p is in notification queue\n", __func__, thread);
+        // print_thread(thread);
+    }
 
     destroy_thread_ctx(thread);
 
@@ -357,7 +362,7 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
     if (cap_group != current_cap_group)
         cap = cap_copy(cap_group, current_cap_group, cap);
     if (type == TYPE_USER || type == TYPE_SERVICES) {
-        thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+        thread->thread_ctx->state = TS_TO_SCHED;
         BUG_ON(sched_enqueue(thread));
     } else if ((type == TYPE_SHADOW) || (type == TYPE_REGISTER)) {
         thread->thread_ctx->state = TS_WAITING;
@@ -409,7 +414,7 @@ void thread_clone(struct cap_group *cap_group, struct thread *thread)
 
     /* The return value for cloned thread should be zero */
     arch_set_thread_return(thread, 0);
-    thread->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+    thread->thread_ctx->state = TS_TO_SCHED;
     BUG_ON(sched_enqueue(thread));
     return;
 out_free_thread:
@@ -560,7 +565,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
             thread->thread_ctx->thread_exit_state = TE_MIGRATING;
         }
 
-        print_thread(current_thread);
+        // print_thread(current_thread);
     }
 #endif
     else {

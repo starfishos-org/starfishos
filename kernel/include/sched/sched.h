@@ -39,7 +39,7 @@ enum thread_state {
     TS_INIT = 0,
     TS_READY,
     TS_INTER, /* Intermediate stat used by sched (only for debug) */
-    TS_CHOOSE_TO_SCHED, /* Scheduling */
+    TS_TO_SCHED, /* Scheduling */
     TS_RUNNING,
     TS_EXIT, /* Only for debug use */
     TS_WAITING, /* Waiting IPC or etc */

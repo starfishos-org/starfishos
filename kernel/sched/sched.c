@@ -48,6 +48,7 @@ char thread_state[][STATE_STR_LEN] = {
         "TS_INIT      ",
         "TS_READY     ",
         "TS_INTER     ",
+        "TS_TO_SCHED",
         "TS_RUNNING   ",
         "TS_EXIT      ",
         "TS_WAITING   ",
@@ -56,8 +57,8 @@ char thread_state[][STATE_STR_LEN] = {
 
 char thread_exit_state[][STATE_STR_LEN] = {
         "TE_RUNNING",
-        "TE_EXITED",
         "TE_EXITING",
+        "TE_EXITED",
 #ifdef DSM_ENABLED
         "TE_MIGRATING",
         "TE_STOPPING",
@@ -196,7 +197,7 @@ void sched_to_thread(struct thread *target)
     /* TS_INTER may be set in signal_notific */
     BUG_ON((target->thread_ctx->state != TS_WAITING)
            && (target->thread_ctx->state != TS_WAITING_IPC)
-           && (target->thread_ctx->state != TS_CHOOSE_TO_SCHED));
+           && (target->thread_ctx->state != TS_TO_SCHED));
 
     /* Switch to itself? */
     BUG_ON(target == current_thread);
@@ -239,7 +240,7 @@ void sched_to_thread(struct thread *target)
          * local CPU cannot direct switch to it.
          */
 
-        target->thread_ctx->state = TS_CHOOSE_TO_SCHED;
+        target->thread_ctx->state = TS_TO_SCHED;
         BUG_ON(sched_enqueue(target));
 
         sched();
@@ -358,6 +359,7 @@ s32 get_cpubind(struct thread *thread)
 #endif
 }
 
+extern int __rr_sched_dequeue(struct thread *thread);
 /*
  * find_runnable_thread
  * ** Shoule hold a dedicated lock for the thread_list and this function can
@@ -366,9 +368,9 @@ s32 get_cpubind(struct thread *thread)
  */
 struct thread *find_runnable_thread(struct list_head *thread_list)
 {
-    struct thread *thread;
+    struct thread *thread, *tmp;
 
-    for_each_in_list (thread, struct thread, ready_queue_node, thread_list) {
+    for_each_in_list_safe (thread, tmp, ready_queue_node, thread_list) {
         if (!thread || !thread->thread_ctx) {
             kwarn("%s: thread %p is not valid\n", __func__, thread);
             continue;
@@ -381,21 +383,18 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             }
             break;
         case TE_EXITING:
-            // sched_dequeue(thread);
+            __rr_sched_dequeue(thread);
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
-            kinfo("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
             thread->thread_ctx->thread_exit_state = TE_EXITED;
             break;
 #ifdef DSM_ENABLED
         case TE_STOPPING:
-            // sched_dequeue(thread);
+            __rr_sched_dequeue(thread);
             thread->thread_ctx->thread_exit_state = TE_STOPPED;
             break;
 #endif
-        case TE_STOPPED:
-        case TE_EXITED:
-            // sched_dequeue(thread);
+        default:
             break;
         }
     }
@@ -535,6 +534,7 @@ static void init_idle_threads(void)
 
         init_thread_ctx(
                 &idle_threads[i], 0, 0, IDLE_PRIO, TYPE_IDLE, cpuid_l2g(i));
+        init_list_head(&idle_threads[i].ready_queue_node);
 
         extern void idle_thread_routine(void); // in arch/sched/idle.S
         arch_idle_ctx_init(idle_threads[i].thread_ctx,
