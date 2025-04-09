@@ -24,7 +24,7 @@ void dsm_add_machine()
 #ifdef DSM_LINEAR_MM_LAYOUT
     /* dram */
     // u64 lmem_old_start,
-    u64 lmem_new_start, lmem_size = SIZE_8G;
+    u64 lmem_new_start, lmem_size = SIZE_4G;
 
     lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);
     kinfo("[DSM] machine %d local memory range: %llx-%llx\n",

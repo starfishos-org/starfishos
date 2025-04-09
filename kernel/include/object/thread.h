@@ -8,7 +8,6 @@
 #include <ipc/connection.h>
 #include <irq/timer.h>
 #include <common/debug.h>
-#include <dsm/dsm-single.h>
 
 extern struct thread *current_threads[PLAT_CPU_NUM];
 #define current_thread (current_threads[smp_get_cpu_id()])
