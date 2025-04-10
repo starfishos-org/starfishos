@@ -72,7 +72,7 @@
 
 #define MALLOC_TYPE_PRIVATE (1)
 #define MALLOC_TYPE_SHARED  (2)
-#define MALLOC_TYPE_DEFAULT (MALLOC_TYPE_PRIVATE)
+#define MALLOC_TYPE_DEFAULT (3)
 
 /* a thread's own cap_group */
 #define SELF_CAP 0

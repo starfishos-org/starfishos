@@ -170,7 +170,7 @@ out_fail:
 int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo)
 {
     /* device pmo can not choose memory type */
-    return __create_pmo(paddr, size, PMO_DEVICE, __MT_INVALID__,
+    return __create_pmo(paddr, size, PMO_DEVICE, __MT_DEFAULT__,
             current_cap_group, new_pmo);
 }
 

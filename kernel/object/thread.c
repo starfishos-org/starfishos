@@ -217,7 +217,7 @@ void create_root_thread(void)
 #endif /* CHCORE_SLS */
     ret = create_pmo(ROUND_UP(mem_size, PAGE_SIZE),
                      PMO_DATA,
-                     __MT_DEFAULT__,
+                     __MT_PAGE__,
                      root_cap_group,
                      &pmo);
     BUG_ON(ret < 0);
@@ -233,7 +233,7 @@ void create_root_thread(void)
     /* Allocate and setup a user stack for the init thread */
     stack_pmo_cap = create_pmo(ROOT_THREAD_STACK_SIZE,
                                PMO_ANONYM,
-                               __MT_PAGE__,
+                               __MT_STACK__,
                                root_cap_group,
                                &stack_pmo);
     BUG_ON(stack_pmo_cap < 0);

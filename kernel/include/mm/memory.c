@@ -301,7 +301,7 @@ static int read_write_pmo(u64 pmo_cap, u64 offset, u64 user_buf, u64 size,
                 /* Allocate a physical page for the anonymous
                  * pmo like a page fault happens.
                  */
-                kva = (vaddr_t)get_pages(0, __MT_DEFAULT__);
+                kva = (vaddr_t)get_pages(0, pmo->mm_type);
                 // kva = (vaddr_t)get_dram_pages(0);
                 BUG_ON(kva == 0);
 
@@ -418,7 +418,7 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
         if (src_pmo->dram_cache.array != NULL) {
             /* Just copy */
             *is_cow = false;
-            void *new_va = kmalloc(dst_pmo->size, __MT_DEFAULT__);
+            void *new_va = kmalloc(dst_pmo->size, dst_pmo->mm_type);
             if (new_va == NULL) {
                 return -ENOMEM;
             }

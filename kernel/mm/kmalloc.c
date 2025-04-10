@@ -129,8 +129,10 @@ void *kmalloc(unsigned long long size, mem_t flags)
 #elif defined(DSM_MALLOC_MODE_CXL)
     UNUSED(flags);
     return cxl_kmalloc(size);
-#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM) || defined(DSM_MALLOC_MODE_MIXED_DEFAULT_CXL)
+#else // DSM_MALLOC_MODE == MIXED_DEFAULT_CXL or DRAM
+#if defined(DSM_USER_MALLOC_MODE_DEFAULT_DRAM)
     switch (flags) {
+    case __MT_USER_DEFAULT__:
     case __MT_PRIVATE__:
         return dram_kmalloc(size);
     case __MT_SHARED__:
@@ -138,8 +140,19 @@ void *kmalloc(unsigned long long size, mem_t flags)
     default:
         kwarn_once("%s: type: %d is not supported\n", __func__, flags);
     }
+#elif defined(DSM_USER_MALLOC_MODE_DEFAULT_CXL)
+    switch (flags) {
+    case __MT_USER_DEFAULT__:
+    case __MT_SHARED__:
+        return cxl_kmalloc(size);
+    case __MT_PRIVATE__:
+        return dram_kmalloc(size);
+    default:
+        kwarn_once("%s: type: %d is not supported\n", __func__, flags);
+    }
 #else
-#error "DSM_MALLOC_MODE must be defined"
+#error "DSM_USER_MALLOC_MODE must be defined"
+#endif
 #endif
     return NULL;
 }
@@ -164,8 +177,10 @@ void *get_pages(int order, mem_t flags)
 #elif defined(DSM_MALLOC_MODE_CXL)
     UNUSED(flags);
     return get_cxl_pages(order);
-#elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM) || defined(DSM_MALLOC_MODE_MIXED_DEFAULT_CXL)
+#else
+#if defined(DSM_USER_MALLOC_MODE_DEFAULT_DRAM)
     switch (flags) {
+    case __MT_USER_DEFAULT__:
     case __MT_PRIVATE__:
         return get_dram_pages(order);
     case __MT_SHARED__:
@@ -173,8 +188,19 @@ void *get_pages(int order, mem_t flags)
     default:
         kwarn_once("%s: type: %d is not supported\n", __func__, flags);
     }
+#elif defined(DSM_USER_MALLOC_MODE_DEFAULT_CXL)
+    switch (flags) {
+    case __MT_USER_DEFAULT__:
+    case __MT_SHARED__:
+        return get_cxl_pages(order);
+    case __MT_PRIVATE__:
+        return get_dram_pages(order);
+    default:
+        kwarn_once("%s: type: %d is not supported\n", __func__, flags);
+    }
 #else
 #error "DSM_MALLOC_MODE must be defined"
+#endif
 #endif
     return NULL;
 }

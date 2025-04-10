@@ -111,7 +111,7 @@ if(CHCORE_SSI)
   # use which device to simulate the shm
   target_compile_definitions(${kernel_target} PRIVATE DSM_SHM_DEVICE_${DSM_SHM_DEVICE})
   # DSM memory configurations
-  foreach(type MALLOC PGTABLE STACK THREADCTX OBJECT PAGE)
+  foreach(type MALLOC USER_MALLOC PGTABLE STACK THREADCTX OBJECT PAGE)
     target_compile_definitions(${kernel_target} PRIVATE DSM_${type}_MODE_${DSM_${type}_MODE})
   endforeach()
 endif()

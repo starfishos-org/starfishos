@@ -7,7 +7,8 @@ enum mem_type {
     __MT_INVALID__ = 0,
     __MT_PRIVATE__ = 1,
     __MT_SHARED__ = 2,
-    __MT_MAX_TYPE__ = 3,
+    __MT_USER_DEFAULT__ = 3,
+    __MT_MAX_TYPE__ = 4,
 };
 
 #define IS_VALID_MEM_TYPE(mt) ((mt) > __MT_INVALID__ && (mt) < __MT_MAX_TYPE__)
