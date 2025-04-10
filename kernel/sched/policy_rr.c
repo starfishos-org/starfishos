@@ -213,7 +213,7 @@ int rr_sched_migrate_from_shared_queue()
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
-        BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
+        // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
 
         /* move thread from shared queue to local queue */

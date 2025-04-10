@@ -24,9 +24,14 @@ void init_notific(struct notification *notifc)
     notifc->state = NOTIFIC_VALID;
 }
 
+void deinit_notific(struct notification *notifc)
+{
+        /* No deinitialization is required for now. */
+}
+
 void notification_deinit(void *ptr)
 {
-    /* No deinitialization is required for now. */
+        deinit_notific((struct notification *)ptr);
 }
 
 /*
@@ -101,86 +106,95 @@ static void notific_timer_cb(struct thread *thread)
     unlock(&notifc->notifc_lock);
 }
 
+/* Unlock futex lock iff eret_to_thread. */
+int wait_notific_internal(struct notification *notifc, bool is_block,
+                          struct timespec *timeout, bool need_unlock,
+                          bool need_obj_put)
+{
+        int ret = 0;
+        struct thread *thread;
+        struct lock *futex_lock = NULL;
+
+        lock(&notifc->notifc_lock);
+
+        /* For recycling: the state is set in stop_notification */
+        if (notifc->state == NOTIFIC_INVALID) {
+                unlock(&notifc->notifc_lock);
+                return -ECAPBILITY;
+        }
+
+        if (notifc->not_delivered_notifc_count > 0) {
+                notifc->not_delivered_notifc_count--;
+                ret = 0;
+        } else {
+                if (is_block) {
+                        thread = current_thread;
+                        /*
+                         * queue_lock: grab the lock and then insert/remove
+                         * a thread into one list.
+                         */
+
+                        lock(&thread->sleep_state.queue_lock);
+
+                        /* Add this thread to waiting list */
+                        list_append(&thread->notification_queue_node,
+                                    &notifc->waiting_threads);
+                        thread->thread_ctx->state = TS_WAITING;
+                        notifc->waiting_threads_count++;
+                        arch_set_thread_return(thread, 0);
+
+                        if (timeout) {
+                                thread->sleep_state.pending_notific = notifc;
+                                enqueue_sleeper(
+                                        thread, timeout, notific_timer_cb);
+                        }
+
+                        if (need_unlock) {
+                                futex_lock = &current_cap_group->futex_lock;
+                        }
+
+                        /*
+                         * Since current_thread is TS_WAITING,
+                         * sched() will not put current_thread into the
+                         * ready_queue.
+                         *
+                         * sched() must executed before unlock.
+                         * Otherwise, current_thread maybe be notified and then
+                         * its state will be set to TS_RUNNING. If so, sched()
+                         * will put it into the ready_queue and it maybe
+                         * directly switch to.
+                         */
+                        sched();
+
+                        unlock(&thread->sleep_state.queue_lock);
+
+                        unlock(&notifc->notifc_lock);
+
+                        /* See the below impl of sys_notify */
+                        if (need_obj_put) {
+                                obj_put(notifc);
+                        }
+
+                        if (need_unlock) {
+                                unlock(futex_lock);
+                        }
+
+                        eret_to_thread(switch_context());
+                        /* The control flow will never reach here */
+
+                } else {
+                        ret = -EAGAIN;
+                }
+        }
+        unlock(&notifc->notifc_lock);
+        return ret;
+}
+
 /* Return 0 if wait successfully, -EAGAIN otherwise */
 int wait_notific(struct notification *notifc, bool is_block,
                  struct timespec *timeout)
 {
-    int ret = 0;
-    struct thread *thread;
-
-    lock(&notifc->notifc_lock);
-
-    /* For recycling: the state is set in stop_notification */
-    if (notifc->state == NOTIFIC_INVALID) {
-        unlock(&notifc->notifc_lock);
-        return -ECAPBILITY;
-    }
-
-#ifdef CKPT_IRQ_AND_NOTIFICATION_LAZY_COPY
-    notification_lazy_copy_ckpt(notifc, true);
-#endif
-
-    if (notifc->not_delivered_notifc_count > 0) {
-        notifc->not_delivered_notifc_count--;
-        ret = 0;
-    } else {
-        if (is_block) {
-            thread = current_thread;
-            /*
-             * queue_lock: grab the lock and then insert/remove
-             * a thread into one list.
-             */
-
-            lock(&thread->sleep_state.queue_lock);
-
-            /* Add this thread to waiting list */
-            list_append(&thread->notification_queue_node,
-                        &notifc->waiting_threads);
-            thread->thread_ctx->state = TS_WAITING;
-            notifc->waiting_threads_count++;
-            arch_set_thread_return(thread, 0);
-
-            // int count = notifc->waiting_threads_count;
-            // struct thread *thr;
-            // for_each_in_list(thr, struct thread, notification_queue_node,
-            // &notifc->waiting_threads) { 	count--;
-            // }
-            // BUG_ON(count);
-
-            if (timeout) {
-                thread->sleep_state.pending_notific = notifc;
-                enqueue_sleeper(thread, timeout, notific_timer_cb);
-            }
-
-            /*
-             * Since current_thread is TS_WAITING,
-             * sched() will not put current_thread into the
-             * ready_queue.
-             *
-             * sched() must executed before unlock.
-             * Otherwise, current_thread maybe be notified and then
-             * its state will be set to TS_RUNNING. If so, sched()
-             * will put it into the ready_queue and it maybe
-             * directly switch to.
-             */
-            sched();
-
-            unlock(&thread->sleep_state.queue_lock);
-
-            unlock(&notifc->notifc_lock);
-
-            /* See the below impl of sys_notify */
-            obj_put(notifc);
-
-            eret_to_thread(switch_context());
-            /* The control flow will never reach here */
-
-        } else {
-            ret = -EAGAIN;
-        }
-    }
-    unlock(&notifc->notifc_lock);
-    return ret;
+        return wait_notific_internal(notifc, is_block, timeout, false, true);
 }
 
 extern struct irq_notification *irq_notifcs[MAX_IRQ_NUM];
@@ -368,6 +382,68 @@ int signal_notific(struct notification *notifc)
     unlock(&notifc->notifc_lock);
 
     return 0;
+}
+
+/* For FUTEX_REQUEUE only */
+int requeue_notific(struct notification *src_notifc, struct notification *dst_notifc)
+{
+        struct thread *target = NULL;
+        struct lock *big_lock = &dst_notifc->notifc_lock, *small_lock = &src_notifc->notifc_lock;
+        int ret = 0;
+
+        if (src_notifc == dst_notifc)
+                return 0;
+
+        if (src_notifc > dst_notifc) {
+                big_lock = &src_notifc->notifc_lock;
+                small_lock = &dst_notifc->notifc_lock;
+        }
+        lock(small_lock);
+        lock(big_lock);
+
+        /* For recycling: the state is set in stop_notification */
+        if (src_notifc->state == NOTIFIC_INVALID
+            || dst_notifc->state == NOTIFIC_INVALID) {
+                ret = -ECAPBILITY;
+                goto out_unlock;
+        }
+        if(src_notifc->waiting_threads_count == 0) {
+                ret = 0;
+                goto out_unlock;
+        }
+
+        target = list_entry(src_notifc->waiting_threads.next,
+                            struct thread,
+                            notification_queue_node);
+
+        BUG_ON(target == NULL);
+
+        if (try_lock(&target->sleep_state.queue_lock) != 0) {
+                /* Lock failed: must be timeout now */
+                ret = -EAGAIN;
+                goto out_unlock;
+        }
+
+        /* Delete the thread from the waiting list of the src notification*/
+        list_del(&target->notification_queue_node);
+        src_notifc->waiting_threads_count--;
+
+        /* Add this thread to dst waiting list */
+        if (dst_notifc->not_delivered_notifc_count > 0) {
+                BUG("Futex code should guarantee ZERO not_delivered_notifc_count.");
+        } else {
+                target->sleep_state.pending_notific = dst_notifc;
+                list_append(&target->notification_queue_node, &dst_notifc->waiting_threads);
+                dst_notifc->waiting_threads_count++;
+        }
+
+        unlock(&target->sleep_state.queue_lock);
+
+out_unlock:
+        unlock(big_lock);
+        unlock(small_lock);
+
+        return ret;
 }
 
 int sys_create_notifc(void)

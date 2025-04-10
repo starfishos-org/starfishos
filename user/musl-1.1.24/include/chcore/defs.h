@@ -154,6 +154,9 @@
 #define CHCORE_SYS_create_notifc 130
 #define CHCORE_SYS_wait          131
 #define CHCORE_SYS_notify        132
+/* - futex */
+#define CHCORE_SYS_futex           133
+#define CHCORE_SYS_set_tid_address 134
 
 /* Exception */
 /* - irq */

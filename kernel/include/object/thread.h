@@ -84,6 +84,8 @@ struct thread {
 
     /* Machine ID of the thread */
     mid_t machine_id;
+
+    int *clear_child_tid;
 };
 
 void create_root_thread(void);
@@ -95,6 +97,7 @@ int sys_create_thread(u64 thread_args_p);
 void sys_thread_exit(void);
 int sys_set_affinity(u64 thread_cap, s32 aff);
 s32 sys_get_affinity(u64 thread_cap);
+int sys_set_tid_address(int *tidptr);
 
 /* Fork */
 void thread_clone(struct cap_group *cap_group, struct thread *thread);

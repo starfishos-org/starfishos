@@ -466,6 +466,7 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
 		_args.prio = attr._a_sched? attr._a_prio: CHILD_THREAD_PRIO;
 		_args.tls = (u64)TP_ADJ(new);
 		_args.type = type;
+		_args.clear_child_tid = (int *)&__thread_list_lock;
 
 		ret = new->tid = usys_create_thread((u64)&_args);
 	}

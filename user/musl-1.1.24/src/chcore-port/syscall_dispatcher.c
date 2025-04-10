@@ -338,7 +338,7 @@ long __syscall1(long n, long a)
 	case SYS_set_tid_address: {
 		// debug("ignore SYS_set_tid_address\n");
 		// TODO: maybe we need to obey the convention
-		return fake_tid_val++;
+		return chcore_syscall1(CHCORE_SYS_set_tid_address, a);
 	}
 	case SYS_chdir: {
 		return chcore_chdir((const char *)a);
@@ -594,7 +594,7 @@ long __syscall3(long n, long a, long b, long c)
 		 * XXX: Multiple sys_futex entries as parameter number varies in
 		 *	different futex ops.
 		 */
-		return chcore_futex((int *)a, b, c, NULL, NULL, 0);
+		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, 0, 0, 0);
 	}
 	case SYS_fcntl: {
 		return chcore_fcntl(a, b, c);
@@ -721,7 +721,7 @@ long __syscall4(long n, long a, long b, long c, long d)
 		return chcore_pwrite(a, (const void *)b, c, d);
 	}
 	case SYS_futex: {
-		return chcore_futex((int *)a, b, c, (struct timespec *)d, NULL, 0);
+		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, 0, 0);
 	}
 	case SYS_rt_sigprocmask: {
 		warn_once("SYS_rt_sigprocmask is not implemented.\n");
@@ -771,8 +771,7 @@ long __syscall5(long n, long a, long b, long c, long d, long e)
 		return chcore_renameat(a, (const char *)b, c, (const char *)d);
 	}
 	case SYS_futex:
-		return chcore_futex((int *)a, b, c, (struct timespec *)d,
-				    (int *)e, 0);
+		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, e, 0);
 	case SYS_mremap: {
 		warn_once("SYS_mremap is not implemented.\n");
 		/*
@@ -903,9 +902,7 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 		return chcore_ppoll((struct pollfd *)a, b, (struct timespec *)c,
 				    (sigset_t *)d);
 	case SYS_futex:
-		return chcore_futex((int *)a, b, c, (struct timespec *)d,
-				    (int *)e, f);
-
+		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, e, f);
 	case SYS_readv: {
 		return chcore_readv(a, (const struct iovec *)b, c);
 	}
