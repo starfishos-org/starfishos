@@ -146,6 +146,8 @@ int rr_sched_migrate_to_remote(struct thread *thread)
     u64 affinitiy, gcpuid, m_id;
     int ret;
 
+    (void)m_id;
+
     /* remote sched has the highest prio */
     BUG_ON(!thread);
     BUG_ON(!thread->thread_ctx);
@@ -321,6 +323,8 @@ int rr_sched_enqueue(struct thread *thread)
     u32 gcpuid = 0, lcpuid;
     int ret = 0;
     int m_id;
+
+    (void)m_id;
 
     if (thread->thread_ctx->type == TYPE_IDLE)
         return 0;

@@ -15,14 +15,3 @@ expect "Welcome to ChCore shell!"
 send -- "matrix_multiply.bin -l 3000 -r 3000 -t $thread_num -c 0 \n"
 expect "done"
 exit
-
-matrix_multiply.bin -l 3000 -r 3000 -t 12 -c 0 -m 2
-matrix_multiply.bin -l 3000 -r 3000 -t 24 -c 0 -m 2
-DRAM: 12925133
-All DRAM + rpmalloc on CXL: 12945648
-CXL + All object pages etc on DRAM:  13497527
-CXL + All object on DRAM, heap on CXL:  13666584
-All CXL:  23721821
-
-kernel DRAM, user CXL: 23s
-kernel CXL, user DRAM: 13s
