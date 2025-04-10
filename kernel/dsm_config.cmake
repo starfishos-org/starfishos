@@ -6,7 +6,7 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "DRAM": all on DRAM
 # "MIXED_DEFAULT_DRAM": mixed and default to DRAM
 # "MIXED_DEFAULT_CXL": mixed and default to CXL
-set(DSM_MALLOC_MODE "CXL")
+set(DSM_MALLOC_MODE "MIXED_DEFAULT_DRAM")
 
 set(DSM_THREADCTX_MODE "DRAM")
 set(DSM_PGTABLE_MODE "DRAM")

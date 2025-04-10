@@ -118,10 +118,10 @@ void thread_deinit(void *thread_ptr)
         // print_thread(thread);
     }
 
-    if (!list_empty(&thread->notification_queue_node)) {
-        kwarn("%s: deinit thread %p is in notification queue\n", __func__, thread);
-        // print_thread(thread);
-    }
+    // if (!list_empty(&thread->notification_queue_node)) {
+    //     kwarn("%s: deinit thread %p is in notification queue\n", __func__, thread);
+    //     // print_thread(thread);
+    // }
 
     destroy_thread_ctx(thread);
 

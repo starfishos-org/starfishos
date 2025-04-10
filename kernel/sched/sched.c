@@ -68,6 +68,10 @@ char thread_exit_state[][STATE_STR_LEN] = {
 
 void print_thread(struct thread *thread)
 {
+    if (!thread || !thread->thread_ctx) {
+        printk("thread %p is not valid\n", thread);
+        return;
+    }
     printk("Thread %p\tType: %s\tState: %s\tExit State: %s\t"
            "CPU %d\tAFF %d\t FPU %d\tBudget %d\tPrio: %d\tIP: %p\tCMD: %s\n",
            thread,
@@ -81,7 +85,7 @@ void print_thread(struct thread *thread)
            thread->thread_ctx->sc ? thread->thread_ctx->sc->budget : -1,
            thread->thread_ctx->prio,
            arch_get_thread_next_ip(thread),
-           thread->cap_group->cap_group_name);
+           thread->cap_group ? thread->cap_group->cap_group_name : "NULL");
 
 #if TRACK_THREAD_MM == ON
     printk("Thread Mem_size:0x%lx\n", thread->mm_size);
@@ -102,7 +106,10 @@ int switch_to_thread(struct thread *target)
     BUG_ON(!target);
     BUG_ON(!target->thread_ctx);
     BUG_ON((target->thread_ctx->state == TS_READY));
-    BUG_ON((target->thread_ctx->thread_exit_state == TE_EXITED));
+    BUG_ON((target->thread_ctx->thread_exit_state != TE_RUNNING));
+    // if (CUR_MACHINE_ID == 1 && strstr(target->cap_group->cap_group_name, "pca")) {
+    //     printk("switch_to_thread: target thread %p\n", target);
+    // }
 
     u32 cpuid = smp_get_cpu_id();
 
@@ -171,6 +178,12 @@ int switch_to_thread(struct thread *target)
      * TODO: Otherwise, consider about using barrier.
      */
     // smp_wmb();
+
+    // debug
+    // if (CUR_MACHINE_ID == 1 && strstr(target->cap_group->cap_group_name, "pca")) {
+    //     printk("switch_to_thread: target thread %p\n", target);
+    // }
+
     current_thread = target;
 
     return 0;
@@ -347,7 +360,7 @@ s32 get_cpubind(struct thread *thread)
             return cpuid_l2g(local_cpuid);
         } else {
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
-            save_and_release_fpu(thread);
+            save_and_release_fpu(thread, local_cpuid);
 #endif
             return affinity;
         }

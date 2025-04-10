@@ -11,6 +11,10 @@
 #include <mm/uaccess.h>
 #include <ckpt/ckpt.h>
 
+#ifdef DSM_ENABLED
+#include <dsm/tiering.h>
+#endif
+
 void init_notific(struct notification *notifc)
 {
     notifc->not_delivered_notifc_count = 0;
@@ -301,7 +305,26 @@ int signal_notific(struct notification *notifc)
                             struct thread,
                             notification_queue_node);
 
-        BUG_ON(target == NULL);
+#ifdef DSM_ENABLED
+        // debug
+        // if (CUR_MACHINE_ID == 1 && strstr(target->cap_group->cap_group_name, "pca")) {
+        //     printk("signal_notific: target thread %p\n", target);
+        //     print_thread(target);
+        // }
+        if (obj2object(target)->status == DSM_STATUS_MIGRATED) {
+            struct object *object = dsm_get_inuse_object(obj2object(target), false);
+            BUG_ON(!object);
+            list_del(&target->notification_queue_node);
+            target = (struct thread *)object2obj(object);
+        }
+#endif
+
+        if (target->thread_ctx == NULL) {
+            printk("signal_notific: target thread %p\n", target);
+            // print_thread(target);
+        }
+        
+        BUG_ON(target == NULL || target->thread_ctx == NULL);
 
         /*
          * signal_notific may return -EAGAIN because of unable to lock.

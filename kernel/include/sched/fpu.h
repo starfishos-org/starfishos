@@ -29,5 +29,5 @@ void enable_fpu_usage(void);
 /* Used when hanlding FPU traps */
 void change_fpu_owner(struct thread *target);
 /* Used when migrating a thread from local CPU to other CPUs */
-void save_and_release_fpu(struct thread *thread);
+void save_and_release_fpu(struct thread *thread, u32 cpuid);
 #endif

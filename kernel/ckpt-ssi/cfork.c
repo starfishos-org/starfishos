@@ -108,6 +108,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
     ckpt_obj_root->obj_dst = ckpt_obj_root->obj_src->pair_obj;
     ckpt_obj_root->valid = true;
+    CFORK_LOG_DEBUG("ckpt_obj_root: %p, ckpt_obj_root->obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
 
     // add the cap group to the kvs
     ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
@@ -151,7 +152,7 @@ retry:
         goto out;
     }
 
-    CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p\n", ckpt_obj_root);
+    CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p, obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
 
     // restore the cap group
     // if ((ret = cfork_restore_process(ckpt_obj_root, &restored_cg))) {
@@ -172,13 +173,6 @@ retry:
     // add the restored sub cap group to the cap tree
     if ((ret = add_cap_group_to_cap_tree(root_cap_group, restored_cg))) {
         CFORK_LOG_ERR("cfork_restore: add_cap_group_to_cap_tree failed\n");
-        ret = -ENOENT;
-        goto out;
-    }
-
-    // only called by cfork restore
-    if ((ret = cfork_promote_all_threads(&(restored_cg->thread_list)))) {
-        CFORK_LOG_ERR("cfork_restore: cfork_promote_all_threads failed\n");
         ret = -ENOENT;
         goto out;
     }

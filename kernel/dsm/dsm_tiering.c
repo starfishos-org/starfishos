@@ -75,11 +75,13 @@ int dsm_demote_object(struct object *obj)
     struct object *target;
     int ret = 0;
 
+#if __MT_DEFAULT__ == __MT_PRIVATE__
     /* Check object is real private */
     if (!is_private_object(obj)) {
         DSM_TIER_LOG_DEBUG("obj is shared object\n");
         return 0;
     }
+#endif
 
     /* Already migrated; demote is done by other thread */
     if (obj->status == DSM_STATUS_MIGRATED) {
@@ -92,6 +94,7 @@ int dsm_demote_object(struct object *obj)
     /* A system services object that should not be migrated */
     if (is_system_services_object(obj)) {
         target = dsm_get_object_by_mem_type(obj, __MT_SHARED__, true);
+        target->dsm_type = DSM_TYPE_BRIDGE_SERVICES;
         return !target ? -ENOMEM : 0;
     }
 

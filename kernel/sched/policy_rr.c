@@ -158,7 +158,7 @@ int rr_sched_migrate_to_remote(struct thread *thread)
                 "%s: save and release fpu of thread (%p)\n", __func__, thread);
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
         /* sys_set_aff -> sched -> save_and_release_fpu */
-        save_and_release_fpu(thread);
+        save_and_release_fpu(thread, smp_get_cpu_id());
 #endif
     }
 
@@ -543,7 +543,7 @@ int rr_sched(void)
         case TE_STOPPED:
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
             if (old->thread_ctx->is_fpu_owner >= 0) {
-                save_and_release_fpu(old);
+                save_and_release_fpu(old, smp_get_cpu_id());
             }
 #else
             save_fpu_state(old);

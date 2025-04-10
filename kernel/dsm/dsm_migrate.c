@@ -69,6 +69,7 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 {
     int ret = 0, flags;
     struct cap_group *src_cap_group, *dst_cap_group;
+    struct object *dst_cap_group_obj;
 
     src_cap_group = (struct cap_group *)object2obj(src_cap_group_obj);
 
@@ -88,21 +89,35 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
         return ret;
     }
 
-    dst_cap_group = (struct cap_group *)object2obj(
-        dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false));
+    dst_cap_group_obj = dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false);
+    BUG_ON(!dst_cap_group_obj);
+    dst_cap_group = (struct cap_group *)object2obj(dst_cap_group_obj);
     BUG_ON(!dst_cap_group);
 
     /* add the threads to the cap group */
     struct thread *src_thread, *tmp, *dst_thread;
+    struct object *src_thread_obj, *dst_thread_obj;
     for_each_in_list_safe (src_thread, tmp, node, &src_cap_group->thread_list) {
         /* get the dst thread */
-        dst_thread = (struct thread *)object2obj(
-            dsm_get_object_by_mem_type(
-                obj2object(src_thread), __MT_SHARED__, false));
+        src_thread_obj = obj2object(src_thread);
+        dst_thread_obj = dsm_get_object_by_mem_type(src_thread_obj, __MT_SHARED__, false);
+        BUG_ON(!dst_thread_obj);
+
+        dst_thread = (struct thread *)object2obj(dst_thread_obj);
         BUG_ON(!dst_thread);
 
         /* add the thread to the cap group */
         add_thread_to_cap_group(dst_thread, dst_cap_group);
+
+        /* free old thread */
+        list_del(&src_thread->node);
+
+        // BUG_ON(src_thread_obj->refcount > 1);
+        // obj_put(src_thread_obj);
+        src_thread_obj->refcount = 0;
+        object_free(src_thread_obj);
+        dst_thread_obj->pair_obj = NULL;
+
 #if 0
     // Check the validity of the dst thread
     print_thread(dst_thread);
@@ -118,29 +133,81 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     return 0;
 }
 
+static int dsm_promote_thread(struct object *thread_obj, struct cap_group *new_cap_group)
+{
+    int ret = 0;
+    struct object *thread_new_object;
+    struct thread *new_thread;
+
+    ret = dsm_promote_object(thread_obj);
+    if (ret) {
+        DSM_TIER_LOG_ERR("%s: failed to promote the thread: %p", __func__, thread_obj);
+        return ret;
+    }
+
+    thread_new_object = dsm_get_object_by_mem_type(thread_obj, __MT_PRIVATE__, false);
+    BUG_ON(!thread_new_object);
+    new_thread = (struct thread *)object2obj(thread_new_object);
+    BUG_ON(!new_thread);
+    if (unlikely(new_thread->thread_ctx->affinity != NO_AFF)) {
+        new_thread->thread_ctx->affinity = NO_AFF;
+    }
+
+    /* add the thread to the cap group */
+    new_thread->cap_group = new_cap_group;
+    BUG_ON(new_thread->vmspace == NULL || new_thread->vmspace->pgtbl == NULL);
+
+    return 0;
+}
+
 extern void arch_vmspace_init(struct vmspace *);
 int dsm_migrate_process_restore(struct cap_group *new_cap_group)
 {
     struct vmspace *vmspace;
-
-    /* Restore the cap group */
-    
-    /* Mark all as inuse */
-    int i;
+    int i, ret = 0;
     struct slot_table *slot_table = &new_cap_group->slot_table;
-    struct object *object;
+    struct object *object, *promoted_object;
+
     for_each_set_bit(i, slot_table->slots_bmp, slot_table->slots_size) {
         if (!slot_table->slots[i]) {
             BUG("slot is NULL while bmp is not, slot id: %d\n", i);
         }
         object = slot_table->slots[i]->object;
         // TODO(FN): check if it is a bridge object
-        if (object->type != TYPE_THREAD) {
-            object->status = DSM_STATUS_INUSE;
-            object->pair_obj = NULL;
+        object->status = DSM_STATUS_INUSE;
+        object->pair_obj = NULL;
+
+        if (object->type == TYPE_THREAD && 
+            (object->dsm_type == DSM_TYPE_NORMAL || 
+            object->dsm_type == DSM_TYPE_BRIDGE)) {
+            // promote the thread
+            ret = dsm_promote_thread(object, new_cap_group);
+            if (ret) {
+                DSM_TIER_LOG_ERR("%s: failed to promote the thread: %p", 
+                        __func__, object);
+                return -EINVAL;
+            }
+            promoted_object = dsm_get_object_by_mem_type(object, __MT_PRIVATE__, false);
+            BUG_ON(!promoted_object);
+            promoted_object->status = DSM_STATUS_INUSE;
+            object->status = DSM_STATUS_MIGRATED;
+
+            // update the link to the promoted thread
+            // 1. update in the slot table
+            slot_table->slots[i]->object = promoted_object;
         }
-        // DSM_TIER_LOG_DEBUG("[table=%p] restore slot: ID %d, object: %p, type: %s\n", 
-        //     slot_table, i, object, obj_name_tbl[object->type]);
+    }
+
+    // 2. update the thread list
+    struct thread *thread, *tmp;
+    for_each_in_list_safe (thread, tmp, node, &new_cap_group->thread_list) {
+        object = obj2object(thread);
+        promoted_object = dsm_get_object_by_mem_type(object, __MT_PRIVATE__, false);
+        BUG_ON(!promoted_object);
+
+        list_del(&thread->node);
+        list_add(&(((struct thread *)object2obj(promoted_object))->node), 
+            &new_cap_group->thread_list);
     }
 
     /* Re-init vmspace*/

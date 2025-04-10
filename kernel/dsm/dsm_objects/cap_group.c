@@ -55,6 +55,11 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
             dst_slot_table, slot_id, dst_object, obj_name_tbl[dst_object->type]);
     }
 
+    BUG_ON(dst_slot_table->slots_size != src_slot_table->slots_size);
+    for_each_set_bit(slot_id, dst_slot_table->slots_bmp, dst_slot_table->slots_size) {
+        BUG_ON(dst_slot_table->slots[slot_id] == NULL);
+    }
+
     return 0;
 }
 

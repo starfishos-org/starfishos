@@ -53,6 +53,7 @@ struct object {
 #define DSM_TYPE_CROSS_SHARED   (2)
 // notify this object, will wake up the true thread on its machine
 #define DSM_TYPE_THREAD_NOTIFY_BRIDGE (3)
+#define DSM_TYPE_BRIDGE_SERVICES (4)
     u8 dsm_type;
     
     u8 dirty_bit;  // the object is dirty during migration
@@ -108,6 +109,7 @@ void obj_put(void *obj);
 struct object *object_alloc(u64 type, u64 size, mem_t flags);
 void *obj_alloc(u64 type, u64 size, mem_t flags);
 void obj_free(void *obj);
+void object_free(struct object *object);
 int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights);
 int cap_free(struct cap_group *cap_group, int slot_id);
 int cap_copy(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,

@@ -170,7 +170,7 @@ void handle_reset_sched(u32 cpuid)
 void handle_wait_in_kernel(u32 cpuid)
 {
     if (current_thread->thread_ctx->is_fpu_owner >= 0) {
-        save_and_release_fpu(current_thread);
+        save_and_release_fpu(current_thread, smp_get_cpu_id());
     }
     /* Save FS for thread from */
     if (likely((current_thread)

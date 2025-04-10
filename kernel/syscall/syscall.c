@@ -50,7 +50,7 @@ void hook_syscall(long n)
 /* Placeholder for system calls that are not implemented */
 void sys_null_placeholder(long arg)
 {
-    BUG("Invoke non-implemented syscall\n");
+    BUG("Invoke non-implemented syscall %lx\n", arg);
 }
 
 void sys_putc(char ch)
