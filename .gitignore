@@ -11,6 +11,8 @@ cscope.*
 
 build
 .vscode
+.cursor
+.cursorrules
 simulate.sh
 debug.sh
 .config

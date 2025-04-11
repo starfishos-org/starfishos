@@ -2,7 +2,6 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <errno.h>
 
 int main(int argc, char *argv[])
 {
@@ -15,23 +14,19 @@ int main(int argc, char *argv[])
         const char *content = argv[2];
         size_t content_len = strlen(content);
         
-        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) {
-                char err_buf[256];
-                strerror_r(errno, err_buf, sizeof(err_buf));
-                fprintf(stderr, "failed to open file '%s': %s\n", path, err_buf);
+        FILE *f = fopen(path, "w");
+        if (f == NULL) {
+                perror(path);
                 return 1;
         }
         
-        ssize_t bytes_written = write(fd, content, content_len);
-        if (bytes_written < 0 || (size_t)bytes_written != content_len) {
-                char err_buf[256];
-                strerror_r(errno, err_buf, sizeof(err_buf));
-                fprintf(stderr, "failed to write: %s\n", err_buf);
-                close(fd);
+        fwrite(content, 1, content_len, f);
+        if (ferror(f)) {
+                perror(path);
+                fclose(f);
                 return 1;
         }
         
-        close(fd);
+        fclose(f);
         return 0;
 }
