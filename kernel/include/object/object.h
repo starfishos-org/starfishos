@@ -48,12 +48,13 @@ struct object {
      *    e.g., ipc, notification shared by many threads
      *    e.g., root_cap_group: private old machine's root_cap_group -> bridge  *          -> private new machine's root_cap_group
      */
-#define DSM_TYPE_NORMAL         (0) 
+#define DSM_TYPE_NORMAL         (0)
 #define DSM_TYPE_BRIDGE         (1)
 #define DSM_TYPE_CROSS_SHARED   (2)
 // notify this object, will wake up the true thread on its machine
 #define DSM_TYPE_THREAD_NOTIFY_BRIDGE (3)
-#define DSM_TYPE_BRIDGE_SERVICES (4)
+#define DSM_TYPE_THREAD_SERVICES (4)
+#define DSM_TYPE_THREAD_SHADOW (5)
     u8 dsm_type;
     
     u8 dirty_bit;  // the object is dirty during migration
@@ -64,7 +65,7 @@ struct object {
     /*
      * Lock for migration.
      */
-    struct lock tiering_lock;
+    struct rwlock tiering_lock;
 #endif
      /* 
      * opaque marks the end of this struct and the real object will be

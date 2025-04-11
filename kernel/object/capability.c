@@ -61,7 +61,7 @@ struct object *object_alloc(u64 type, u64 size, mem_t flags)
     object->machine_id = CUR_MACHINE_ID;
     object->status = DSM_STATUS_INVALID;
     object->pair_obj = NULL;
-    lock_init(&object->tiering_lock);
+    rwlock_init(&object->tiering_lock);
 #endif
 
     /*

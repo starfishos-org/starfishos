@@ -174,12 +174,13 @@ int dsm_migrate_process_restore(struct cap_group *new_cap_group)
         }
         object = slot_table->slots[i]->object;
         // TODO(FN): check if it is a bridge object
-        object->status = DSM_STATUS_INUSE;
-        object->pair_obj = NULL;
+        DSM_TIER_LOG_DEBUG("object: %p dsm_type: %d type: %d\n", object, object->dsm_type, object->type);
+        if (object->dsm_type == DSM_TYPE_NORMAL || object->dsm_type == DSM_TYPE_BRIDGE) {
+            object->status = DSM_STATUS_INUSE;
+            object->pair_obj = NULL;
+        }
 
-        if (object->type == TYPE_THREAD && 
-            (object->dsm_type == DSM_TYPE_NORMAL || 
-            object->dsm_type == DSM_TYPE_BRIDGE)) {
+        if (object->type == TYPE_THREAD && object->dsm_type == DSM_TYPE_BRIDGE) {
             // promote the thread
             ret = dsm_promote_thread(object, new_cap_group);
             if (ret) {

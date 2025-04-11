@@ -159,19 +159,24 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
-    // print_thread(src_thread);
-    // kprint_vmr(src_thread->vmspace);
     BUG_ON(!src_thread || !dst_thread || !src_thread->thread_ctx);
 
     /* Do not demote server threads */
     if (src_thread->thread_ctx->type == TYPE_SERVICES) {
-        DSM_TIER_LOG_DEBUG("server thread %s; skip demote and not add to cap group\n", 
+        DSM_TIER_LOG_DEBUG("server thread %s; skip and not add to cap group\n", 
             src_thread->cap_group->cap_group_name);
-        // dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
-        // dst_thread->thread_ctx->type = TYPE_SERVICES;
-        // dst_thread->cap_group = src_thread->cap_group;
-        obj2object(dst_obj)->dsm_type = DSM_TYPE_BRIDGE_SERVICES;
+        dst_obj->dsm_type = DSM_TYPE_THREAD_SERVICES;
         return 0;
+    } else if (src_thread->thread_ctx->type == TYPE_SHADOW) {
+        dst_obj->dsm_type = DSM_TYPE_THREAD_SHADOW;
+        dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
+        dst_thread->vmspace = NULL;
+        DSM_TIER_LOG_DEBUG("shadow thread %s; vmspace: %p\n", 
+            src_thread->cap_group->cap_group_name, src_thread->vmspace);
+        return 0;
+    } else {
+        // now, for all threads, we demote -> bridge -> promote
+        dst_obj->dsm_type = DSM_TYPE_BRIDGE;
     }
 
     /* Copy thread context */

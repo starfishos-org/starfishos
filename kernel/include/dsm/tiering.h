@@ -59,7 +59,9 @@ dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
         if (!alloc) return NULL;
         int ret = dsm_alloc_pair_object(obj, mem_type);
         if (ret) return NULL;
+        write_lock(&obj->tiering_lock);
         ret_obj = obj->pair_obj;
+        write_unlock(&obj->tiering_lock);
     }
 
     /* check memory type of the pair object */

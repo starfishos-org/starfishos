@@ -150,7 +150,7 @@ int wait_notific_internal(struct notification *notifc, bool is_block,
                         }
 
                         if (need_unlock) {
-                                futex_lock = &current_cap_group->futex_lock;
+                                futex_lock = &(current_cap_group->futex->futex_lock);
                         }
 
                         /*

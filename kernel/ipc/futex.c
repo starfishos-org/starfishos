@@ -17,7 +17,7 @@
 #include <common/util.h>
 #include <mm/kmalloc.h>
 #include <mm/uaccess.h>
-#include <object/cap_group.h>
+#include <object/object.h>
 
 #define BUCKET_SIZE 16
 #define UADDR_TO_KEY(uaddr)   ((u32)((long)uaddr % (1 << 12)))
@@ -36,16 +36,16 @@ static void free_futex_entry(struct futex_entry *entry)
         kfree(entry);
 }
 
-static struct futex_entry *new_futex_entry(int *uaddr, struct hlist_head *buckets)
+static struct futex_entry *new_futex_entry(struct futex *futex, int *uaddr, struct hlist_head *buckets, mem_t mem_type)
 {
         struct notification *notifc;
         struct futex_entry *new_entry;
 
-        new_entry = kmalloc(sizeof(struct futex_entry), __MT_DEFAULT__);
+        new_entry = kmalloc(sizeof(struct futex_entry), mem_type);
         if (!new_entry)
                 goto out_fail;
 
-        notifc = kmalloc(sizeof(*notifc), __MT_DEFAULT__);
+        notifc = kmalloc(sizeof(*notifc), mem_type);
         if (!notifc) {
                 goto out_free_entry;
         }
@@ -65,11 +65,11 @@ out_fail:
         return NULL;
 }
 
-static struct futex_entry* find_entry(int *uaddr, struct hlist_head **buckets)
+static struct futex_entry* find_entry(struct futex *futex, int *uaddr, struct hlist_head **buckets)
 {
         struct futex_entry *found_entry= NULL, *entry = NULL;
 
-        *buckets = htable_get_bucket(&current_cap_group->futex_entries, UADDR_TO_KEY(uaddr));
+        *buckets = htable_get_bucket(&futex->futex_entries, UADDR_TO_KEY(uaddr));
         for_each_in_hlist (entry, hash_node, *buckets) {
                 if (futex_has_waiter(entry) && entry->uaddr == uaddr) {
                         found_entry = entry;
@@ -80,20 +80,45 @@ static struct futex_entry* find_entry(int *uaddr, struct hlist_head **buckets)
         return found_entry;
 }
 
-void futex_init(struct cap_group *cap_group)
+void futex_init(struct futex *futex, mem_t mem_type)
 {
-        lock_init(&cap_group->futex_lock);
-        init_htable(&cap_group->futex_entries, BUCKET_SIZE);
+        lock_init(&futex->futex_lock);
+        init_htable(&futex->futex_entries, BUCKET_SIZE);
+        futex->mem_type = mem_type;
 }
 
-void futex_deinit(struct cap_group *cap_group)
+void futex_deinit(struct futex *futex)
 {
         struct futex_entry *entry, *temp;
         int i;
 
-        for_each_in_htable_safe (entry, temp, i, hash_node, &cap_group->futex_entries)
+        for_each_in_htable_safe (entry, temp, i, hash_node, &futex->futex_entries)
                 free_futex_entry(entry);
-        htable_free(&cap_group->futex_entries);
+        htable_free(&futex->futex_entries);
+}
+
+int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_type)
+{
+        struct futex_entry *entry, *temp, *new_entry;
+        struct hlist_head *buckets;
+        int i;
+
+        lock_init(&dst_futex->futex_lock);
+        init_htable(&dst_futex->futex_entries, BUCKET_SIZE);
+        dst_futex->mem_type = dst_mem_type;
+
+        for_each_in_htable_safe (entry, temp, i, hash_node, &src_futex->futex_entries) {
+                // copy old entry to new entry
+                buckets = htable_get_bucket(&dst_futex->futex_entries, UADDR_TO_KEY(entry->uaddr));
+                new_entry = new_futex_entry(dst_futex, entry->uaddr, buckets, dst_futex->mem_type);
+                if (new_entry == NULL) {
+                        return -ENOMEM;
+                }
+                new_entry->waiter_count = entry->waiter_count;
+                new_entry->notific = (struct notification *)obj2objpair(entry->notific);
+        }
+
+        return 0;
 }
 
 static void __check_and_free(struct futex_entry *entry)
@@ -114,7 +139,8 @@ static void __dec_waiter_count(struct futex_entry *entry)
 
 int sys_futex_wait(int *uaddr, int futex_op, int val, struct timespec *timeout)
 {
-        struct lock *futex_lock = &current_cap_group->futex_lock;
+        struct futex *futex = current_cap_group->futex;
+        struct lock *futex_lock = &futex->futex_lock;
         struct futex_entry *found_entry;
         struct hlist_head *buckets = NULL;
         int ret, kval;
@@ -142,9 +168,9 @@ int sys_futex_wait(int *uaddr, int futex_op, int val, struct timespec *timeout)
          * Find if already waiting on the same uaddr. If not found,
          * create an empty entry to put current wait request.
          */
-        found_entry = find_entry(uaddr, &buckets);
+        found_entry = find_entry(futex, uaddr, &buckets);
         if (found_entry == NULL) {
-                found_entry = new_futex_entry(uaddr, buckets);
+                found_entry = new_futex_entry(futex, uaddr, buckets, futex->mem_type);
                 if (found_entry == NULL) {
                         ret = -ENOMEM;
                         goto out_unlock;
@@ -165,7 +191,8 @@ out_unlock:
 
 int sys_futex_wake(int *uaddr, int futex_op, int val)
 {
-        struct lock *futex_lock = &current_cap_group->futex_lock;
+        struct futex *futex = current_cap_group->futex;
+        struct lock *futex_lock = &futex->futex_lock;
         struct futex_entry *found_entry;
         struct hlist_head *buckets = NULL;
         struct notification *notifc;
@@ -175,7 +202,7 @@ int sys_futex_wake(int *uaddr, int futex_op, int val)
         lock(futex_lock);
 
         /* Find waiters with the same uaddr */
-        found_entry = find_entry(uaddr, &buckets);
+        found_entry = find_entry(futex, uaddr, &buckets);
 
         if (!found_entry) {
                 ret = 0;
@@ -203,7 +230,8 @@ out_unlock:
 
 int sys_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue)
 {
-        struct lock *futex_lock = &current_cap_group->futex_lock;
+        struct futex *futex = current_cap_group->futex;
+        struct lock *futex_lock = &futex->futex_lock;
         struct futex_entry *found_entry1= NULL, *found_entry2 = NULL;
         struct hlist_head *buckets = NULL;
         int ret = 0;
@@ -215,8 +243,8 @@ int sys_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue)
                 return -EINVAL;
 
         lock(futex_lock);
-        found_entry1 = find_entry(uaddr, &buckets);
-        found_entry2 = find_entry(uaddr2, &buckets);
+        found_entry1 = find_entry(futex, uaddr, &buckets);
+        found_entry2 = find_entry(futex, uaddr2, &buckets);
 
         if (found_entry1 == NULL) {
                 ret = -EINVAL;
@@ -226,7 +254,7 @@ int sys_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue)
 
         /* requeue target does not contain any waiter */
         if (found_entry2 == NULL) {
-                found_entry2 = new_futex_entry(uaddr2, buckets);
+                found_entry2 = new_futex_entry(futex, uaddr2, buckets, futex->mem_type);
                 if (found_entry2 == NULL) {
                         ret = -ENOMEM;
                         goto out_unlock;

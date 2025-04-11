@@ -27,7 +27,7 @@ static int __dsm_tiering_start_migration(struct object *obj)
         goto out_ret;
     }
 
-    if (try_lock(&obj->tiering_lock) != 0) {
+    if (write_try_lock(&obj->tiering_lock) != 0) {
         ret = -EAGAIN;
         goto out_ret;
     }
@@ -41,7 +41,7 @@ static int __dsm_tiering_start_migration(struct object *obj)
     obj->status = DSM_STATUS_MIGRATING;
 
 out_unlock:
-    unlock(&obj->tiering_lock);
+    write_unlock(&obj->tiering_lock);
 out_ret:
     return ret;
 }
@@ -92,11 +92,12 @@ int dsm_demote_object(struct object *obj)
     }
 
     /* A system services object that should not be migrated */
-    if (is_system_services_object(obj)) {
-        target = dsm_get_object_by_mem_type(obj, __MT_SHARED__, true);
-        target->dsm_type = DSM_TYPE_BRIDGE_SERVICES;
-        return !target ? -ENOMEM : 0;
-    }
+    // REMOVE THIS, will check in each object's copy
+    // if (is_system_services_object(obj)) {
+    //     target = dsm_get_object_by_mem_type(obj, __MT_SHARED__, true);
+    //     target->dsm_type = DSM_TYPE_THREAD_SERVICES;
+    //     return !target ? -ENOMEM : 0;
+    // }
 
     /* Start migration */
     if ((ret = __dsm_tiering_start_migration(obj)) != 0) {

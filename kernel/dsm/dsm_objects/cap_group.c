@@ -68,6 +68,7 @@ int dsm_copy_cap_group(struct object *src_obj, struct object *dst_obj)
     struct cap_group *src_cap_group = (struct cap_group *)src_obj->opaque;
     struct cap_group *dst_cap_group = (struct cap_group *)dst_obj->opaque;
     int is_demote = is_private_object(src_obj);
+    mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
 
     // DSM_TIER_LOG_DEBUG("src_cg: %p, src_cg_object: %p\n", 
     //     src_cap_group, src_obj);
@@ -84,8 +85,11 @@ int dsm_copy_cap_group(struct object *src_obj, struct object *dst_obj)
     dst_cap_group->notify_recycler = 0;
 
     /* Copy slots */
-    dsm_copy_slot_table(src_cap_group, dst_cap_group, 
-                        is_demote ? __MT_SHARED__ : __MT_PRIVATE__);
+    dsm_copy_slot_table(src_cap_group, dst_cap_group, mem_type);
+
+    /* Copy futex */
+    dst_cap_group->futex = kzalloc(sizeof(struct futex), mem_type);
+    futex_copy(src_cap_group->futex, dst_cap_group->futex, mem_type);
 
     return 0;
 }

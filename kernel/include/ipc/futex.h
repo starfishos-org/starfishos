@@ -4,6 +4,7 @@
 #include <common/types.h>
 #include <common/hashtable.h>
 #include <ipc/notification.h>
+#include <uapi/types.h>
 
 #define FUTEX_WAIT		0
 #define FUTEX_WAKE		1
@@ -20,6 +21,11 @@
 
 #define FUTEX_CLOCK_REALTIME 256
 
+struct futex {
+        struct lock futex_lock;
+	struct htable futex_entries;
+        mem_t mem_type;
+};
 
 struct futex_entry {
         struct notification *notific;
@@ -28,9 +34,9 @@ struct futex_entry {
         struct hlist_node hash_node;
 };
 
-struct cap_group;
-void futex_deinit(struct cap_group *cap_group);
-void futex_init(struct cap_group *cap_group);
+void futex_deinit(struct futex *futex);
+void futex_init(struct futex *futex, mem_t mem_type);
+int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_type);
 
 /* Syscalls */
 int sys_futex_wait(int *uaddr, int futex_op, int val, struct timespec *timeout);

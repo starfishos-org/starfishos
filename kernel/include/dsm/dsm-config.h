@@ -19,7 +19,7 @@ inline static bool is_system_services(struct cap_group *cg)
 inline static bool is_system_services_thread(struct thread *thread)
 {
     if (thread->thread_ctx->type == TYPE_SERVICES 
-        || is_system_services(thread->cap_group)) {
+        || (is_system_services(thread->cap_group) && thread->thread_ctx->type != TYPE_SHADOW)) {
         return true;
     }
     return false;
