@@ -54,6 +54,13 @@ int do_complement(char *buf, char *complement, int complement_time)
 	int offset;
 	char *matches[256] = {0}; /* Store all matching entries */
 	size_t buf_len = strlen(buf);
+	char buf_lower[BUFLEN]; /* For case-insensitive comparison */
+
+	/* Convert buf to lowercase for case-insensitive matching */
+	for (size_t i = 0; i < buf_len; i++) {
+		buf_lower[i] = tolower(buf[i]);
+	}
+	buf_lower[buf_len] = '\0';
 
 	/* XXX: only support '/' here */
 	int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -72,8 +79,16 @@ int do_complement(char *buf, char *complement, int complement_time)
 			p = (struct dirent *)(scan_buf + offset);
 			get_dent_name(p, name);
 			
-			/* Match at the beginning like bash */
-			if (strncmp(name, buf, buf_len) == 0) {
+			/* Create lowercase version of name for comparison */
+			char name_lower[BUFLEN];
+			size_t name_len = strlen(name);
+			for (size_t i = 0; i < name_len; i++) {
+				name_lower[i] = tolower(name[i]);
+			}
+			name_lower[name_len] = '\0';
+			
+			/* Match at the beginning like bash, but case-insensitive */
+			if (strncmp(name_lower, buf_lower, buf_len) == 0) {
 				if (count < 256) {
 					matches[count] = strdup(name);
 					count++;
@@ -266,7 +281,7 @@ int do_ls(char *cmdline)
 		}
 		
 		max_width += 2; /* Add spacing between columns */
-		int cols = 240 / max_width; /* Assume 80 column terminal */
+		int cols = 160 / max_width; /* Assume 80 column terminal */
 		if (cols < 1) cols = 1;
 		
 		for (i = 0; i < entry_count; i++) {

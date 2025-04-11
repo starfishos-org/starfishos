@@ -463,66 +463,46 @@ static int parse_args(char *cmdline, char *pathbuf, char *argv[])
 
 int run_cmd(char *cmdline)
 {
-	int ret;
 	char pathbuf[BUFLEN];
 	char *argv[NR_ARGS_MAX];
 	int argc;
-	int pid;
-	int status;
-	int bg = 0;
-	int len;
-	char *p;
+	pid_t pid = 0;
+	bool run_background = false;
 
-	/* Ignore empty commands */
-	if (cmdline[0] == 0)
-		return 0;
-
-	/* Check if command should run in background */
-	len = strlen(cmdline);
-	if (cmdline[len - 1] == '&') {
-		bg = 1;
-		cmdline[len - 1] = 0;
-	}
-
-	/* No pipe - execute single command */
 	argc = parse_args(cmdline, pathbuf, argv);
-	if (argc == 0)
-		return 0;
 	if (argc < 0) {
-		printf("Error parsing arguments\n");
-		return -1;
+		printf("[Shell] Parsing arguments error\n");
+		return argc;
+	}
+	BUG_ON(shell_ipc_server_cap == -1);
+
+	if (strcmp(argv[argc - 1], "&") == 0) {
+		argc--;
+		run_background = true;
 	}
 
-	/* Try to run it as a builtin command */
-	ret = builtin_cmd(cmdline);
-	if (ret >= 0)
-		return ret;
+	pthread_mutex_lock(&job_mutex);
+	printf("\n");
+	// pid = chcore_new_process_with_cap(
+	// 	argc, argv, false, 1, &shell_ipc_server_cap);
+	pid = chcore_new_process(argc, argv, false);
 
-	/* Not a builtin command - execute it */
-	pid = fork();
-	if (pid < 0) {
-		printf("fork error\n");
-		return -1;
+	if (pid > 0) {
+		if (run_background == false) {
+			// printf("foreground thread pid:%d\n", pid);
+			fg_job.pid = pid;
+			strlcpy(fg_job.job_name, argv[0], sizeof(fg_job.job_name));
+			waitchild = true;
+		} else {
+			clean_jobs();
+			add_job(argv[0], pid, -1, -1);
+			waitchild = false;
+		}
 	}
+	pthread_mutex_unlock(&job_mutex);
+	// flush_buffer();
 
-	if (pid == 0) {
-		/* Child process */
-		execvp(pathbuf, argv);
-		printf("Command not found: %s\n", pathbuf);
-		exit(127);
-	}
-
-	/* Parent process */
-	if (!bg) {
-		/* Foreground job - wait for it */
-		waitpid(pid, &status, 0);
-		return status;
-	} else {
-		/* Background job - don't wait */
-		printf("[%d] %d\n", job_count + 1, pid);
-		add_job(argv[0], pid, -1, -1);
-		return 0;
-	}
+	return pid;
 }
 
 void printf_welcome(void)
