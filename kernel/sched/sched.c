@@ -48,6 +48,7 @@ char thread_state[][STATE_STR_LEN] = {
         "TS_INIT      ",
         "TS_READY     ",
         "TS_INTER     ",
+        "TS_CHOOSE_TO_SCHED",
         "TS_RUNNING   ",
         "TS_EXIT      ",
         "TS_WAITING   ",
@@ -56,8 +57,8 @@ char thread_state[][STATE_STR_LEN] = {
 
 char thread_exit_state[][STATE_STR_LEN] = {
         "TE_RUNNING",
-        "TE_EXITED",
         "TE_EXITING",
+        "TE_EXITED",
 #ifdef DSM_ENABLED
         "TE_MIGRATING",
         "TE_STOPPING",

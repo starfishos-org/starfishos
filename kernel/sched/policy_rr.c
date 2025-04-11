@@ -207,7 +207,7 @@ int rr_sched_migrate_from_shared_queue()
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
-        BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
+        BUG_ON(cpuid_g2mid(gcpuid) != CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
 
         /* move thread from shared queue to local queue */
@@ -240,6 +240,7 @@ int rr_sched_migrate_from_shared_queue()
 static u32 rr_sched_choose_cpu(void)
 {
     u32 i, cpuid, min_rr_len, local_cpuid, queue_len;
+    u32 j, start;
 
     local_cpuid = smp_get_cpu_id();
     min_rr_len = rr_ready_queue_meta[local_cpuid].queue_len;
@@ -250,7 +251,9 @@ static u32 rr_sched_choose_cpu(void)
 
     /* Find the cpu with the shortest ready queue */
     cpuid = local_cpuid;
-    for (i = 0; i < PLAT_CPU_NUM; i++) {
+    start = (cpuid + 1) % PLAT_CPU_NUM;
+    for (j = 0; j < PLAT_CPU_NUM; j++) {
+        i = (start + j) % PLAT_CPU_NUM;
         if (i == local_cpuid) {
             continue;
         }

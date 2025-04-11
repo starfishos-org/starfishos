@@ -91,12 +91,12 @@
 #define SYS_perf_end   231
 #define SYS_perf_null  232
 
-#ifdef CHCORE_SLS
+// #ifdef CHCORE_SLS
 #define SYS_get_poll_remote                   233
 #define SYS_set_poll_remote                   234
 #define SYS_set_excepted_connected_client_num 235
 #define SYS_set_dyn_args 236
-#endif
+// #endif
 
 /* PCIe BUS */
 #define SYS_pcie_control 237
@@ -113,13 +113,14 @@
 #define SYS_whole_restore             242
 #define SYS_shutdown                  243
 #define SYS_whole_ckpt_for_test       244
-#define SYS_register_external_ringbuf 245
 
 /* IPI */
 #define SYS_ipi_stop_all    246
 #define SYS_ipi_start_all   247
 #define SYS_ipi_test_kernel 248
 #endif
+
+#define SYS_register_external_ringbuf 245
 
 /* track pf */
 #define SYS_track_pf_begin 249
