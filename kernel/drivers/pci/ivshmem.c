@@ -118,7 +118,7 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
     // parse header
     struct ivshmem_header_common *header = 
         (struct ivshmem_header_common *)dev->iova;
-    if (strncmp(header->magic, "hostfs", 8) == 0) {
+    if (strncmp(header->magic, "hostfs", 6) == 0) {
         pci_info("[IVSHMEM] [%d] magic \"match hostfs\"\n", kvm_ivshmem_dev_num);
         hostfs_dev = dev;
     } else if (strncmp(header->magic, "cxlmem", 6) == 0) {
@@ -147,11 +147,19 @@ void ivshmem_setup_devices()
 }
 
 static struct hostfs_dev_header *parse_pci_hostfs_req_info() {
+    if (hostfs_dev == NULL) {
+        pci_ioctl_debug("hostfs_dev is not initialized\n");
+        return NULL;
+    }
     return (struct hostfs_dev_header *)hostfs_dev->iova;
 }
 
 void list_pci_hostfs_req_info() {
     struct hostfs_dev_header *header = parse_pci_hostfs_req_info();
+    if (header == NULL) {
+        pci_ioctl_debug("header is not initialized\n");
+        return;
+    }
     pci_info("[HOSTFS] /host/: file_num=%llx\n", header->file_num);
     for (int i = 0; i < header->file_num; i++) {
         struct hostfs_dev_file_info *file_info = &header->file_info_list[i];

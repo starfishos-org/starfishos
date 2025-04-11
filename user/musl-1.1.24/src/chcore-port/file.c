@@ -1117,6 +1117,14 @@ int __xstatxx(int req, int fd, const char *path, int flags,
 	if (ret)
 		return ret;
 
+	// printf("chcore_file_stat: %s\n", full_path);
+	if (IS_HOSTFS(full_path)) {
+		// printf("chcore_file_stat: hostfs\n");
+		ret = chcore_hostfs_stat(fd, path, flags, statbuf, bufsize);
+		free(full_path);
+		return 0;
+	}
+
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
 		free(full_path);

@@ -4,7 +4,8 @@ import struct
 
 # 要复制到共享内存的文件路径
 source_file_list = [
-    '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
+    # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
+    '/disk/wfn/graph/data/twitter-2010.bin',
 ]
 
 # 共享内存设备文件路径

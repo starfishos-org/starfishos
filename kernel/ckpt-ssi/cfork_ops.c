@@ -72,7 +72,7 @@ int start_all_threads(struct list_head *thread_list)
         BUG_ON(thread->thread_ctx->thread_exit_state != TE_STOPPED);
 
         /* promote the thread to local memory */
-        int ret = dsm_promote_object(obj2object(thread));
+        ret = dsm_promote_object(obj2object(thread));
         if (ret) {
             CFORK_LOG_WARN("failed to promote thread: %p\n", thread);
         }

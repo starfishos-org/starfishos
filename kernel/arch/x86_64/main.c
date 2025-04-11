@@ -69,6 +69,9 @@ void main(u64 mbmagic, paddr_t mbaddr)
     ext_mm_init();
     kdebug("[ChCore] external mm init finished\n");
 
+    extern void pci_hostfs_list(void);
+    pci_hostfs_list();
+
     /* Configure CPU features: setting per_core registers */
     arch_cpu_init();
     kdebug("[ChCore] arch cpu init finished\n");

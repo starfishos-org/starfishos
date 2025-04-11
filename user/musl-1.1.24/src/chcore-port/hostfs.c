@@ -168,6 +168,94 @@ int chcore_hostfs_close(int fd) {
 	return 0;
 }
 
+static void __hostfs_fill_statbuf(struct stat *statbuf)
+{
+	statbuf->st_dev = 0;
+	/* TODO(MK): We should use a UUID for inode. */
+	statbuf->st_ino = (ino_t)0;
+	statbuf->st_mode = S_IFREG;
+	statbuf->st_nlink = 0;
+	/* TODO(MK): uid/gid. */
+	statbuf->st_uid = 0;
+	statbuf->st_gid = 0;
+
+	statbuf->st_rdev = 0;
+	statbuf->st_size = 0;
+
+	/* TODO(MK): Use real xtime. */
+	statbuf->st_atime = 0;
+	statbuf->st_mtime = 0;
+	statbuf->st_ctime = 0;
+
+	/* TODO(MK): Handle the following two. */
+	statbuf->st_blksize = 0;
+	statbuf->st_blocks = 0;
+}
+
+static void __hostfs_fill_statfsbuf(struct statfs *statbuf)
+{
+	const int faked_large_value = 1024 * 1024 * 512;
+	/* Type of filesystem (see below): ChCorE7mpf5 */
+	statbuf->f_type = 0xCCE7A9F5;
+	/* Optimal transfer block size */
+	statbuf->f_bsize = PAGE_SIZE;
+	/* Total data blocks in filesystem */
+	statbuf->f_blocks = faked_large_value;
+	/* Free blocks in filesystem */
+	statbuf->f_bfree = faked_large_value;
+	/* Free blocks available to unprivileged user */
+	statbuf->f_bavail = faked_large_value;
+	/* Total file nodes in filesystem */
+	statbuf->f_files = faked_large_value;
+	/* Free file nodes in filesystem */
+	statbuf->f_ffree = faked_large_value;
+	/* Filesystem ID (See man page) */
+	memset(&statbuf->f_fsid, 0, sizeof(statbuf->f_fsid));
+	/* Maximum length of filenames */
+	statbuf->f_namelen = MAX_PATH_LEN;
+	/* Fragment size (since Linux 2.6) */
+	statbuf->f_frsize = 512; /* XXX(MK): the value? */
+	/* Mount flags of filesystem (since Linux 2.6.36) */
+	statbuf->f_flags = 0;
+}
+
+int chcore_hostfs_fstat(int fd, char *path, int flags, struct statfs *statbuf, size_t bufsize) {
+	/* Open the file if it is not opened */
+	if (fd < 0 || fd >= MAX_FD || fd_dic[fd] == NULL) {
+		chcore_hostfs_open(fd, path);
+	}
+	/* Check if the file is FD_TYPE_HOSTFS */
+	if (fd_dic[fd]->type != FD_TYPE_HOSTFS) {
+		printf("chcore_hostfs_stat: invalid fd\n");
+		return -EINVAL;
+	}
+	struct hostfs_file_info *info = 
+		(struct hostfs_file_info *)fd_dic[fd]->private_data;
+	__hostfs_fill_statfsbuf(statbuf);
+	statbuf->f_frsize = info->file_size;
+	statbuf->f_namelen = strlen(info->file_name);
+	return 0;
+}
+
+int chcore_hostfs_stat(int fd, char *path, int flags, struct stat *statbuf, size_t bufsize) {
+	printf("chcore_hostfs_stat: fd %d, statbuf %p, size %ld\n", fd, statbuf, statbuf->st_size);
+
+	/* Open the file if it is not opened */
+	if (fd < 0 || fd >= MAX_FD || fd_dic[fd] == NULL) {
+		chcore_hostfs_open(fd, path);
+	}
+	/* Check if the file is FD_TYPE_HOSTFS */
+	if (fd_dic[fd]->type != FD_TYPE_HOSTFS) {
+		printf("chcore_hostfs_stat: invalid fd\n");
+		return -EINVAL;
+	}
+	struct hostfs_file_info *info = 
+		(struct hostfs_file_info *)fd_dic[fd]->private_data;
+	__hostfs_fill_statbuf(statbuf);
+	statbuf->st_size = info->file_size;
+	return 0;
+}
+
 struct fd_ops hostfs_ops = {
 	// .open = chcore_hostfs_open,
 	.read = chcore_hostfs_read, 

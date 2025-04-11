@@ -2,6 +2,7 @@
 
 #include <sys/types.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "fd.h"
 
@@ -31,3 +32,5 @@ struct hostfs_file_info {
 };
 
 int chcore_hostfs_open(int fd, char *path);
+int chcore_hostfs_fstat(int fd, char *path, int flags, struct statfs *statbuf, size_t bufsize);
+int chcore_hostfs_stat(int fd, char *path, int flags, struct stat *statbuf, size_t bufsize);
