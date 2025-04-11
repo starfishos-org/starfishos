@@ -5,10 +5,46 @@
 #include "chcore_mman.h" // for READ_PROT
 #include "hostfs.h"
 
+static vaddr_t mmap_for_rw_ops(struct hostfs_file_info *info) {
+	u64 mapped_vaddr;
+	if (!info || !(info->pmo_cap)) {
+		printf("%s: invalid info\n", __func__);
+		return -ENOENT;
+	}
+
+	info->mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
+	info->mmap_flags = MAP_ANONYMOUS | MAP_PRIVATE;
+	info->mmap_prot = PROT_READ | PROT_WRITE;
+	mapped_vaddr = chcore_mmap(0,
+				info->mmap_size,
+				info->mmap_prot,
+				info->mmap_flags,
+				-1,
+				0,
+				info->pmo_cap); // open will set pmo_cap
+	if (mapped_vaddr == (u64)-1) {
+		printf("%s: failed to mmap\n", __func__);
+		return -1;
+	}
+	info->mmap_vaddr = mapped_vaddr;
+	info->is_mapped = 1;
+	return 0;
+}
+
 int chcore_hostfs_pread(int fd, void *buf, size_t count, off_t offset) {
-	struct hostfs_file_info *info = (struct hostfs_file_info *)fd_dic[fd]->private_data;
+	int ret;
+	struct hostfs_file_info *info;
+	
+	info = (struct hostfs_file_info *)fd_dic[fd]->private_data;
+	if (!info->is_mapped) {
+		// printf("%s: file is not mmaped, call mmap_for_rw_ops\n", __func__);
+		if ((ret = mmap_for_rw_ops(info)))
+			return ret;
+		// printf("mmap_for_rw_ops: fd %d, mapped vaddr: %lx, offset: %lx\n", 
+		// 	fd, info->mmap_vaddr, offset);
+	}
 	if (offset + count > info->file_size) {
-		printf("chcore_hostfs_pread: invalid offset\n");
+		printf("%s: invalid offset\n", __func__);
 		return -EINVAL;
 	}
 	memcpy(buf, (void *)(info->mmap_vaddr + offset), count);
@@ -43,12 +79,26 @@ u64 chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, of
 	struct hostfs_file_info *info;
 	
 	info = fd_dic[fd]->private_data;
-	if (!info->is_mapped) {
-		printf("chcore_hostfs_mmap: file not mapped\n");
+
+	if (offset != 0 || length != info->file_size) {
+		printf("currently chcore hostfs only support mmap whole file\n");
+		offset = 0;
+		length = info->file_size;
+	}
+	
+	if (flags != (MAP_ANONYMOUS | MAP_PRIVATE)) {
+		printf("currently chcore hostfs does not support flags %lx\n", flags);
+		flags = MAP_ANONYMOUS | MAP_PRIVATE;
+	}
+
+	mapped_vaddr = chcore_mmap(0, length, prot, flags, -1, 0, info->pmo_cap); // open will set pmo_cap
+	if (mapped_vaddr == (u64)-1) {
+		printf("%s: failed to mmap\n", __func__);
 		return -1;
 	}
-	printf("chcore_hostfs_mmap: mapped vaddr: %lx, offset: %lx\n", info->mmap_vaddr, offset);
-	return (long)info->mmap_vaddr + offset;
+	printf("%s: fd %d, mapped vaddr: %lx, offset: %lx\n", 
+		__func__, fd, mapped_vaddr, offset);
+	return (long)mapped_vaddr;
 }
 
 int chcore_hostfs_open(int fd, char *path) {
@@ -57,7 +107,6 @@ int chcore_hostfs_open(int fd, char *path) {
 	struct hostfs_file_info *info;
 	struct pci_hostfs_req_info *req_info;
 	int ret;
-	u64 map_addr;
 	// prepare info
 	req = malloc(sizeof(struct pci_control_req));
 	req_info = malloc(sizeof(struct pci_hostfs_req_info));
@@ -81,28 +130,14 @@ int chcore_hostfs_open(int fd, char *path) {
 	info->pmo_cap = req_info->pmo_cap;
 	info->fd_offset = 0;
 	info->is_mapped = 0;
+	info->mmap_vaddr = 0;
 
 	fd_dic[fd]->type = FD_TYPE_HOSTFS;
 	fd_dic[fd]->fd_op = &hostfs_ops;
 	fd_dic[fd]->private_data = info;
 
-	// currently, open with mmap
-	info->mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
-	info->mmap_flags = MAP_ANONYMOUS | MAP_PRIVATE;
-	info->mmap_prot = PROT_READ;
-	map_addr = (u64)chcore_mmap(0,
-				info->mmap_size,
-				info->mmap_prot,
-				info->mmap_flags,
-				-1,
-				0,
-				info->pmo_cap);
-	if (map_addr == (u64)-1) {
-		printf("chcore_hostfs_open: failed to mmap\n");
-		return -1;
-	}
-	info->mmap_vaddr = map_addr;
-	info->is_mapped = 1;
+	printf("chcore_hostfs_open: fd %d, mapped vaddr: %lx, pmo cap: %d\n", 
+		fd, info->mmap_vaddr, info->pmo_cap);
 
 	return fd;
 }

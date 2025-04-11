@@ -284,7 +284,8 @@ void arch_cpu_init(void)
     set_cr4(cr4);
 
     x86_xsetbv(0,
-               X86_XSAVE_STATE_X87 | X86_XSAVE_STATE_SSE | X86_XSAVE_STATE_AVX);
+               X86_XSAVE_STATE_X87 | X86_XSAVE_STATE_SSE | 
+               X86_XSAVE_STATE_AVX | XFEATURE_MASK_AVX512);
     // get CPU xsave area size
     arch_get_cpu_xsave_area_size();
 
