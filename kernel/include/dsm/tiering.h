@@ -6,6 +6,7 @@
 #include <common/lock.h>
 #include <dsm/dsm-mmconfig.h>
 #include <mm/vmspace.h>
+#include <dsm/perf_timing.h>
 
 static inline struct object *
 dsm_get_inuse_object(struct object *obj, bool waiting)

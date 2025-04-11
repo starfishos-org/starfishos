@@ -8,6 +8,10 @@
 
 #include "dsm_tiering.h"
 
+#ifdef PERF_TIMING_CFORK
+extern u64 perf_cfork_time[PERF_CFORK_TYPE_NR];
+#endif
+
 static int reinstall_system_services(struct cap_group *cap_group)
 {
     /* Lazy reinstall system services */
@@ -67,6 +71,9 @@ int stop_all_connections(struct cap_group *cap_group)
 
 int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 {
+#ifdef PERF_TIMING_CFORK
+    u64 start_time = perf_timing_get_time(), end_time;
+#endif
     int ret = 0, flags;
     struct cap_group *src_cap_group, *dst_cap_group;
     struct object *dst_cap_group_obj;
@@ -81,6 +88,12 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
         DSM_TIER_LOG_ERR("%s: failed to demote thread\n", __func__);
         return ret;
     }
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT_OBJECTS_THREAD] += end_time - start_time;
+    start_time = end_time;
+#endif
 
     /* demote the cap group finally */
     ret = dsm_demote_object(src_cap_group_obj);
@@ -117,6 +130,12 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
         src_thread_obj->refcount = 0;
         object_free(src_thread_obj);
         dst_thread_obj->pair_obj = NULL;
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT_OBJECTS_CAP_GROUP] += end_time - start_time;
+    start_time = end_time;
+#endif
 
 #if 0
     // Check the validity of the dst thread
