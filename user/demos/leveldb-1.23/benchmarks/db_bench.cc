@@ -7,6 +7,9 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
+#include <vector>
+#include <fstream>
 
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
@@ -128,6 +131,19 @@ static bool FLAGS_reuse_logs = false;
 
 // Use the db with the following name.
 static const char* FLAGS_db = nullptr;
+
+static bool external_thread_bind_cpu = false;
+
+static std::string thread_bind_cpu_list_filename = "";
+
+static std::vector<int> thread_bind_cpu_list = std::vector<int>();
+
+inline void set_cpu_affinity(int cpu_id) {
+  cpu_set_t mask;
+  CPU_ZERO(&mask);
+  CPU_SET(cpu_id, &mask);
+  pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+}
 
 namespace leveldb {
 
@@ -630,6 +646,10 @@ class Benchmark {
     ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;
+    if (external_thread_bind_cpu) {
+      set_cpu_affinity(thread_bind_cpu_list[arg->thread->tid]);
+    }
+    
     {
       MutexLock l(&shared->mu);
       shared->num_initialized++;
@@ -1028,6 +1048,61 @@ class Benchmark {
 
 }  // namespace leveldb
 
+int parse_cpu_bind_file(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::fprintf(stderr, "Failed to open CPU bind file: %s\n", filename.c_str());
+        return -1;
+    }
+
+		external_thread_bind_cpu = true;
+
+    std::string line;
+    if (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string token;
+        while (std::getline(iss, token, ',')) {
+            // 去除前后空白
+            token.erase(0, token.find_first_not_of(" \t"));
+            token.erase(token.find_last_not_of(" \t") + 1);
+
+            size_t dash_pos = token.find('-');
+            if (dash_pos != std::string::npos) {
+                int start = std::stoi(token.substr(0, dash_pos));
+                int end = std::stoi(token.substr(dash_pos + 1));
+                if (start > end) {
+                    std::fprintf(stderr, "Invalid range: %s\n", token.c_str());
+                    continue;
+                }
+                for (int i = start; i <= end; ++i) {
+                    thread_bind_cpu_list.push_back(i);
+                }
+            } else {
+                int cpu = std::stoi(token);
+                thread_bind_cpu_list.push_back(cpu);
+            }
+        }
+    }
+
+    if (thread_bind_cpu_list.empty()) {
+        std::fprintf(stderr, "No CPU bind data found\n");
+        return -1;
+    }
+    extern uint32_t g_thread_cnt;
+    if (thread_bind_cpu_list.size() < static_cast<size_t>(FLAGS_threads)) {
+        std::fprintf(stderr, "CPU bind file size is less than thread number\n");
+        return -1;
+    }
+
+    std::fprintf(stderr, "bind %zu cpu: ", thread_bind_cpu_list.size());
+    for (int cpu : thread_bind_cpu_list) {
+        std::fprintf(stderr, "%d ", cpu);
+    }
+    std::fprintf(stderr, "\n");
+
+    return 0;
+}
+
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_file_size = leveldb::Options().max_file_size;
@@ -1077,12 +1152,19 @@ int main(int argc, char** argv) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
       FLAGS_open_files = n;
-    } else if (strncmp(argv[i], "--db=", 5) == 0) {
-      FLAGS_db = argv[i] + 5;
+    } else if (strncmp(argv[i], "--db=", strlen("--db=")) == 0) {
+      FLAGS_db = argv[i] + strlen("--db=");
+    } else if (strncmp(argv[i], "--thread_bind_cpu_list_filename=", strlen("--thread_bind_cpu_list_filename=")) == 0) {
+      thread_bind_cpu_list_filename = argv[i] + strlen("--thread_bind_cpu_list_filename=");
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);
     }
+  }
+
+  if (thread_bind_cpu_list_filename.empty()) {
+    thread_bind_cpu_list_filename = "leveldb_bind_cpu.txt";
+    parse_cpu_bind_file(thread_bind_cpu_list_filename);
   }
 
   leveldb::g_env = leveldb::Env::Default();

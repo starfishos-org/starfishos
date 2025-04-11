@@ -1,30 +1,37 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <chcore/type.h>
-#pragma GCC push_options
-#pragma GCC optimize ("O0")
+#include <errno.h>
+
 int main(int argc, char *argv[])
 {
         if (argc != 3) {
-                printf("Usage: write <path> <content>\n");
-                exit(-1);
+                fprintf(stderr, "Usage: write <path> <content>\n");
+                return 1;
         }
-        char *path = argv[1];
-        char *content = argv[2];
-        (void)path;
-        (void)content;
-
+        
+        const char *path = argv[1];
+        const char *content = argv[2];
+        size_t content_len = strlen(content);
+        
         int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd < 0) {
-                perror("failed to open file");
-                exit(-1);
+                char err_buf[256];
+                strerror_r(errno, err_buf, sizeof(err_buf));
+                fprintf(stderr, "failed to open file '%s': %s\n", path, err_buf);
+                return 1;
         }
-        write(fd, content, strlen(content));
+        
+        ssize_t bytes_written = write(fd, content, content_len);
+        if (bytes_written < 0 || (size_t)bytes_written != content_len) {
+                char err_buf[256];
+                strerror_r(errno, err_buf, sizeof(err_buf));
+                fprintf(stderr, "failed to write: %s\n", err_buf);
+                close(fd);
+                return 1;
+        }
+        
         close(fd);
-        fprintf(stderr, "write success\n");
         return 0;
 }
-#pragma GCC pop_options

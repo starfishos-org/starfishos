@@ -6,6 +6,8 @@ cmake_minimum_required(VERSION 3.9)
 # Keep the version below in sync with the one in db.h
 project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
 
+set(CMAKE_BUILD_TYPE Release)
+
 # C standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
@@ -440,6 +442,7 @@ if(LEVELDB_BUILD_BENCHMARKS)
       if (${OS} STREQUAL "CHCORE")
         add_custom_target(copy-${bench_target_name}-data ALL
           COMMAND rsync -a ${CMAKE_CURRENT_BINARY_DIR}/db_bench ${build_ramdisk_dir}/leveldb-dbbench.bin
+          COMMAND rsync -a ${CMAKE_CURRENT_SOURCE_DIR}/leveldb_bind_cpu_chcore.txt ${build_ramdisk_dir}/leveldb_bind_cpu.txt
           DEPENDS ${bench_target_name}
         )
         add_dependencies(ramdisk copy-${bench_target_name}-data)
