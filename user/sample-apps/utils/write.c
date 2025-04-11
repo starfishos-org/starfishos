@@ -1,30 +1,32 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <chcore/type.h>
-#pragma GCC push_options
-#pragma GCC optimize ("O0")
+
 int main(int argc, char *argv[])
 {
         if (argc != 3) {
-                printf("Usage: write <path> <content>\n");
-                exit(-1);
+                fprintf(stderr, "Usage: write <path> <content>\n");
+                return 1;
         }
-        char *path = argv[1];
-        char *content = argv[2];
-        (void)path;
-        (void)content;
-
-        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) {
-                perror("failed to open file");
-                exit(-1);
+        
+        const char *path = argv[1];
+        const char *content = argv[2];
+        size_t content_len = strlen(content);
+        
+        FILE *f = fopen(path, "w");
+        if (f == NULL) {
+                perror(path);
+                return 1;
         }
-        write(fd, content, strlen(content));
-        close(fd);
-        fprintf(stderr, "write success\n");
+        
+        fwrite(content, 1, content_len, f);
+        if (ferror(f)) {
+                perror(path);
+                fclose(f);
+                return 1;
+        }
+        
+        fclose(f);
         return 0;
 }
-#pragma GCC pop_options

@@ -386,6 +386,7 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             __rr_sched_dequeue(thread);
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
+            kdebug("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
             thread->thread_ctx->thread_exit_state = TE_EXITED;
             break;
 #ifdef DSM_ENABLED

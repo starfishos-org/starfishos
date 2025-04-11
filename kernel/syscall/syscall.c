@@ -42,7 +42,7 @@
 void hook_syscall(long n)
 {
         if ((n != SYS_putc) && (n != SYS_getc) && (n != SYS_yield)
-            && (n != SYS_handle_brk) && (n != SYS_clock_gettime) && (n != SYS_wait))
+            && (n != SYS_handle_brk) && (n != SYS_clock_gettime) && (n != SYS_wait) && (n != SYS_ipc_call) && (n != SYS_ipc_return))
                 kinfo("[SYSCALL TRACING] hook_syscall num: %ld\n", n);
 }
 #endif
@@ -330,6 +330,9 @@ void sys_ipi_start_all();
 void sys_ipi_test_kernel(int cpuid);
 #endif
 
+extern void sys_set_dyn_args(u64 hotness, u64 access_interval);
+extern int sys_register_external_ringbuf(u64 buffer);
+
 const void *syscall_table[NR_SYSCALL] = {
         [0 ... NR_SYSCALL - 1] = sys_null_placeholder,
 
@@ -432,14 +435,14 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_virt_dispatch] = sys_virt_dispatch,
 #endif /* CHCORE_KERNEL_VIRT */
 
-#ifdef CHCORE_SLS
+// #ifdef CHCORE_SLS
         [SYS_get_poll_remote] = sys_get_poll_remote,
         [SYS_set_poll_remote] = sys_set_poll_remote,
         [SYS_set_excepted_connected_client_num] =
                 sys_set_excepted_connected_client_num,
         [SYS_set_dyn_args] = sys_set_dyn_args,
         [SYS_register_external_ringbuf] = sys_register_external_ringbuf,
-#endif
+// #endif
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
         /* Checkpoint */

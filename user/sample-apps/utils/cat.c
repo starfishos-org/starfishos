@@ -1,25 +1,26 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+
+#define BUFFER_SIZE 100
 
 int main(int argc, char *argv[])
 {
-        FILE *f;
-        char buf[100];
-        if (argc != 2) {
-                printf("Usage: cat [filename]\n");
-                exit(-1);
-        }
-        f = fopen(argv[1], "r");
-        if (f == NULL) {
-                perror("fopen err:\n");
-                exit(-1);
-        }
-        memset(buf, 0, 100);
-        while (fgets((char *)buf, 100, f) != NULL) {
-                printf("%s", buf);
-                memset(buf, 0, 100);
-        }
-	fclose(f);
-        return 0;
+    if (argc != 2) {
+        fprintf(stderr, "Usage: cat [filename]\n");
+        return EXIT_FAILURE;
+    }
+
+    FILE *f = fopen(argv[1], "r");
+    if (f == NULL) {
+        perror(argv[1]);
+        return EXIT_FAILURE;
+    }
+
+    char buf[BUFFER_SIZE];
+    while (fgets(buf, BUFFER_SIZE, f) != NULL) {
+        fputs(buf, stdout);
+    }
+
+    fclose(f);
+    return EXIT_SUCCESS;
 }

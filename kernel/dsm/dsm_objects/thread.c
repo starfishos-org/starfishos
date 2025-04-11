@@ -159,7 +159,7 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
-    print_thread(src_thread);
+    // print_thread(src_thread);
     // kprint_vmr(src_thread->vmspace);
 
     /* Do not demote server threads */

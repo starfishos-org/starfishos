@@ -499,6 +499,10 @@ long __syscall2(long n, long a, long b)
 	case SYS_clone: {
 		return chcore_do_fork();
 	}
+	case SYS_getrlimit: {
+		warn_once("SYS_getrlimit is not implemented.\n");
+		return -1;
+	}
 	default:
 		dead(n);
 		return chcore_syscall2(n, a, b);
@@ -531,7 +535,6 @@ long __syscall3(long n, long a, long b, long c)
 		return __syscall6(SYS_writev, a, b, c, 0, 0, 0);
 	}
 	case SYS_read: {
-		printf("read: %d, %p, %zu\n", (int)a, (void *)b, (size_t)c);
 		return chcore_read((int)a, (void *)b, (size_t)c);
 	}
 	case SYS_sched_getaffinity: {

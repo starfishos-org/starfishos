@@ -44,3 +44,4 @@ doc/protocol-binary.txt
 /memcached.spec
 .*.swp
 /compile_commands.json
+.config_done

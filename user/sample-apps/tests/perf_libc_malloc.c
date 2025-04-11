@@ -8,7 +8,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <pthread.h>
-#include <rpmalloc.h>
 #include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,6 +17,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <rpmalloc.h>
 
 #define DSM_ENABLED
 
@@ -49,14 +49,14 @@ int proc_rebind_thread(int cpu_id) {
 }
 
 inline void *mem_malloc(size_t size) {
-  void *temp = rpmalloc(size);
+  void *temp = malloc(size);
   assert(temp);
 
   return temp;
 }
 
 inline void *mem_malloc_here(size_t size) {
-  void *temp = rpmalloc(size);
+  void *temp = malloc(size);
   assert(temp);
 
   return temp;
@@ -82,7 +82,7 @@ inline void *mem_memcpy(void *dest, const void *src, size_t size) {
 
 inline void *mem_memset(void *s, int c, size_t n) { return memset(s, c, n); }
 
-inline void mem_free(void *ptr) { rpfree(ptr); }
+inline void mem_free(void *ptr) { free(ptr); }
 
 typedef struct {
   size_t size;
@@ -98,7 +98,6 @@ double *run_times;
 size_t *alloc_sizes;
 
 void *allocate_memory(void *arg) {
-  rpmalloc_thread_initialize();
 
   thread_data_t *data = (thread_data_t *)arg;
   proc_bind_thread(data->thread_id);
@@ -130,8 +129,6 @@ void *allocate_memory(void *arg) {
   run_times[data->thread_id] = cpu_time_used;
 
   proc_rebind_thread(data->thread_id % 48);
-
-  rpmalloc_thread_finalize(0);
 
   return NULL;
 }
@@ -208,8 +205,6 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  rpmalloc_initialize();
 
   for (int i = 0; i < thread_num; i++) {
     thread_data[i].size =

@@ -5,13 +5,15 @@ window_name="window"
 num_windows=$1
 log_file=$2
 program=$3
+expected_str=$4
 num_numa=4
 
-if [ $# -ne 3 ]; then
-    echo "Usage: $0 <num_windows> <program> <log_file>"
+if [ $# -ne 4 ]; then
+    echo "Usage: $0 <num_windows> <log_file> <program> <expected_str>"
     echo "num_windows: the number of kernels to create"
     echo "program: the program to run on the kernels"
     echo "log_file: the log file to save the log"
+    echo "expected_str: the string to expect in the log"
     exit 1
 fi
 
@@ -31,7 +33,7 @@ kernel_ready() {
   echo "Kernel $1 is ready"
 }
 
-make clean-dsm
+make clean-dsm-meta
 welcome_str="Welcome to ChCore shell!"
 
 echo "num_windows: $num_windows"
@@ -55,10 +57,10 @@ done
 tmux send -t $session_name:0 "$program" ENTER
 
 while true; do
-    grep -q "thp=" exec_log0.log
+    grep -q "$expected_str" exec_log0.log
     
     if [ $? -eq 0 ]; then
-        grep "thp=" exec_log0.log >> $log_file
+        grep "$expected_str" exec_log0.log >> $log_file
         break
     fi
     

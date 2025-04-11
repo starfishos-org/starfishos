@@ -2,24 +2,16 @@
 # demos
 set(MUSL_CC ${CHCORE_MUSL_LIBC_INSTALL_DIR}/bin/musl-gcc)
 set(MUSL_CXX ${CHCORE_MUSL_CROSS_MAKE_INSTALL_DIR}/bin/x86_64-linux-musl-g++)
+set(CMAKE_CXX_COMPILER ${MUSL_CXX})
+set(CMAKE_C_COMPILER ${MUSL_CC})
 
 set(_demos_clean_targets)
 chcore_get_nproc(_nproc)
 
+set(OS CHCORE)
+
 if(CHCORE_DEMOS_LIGRA)
-  add_custom_target(
-    ligra-clean
-    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make clean
-)
-list(APPEND _demos_clean_targets ligra-clean)
-  add_custom_target(
-    ligra ALL
-    WORKING_DIRECTORY ${build_demos_dir}/ligra/apps
-    COMMAND make MALLOC=libc OPENMP=1 PCC=${MUSL_CXX}
-    COMMAND rsync -a ${build_demos_dir}/ligra/apps/PageRank ${build_ramdisk_dir}/
-    DEPENDS)
-  add_dependencies(ramdisk ligra)
+  add_subdirectory(${build_demos_dir}/ligra)
 endif()
 
 if(CHCORE_DEMOS_REDIS)
@@ -87,38 +79,92 @@ if(CHCORE_DEMOS_LIBEVENT)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
-  add_custom_target(
-    memcached ALL
-    WORKING_DIRECTORY ${build_demos_dir}/memcached
+  set(MEMCACHED_BUILD_DIR ${build_demos_dir}/memcached)
+  set(MEMCACHED_CONFIG_DONE_FILE ${MEMCACHED_BUILD_DIR}/.config_done)
+
+  add_custom_command(
+    OUTPUT ${MEMCACHED_CONFIG_DONE_FILE}
+    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND ./autogen.sh
-            && ./configure --disable-coverage -with-libevent=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/memcached/memcached ${build_ramdisk_dir}/
-    DEPENDS)
-    list(APPEND _demos_clean_targets memcached-clean)
-  add_custom_target(
-    memcached-clean
+    COMMAND ./configure --disable-coverage --with-libevent=/usr/libevent/ --enable-static
+    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHED_CONFIG_DONE_FILE}
+    COMMENT "Configuring memcached (only runs once)"
+  )
+
+  add_custom_command(
+    OUTPUT ${MEMCACHED_BUILD_DIR}/memcached
+    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
+    COMMAND make CC=${MUSL_CC} 
+    DEPENDS ${MEMCACHED_CONFIG_DONE_FILE}
+    COMMENT "Building memcached"
+  )
+
+  add_custom_target(memcached ALL
+    DEPENDS ${MEMCACHED_BUILD_DIR}/memcached
+  )
+
+  add_custom_command(
+    TARGET memcached POST_BUILD
+    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
+    COMMENT "Copying memcached to ramdisk"
+  )
+
+  add_custom_target(memcached-clean
+    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND make maintainer-clean-local
-    WORKING_DIRECTORY ${build_demos_dir}/memcached
-    )
-    add_dependencies(ramdisk memcached)
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${MEMCACHED_CONFIG_DONE_FILE}
+    COMMENT "Cleaning memcached"
+  )
+
+  list(APPEND _demos_clean_targets memcached-clean)
+  add_dependencies(ramdisk memcached)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
-  add_custom_target(
-    memcachetest-clean
-    WORKING_DIRECTORY ${build_demos_dir}/memcachetest
-    COMMAND make distclean
-    )
-    list(APPEND _demos_clean_targets memcachetest-clean)
-  add_custom_target(
-    memcachetest ALL
-    WORKING_DIRECTORY ${build_demos_dir}/memcachetest
+  set(MEMCACHETEST_BUILD_DIR ${build_demos_dir}/memcachetest)
+  set(MEMCACHETEST_CONFIG_DONE_FILE ${MEMCACHETEST_BUILD_DIR}/.config_done)
+
+  # 配置阶段（只运行一次）
+  add_custom_command(
+    OUTPUT ${MEMCACHETEST_CONFIG_DONE_FILE}
+    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
     COMMAND ./config/autorun.sh
-            && ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-            && make CC=${MUSL_CC} -s -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/memcachetest/memcachetest ${build_ramdisk_dir}/
-    DEPENDS)
+    COMMAND ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
+    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHETEST_CONFIG_DONE_FILE}
+    COMMENT "Configuring memcachetest (only runs once)"
+  )
+
+  # 编译阶段
+  add_custom_command(
+    OUTPUT ${MEMCACHETEST_BUILD_DIR}/memcachetest
+    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
+    COMMAND make CC=${MUSL_CC}
+    DEPENDS ${MEMCACHETEST_CONFIG_DONE_FILE}
+    COMMENT "Building memcachetest"
+  )
+
+  # 主构建目标
+  add_custom_target(memcachetest ALL
+    DEPENDS ${MEMCACHETEST_BUILD_DIR}/memcachetest
+  )
+
+  # 拷贝到 ramdisk
+  add_custom_command(
+    TARGET memcachetest POST_BUILD
+    COMMAND rsync -a ${MEMCACHETEST_BUILD_DIR}/memcachetest ${build_ramdisk_dir}/
+    COMMENT "Copying memcachetest to ramdisk"
+  )
+
+  # 清理目标
+  add_custom_target(memcachetest-clean
+    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
+    COMMAND make distclean
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${MEMCACHETEST_CONFIG_DONE_FILE}
+    COMMENT "Cleaning memcachetest"
+  )
+
+  list(APPEND _demos_clean_targets memcachetest-clean)
   add_dependencies(ramdisk memcachetest)
 endif()
 
@@ -138,26 +184,8 @@ list(APPEND _demos_clean_targets sqlite-clean)
 endif()
 
 if(CHCORE_DEMOS_LEVELDB)
-  add_custom_target(
-    leveldb-clean
-    WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
-    COMMAND rm -rf ./build
-    )
-    list(APPEND _demos_clean_targets leveldb-clean)
-  add_custom_target(
-    leveldb ALL
-    WORKING_DIRECTORY ${build_demos_dir}/leveldb-1.23
-    COMMAND mkdir -p build && cd build &&
-         cmake -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER=${MUSL_CC}
-            -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            -DCMAKE_CROSSCOMPILING=1 -DRUN_HAVE_STD_REGEX=0 -DRUN_HAVE_POSIX_REGEX=0 -S ..
-            && cmake --build . -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/leveldb-1.23/build/db_bench ${build_ramdisk_dir}/leveldb-dbbench
-    DEPENDS)
-  add_dependencies(ramdisk leveldb)
-  add_dependencies(leveldb libstdc++)
+  set(LEVELDB_DIR ${build_demos_dir}/leveldb-1.23)
+  add_subdirectory(${LEVELDB_DIR})
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)

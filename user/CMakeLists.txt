@@ -56,7 +56,7 @@ include(UserTools)
 chcore_dump_cmake_vars()
 
 add_compile_options(-Wall)
-add_compile_options(-Werror)
+# add_compile_options(-Werror)
 string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
 string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 
