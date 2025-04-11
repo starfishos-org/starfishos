@@ -15,7 +15,7 @@ static vaddr_t mmap_for_rw_ops(struct hostfs_file_info *info) {
 	info->mmap_size = ROUND_UP(info->file_size, PAGE_SIZE);
 	info->mmap_flags = MAP_ANONYMOUS | MAP_PRIVATE;
 	info->mmap_prot = PROT_READ | PROT_WRITE;
-	mapped_vaddr = chcore_mmap(0,
+	mapped_vaddr = (u64)chcore_mmap(0,
 				info->mmap_size,
 				info->mmap_prot,
 				info->mmap_flags,
@@ -91,7 +91,7 @@ u64 chcore_hostfs_mmap(u64 vaddr, size_t length, int prot, int flags, int fd, of
 		flags = MAP_ANONYMOUS | MAP_PRIVATE;
 	}
 
-	mapped_vaddr = chcore_mmap(0, length, prot, flags, -1, 0, info->pmo_cap); // open will set pmo_cap
+	mapped_vaddr = (u64)chcore_mmap(0, length, prot, flags, -1, 0, info->pmo_cap); // open will set pmo_cap
 	if (mapped_vaddr == (u64)-1) {
 		printf("%s: failed to mmap\n", __func__);
 		return -1;

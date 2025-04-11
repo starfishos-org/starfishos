@@ -30,6 +30,8 @@
 #include <sys/mman.h>
 #include <assert.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <stdbool.h>
 
 #include <chcore/syscall.h>
 #include <chcore/ipc.h>
@@ -49,7 +51,6 @@
 #define ESC 0x1B
 
 static char buf[BUFLEN];
-
 /*
  * The procmgr_ipc_struct is used by main thread to call waitpid, while the
  * procmgr_ipc_struct_internal is used by other threads to communicate with
@@ -126,6 +127,9 @@ char *readline(const char *prompt)
 	char complement[BUFLEN];
 	char temp[BUFLEN];
 	int complement_time = 0;
+	char current_dir[BUFLEN];
+	char cmd_part[BUFLEN] = {0};
+	char arg_part[BUFLEN] = {0};
 
 	while (1) {
 	retry:
@@ -271,34 +275,91 @@ char *readline(const char *prompt)
 			buf[i] = 0;
 			/* In case not find anything */
 			strlcpy(complement, buf, BUFLEN);
-			do {
-				/* Handle tab here */
-				ret = do_complement(
-					buf, complement, complement_time);
-				/* No new findings */
-				if (ret == -1) {
-					/* Not finding anything */
-					if (complement_time == 0) {
-						c = shell_getchar();
-						goto handle_new_char;
-					}
-					complement_time = 0;
-					continue;
+			
+			/* Parse command and arguments for better completion */
+			char *space_pos = strchr(buf, ' ');
+			if (space_pos) {
+				/* We have a command and arguments */
+				int cmd_len = space_pos - buf;
+				strncpy(cmd_part, buf, cmd_len);
+				cmd_part[cmd_len] = '\0';
+				
+				/* Get the argument part that needs completion */
+				char *last_space = strrchr(buf, ' ');
+				if (last_space && *(last_space + 1) != '\0') {
+					strcpy(arg_part, last_space + 1);
+				} else {
+					arg_part[0] = '\0';
 				}
-				/* Return to the head of the line */
-				for (j = 0; j < i; j++)
-					printf("\b \b");
-				printf("%s", complement);
-				/* flush to show */
-				fflush(stdout);
-				/* Update i */
-				i = (int)strlen(complement);
-				index = i;
-				/* Find a different next time */
-				complement_time++;
-				/* Get next char */
-				c = shell_getchar();
-			} while (c == '\t');
+				
+				/* Get current directory for path completion */
+				getcwd(current_dir, BUFLEN);
+				
+				do {
+					/* Try to complete arguments based on current directory */
+					ret = do_complement(arg_part, temp, complement_time);
+					if (ret != -1) {
+						/* Construct the full command with completed argument */
+						int prefix_len = last_space - buf + 1;
+						strncpy(complement, buf, prefix_len);
+						complement[prefix_len] = '\0';
+						strcat(complement, temp);
+					} else {
+						/* No completion found */
+						if (complement_time == 0) {
+							c = shell_getchar();
+							goto handle_new_char;
+						}
+						complement_time = 0;
+						continue;
+					}
+					
+					/* Return to the head of the line */
+					for (j = 0; j < i; j++)
+						printf("\b \b");
+					printf("%s", complement);
+					/* flush to show */
+					fflush(stdout);
+					/* Update i */
+					i = (int)strlen(complement);
+					index = i;
+					/* Find a different next time */
+					complement_time++;
+					/* Get next char */
+					c = shell_getchar();
+				} while (c == '\t');
+			} else {
+				/* Only command, no arguments yet */
+				do {
+					/* Handle tab here */
+					ret = do_complement(
+						buf, complement, complement_time);
+					/* No new findings */
+					if (ret == -1) {
+						/* Not finding anything */
+						if (complement_time == 0) {
+							c = shell_getchar();
+							goto handle_new_char;
+						}
+						complement_time = 0;
+						continue;
+					}
+					/* Return to the head of the line */
+					for (j = 0; j < i; j++)
+						printf("\b \b");
+					printf("%s", complement);
+					/* flush to show */
+					fflush(stdout);
+					/* Update i */
+					i = (int)strlen(complement);
+					index = i;
+					/* Find a different next time */
+					complement_time++;
+					/* Get next char */
+					c = shell_getchar();
+				} while (c == '\t');
+			}
+			
 			if (c == '\n' || c == '\r') { /* End of input */
 				strlcpy(buf, complement, BUFLEN);
 				break;
@@ -421,6 +482,7 @@ int run_cmd(char *cmdline)
 	}
 
 	pthread_mutex_lock(&job_mutex);
+	printf("\n");
 	// pid = chcore_new_process_with_cap(
 	// 	argc, argv, false, 1, &shell_ipc_server_cap);
 	pid = chcore_new_process(argc, argv, false);

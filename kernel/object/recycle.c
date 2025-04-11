@@ -617,8 +617,6 @@ int sys_cap_group_recycle(int cap_group_cap)
     /* The cap_group will be freed in the following cap_free_all. */
     obj_put(cap_group);
 
-    kinfo("recycle %s done\n", name);
-
     return ret;
 out:
     obj_put(cap_group);

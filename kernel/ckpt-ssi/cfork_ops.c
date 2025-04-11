@@ -63,7 +63,6 @@ static int start_user_thread(struct thread *thread)
 int start_all_threads(struct list_head *thread_list)
 {
     struct thread *thread, *thread_tmp;
-    int ret;
 
     CFORK_LOG_INFO("start_all_threads:\n");
 

@@ -24,10 +24,11 @@ list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
     WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
-    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-cli ${build_ramdisk_dir}/
-    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-server ${build_ramdisk_dir}/
-    COMMAND rsync -a ${build_demos_dir}/redis-6.0.8/src/redis-benchmark ${build_ramdisk_dir}/
+    COMMAND make CC=${MUSL_CC}
+    COMMAND rsync -a src/redis-cli ${build_ramdisk_dir}/redis-cli
+    COMMAND rsync -a src/redis-server ${build_ramdisk_dir}/redis-server
+    COMMAND rsync -a src/redis-benchmark ${build_ramdisk_dir}/redis-benchmark
+    COMMAND rsync -a redis.conf ${build_ramdisk_dir}/redis.conf
     DEPENDS)
   add_dependencies(ramdisk redis)
 endif()
