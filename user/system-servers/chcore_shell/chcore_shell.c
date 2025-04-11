@@ -30,6 +30,8 @@
 #include <sys/mman.h>
 #include <assert.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <stdbool.h>
 
 #include <chcore/syscall.h>
 #include <chcore/ipc.h>
@@ -49,7 +51,6 @@
 #define ESC 0x1B
 
 static char buf[BUFLEN];
-
 /*
  * The procmgr_ipc_struct is used by main thread to call waitpid, while the
  * procmgr_ipc_struct_internal is used by other threads to communicate with
@@ -126,6 +127,9 @@ char *readline(const char *prompt)
 	char complement[BUFLEN];
 	char temp[BUFLEN];
 	int complement_time = 0;
+	char current_dir[BUFLEN];
+	char cmd_part[BUFLEN] = {0};
+	char arg_part[BUFLEN] = {0};
 
 	while (1) {
 	retry:
@@ -271,34 +275,91 @@ char *readline(const char *prompt)
 			buf[i] = 0;
 			/* In case not find anything */
 			strlcpy(complement, buf, BUFLEN);
-			do {
-				/* Handle tab here */
-				ret = do_complement(
-					buf, complement, complement_time);
-				/* No new findings */
-				if (ret == -1) {
-					/* Not finding anything */
-					if (complement_time == 0) {
-						c = shell_getchar();
-						goto handle_new_char;
-					}
-					complement_time = 0;
-					continue;
+			
+			/* Parse command and arguments for better completion */
+			char *space_pos = strchr(buf, ' ');
+			if (space_pos) {
+				/* We have a command and arguments */
+				int cmd_len = space_pos - buf;
+				strncpy(cmd_part, buf, cmd_len);
+				cmd_part[cmd_len] = '\0';
+				
+				/* Get the argument part that needs completion */
+				char *last_space = strrchr(buf, ' ');
+				if (last_space && *(last_space + 1) != '\0') {
+					strcpy(arg_part, last_space + 1);
+				} else {
+					arg_part[0] = '\0';
 				}
-				/* Return to the head of the line */
-				for (j = 0; j < i; j++)
-					printf("\b \b");
-				printf("%s", complement);
-				/* flush to show */
-				fflush(stdout);
-				/* Update i */
-				i = (int)strlen(complement);
-				index = i;
-				/* Find a different next time */
-				complement_time++;
-				/* Get next char */
-				c = shell_getchar();
-			} while (c == '\t');
+				
+				/* Get current directory for path completion */
+				getcwd(current_dir, BUFLEN);
+				
+				do {
+					/* Try to complete arguments based on current directory */
+					ret = do_complement(arg_part, temp, complement_time);
+					if (ret != -1) {
+						/* Construct the full command with completed argument */
+						int prefix_len = last_space - buf + 1;
+						strncpy(complement, buf, prefix_len);
+						complement[prefix_len] = '\0';
+						strcat(complement, temp);
+					} else {
+						/* No completion found */
+						if (complement_time == 0) {
+							c = shell_getchar();
+							goto handle_new_char;
+						}
+						complement_time = 0;
+						continue;
+					}
+					
+					/* Return to the head of the line */
+					for (j = 0; j < i; j++)
+						printf("\b \b");
+					printf("%s", complement);
+					/* flush to show */
+					fflush(stdout);
+					/* Update i */
+					i = (int)strlen(complement);
+					index = i;
+					/* Find a different next time */
+					complement_time++;
+					/* Get next char */
+					c = shell_getchar();
+				} while (c == '\t');
+			} else {
+				/* Only command, no arguments yet */
+				do {
+					/* Handle tab here */
+					ret = do_complement(
+						buf, complement, complement_time);
+					/* No new findings */
+					if (ret == -1) {
+						/* Not finding anything */
+						if (complement_time == 0) {
+							c = shell_getchar();
+							goto handle_new_char;
+						}
+						complement_time = 0;
+						continue;
+					}
+					/* Return to the head of the line */
+					for (j = 0; j < i; j++)
+						printf("\b \b");
+					printf("%s", complement);
+					/* flush to show */
+					fflush(stdout);
+					/* Update i */
+					i = (int)strlen(complement);
+					index = i;
+					/* Find a different next time */
+					complement_time++;
+					/* Get next char */
+					c = shell_getchar();
+				} while (c == '\t');
+			}
+			
 			if (c == '\n' || c == '\r') { /* End of input */
 				strlcpy(buf, complement, BUFLEN);
 				break;
@@ -402,45 +463,66 @@ static int parse_args(char *cmdline, char *pathbuf, char *argv[])
 
 int run_cmd(char *cmdline)
 {
+	int ret;
 	char pathbuf[BUFLEN];
 	char *argv[NR_ARGS_MAX];
 	int argc;
-	pid_t pid = 0;
-	bool run_background = false;
+	int pid;
+	int status;
+	int bg = 0;
+	int len;
+	char *p;
 
+	/* Ignore empty commands */
+	if (cmdline[0] == 0)
+		return 0;
+
+	/* Check if command should run in background */
+	len = strlen(cmdline);
+	if (cmdline[len - 1] == '&') {
+		bg = 1;
+		cmdline[len - 1] = 0;
+	}
+
+	/* No pipe - execute single command */
 	argc = parse_args(cmdline, pathbuf, argv);
+	if (argc == 0)
+		return 0;
 	if (argc < 0) {
-		printf("[Shell] Parsing arguments error\n");
-		return argc;
-	}
-	BUG_ON(shell_ipc_server_cap == -1);
-
-	if (strcmp(argv[argc - 1], "&") == 0) {
-		argc--;
-		run_background = true;
+		printf("Error parsing arguments\n");
+		return -1;
 	}
 
-	pthread_mutex_lock(&job_mutex);
-	// pid = chcore_new_process_with_cap(
-	// 	argc, argv, false, 1, &shell_ipc_server_cap);
-	pid = chcore_new_process(argc, argv, false);
+	/* Try to run it as a builtin command */
+	ret = builtin_cmd(cmdline);
+	if (ret >= 0)
+		return ret;
 
-	if (pid > 0) {
-		if (run_background == false) {
-			// printf("foreground thread pid:%d\n", pid);
-			fg_job.pid = pid;
-			strlcpy(fg_job.job_name, argv[0], sizeof(fg_job.job_name));
-			waitchild = true;
-		} else {
-			clean_jobs();
-			add_job(argv[0], pid, -1, -1);
-			waitchild = false;
-		}
+	/* Not a builtin command - execute it */
+	pid = fork();
+	if (pid < 0) {
+		printf("fork error\n");
+		return -1;
 	}
-	pthread_mutex_unlock(&job_mutex);
-	// flush_buffer();
 
-	return pid;
+	if (pid == 0) {
+		/* Child process */
+		execvp(pathbuf, argv);
+		printf("Command not found: %s\n", pathbuf);
+		exit(127);
+	}
+
+	/* Parent process */
+	if (!bg) {
+		/* Foreground job - wait for it */
+		waitpid(pid, &status, 0);
+		return status;
+	} else {
+		/* Background job - don't wait */
+		printf("[%d] %d\n", job_count + 1, pid);
+		add_job(argv[0], pid, -1, -1);
+		return 0;
+	}
 }
 
 void printf_welcome(void)

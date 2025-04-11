@@ -88,7 +88,9 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
         debug("fsm ipc_struct conn_cap=%ld server_type=%d\n",
               fsm_ipc_struct->conn_cap,
               fsm_ipc_struct->server_id);
+        #ifdef DEBUG
         printf("[procmgr] Launching %s...\n", name);
+        #endif
 
         /* Init caps */
         caps[0] = __procmgr_server_cap;

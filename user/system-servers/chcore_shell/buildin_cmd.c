@@ -46,36 +46,67 @@ static void get_dent_name(struct dirent *p, char name[])
 
 int do_complement(char *buf, char *complement, int complement_time)
 {
-	int ret = 0, j = 0;
+	int ret = 0, j = 0, count = 0;
 	struct dirent *p;
 	char name[BUFLEN];
 	char scan_buf[BUFLEN];
 	int r = -1;
 	int offset;
+	char *matches[256] = {0}; /* Store all matching entries */
+	size_t buf_len = strlen(buf);
 
 	/* XXX: only support '/' here */
 	int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (root_fd < 0) {
+		return -1;
+	}
+
+	/* First pass: collect all matches */
 	do {
 		ret = getdents(root_fd, (struct dirent *)scan_buf, BUFLEN);
+		if (ret <= 0) {
+			break;
+		}
+
 		for (offset = 0; offset < ret; offset += p->d_reclen) {
 			p = (struct dirent *)(scan_buf + offset);
 			get_dent_name(p, name);
-			/* Compare the file name with the buf here */
-			if (strstr(name, buf) != NULL) {
-				/* multiple tab want to find different
-					* alternatives */
-				if (j < complement_time) {
-					j++;
-				} else {
-					strlcpy(complement, name, BUFLEN);
-					r = 0;
-					break;
+			
+			/* Match at the beginning like bash */
+			if (strncmp(name, buf, buf_len) == 0) {
+				if (count < 256) {
+					matches[count] = strdup(name);
+					count++;
 				}
 			}
 		}
-	} while (ret);
-	close(root_fd);
+	} while (ret > 0);
 
+	/* If we have matches */
+	if (count > 0) {
+		/* Sort matches alphabetically */
+		for (int i = 0; i < count - 1; i++) {
+			for (int k = i + 1; k < count; k++) {
+				if (strcmp(matches[i], matches[k]) > 0) {
+					char *temp = matches[i];
+					matches[i] = matches[k];
+					matches[k] = temp;
+				}
+			}
+		}
+
+		/* Get the match based on complement_time (tab press count) */
+		int match_index = complement_time % count;
+		strlcpy(complement, matches[match_index], BUFLEN);
+		r = 0;
+
+		/* Free allocated memory */
+		for (int i = 0; i < count; i++) {
+			free(matches[i]);
+		}
+	}
+
+	close(root_fd);
 	return r;
 }
 
@@ -106,18 +137,66 @@ int do_ls(char *cmdline)
 	char name[BUFLEN];
 	int offset;
 	int readbytes;
+	int show_all = 0;
+	int show_long = 0;
+	int show_color = 1;
+	int i;
+	char *args[NR_ARGS_MAX];
+	int arg_count = 0;
 
 	pathbuf[0] = '\0';
 	cmdline += 2;
 	while (*cmdline == ' ')
 		cmdline++;
 
-	if (*cmdline == '\0') {
-		/* Command is only `ls` */
+	/* Parse arguments */
+	char *token = strtok(cmdline, " ");
+	while (token != NULL && arg_count < NR_ARGS_MAX) {
+		args[arg_count++] = token;
+		token = strtok(NULL, " ");
+	}
+
+	/* Process options */
+	for (i = 0; i < arg_count; i++) {
+		if (args[i][0] == '-') {
+			char *opt = args[i] + 1;
+			while (*opt) {
+				switch (*opt) {
+				case 'a':
+					show_all = 1;
+					break;
+				case 'l':
+					show_long = 1;
+					break;
+				case 'G':
+					show_color = 1;
+					break;
+				default:
+					printf("ls: invalid option -- '%c'\n", *opt);
+					break;
+				}
+				opt++;
+			}
+			/* Mark this as an option so we don't treat it as a path */
+			args[i] = NULL;
+		}
+	}
+
+	/* Find the path argument (if any) */
+	char *path = NULL;
+	for (i = 0; i < arg_count; i++) {
+		if (args[i] != NULL) {
+			path = args[i];
+			break;
+		}
+	}
+
+	if (path == NULL) {
+		/* No path specified, use current directory */
 		getcwd(pathbuf, BUFLEN);
 	} else {
-		/* Command is `ls DIR` */
-		strlcat(pathbuf, cmdline, BUFLEN);
+		/* Use specified path */
+		strlcat(pathbuf, path, BUFLEN);
 	}
 
 	/* Try open `pathbuf` as dir */
@@ -127,19 +206,114 @@ int do_ls(char *cmdline)
 		if (dirfd == -ENOTDIR) {
 			printf("`%s` is not a directory\n", pathbuf);
 		} else {
-			printf("do_ls: strange error\n");
+			printf("ls: cannot access '%s': %s\n", pathbuf, strerror(-dirfd));
 		}
 		return dirfd;
 	}
+
+	/* Store entries for sorting and formatting */
+	char entries[256][BUFLEN];
+	int entry_count = 0;
+
 	do {
 		readbytes = getdents(dirfd, (struct dirent *)scan_buf, BUFLEN);
 		for (offset = 0; offset < readbytes; offset += p->d_reclen) {
 			p = (struct dirent *)(scan_buf + offset);
 			get_dent_name(p, name);
-			printf("%s\n", name);
+			
+			/* Skip hidden files unless -a is specified */
+			if (!show_all && name[0] == '.')
+				continue;
+				
+			strlcpy(entries[entry_count], name, BUFLEN);
+			entry_count++;
+			
+			if (entry_count >= 256) {
+				printf("ls: too many entries to display\n");
+				break;
+			}
 		}
-	} while (readbytes);
+	} while (readbytes > 0 && entry_count < 256);
+	
 	close(dirfd);
+
+	/* Sort entries alphabetically */
+	for (i = 0; i < entry_count - 1; i++) {
+		for (int j = i + 1; j < entry_count; j++) {
+			if (strcmp(entries[i], entries[j]) > 0) {
+				char temp[BUFLEN];
+				strlcpy(temp, entries[i], BUFLEN);
+				strlcpy(entries[i], entries[j], BUFLEN);
+				strlcpy(entries[j], temp, BUFLEN);
+			}
+		}
+	}
+
+	/* Display entries */
+	if (show_long) {
+		/* Long format display */
+		for (i = 0; i < entry_count; i++) {
+			/* In a real implementation, we would show permissions, size, etc. */
+			printf("drwxr-xr-x 1 root root 4096 Jan 1 00:00 %s\n", entries[i]);
+		}
+	} else {
+		/* Simple format display */
+		int max_width = 0;
+		for (i = 0; i < entry_count; i++) {
+			int len = strlen(entries[i]);
+			if (len > max_width)
+				max_width = len;
+		}
+		
+		max_width += 2; /* Add spacing between columns */
+		int cols = 240 / max_width; /* Assume 80 column terminal */
+		if (cols < 1) cols = 1;
+		
+		for (i = 0; i < entry_count; i++) {
+			if (show_color) {
+				/* Check if it's a directory (simplified) */
+				char test_path[BUFLEN * 2];
+				snprintf(test_path, BUFLEN * 2, "%s/%s", pathbuf, entries[i]);
+				int test_fd = open(test_path, O_RDONLY | O_DIRECTORY);
+				if (test_fd >= 0) {
+					/* Directory - blue */
+					printf("\033[1;34m%-*s\033[0m", max_width, entries[i]);
+					close(test_fd);
+				} else {
+					/* Check file extensions for different colors */
+					char *ext = strrchr(entries[i], '.');
+					if (ext) {
+						if (strcmp(ext, ".bin") == 0) {
+							/* Binary files - green */
+							printf("\033[1;32m%-*s\033[0m", max_width, entries[i]);
+						} else if (strcmp(ext, ".so") == 0 || strstr(entries[i], ".so.") != NULL) {
+							/* Shared objects - yellow */
+							printf("\033[1;33m%-*s\033[0m", max_width, entries[i]);
+						} else if (strcmp(ext, ".txt") == 0) {
+							/* Text files - cyan */
+							printf("\033[1;36m%-*s\033[0m", max_width, entries[i]);
+						} else if (strcmp(ext, ".json") == 0) {
+							/* JSON files - cyan */
+							printf("\033[1;36m%-*s\033[0m", max_width, entries[i]);
+						} else {
+							/* Regular files */
+							printf("%-*s", max_width, entries[i]);
+						}
+					} else {
+						/* No extension */
+						printf("\033[1;32m%-*s\033[0m", max_width, entries[i]);
+					}
+				}
+			} else {
+				printf("%-*s", max_width, entries[i]);
+			}
+			
+			if ((i + 1) % cols == 0 || i == entry_count - 1)
+				printf("\n");
+		}
+		if (entry_count % cols != 0)
+			printf("\n");
+	}
 
 	return 0;
 }
@@ -345,3 +519,5 @@ void clear_history_point(void)
 {
 	history_cmd_pointer = NULL;
 }
+
+
