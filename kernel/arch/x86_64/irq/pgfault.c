@@ -80,8 +80,8 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
             __func__, fault_addr, fault_ins_addr);
         if (current_thread) {
             kinfo("current_thread is %p\n", current_thread);
-            // print_thread(current_thread);
-            // kprint_vmr(current_thread->vmspace);
+            print_thread(current_thread);
+            kprint_vmr(current_thread->vmspace);
         } else {
             kinfo("current_thread is NULL\n");
         }

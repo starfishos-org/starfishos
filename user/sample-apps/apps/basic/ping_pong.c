@@ -58,7 +58,7 @@ void counter_leader(char *program)
 
         /* spawn the follower process */
         char *argv[] = {program, "follower"};
-        chcore_new_process(sizeof(argv) / sizeof(*argv), argv, 0);
+        chcore_new_process(sizeof(argv) / sizeof(*argv), argv, 0, 0);
 
         /* start counting */
         count(LEADER);

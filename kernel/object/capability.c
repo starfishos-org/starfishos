@@ -132,7 +132,7 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
         goto out_unlock_table;
     }
 
-    slot = kmalloc(sizeof(*slot), __MT_DEFAULT__);
+    slot = kmalloc(sizeof(*slot), __MT_OBJECT__);
     if (!slot) {
         r = -ENOMEM;
         goto out_free_slot_id;

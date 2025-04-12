@@ -115,6 +115,9 @@ cfork-matmul-prepare: clean-dsm
 cfork-matmul-restore:
 	./dsm-scripts/tests/cfork_restore.exp matmul
 
+cross-pca: clean-dsm
+	./dsm-scripts/tests/pca-cross-machine.exp $(T)
+
 pca: clean-dsm
 	./dsm-scripts/tests/phoenix/pca.exp $(T)
 

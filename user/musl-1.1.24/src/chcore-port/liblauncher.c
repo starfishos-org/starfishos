@@ -75,7 +75,7 @@ int is_dyn_loader(const char *bin_name)
                        0;
 }
 
-int parse_elf_from_binary(const char *binary, struct user_elf *user_elf)
+int parse_elf_from_binary(const char *binary, struct user_elf *user_elf, bool is_cross_machine)
 {
         int ret;
         struct elf_file *elf;
@@ -123,7 +123,8 @@ int parse_elf_from_binary(const char *binary, struct user_elf *user_elf)
                              - ROUND_DOWN(p_vaddr, PAGE_SIZE);
 
                 user_elf->user_elf_seg[j].elf_pmo =
-                        usys_create_pmo(seg_map_sz, PMO_CODE, MALLOC_TYPE_DEFAULT);
+                        usys_create_pmo(seg_map_sz, PMO_CODE, 
+                        is_cross_machine ? MALLOC_TYPE_SHARED : MALLOC_TYPE_DEFAULT);
                 BUG_ON(user_elf->user_elf_seg[j].elf_pmo < 0);
 
                 tmp_seg = chcore_auto_map_pmo(user_elf->user_elf_seg[j].elf_pmo,
@@ -177,7 +178,7 @@ int parse_elf_from_binary(const char *binary, struct user_elf *user_elf)
         return e_type;
 }
 
-int readelf_from_vaddr(struct user_elf *user_elf, size_t length, void *start)
+int readelf_from_vaddr(struct user_elf *user_elf, size_t length, void *start, bool is_cross_machine)
 {
         /* Currently, only static libraries are dealt with. */
         int ret;
@@ -185,12 +186,12 @@ int readelf_from_vaddr(struct user_elf *user_elf, size_t length, void *start)
 
         binary = malloc(length);
         memcpy(binary, start, length);
-        ret = parse_elf_from_binary(binary, user_elf);
+        ret = parse_elf_from_binary(binary, user_elf, is_cross_machine);
         free(binary);
         return ret;
 }
 
-int readelf_from_fs(const char *pathbuf, struct user_elf *user_elf)
+int readelf_from_fs(const char *pathbuf, struct user_elf *user_elf, bool is_cross_machine)
 {
         int ret;
         char *binary;
@@ -205,7 +206,7 @@ int readelf_from_fs(const char *pathbuf, struct user_elf *user_elf)
         }
 
         strcpy(user_elf->path, pathbuf);
-        ret = parse_elf_from_binary(binary, user_elf);
+        ret = parse_elf_from_binary(binary, user_elf, is_cross_machine);
 
         /*
          * If the binary is dynamic, we free the binary and read the
@@ -227,14 +228,14 @@ int readelf_from_fs(const char *pathbuf, struct user_elf *user_elf)
                         return ret;
                 }
                 strcpy(user_elf->path, CHCORE_LOADER);
-                ret = parse_elf_from_binary(binary, user_elf);
+                ret = parse_elf_from_binary(binary, user_elf, is_cross_machine);
         }
 
         free(binary);
         return ret;
 }
 
-pid_t chcore_new_process(int argc, char *__argv[], int is_bbapplet)
+pid_t chcore_new_process(int argc, char *__argv[], int is_bbapplet, int is_cross_machine)
 {
         struct user_elf user_elf;
         int ret;
@@ -269,6 +270,7 @@ pid_t chcore_new_process(int argc, char *__argv[], int is_bbapplet)
 
         pr->req = PROC_REQ_NEWPROC;
         pr->argc = argc;
+        pr->is_cross_machine = is_cross_machine;
 
         /* Dump argv[] to the text area of the pr. */
         for (i = 0, text_i = 0; i < argc; ++i) {
@@ -308,10 +310,10 @@ int get_new_process_mt_cap(int pid)
         return mt_cap;
 }
 
-int create_process(int argc, char *__argv[], struct new_process_caps *caps)
+int create_process(int argc, char *__argv[], struct new_process_caps *caps, bool is_cross_machine)
 {
         pid_t pid;
-        pid = chcore_new_process(argc, __argv, 0);
+        pid = chcore_new_process(argc, __argv, 0, is_cross_machine);
         if (caps != NULL)
                 caps->mt_cap = get_new_process_mt_cap(pid);
         return pid;

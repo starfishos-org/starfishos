@@ -468,6 +468,7 @@ int run_cmd(char *cmdline)
 	int argc;
 	pid_t pid = 0;
 	bool run_background = false;
+	bool is_cross_machine = false;
 
 	argc = parse_args(cmdline, pathbuf, argv);
 	if (argc < 0) {
@@ -481,11 +482,16 @@ int run_cmd(char *cmdline)
 		run_background = true;
 	}
 
+	if (strcmp(argv[argc - 1], "#") == 0) {
+		argc--;
+		is_cross_machine = true;
+	}
+
 	pthread_mutex_lock(&job_mutex);
 	printf("\n");
 	// pid = chcore_new_process_with_cap(
 	// 	argc, argv, false, 1, &shell_ipc_server_cap);
-	pid = chcore_new_process(argc, argv, false);
+	pid = chcore_new_process(argc, argv, false, is_cross_machine);
 
 	if (pid > 0) {
 		if (run_background == false) {

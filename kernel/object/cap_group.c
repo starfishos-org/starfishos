@@ -82,21 +82,23 @@ int slot_table_free(struct slot_table *slot_table)
     return 0;
 }
 
-int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge)
+int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge, bool is_cross_machine)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
+    mem_t mem_type = is_cross_machine ? __MT_SHARED__ : __MT_OBJECT__;
 
-    BUG_ON(slot_table_init(slot_table, size, true, __MT_OBJECT__));
+    BUG_ON(slot_table_init(slot_table, size, true, mem_type));
     init_list_head(&cap_group->thread_list);
     lock_init(&cap_group->threads_lock);
     cap_group->thread_cnt = 0;
 
     /* Set badge of the new cap group. */
     cap_group->badge = badge;
+    cap_group->is_cross_machine = is_cross_machine;
 
     /* Initialize the futex for the new cap group. */
-    cap_group->futex = kzalloc(sizeof(struct futex), __MT_OBJECT__);
-    futex_init(cap_group->futex, __MT_OBJECT__);
+    cap_group->futex = kzalloc(sizeof(struct futex), mem_type);
+    futex_init(cap_group->futex, mem_type);
 
     return 0;
 }
@@ -252,11 +254,12 @@ void obj_put(void *obj)
     }
 }
 
-int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
+int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid, bool is_cross_machine)
 {
     struct cap_group *new_cap_group;
     struct vmspace *vmspace;
     int cap, r;
+    mem_t mem_type = is_cross_machine ? __MT_SHARED__ : __MT_OBJECT__;
 
     if ((current_cap_group->badge != ROOT_CAP_GROUP_BADGE)
         && (current_cap_group->badge != FSM_BADGE)
@@ -267,12 +270,12 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
 
     /* cap current cap_group */
     new_cap_group =
-            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), __MT_DEFAULT__);
+            obj_alloc(TYPE_CAP_GROUP, sizeof(*new_cap_group), mem_type);
     if (!new_cap_group) {
         r = -ENOMEM;
         goto out_fail;
     }
-    cap_group_init(new_cap_group, BASE_OBJECT_NUM, badge);
+    cap_group_init(new_cap_group, BASE_OBJECT_NUM, badge, is_cross_machine);
 
     cap = cap_alloc(current_cap_group, new_cap_group, 0);
     if (cap < 0) {
@@ -289,7 +292,7 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid)
     }
 
     /* 2st cap is vmspace */
-    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), __MT_OBJECT__);
+    vmspace = obj_alloc(TYPE_VMSPACE, sizeof(*vmspace), mem_type);
     if (!vmspace) {
         r = -ENOMEM;
         goto out_free_obj_vmspace;
@@ -335,7 +338,8 @@ struct cap_group *create_root_cap_group(char *name, size_t name_len)
     BUG_ON(!cap_group);
     cap_group_init(cap_group,
                    BASE_OBJECT_NUM,
-                   /* Fixed badge */ ROOT_CAP_GROUP_BADGE);
+                   /* Fixed badge */ ROOT_CAP_GROUP_BADGE,
+                   false);
 
     slot_id = cap_alloc(cap_group, cap_group, 0);
     BUG_ON(slot_id != CAP_GROUP_OBJ_ID);
@@ -403,7 +407,10 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
         r = -ENOMEM;
         goto out_fail;
     }
-    cap_group_init(new_cap_group, BASE_OBJECT_NUM, args.child_badge);
+    cap_group_init(new_cap_group, 
+                    BASE_OBJECT_NUM, 
+                    args.child_badge, 
+                    false /* TODO(FN): check if this is correct */);
     /* 1st cap is cap_group */
     if ((r = cap_alloc(new_cap_group, new_cap_group, 0)) < 0)
         goto out_free_cap_grp_current;

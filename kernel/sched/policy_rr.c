@@ -108,6 +108,11 @@ int __rr_sched_dequeue_shared_machine(struct thread *thread, u32 m_id)
 int __rr_sched_enqueue_shared(struct thread *thread, u32 cpuid)
 {
     struct shared_queue_meta *queue = &(rr_shared_queue[cpuid]);
+
+    // should check that the thread is ready to run across machines
+    // extern int check_thread_ready_to_run_across_machines(struct thread *thread);
+    // BUG_ON(check_thread_ready_to_run_across_machines(thread));
+
     // lock(&(queue->queue_lock));
     dsm_debug("%s: thread (%s, %p) -> cpuid %d\n",
               __func__,

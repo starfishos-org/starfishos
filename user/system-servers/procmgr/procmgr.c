@@ -60,6 +60,7 @@ static void handle_newproc(ipc_msg_t *ipc_msg, u64 client_badge,
         int input_argc = pr->argc;
         char *input_argv[PROC_REQ_ARGC_MAX];
         struct proc_node *proc_node;
+        int is_cross_machine = pr->is_cross_machine;
 
         /* Translate to argv pointers from argv offsets. */
         for (int i = 0; i < input_argc; ++i)
@@ -70,7 +71,8 @@ static void handle_newproc(ipc_msg_t *ipc_msg, u64 client_badge,
                 input_argv,
                 str_join(" ", &input_argv[0], input_argc),
                 true,
-                client_badge);
+                client_badge,
+                is_cross_machine);
         if (proc_node == NULL) {
                 ipc_return(ipc_msg, -1);
         } else {
@@ -361,7 +363,7 @@ void boot_default_servers(void)
         /* Net gets badge 3 */
         srv_path = "/lwip.srv";
         proc_node =
-                procmgr_launch_process(1, &srv_path, "lwip", true, INIT_BADGE);
+                procmgr_launch_process(1, &srv_path, "lwip", true, INIT_BADGE, false);
         lwip_server_cap = proc_node->proc_mt_cap;
 }
 
@@ -394,15 +396,15 @@ void boot_default_apps(void)
         char *args[1];
         args[0] = "/machine_arm.bin";
 
-        procmgr_launch_process(1, args, "machine_arm", true, INIT_BADGE);
+        procmgr_launch_process(1, args, "machine_arm", true, INIT_BADGE, false);
 #endif
 
         /* Start shell. */
         procmgr_launch_process(
-                1, &shell_argv, "chcore-shell", true, INIT_BADGE);
+                1, &shell_argv, "chcore-shell", true, INIT_BADGE, false);
 #if defined(CHCORE_PLAT_RASPI3) && defined(CHCORE_SERVER_GUI)
         char *terminal_argv = "terminal.bin";
-        procmgr_launch_process(1, &terminal_argv, "terminal", true, INIT_BADGE);
+        procmgr_launch_process(1, &terminal_argv, "terminal", true, INIT_BADGE, false);
 #endif
 }
 

@@ -51,7 +51,7 @@ int main(int argc, char *argv[], char *envp[])
         printf("[clinet] create the server process.\n");
 
         args[0] = "/server.bin";
-        create_process(1, args, &new_process_caps);
+        create_process(1, args, &new_process_caps, false);
         new_thread_cap = new_process_caps.mt_cap;
 
         printf("[clinet] The main thread cap of the newly created process is %d\n",

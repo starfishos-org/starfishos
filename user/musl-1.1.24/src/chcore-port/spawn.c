@@ -219,6 +219,8 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
         int pid = lp_args->pid;
         u64 pcid = lp_args->pcid;
         u32 type = lp_args->type;
+        bool is_cross_machine = lp_args->is_cross_machine;
+        int malloc_type = is_cross_machine ? MALLOC_TYPE_SHARED : MALLOC_TYPE_DEFAULT;
 
         /* for usys_creat_thread */
         struct thread_args args;
@@ -246,7 +248,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
 
         /* create a new process with an empty vmspace */
         new_process_cap = usys_create_cap_group(
-                badge, process_name, strlen(process_name), pcid);
+                badge, process_name, strlen(process_name), pcid, is_cross_machine);
         if (new_process_cap < 0) {
                 printf("%s: fail to create new_process_cap (ret: %d)\n",
                        __func__,
@@ -281,7 +283,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
         pmo_requests[1].size = PAGE_SIZE;
         pmo_requests[1].type = PMO_FORBID;
 
-        ret = usys_create_pmos((void *)pmo_requests, 2, MALLOC_TYPE_DEFAULT);
+        ret = usys_create_pmos((void *)pmo_requests, 2, malloc_type);
 
         if (ret != 0) {
                 printf("%s: fail to create_pmos (ret: %d)\n", __func__, ret);
@@ -357,7 +359,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
                 pmo_map_requests[2 + i].free_cap = 1;
         }
 
-        ret = usys_map_pmos(new_process_cap, (void *)pmo_map_requests, 2 + i, MALLOC_TYPE_DEFAULT);
+        ret = usys_map_pmos(new_process_cap, (void *)pmo_map_requests, 2 + i, malloc_type);
 
         if (ret != 0) {
                 printf("%s: fail to map_pmos (ret: %d)\n", __func__, ret);
@@ -370,7 +372,7 @@ int launch_process_with_pmos_caps(struct launch_process_args *lp_args)
 
         if (nr_pmo_map_reqs) {
                 ret = usys_map_pmos(
-                        new_process_cap, (void *)pmo_map_reqs, nr_pmo_map_reqs, MALLOC_TYPE_DEFAULT);
+                        new_process_cap, (void *)pmo_map_reqs, nr_pmo_map_reqs, malloc_type);
                 if (ret != 0) {
                         printf("%s: fail to map_pmos (ret: %d)\n",
                                __func__,

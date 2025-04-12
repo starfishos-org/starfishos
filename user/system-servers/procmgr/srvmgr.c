@@ -47,7 +47,7 @@ static void boot_server(char *srv_name, char *srv_path, int *srv_cap_p)
 {
 	char *input_argv[PROC_REQ_ARGC_MAX];
 	input_argv[0] = srv_path;
-	*srv_cap_p = procmgr_launch_process(1, input_argv, srv_name, false, 0)
+	*srv_cap_p = procmgr_launch_process(1, input_argv, srv_name, false, 0, false)
 			     ->proc_mt_cap;
 }
 
@@ -66,6 +66,7 @@ extern char __binary_tmpfs_elf_size;
 static struct proc_node *do_launch_process(int input_argc, char **input_argv,
                                            char *name, bool if_has_parent,
                                            u64 parent_badge,
+                                           bool is_cross_machine,
                                            struct user_elf *user_elf)
 {
         struct proc_node *parent_proc_node;
@@ -88,9 +89,9 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
         debug("fsm ipc_struct conn_cap=%ld server_type=%d\n",
               fsm_ipc_struct->conn_cap,
               fsm_ipc_struct->server_id);
-        #ifdef DEBUG
-        printf("[procmgr] Launching %s...\n", name);
-        #endif
+        // #ifdef DEBUG
+        printf("[procmgr] Launching %s... (is_cross_machine: %d)\n", name, is_cross_machine);
+        // #endif
 
         /* Init caps */
         caps[0] = __procmgr_server_cap;
@@ -121,6 +122,7 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
         lp_args.pid = proc_node->pid;
         lp_args.pcid = proc_node->pcid;
         lp_args.type = proc_node->thread_type;
+        lp_args.is_cross_machine = is_cross_machine;
 
         /* Launch process */
         // debug("free mem before launch process size: 0x%lx\n",
@@ -146,7 +148,7 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
 
 struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
                                          char *name, bool if_has_parent,
-                                         u64 parent_badge)
+                                         u64 parent_badge, bool is_cross_machine)
 {
         int ret;
         struct user_elf user_elf;
@@ -166,7 +168,7 @@ struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
                 argv[argv_start + i] = input_argv[i];
 
         pthread_mutex_lock(&read_elf_lock);
-        ret = readelf_from_fs(input_argv[0], &user_elf);
+        ret = readelf_from_fs(input_argv[0], &user_elf, is_cross_machine);
         pthread_mutex_unlock(&read_elf_lock);
 
         if (ret < 0) {
@@ -191,6 +193,7 @@ struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
                                  name,
                                  if_has_parent,
                                  parent_badge,
+                                 is_cross_machine,
                                  &user_elf);
         return node;
 }
@@ -203,19 +206,22 @@ struct proc_node *procmgr_launch_basic_server(int input_argc, char **input_argv,
         int ret;
         struct proc_node *node;
         struct user_elf user_elf;
+        int is_cross_machine = false;
 
         if (strcmp(input_argv[0], "/tmpfs.srv") == 0) {
                 pthread_mutex_lock(&read_elf_lock);
                 ret = readelf_from_vaddr(&user_elf,
                                          (size_t)*(u64 *)&__binary_tmpfs_elf_size,
-                                         &__binary_tmpfs_elf_start);
+                                         &__binary_tmpfs_elf_start,
+                                         is_cross_machine);
                 memcpy(user_elf.path, "/tmpfs.srv", sizeof("/tmpfs.srv"));
                 pthread_mutex_unlock(&read_elf_lock);
         } else if (strcmp(input_argv[0], "/fsm.srv") == 0) {
                 pthread_mutex_lock(&read_elf_lock);
                 ret = readelf_from_vaddr(&user_elf,
                                          (size_t)*(u64 *)&__binary_fsm_elf_size,
-                                         &__binary_fsm_elf_start);
+                                         &__binary_fsm_elf_start,
+                                         is_cross_machine);
                 memcpy(user_elf.path, "/fsm.srv", sizeof("/fsm.srv"));
                 pthread_mutex_unlock(&read_elf_lock);
         } else {
@@ -230,6 +236,7 @@ struct proc_node *procmgr_launch_basic_server(int input_argc, char **input_argv,
                                  name,
                                  if_has_parent,
                                  parent_badge,
+                                 is_cross_machine,
                                  &user_elf);
         return node;
 }

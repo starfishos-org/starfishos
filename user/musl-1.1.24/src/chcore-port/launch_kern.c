@@ -10,7 +10,7 @@ void *kernel_cpio_bin = 0;
 
 // This function is implemented in `liblauncher.c`, but `launcher.h` does not
 // contain the declaration, maybe for concerns on exposing interfaces to uesr.
-int parse_elf_from_binary(const char *binary, struct user_elf *user_elf);
+int parse_elf_from_binary(const char *binary, struct user_elf *user_elf, bool is_cross_machine);
 
 int single_file_handler(const void *start, size_t size, void *data)
 {
@@ -18,7 +18,7 @@ int single_file_handler(const void *start, size_t size, void *data)
 	int ret;
 
 	user_elf = (struct user_elf *)data;
-	ret = parse_elf_from_binary(start, user_elf);
+	ret = parse_elf_from_binary(start, user_elf, false);
 	assert(ret == ET_EXEC);
 
 	return ret;

@@ -180,7 +180,7 @@ out_fail:
 }
 
 extern int cap_group_init(struct cap_group *cap_group, unsigned int size,
-                          u64 badge);
+                          u64 badge, bool is_cross_machine);
 int cap_group_restore(struct object *cap_group_obj,
                       struct ckpt_object *ckpt_cap_group_obj,
                       struct kvs *obj_map, int flags)
@@ -197,7 +197,7 @@ int cap_group_restore(struct object *cap_group_obj,
 
     /* cap_group init */
     cap_group_init(
-            cap_group, ckpt_cap_group->slots_size, ckpt_cap_group->badge);
+            cap_group, ckpt_cap_group->slots_size, ckpt_cap_group->badge, false);
     memcpy(cap_group->cap_group_name,
            ckpt_cap_group->cap_group_name,
            MAX_GROUP_NAME_LEN);

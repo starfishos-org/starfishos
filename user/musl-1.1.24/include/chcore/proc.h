@@ -59,6 +59,7 @@ struct launch_process_args {
 	int pid;
 	u64 pcid;
 	u32 type;
+	bool is_cross_machine;
 };
 
 /* Fixed badge for root process and servers */

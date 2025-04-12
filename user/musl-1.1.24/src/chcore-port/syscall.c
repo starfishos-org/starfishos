@@ -79,10 +79,10 @@ int usys_create_thread(u64 thread_args_p)
 	return chcore_syscall1(CHCORE_SYS_create_thread, thread_args_p);
 }
 
-int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid)
+int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid, bool is_cross_machine)
 {
-	return chcore_syscall4(CHCORE_SYS_create_cap_group, badge, (u64)name,
-			       name_len, pcid);
+	return chcore_syscall5(CHCORE_SYS_create_cap_group, badge, (u64)name,
+			       name_len, pcid, is_cross_machine);
 }
 
 int usys_register_server(u64 callback, u32 register_thread_cap, u64 destructor)

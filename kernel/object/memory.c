@@ -22,7 +22,7 @@ extern int radix_deep_copy_with_hybird_mem(struct radix *src,
  * @paddr is only used when @type == PMO_DEVICE.
  */
 static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
-                    paddr_t paddr, mem_t mm_type)
+                    paddr_t paddr, mem_t mm_type, mem_t object_mem_type)
 {
     int ret = 0;
 
@@ -87,7 +87,7 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
             ret = -EINVAL;
             break;
         }
-        pmo->radix = new_radix(__MT_OBJECT__);
+        pmo->radix = new_radix(object_mem_type);
         init_radix(pmo->radix);
 #else
         kwarn("fmap is not implemented, we should not use PMO_FILE\n");
@@ -137,15 +137,21 @@ static int __create_pmo(u64 paddr, u64 size, u64 type, mem_t flags,
 {
     int cap, r;
     struct pmobject *pmo;
+    mem_t object_mem_type = __MT_OBJECT__;
 
-    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), __MT_OBJECT__);
+    if (cap_group->is_cross_machine) {
+        flags = __MT_SHARED__;
+        object_mem_type = __MT_SHARED__;
+    }
+
+    pmo = obj_alloc(TYPE_PMO, sizeof(*pmo), object_mem_type);
     if (!pmo) {
         r = -ENOMEM;
         goto out_fail;
     }
 
     BUG_ON(!IS_VALID_MEM_TYPE(flags));
-    r = pmo_init(pmo, type, size, paddr, flags);
+    r = pmo_init(pmo, type, size, paddr, flags, object_mem_type);
     if (r) {
         goto out_free_obj;
     }

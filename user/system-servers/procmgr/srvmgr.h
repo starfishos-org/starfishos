@@ -5,7 +5,7 @@
 
 struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
 					 char *name, bool if_has_parent,
-					 u64 parent_badge);
+					 u64 parent_badge, bool is_cross_machine);
 struct proc_node *procmgr_launch_basic_server(int input_argc, char **input_argv,
 					 char *name, bool if_has_parent,
 					 u64 parent_badge);

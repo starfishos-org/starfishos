@@ -55,12 +55,12 @@ void counter_leader(char *program) {
 
     /* spawn the follower process */
     char *argv[] = { program, "follower" };
-    chcore_new_process(sizeof(argv) / sizeof(*argv), argv, 0);
+    chcore_new_process(sizeof(argv) / sizeof(*argv), argv, 0, 0);
     
     /* spawn ckpt process */
     /* TODO: only for simulating */
     char *argv2[] = {"checkpoint.bin"};
-    chcore_new_process(sizeof(argv2) / sizeof(*argv2), argv2, 0);
+    chcore_new_process(sizeof(argv2) / sizeof(*argv2), argv2, 0, 0);
 
     /* start counting */
     count(LEADER);

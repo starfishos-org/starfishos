@@ -5,7 +5,7 @@
 #include <mm/vmspace.h>
 #include <object/object.h>
 #include <dsm/dsm-single.h>
-
+#include <common/radix.h>
 #include "dsm_tiering.h"
 
 #ifdef PERF_TIMING_CFORK
@@ -237,5 +237,81 @@ int dsm_migrate_process_restore(struct cap_group *new_cap_group)
 
     reinstall_system_services(new_cap_group);
     
+    return 0;
+}
+
+void dsm_check_pa_on_shared_memory(vaddr_t va, paddr_t pa)
+{
+    if (!IS_SHM_PADDR(pa)) {
+        printk("pa %p is not on shared memory\n", pa);
+        return;
+    }
+}
+
+int check_thread_ready_to_run_across_machines(struct thread *thread)
+{
+    struct cap_group *cap_group = thread->cap_group;
+
+    if (cap_group->is_cross_machine == false) {
+        printk("cap_group is not cross machine: %s\n", cap_group->cap_group_name);
+        return 1;
+    }
+
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    read_lock(&slot_table->table_guard);
+    for_each_set_bit(slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+        if (object->mem_type != __MT_SHARED__) {
+            printk("object not shared: %p type: %s\n", object, obj_name_tbl[object->type]);
+            return 1;
+        }
+        switch (object->type) {
+            case TYPE_THREAD:
+            {
+                struct thread *thread = (struct thread *)object2obj(object);
+                if (!IS_SHM_PADDR(virt_to_phys(thread->thread_ctx))) {
+                    printk("thread context is not shared: %p\n", object);
+                    return 1;
+                }
+                break;
+            }
+            case TYPE_PMO:
+            {
+                struct pmobject *pmo = (struct pmobject *)object2obj(object);
+                if (pmo->mm_type != __MT_SHARED__) {
+                    printk("pmo %p is not shared, mm_type = %d type = %d\n", 
+                        pmo, pmo->mm_type, pmo->type);
+                    return 1;
+                }
+                if (is_radix_pmo(pmo)) {
+                    // loop the radix tree and check paddr of each page
+                    struct radix *radix = pmo->radix;
+                    radix_traverse(radix, dsm_check_pa_on_shared_memory);
+                } else if (is_continuous_pmo(pmo)) {
+                    if (!IS_SHM_PADDR(pmo->start)) {
+                        printk("pmo %p is not shared, start = %p\n", pmo, pmo->start);
+                        return 1;
+                    }
+                }
+                break;
+            }
+            case TYPE_VMSPACE:
+            {
+                struct vmspace *vmspace = (struct vmspace *)object2obj(object);
+                if (!IS_SHM_PADDR(virt_to_phys(vmspace->pgtbl))) {
+                    printk("page table is not shared: %p\n", object);
+                    return 1;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    read_unlock(&slot_table->table_guard);
     return 0;
 }

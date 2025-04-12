@@ -17,7 +17,7 @@ int usys_create_pmo(u64 size, u64 type, s32 flags);
 int usys_map_pmo(u64 cap_group_cap, u64 pmo_cap, u64 addr, u64 perm);
 int usys_revoke_cap(u64 obj_cap);
 int usys_create_thread(u64 thread_args_p);
-int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid);
+int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid, bool is_cross_machine);
 int usys_register_server(u64 ipc_handler, u32 reigster_cb_cap, u64 destructor);
 u32 usys_register_client(u32 server_cap, u64 vm_config_ptr);
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);

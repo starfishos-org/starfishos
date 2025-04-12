@@ -12,6 +12,6 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "pca.bin -c 2000 -r 2000 -t $thread_num -m 1 \n"
+send -- "pca.bin -c 2000 -r 2000 -t $thread_num -m 1\n"
 expect "done"
 exit

@@ -53,6 +53,7 @@ struct proc_request {
 		char sig; // Used by shell when shell receives a special character
 	};
 	// Used by procmgr to return the pcid of cloned process
+	int is_cross_machine; // Used by launcher when creating new process
 	unsigned long pcid;
 	// The following three are used by IPC client when creating new process.
 	char name[PROC_REQ_NAME_LEN];

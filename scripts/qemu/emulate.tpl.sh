@@ -12,8 +12,8 @@ nvm_backend_file="/tmp/nvm-file-$USER"
 ivshmem_dev="/dev/shm/ivshmem-$USER"
 conn_size=16G
 ivshmem_conn_dev="/dev/shm/ivshmem-conn-$USER"
-dram_size=128G # 20GB shared memory
-cxl_size=64G # 32GB shared memory
+dram_size=32G # 20GB shared memory
+cxl_size=32G # 32GB shared memory
 plat_cpu_name=12
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment

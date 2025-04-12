@@ -9,7 +9,7 @@ char *redis_client[] = {"redis-test.bin", "-type", "1", "-n", "10000"};
 char *sqlite_test[] = {"test-sqlite3.bin", "tmpfs"};
 char *fib[] = {"fib.bin"};
 
-#define launch(args) chcore_new_process(sizeof(args) / sizeof(args[0]), args, false)
+#define launch(args) chcore_new_process(sizeof(args) / sizeof(args[0]), args, false, false)
 #define eq(s1, s2) (!strcmp(s1, s2))
 
 int main(int argc, char *argv[]) {

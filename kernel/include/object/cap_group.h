@@ -65,6 +65,12 @@ struct cap_group {
      */
     u64 badge;
 
+    /*
+     * Whether the cap_group is cross-machine.
+     * If true, the cap_group is shared between different machines.
+     */
+    bool is_cross_machine;
+
     /* Ensures the cap_group_exit function only be executed once */
     int notify_recycler;
 
@@ -136,6 +142,6 @@ struct cap_group *create_root_cap_group(char *, size_t);
 struct cap_group *root_cap_group;
 
 /* Syscalls */
-int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid);
+int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid, bool is_cross_machine);
 
 int sys_clone_cap_group(u64 clone_cap_group_args); /* Fork */
