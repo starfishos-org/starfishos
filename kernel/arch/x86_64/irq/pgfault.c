@@ -78,8 +78,13 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
     if (current_thread == NULL || fault_addr == 0) {
         kinfo("%s: fault addr %p fault ip %p\n", 
             __func__, fault_addr, fault_ins_addr);
-        print_thread(current_thread);
-        kprint_vmr(current_thread->vmspace);
+        if (current_thread) {
+            kinfo("current_thread is %p\n", current_thread);
+            // print_thread(current_thread);
+            // kprint_vmr(current_thread->vmspace);
+        } else {
+            kinfo("current_thread is NULL\n");
+        }
         BUG_ON(1);
     }
 

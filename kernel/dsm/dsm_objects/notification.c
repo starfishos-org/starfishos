@@ -30,9 +30,9 @@ int dsm_copy_notification(struct object *src_obj, struct object *dst_obj)
     /* Initialize waiting threads list */
     init_list_head(&dst_notifc->waiting_threads);
     if (dst_notifc->waiting_threads_count > 0) {
-        struct thread *thread, *new_thread;
+        struct thread *thread, *new_thread, *tmp;
         struct object *thread_object, *new_thread_object;
-        for_each_in_list (thread, struct thread, notification_queue_node,
+        for_each_in_list_safe (thread, tmp, notification_queue_node,
                           &dst_notifc->waiting_threads) {
             thread_object = obj2object(thread);
             /* get shared thread object */
@@ -55,6 +55,9 @@ int dsm_copy_notification(struct object *src_obj, struct object *dst_obj)
             list_del(&thread->notification_queue_node);
             list_append(&new_thread->notification_queue_node,
                         &dst_notifc->waiting_threads);
+            
+            printk("copy notification: new thread %p\n", new_thread);
+            print_thread(new_thread);
         }
     }
 

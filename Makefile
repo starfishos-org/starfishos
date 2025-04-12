@@ -1,5 +1,6 @@
 IP = '0x0'
 P = 'libc.so'
+T = 12
 
 .PHONY: build build-all
 
@@ -115,25 +116,25 @@ cfork-matmul-restore:
 	./dsm-scripts/tests/cfork_restore.exp matmul
 
 pca: clean-dsm
-	./dsm-scripts/tests/phoenix/pca.exp 24
+	./dsm-scripts/tests/phoenix/pca.exp $(T)
 
 matrix_multiply: clean-dsm
-	./dsm-scripts/tests/phoenix/matrix_multiply.exp 16
+	./dsm-scripts/tests/phoenix/matrix_multiply.exp $(T)
 
 kmeans: clean-dsm
-	./dsm-scripts/tests/phoenix/kmeans.exp 16
+	./dsm-scripts/tests/phoenix/kmeans.exp $(T)
 
 string_match: clean-dsm
-	./dsm-scripts/tests/phoenix/string_match.exp 16
+	./dsm-scripts/tests/phoenix/string_match.exp $(T)
 
 linear_regression: clean-dsm
-	./dsm-scripts/tests/phoenix/linear_regression.exp 16
+	./dsm-scripts/tests/phoenix/linear_regression.exp $(T)
 
 word_count: clean-dsm
-	./dsm-scripts/tests/phoenix/word_count.exp 16
+	./dsm-scripts/tests/phoenix/word_count.exp $(T)
 
 histogram: clean-dsm
-	./dsm-scripts/tests/phoenix/histogram.exp 16
+	./dsm-scripts/tests/phoenix/histogram.exp $(T)
 
 clean-ramdisk:
 	rm -rf ./user/build/ramdisk/*

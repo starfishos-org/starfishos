@@ -56,7 +56,7 @@ void arch_init_thread_fpu(struct thread_ctx *ctx)
 void arch_init_thread_fpu(struct thread_ctx *ctx)
 {
     /* should be aligned to 64 */
-    ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE, __MT_DEFAULT__);
+    ctx->fpu_state = (void *)kzalloc(STATE_AREA_SIZE, __MT_THREADCTX__);
     ctx->is_fpu_owner = -1;
 }
 #endif
@@ -208,12 +208,9 @@ void change_fpu_owner(struct thread *target)
 }
 
 /* This interface is specialized for the scheduler to use */
-void save_and_release_fpu(struct thread *thread)
+void save_and_release_fpu(struct thread *thread, u32 cpuid)
 {
     struct thread *fpu_owner = NULL;
-    u32 cpuid;
-
-    cpuid = smp_get_cpu_id();
 
     BUG_ON(thread->thread_ctx->thread_exit_state == TE_EXITED);
 

@@ -13,7 +13,8 @@ enum conn_state {
 	CONN_VALID = 0,
 	CONN_INCOME_STOPPED,
 	CONN_RECYCLE_READY,
-	CONN_DEINIT_READY
+	CONN_DEINIT_READY,
+    CONN_REQUIRE_RECONNECT,
 };
 
 enum config_type { IPC_SERVER_HANDLER = 1, IPC_SERVER_REGISTER_CB, IPC_SERVER };
@@ -143,7 +144,6 @@ struct ipc_connection {
     int conn_cap_in_client;
     int conn_cap_in_server;
     int state;
-    int is_valid;
     
     bool trans_machine;
 };

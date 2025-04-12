@@ -8,6 +8,7 @@
 #include <mm/uaccess.h>
 #include <lib/printk.h>
 #include <ipc/notification.h>
+#include <ipc/futex.h>
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
 #include <sched/context.h>
@@ -93,6 +94,10 @@ int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge)
     /* Set badge of the new cap group. */
     cap_group->badge = badge;
 
+    /* Initialize the futex for the new cap group. */
+    cap_group->futex = kzalloc(sizeof(struct futex), __MT_OBJECT__);
+    futex_init(cap_group->futex, __MT_OBJECT__);
+
     return 0;
 }
 
@@ -106,6 +111,7 @@ void cap_group_deinit(void *ptr)
     kfree(slot_table->slots);
     kfree(slot_table->slots_bmp);
     kfree(slot_table->full_slots_bmp);
+    futex_deinit(cap_group->futex);
 }
 
 /* slot allocation */

@@ -41,6 +41,7 @@ struct thread_args {
 	u32 prio;
 	u64 tls;
 	u32 type;
+	int *clear_child_tid;
 };
 
 struct launch_process_args {

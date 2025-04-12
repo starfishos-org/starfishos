@@ -12,7 +12,13 @@
 #include <sched/context.h>
 #include <dsm/dsm-single.h>
 #include <dsm/tiering.h>
+
 #include "cfork.h"
+
+// timing
+#ifdef PERF_TIMING_CFORK
+u64 perf_cfork_time[PERF_CFORK_TYPE_NR] = {0};
+#endif
 
 static inline char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
 {
@@ -28,6 +34,9 @@ int sys_cfork_prepare(u64 pname_ptr, u64 pname_len)
     char *pname;
     int ret = 0;
 
+#ifdef PERF_TIMING_CFORK
+    u64 start_time = perf_timing_get_time(), end_time;
+#endif
     pname = pname_to_pname_ptr(pname_ptr, pname_len);
 
     struct cap_group *cap_group;
@@ -62,11 +71,19 @@ int sys_cfork_prepare(u64 pname_ptr, u64 pname_len)
 
 out:
     kfree(pname);
+#ifdef PERF_TIMING_CFORK
+    end_time = plat_get_mono_time();
+    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    start_time = end_time;
+#endif
     return ret;
 }
 
 int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 {
+#ifdef PERF_TIMING_CFORK
+    u64 start_time = plat_get_mono_time(), end_time;
+#endif
     char *pname;
     int ret = 0;
     struct ckpt_obj_root *ckpt_obj_root;
@@ -81,6 +98,11 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         goto out;
     }
 
+#ifdef PERF_TIMING_CFORK
+    end_time = plat_get_mono_time();
+    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    start_time = end_time;
+#endif
     cap_group = (struct cap_group *)(ckpt_obj_root->obj_src->opaque);
 
     // remove the process from the cap tree
@@ -89,6 +111,12 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         CFORK_LOG_ERR("cfork_ckpt: stop_all_threads failed\n");
         goto out;
     }
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_STOP_ALL_THREADS] += end_time - start_time;
+    start_time = end_time;
+#endif
 
     // ret = stop_all_connections(cap_group);
     // if (ret) {
@@ -99,7 +127,21 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
     // checkpoint the remaining part to the shared memory
     // ret = cfork_ckpt_process(ckpt_obj_root);
     ret = dsm_migrate_process_prepare(ckpt_obj_root->obj_src);
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_PREPARE] += end_time - start_time;
+    start_time = end_time;
+#endif
+
     ret = dsm_migrate_process_ckpt(ckpt_obj_root->obj_src);
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT] += end_time - start_time;
+    start_time = end_time;
+#endif
+
     if (ret) {
         CFORK_LOG_ERR("cfork_ckpt: cfork_ckpt_process failed\n");
         ret = -ENOENT;
@@ -108,6 +150,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
     ckpt_obj_root->obj_dst = ckpt_obj_root->obj_src->pair_obj;
     ckpt_obj_root->valid = true;
+    CFORK_LOG_DEBUG("ckpt_obj_root: %p, ckpt_obj_root->obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
 
     // add the cap group to the kvs
     ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
@@ -120,11 +163,21 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
 out:
     kfree(pname);
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    start_time = end_time;
+
+    print_perf_cfork_time();
+#endif
     return ret;
 }
 
 int sys_cfork_restore(u64 pname_ptr, u64 pname_len)
 {
+#ifdef PERF_TIMING_CFORK
+    u64 start_time = perf_timing_get_time(), end_time;
+#endif
     int ret = 0, retry_count = 3;
     char *pname;
     struct ckpt_obj_root *ckpt_obj_root;
@@ -151,7 +204,7 @@ retry:
         goto out;
     }
 
-    CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p\n", ckpt_obj_root);
+    CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p, obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
 
     // restore the cap group
     // if ((ret = cfork_restore_process(ckpt_obj_root, &restored_cg))) {
@@ -161,6 +214,14 @@ retry:
     // }
     restored_cg = (struct cap_group *)object2obj(ckpt_obj_root->obj_dst);
     CFORK_LOG_DEBUG("restored_cg: %p\n", restored_cg);
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_KVS_RESTORE] += end_time - start_time;
+    start_time = end_time;
+#endif
+
+
     ret = dsm_migrate_process_restore(restored_cg);
     if (ret) {
         CFORK_LOG_ERR("cfork_restore: dsm_migrate_process_restore failed\n");
@@ -169,16 +230,15 @@ retry:
     }
     CFORK_LOG_DEBUG("cfork_restore: restored_cg: %p\n", restored_cg);
 
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_RESTORE] += end_time - start_time;
+    start_time = end_time;
+#endif
+
     // add the restored sub cap group to the cap tree
     if ((ret = add_cap_group_to_cap_tree(root_cap_group, restored_cg))) {
         CFORK_LOG_ERR("cfork_restore: add_cap_group_to_cap_tree failed\n");
-        ret = -ENOENT;
-        goto out;
-    }
-
-    // only called by cfork restore
-    if ((ret = cfork_promote_all_threads(&(restored_cg->thread_list)))) {
-        CFORK_LOG_ERR("cfork_restore: cfork_promote_all_threads failed\n");
         ret = -ENOENT;
         goto out;
     }
@@ -189,10 +249,19 @@ retry:
         ret = -ENOENT;
         goto out;
     }
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_START_ALL_THREADS] += end_time - start_time;
+    start_time = end_time;
+#endif
 
     CFORK_LOG_INFO("restore %s done\n", pname);
 
 out:
     kfree(pname);
+
+#ifdef PERF_TIMING_CFORK
+    print_perf_cfork_time();
+#endif
     return ret;
 }

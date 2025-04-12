@@ -18,6 +18,7 @@
 #include <ckpt/ckpt_data.h>
 #include <ckpt/ckpt.h>
 #include <uapi/thread.h>
+#include <ipc/futex.h>
 
 #include "thread_env.h"
 
@@ -118,10 +119,10 @@ void thread_deinit(void *thread_ptr)
         // print_thread(thread);
     }
 
-    if (!list_empty(&thread->notification_queue_node)) {
-        // kwarn("%s: deinit thread %p is in notification queue\n", __func__, thread);
-        // print_thread(thread);
-    }
+    // if (!list_empty(&thread->notification_queue_node)) {
+    //     kwarn("%s: deinit thread %p is in notification queue\n", __func__, thread);
+    //     // print_thread(thread);
+    // }
 
     destroy_thread_ctx(thread);
 
@@ -216,7 +217,7 @@ void create_root_thread(void)
 #endif /* CHCORE_SLS */
     ret = create_pmo(ROUND_UP(mem_size, PAGE_SIZE),
                      PMO_DATA,
-                     __MT_DEFAULT__,
+                     __MT_PAGE__,
                      root_cap_group,
                      &pmo);
     BUG_ON(ret < 0);
@@ -232,7 +233,7 @@ void create_root_thread(void)
     /* Allocate and setup a user stack for the init thread */
     stack_pmo_cap = create_pmo(ROOT_THREAD_STACK_SIZE,
                                PMO_ANONYM,
-                               __MT_PAGE__,
+                               __MT_STACK__,
                                root_cap_group,
                                &stack_pmo);
     BUG_ON(stack_pmo_cap < 0);
@@ -304,7 +305,7 @@ void create_root_thread(void)
  */
 
 static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
-                         u64 arg, u32 prio, u32 type, u64 tls)
+                         u64 arg, u32 prio, u32 type, u64 tls, int *clear_child_tid)
 {
     struct thread *thread;
     cap_t cap, ret = 0;
@@ -357,6 +358,8 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
         goto out_free_obj;
     }
     thread->cap = cap;
+
+    thread->clear_child_tid = clear_child_tid;
 
     /* ret is thread_cap in the current_cap_group */
     if (cap_group != current_cap_group)
@@ -433,6 +436,7 @@ struct thread_args {
     u64 tls;
     // defined in user: <chcore/uapi/thread.h> and kernel: <uapi/thread.h>
     u32 type;
+    int *clear_child_tid;
 };
 
 static int thread_type_to_kernel_type(u32 type)
@@ -479,7 +483,7 @@ int sys_create_thread(u64 thread_args_p)
     }
 
     thread_cap = create_thread(
-            cap_group, args.stack, args.pc, args.arg, args.prio, type, args.tls);
+            cap_group, args.stack, args.pc, args.arg, args.prio, type, args.tls, args.clear_child_tid);
 
 out:
     obj_put(cap_group);
@@ -527,6 +531,12 @@ void sys_thread_exit(void)
         kdebug("%s invokes sys_exit_group\n", __func__);
         sys_exit_group(0);
         /* The control flow will not go through */
+    }
+
+    if (current_thread->clear_child_tid) {
+        int val = 0;
+        copy_to_user((void *)current_thread->clear_child_tid, (void *)&val, sizeof(int));
+        sys_futex_wake(current_thread->clear_child_tid, 0, 1);
     }
 
     kdebug("%s invokes sched\n", __func__);
@@ -611,4 +621,10 @@ s32 sys_get_affinity(u64 thread_cap)
     if (thread_cap != -1)
         obj_put((void *)thread);
     return aff;
+}
+
+int sys_set_tid_address(int *tidptr)
+{
+        current_thread->clear_child_tid = tidptr;
+        return current_thread->cap;
 }

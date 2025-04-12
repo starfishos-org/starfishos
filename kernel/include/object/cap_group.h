@@ -7,7 +7,9 @@
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/lock.h>
+#include <common/hashtable.h>
 #include <arch/sync.h>
+#include <ipc/futex.h>
 
 struct object *root_cap_group_obj_for_ckpt;
 
@@ -45,6 +47,8 @@ struct slot_table {
 
 #define MAX_GROUP_NAME_LEN 63
 
+struct futex;
+
 struct cap_group {
     struct slot_table slot_table;
 
@@ -66,6 +70,9 @@ struct cap_group {
 
     /* Now is used for debugging */
     char cap_group_name[MAX_GROUP_NAME_LEN + 1];
+
+	/* Each Process has its own futex status */
+	struct futex *futex;
 };
 
 #define current_cap_group (current_thread->cap_group)

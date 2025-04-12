@@ -125,7 +125,7 @@ int sys_user_fault_register(int notific_cap, vaddr_t msg_buffer)
 
     /* Create a fmap_fault_pool and add to list */
     pool_iter =
-            (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter), __MT_DEFAULT__);
+            (struct fmap_fault_pool *)kmalloc(sizeof(*pool_iter), __MT_OBJECT__);
     if (!pool_iter) {
         unlock(&fmap_fault_pool_list_lock);
         return -ENOMEM;
@@ -301,7 +301,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Record (fault_badge, fault_va) -> thread here.
      */
     pending_thread = (struct fault_pending_thread *)kmalloc(
-            sizeof(*pending_thread), __MT_DEFAULT__);
+            sizeof(*pending_thread), __MT_OBJECT__);
     if (!pending_thread) {
         /* TODO: handle no memory */
         BUG_ON(1);
@@ -376,10 +376,10 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
         struct fault_pending_thread *pt;
 #ifdef CHCORE_SLS
         ckpt_pool_iter =
-                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_DEFAULT__);
+                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_OBJECT__);
 #else
         ckpt_pool_iter =
-                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_SHARED__);
+                kmalloc(sizeof(struct ckpt_fmap_fault_pool), __MT_OBJECT__);
 #endif
         init_list_head(&ckpt_pool_iter->ckpt_fault_pending_thread_list);
 
@@ -389,10 +389,10 @@ int fmap_fault_pool_create_ckpt(struct list_head *ckpt_fmap_fault_pool_list)
                           &pool_iter->pending_threads) {
 #ifdef CHCORE_SLS
             ckpt_pt = kmalloc(sizeof(struct ckpt_fault_pending_thread),
-                              __MT_DEFAULT__);
+                              __MT_OBJECT__);
 #else
             ckpt_pt = kmalloc(sizeof(struct ckpt_fault_pending_thread),
-                              __MT_SHARED__);
+                              __MT_OBJECT__);
 #endif
 
             ckpt_pt->fault_badge = pt->fault_badge;
@@ -441,9 +441,9 @@ int fmap_fault_pool_restore(struct list_head *ckpt_fmap_fault_pool_list,
                           &ckpt_pool_iter->ckpt_fault_pending_thread_list) {
             struct fault_pending_thread *pt;
 #ifdef CHCORE_SLS
-            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_DEFAULT__);
+            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_OBJECT__);
 #else
-            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_SHARED__);
+            pt = kmalloc(sizeof(struct fault_pending_thread), __MT_OBJECT__);
 #endif
 
             pt->fault_badge = ckpt_pt->fault_badge;

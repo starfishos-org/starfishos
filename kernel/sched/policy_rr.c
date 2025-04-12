@@ -146,6 +146,8 @@ int rr_sched_migrate_to_remote(struct thread *thread)
     u64 affinitiy, gcpuid, m_id;
     int ret;
 
+    (void)m_id;
+
     /* remote sched has the highest prio */
     BUG_ON(!thread);
     BUG_ON(!thread->thread_ctx);
@@ -158,7 +160,7 @@ int rr_sched_migrate_to_remote(struct thread *thread)
                 "%s: save and release fpu of thread (%p)\n", __func__, thread);
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
         /* sys_set_aff -> sched -> save_and_release_fpu */
-        save_and_release_fpu(thread);
+        save_and_release_fpu(thread, smp_get_cpu_id());
 #endif
     }
 
@@ -213,7 +215,7 @@ int rr_sched_migrate_from_shared_queue()
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
         gcpuid = thread->thread_ctx->affinity;
-        BUG_ON(cpuid_g2mid(gcpuid) != CUR_MACHINE_ID);
+        // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
 
         /* move thread from shared queue to local queue */
@@ -324,6 +326,8 @@ int rr_sched_enqueue(struct thread *thread)
     u32 gcpuid = 0, lcpuid;
     int ret = 0;
     int m_id;
+
+    (void)m_id;
 
     if (thread->thread_ctx->type == TYPE_IDLE)
         return 0;
@@ -546,7 +550,7 @@ int rr_sched(void)
         case TE_STOPPED:
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
             if (old->thread_ctx->is_fpu_owner >= 0) {
-                save_and_release_fpu(old);
+                save_and_release_fpu(old, smp_get_cpu_id());
             }
 #else
             save_fpu_state(old);

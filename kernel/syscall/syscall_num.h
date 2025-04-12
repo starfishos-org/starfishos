@@ -57,6 +57,9 @@
 #define SYS_create_notifc 130
 #define SYS_wait          131
 #define SYS_notify        132
+/* FUTEX */
+#define SYS_futex           133
+#define SYS_set_tid_address 134
 
 /* Exception */
 /* - irq */

@@ -1,0 +1,969 @@
+From 0ac810ec37beba059f8ba20b45c3bbd8a76ca266 Mon Sep 17 00:00:00 2001
+From: Jingsheng Yan <yanjingsheng@sjtu.edu.cn>
+Date: Mon, 31 Mar 2025 14:44:58 +0800
+Subject: [PATCH] Add futex support and related system calls
+
+- Introduced futex mechanism for thread synchronization, including sys_futex, sys_futex_wait, sys_futex_wake, and sys_futex_requeue.
+- Added futex_entry structure and associated functions for managing waiters.
+- Updated notification handling to support futex operations.
+- Enhanced cap_group and thread structures to include futex-related fields.
+- Implemented syscall interface for setting thread ID addresses.
+- Updated CMake configuration to accommodate new syscall definitions.
+---
+ kernel/include/common/hashtable.h             |   2 -
+ kernel/include/ipc/futex.h                    |  41 +++
+ kernel/include/ipc/notification.h             |   8 +
+ kernel/include/mm/uaccess.h                   |   8 +
+ kernel/include/object/cap_group.h             |   5 +
+ kernel/include/object/thread.h                |   3 +
+ kernel/ipc/futex.c                            | 272 ++++++++++++++++++
+ kernel/ipc/notification.c                     | 226 ++++++++++-----
+ kernel/lib/radix.c                            |   2 -
+ kernel/object/cap_group.c                     |   4 +
+ kernel/object/thread.c                        |  20 +-
+ kernel/syscall/syscall.c                      |   5 +-
+ kernel/syscall/syscall_num.h                  |   6 +-
+ user/musl-1.1.24/include/chcore/defs.h        |   4 +
+ user/musl-1.1.24/include/chcore/proc.h        |   1 +
+ .../src/chcore-port/syscall_dispatcher.c      |  13 +-
+ user/musl-1.1.24/src/thread/pthread_create.c  |   1 +
+ 17 files changed, 530 insertions(+), 91 deletions(-)
+ create mode 100644 kernel/include/ipc/futex.h
+ create mode 100644 kernel/ipc/futex.c
+
+diff --git a/kernel/include/common/hashtable.h b/kernel/include/common/hashtable.h
+index 5d3974b..513d269 100644
+--- a/kernel/include/common/hashtable.h
++++ b/kernel/include/common/hashtable.h
+@@ -2,9 +2,7 @@
+ 
+ #include <common/types.h>
+ #include <common/list.h>
+-#ifdef CHCORE
+ #include <mm/kmalloc.h>
+-#endif
+ 
+ struct htable {
+     struct hlist_head *buckets;
+diff --git a/kernel/include/ipc/futex.h b/kernel/include/ipc/futex.h
+new file mode 100644
+index 0000000..9ec9414
+--- /dev/null
++++ b/kernel/include/ipc/futex.h
+@@ -0,0 +1,41 @@
++#ifndef IPC_FUTEX_H
++#define IPC_FUTEX_H
++
++#include <common/types.h>
++#include <common/hashtable.h>
++#include <ipc/notification.h>
++
++#define FUTEX_WAIT		0
++#define FUTEX_WAKE		1
++#define FUTEX_FD		2
++#define FUTEX_REQUEUE		3
++#define FUTEX_CMP_REQUEUE	4
++#define FUTEX_WAKE_OP		5
++#define FUTEX_LOCK_PI		6
++#define FUTEX_UNLOCK_PI		7
++#define FUTEX_TRYLOCK_PI	8
++#define FUTEX_WAIT_BITSET	9
++
++#define FUTEX_PRIVATE 128
++
++#define FUTEX_CLOCK_REALTIME 256
++
++
++struct futex_entry {
++        struct notification *notific;
++        int *uaddr;
++        int waiter_count;
++        struct hlist_node hash_node;
++};
++
++struct cap_group;
++void futex_deinit(struct cap_group *cap_group);
++void futex_init(struct cap_group *cap_group);
++
++/* Syscalls */
++int sys_futex_wait(int *uaddr, int futex_op, int val, struct timespec *timeout);
++int sys_futex_wake(int *uaddr, int futex_op, int val);
++int sys_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue);
++int sys_futex(int *uaddr, int futex_op, int val, struct timespec *timeout, int *uaddr2, int val3);
++
++#endif /* IPC_FUTEX_H */
+diff --git a/kernel/include/ipc/notification.h b/kernel/include/ipc/notification.h
+index 7ed5b28..43282cd 100644
+--- a/kernel/include/ipc/notification.h
++++ b/kernel/include/ipc/notification.h
+@@ -24,14 +24,22 @@ struct notification {
+ struct irq_notification;
+ 
+ void init_notific(struct notification *notifc);
++void deinit_notific(struct notification *notifc);
++int wait_notific_internal(struct notification *notifc, bool is_block,
++                          struct timespec *timeout, bool need_unlock,
++                          bool need_obj_put);
+ s32 wait_notific(struct notification *notifc, bool is_block,
+                  struct timespec *timeout);
+ s32 signal_notific(struct notification *notifc);
++int requeue_notific(struct notification *src_notifc, struct notification *dst_notifc);
+ 
+ void wait_irq_notific(struct irq_notification *notifc);
+ void signal_irq_notific(struct irq_notification *notifc);
+ 
+ /* Syscalls */
+ int sys_create_notifc(void);
++int wait_notific_internal(struct notification *notifc, bool is_block,
++                          struct timespec *timeout, bool need_unlock,
++                          bool need_obj_put);
+ int sys_wait(u32 notifc_cap, bool is_block, struct timespec *timeout);
+ int sys_notify(u32 notifc_cap);
+diff --git a/kernel/include/mm/uaccess.h b/kernel/include/mm/uaccess.h
+index 852d8fc..13a9251 100644
+--- a/kernel/include/mm/uaccess.h
++++ b/kernel/include/mm/uaccess.h
+@@ -1,6 +1,14 @@
+ #pragma once
+ 
++#include <mm/mm.h>
+ #include <common/types.h>
+ 
+ int copy_from_user(char *kbuf, char *ubuf, size_t size);
+ int copy_to_user(char *ubuf, char *kbuf, size_t size);
++
++static inline int check_user_addr_range(vaddr_t start, size_t len)
++{
++        if ((start + len) >= KBASE)
++                return -1;
++        return 0;
++}
+diff --git a/kernel/include/object/cap_group.h b/kernel/include/object/cap_group.h
+index 51b51ee..76f9aa4 100644
+--- a/kernel/include/object/cap_group.h
++++ b/kernel/include/object/cap_group.h
+@@ -7,6 +7,7 @@
+ #include <common/kprint.h>
+ #include <common/macro.h>
+ #include <common/lock.h>
++#include <common/hashtable.h>
+ #include <arch/sync.h>
+ 
+ struct object *root_cap_group_obj_for_ckpt;
+@@ -66,6 +67,10 @@ struct cap_group {
+ 
+     /* Now is used for debugging */
+     char cap_group_name[MAX_GROUP_NAME_LEN + 1];
++
++	/* Each Process has its own futex status */
++	struct lock futex_lock;
++	struct htable futex_entries;
+ };
+ 
+ #define current_cap_group (current_thread->cap_group)
+diff --git a/kernel/include/object/thread.h b/kernel/include/object/thread.h
+index 755f2ee..0eba8d1 100644
+--- a/kernel/include/object/thread.h
++++ b/kernel/include/object/thread.h
+@@ -79,6 +79,8 @@ struct thread {
+ #endif
+ 
+     struct sleep_state sleep_state;
++
++    int *clear_child_tid;
+ };
+ 
+ void create_root_thread(void);
+@@ -90,6 +92,7 @@ int sys_create_thread(u64 thread_args_p);
+ void sys_thread_exit(void);
+ int sys_set_affinity(u64 thread_cap, s32 aff);
+ s32 sys_get_affinity(u64 thread_cap);
++int sys_set_tid_address(int *tidptr);
+ 
+ /* Fork */
+ void thread_clone(struct cap_group *cap_group, struct thread *thread);
+diff --git a/kernel/ipc/futex.c b/kernel/ipc/futex.c
+new file mode 100644
+index 0000000..61a1a6f
+--- /dev/null
++++ b/kernel/ipc/futex.c
+@@ -0,0 +1,272 @@
++/*
++ * Copyright (c) 2023 Institute of Parallel And Distributed Systems (IPADS), Shanghai Jiao Tong University (SJTU)
++ * Licensed under the Mulan PSL v2.
++ * You can use this software according to the terms and conditions of the Mulan PSL v2.
++ * You may obtain a copy of Mulan PSL v2 at:
++ *     http://license.coscl.org.cn/MulanPSL2
++ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR
++ * PURPOSE.
++ * See the Mulan PSL v2 for more details.
++ */
++
++#include <common/errno.h>
++#include <ipc/futex.h>
++#include <ipc/notification.h>
++#include <common/lock.h>
++#include <common/util.h>
++#include <mm/kmalloc.h>
++#include <mm/uaccess.h>
++#include <object/cap_group.h>
++
++#define BUCKET_SIZE 16
++#define UADDR_TO_KEY(uaddr)   ((u32)((long)uaddr % (1 << 12)))
++#define FUTEX_CMD_MASK ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME)
++
++static bool futex_has_waiter(struct futex_entry *entry)
++{
++        return entry->waiter_count > 0;
++}
++
++static void free_futex_entry(struct futex_entry *entry)
++{
++        htable_del(&entry->hash_node);
++        deinit_notific(entry->notific);
++        kfree(entry->notific);
++        kfree(entry);
++}
++
++static struct futex_entry *new_futex_entry(int *uaddr, struct hlist_head *buckets)
++{
++        struct notification *notifc;
++        struct futex_entry *new_entry;
++
++        new_entry = kmalloc(sizeof(struct futex_entry), __DEFAULT__);
++        if (!new_entry)
++                goto out_fail;
++
++        notifc = kmalloc(sizeof(*notifc), __DEFAULT__);
++        if (!notifc) {
++                goto out_free_entry;
++        }
++        init_notific(notifc);
++
++        *new_entry = (struct futex_entry){
++                .notific = notifc,
++                .uaddr = uaddr,
++                .waiter_count = 0};
++        hlist_add(&new_entry->hash_node, buckets);
++
++        return new_entry;
++
++out_free_entry:
++        kfree(new_entry);
++out_fail:
++        return NULL;
++}
++
++static struct futex_entry* find_entry(int *uaddr, struct hlist_head **buckets)
++{
++        struct futex_entry *found_entry= NULL, *entry = NULL;
++
++        *buckets = htable_get_bucket(&current_cap_group->futex_entries, UADDR_TO_KEY(uaddr));
++        for_each_in_hlist (entry, hash_node, *buckets) {
++                if (futex_has_waiter(entry) && entry->uaddr == uaddr) {
++                        found_entry = entry;
++                        break;
++                }
++        }
++
++        return found_entry;
++}
++
++void futex_init(struct cap_group *cap_group)
++{
++        lock_init(&cap_group->futex_lock);
++        init_htable(&cap_group->futex_entries, BUCKET_SIZE);
++}
++
++void futex_deinit(struct cap_group *cap_group)
++{
++        struct futex_entry *entry, *temp;
++        int i;
++
++        for_each_in_htable_safe (entry, temp, i, hash_node, &cap_group->futex_entries)
++                free_futex_entry(entry);
++        htable_free(&cap_group->futex_entries);
++}
++
++static void __check_and_free(struct futex_entry *entry)
++{
++        if (!futex_has_waiter(entry)) {
++                free_futex_entry(entry);
++        }
++}
++static void __inc_waiter_count(struct futex_entry *entry)
++{
++        entry->waiter_count++;
++}
++static void __dec_waiter_count(struct futex_entry *entry)
++{
++        entry->waiter_count--;
++        __check_and_free(entry);
++}
++
++int sys_futex_wait(int *uaddr, int futex_op, int val, struct timespec *timeout)
++{
++        struct lock *futex_lock = &current_cap_group->futex_lock;
++        struct futex_entry *found_entry;
++        struct hlist_head *buckets = NULL;
++        int ret, kval;
++
++        lock(futex_lock);
++
++        /* check if uaddr contains expected value */
++        if (check_user_addr_range((vaddr_t)uaddr, sizeof(int)) != 0) {
++                ret = -EFAULT;
++                goto out_unlock;
++        }
++
++        ret = copy_from_user((void *)&kval, (void *)uaddr, sizeof(int));
++        if (ret != 0) {
++                ret = -EFAULT;
++                goto out_unlock;
++        }
++
++        if (kval != val) {
++                ret = -EAGAIN;
++                goto out_unlock;
++        }
++
++        /*
++         * Find if already waiting on the same uaddr. If not found,
++         * create an empty entry to put current wait request.
++         */
++        found_entry = find_entry(uaddr, &buckets);
++        if (found_entry == NULL) {
++                found_entry = new_futex_entry(uaddr, buckets);
++                if (found_entry == NULL) {
++                        ret = -ENOMEM;
++                        goto out_unlock;
++                }
++        }
++        __inc_waiter_count(found_entry);
++
++        /* Try to wait */
++        ret = wait_notific_internal(found_entry->notific, true, NULL, true, false);
++
++        __dec_waiter_count(found_entry);
++
++        /* Still hold futex_lock now due to normal C return to this point. */
++out_unlock:
++        unlock(futex_lock);
++        return ret;
++}
++
++int sys_futex_wake(int *uaddr, int futex_op, int val)
++{
++        struct lock *futex_lock = &current_cap_group->futex_lock;
++        struct futex_entry *found_entry;
++        struct hlist_head *buckets = NULL;
++        struct notification *notifc;
++        int send_count;
++        int i, ret;
++
++        lock(futex_lock);
++
++        /* Find waiters with the same uaddr */
++        found_entry = find_entry(uaddr, &buckets);
++
++        if (!found_entry) {
++                ret = 0;
++                goto out_unlock;
++        }
++
++        /* send to waiters */
++        notifc = found_entry->notific;
++        send_count = found_entry->waiter_count;
++        send_count = send_count < val ? send_count : val;
++        for (i = 0; i < send_count; i++) {
++                if (signal_notific(notifc) != 0) {
++                        break;
++                }
++                __dec_waiter_count(found_entry);
++        }
++
++        ret = i;
++
++out_unlock:
++        unlock(futex_lock);
++
++        return ret;
++}
++
++int sys_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue)
++{
++        struct lock *futex_lock = &current_cap_group->futex_lock;
++        struct futex_entry *found_entry1= NULL, *found_entry2 = NULL;
++        struct hlist_head *buckets = NULL;
++        int ret = 0;
++
++        /* Currently only support requeue one waiter. */
++        if (nr_wake != 0 || nr_requeue != 1)
++                return -ENOSYS;
++        if (uaddr == uaddr2)
++                return -EINVAL;
++
++        lock(futex_lock);
++        found_entry1 = find_entry(uaddr, &buckets);
++        found_entry2 = find_entry(uaddr2, &buckets);
++
++        if (found_entry1 == NULL) {
++                ret = -EINVAL;
++                goto out_unlock;
++        }
++
++
++        /* requeue target does not contain any waiter */
++        if (found_entry2 == NULL) {
++                found_entry2 = new_futex_entry(uaddr2, buckets);
++                if (found_entry2 == NULL) {
++                        ret = -ENOMEM;
++                        goto out_unlock;
++                }
++        }
++
++        ret = requeue_notific(found_entry1->notific, found_entry2->notific);
++
++        /* update entry */
++        if (ret == 0) {
++                __dec_waiter_count(found_entry1);
++                __inc_waiter_count(found_entry2);
++        } else {
++                __check_and_free(found_entry2);
++        }
++
++out_unlock:
++        unlock(futex_lock);
++        return ret;
++}
++
++int sys_futex(int *uaddr, int futex_op, int val, struct timespec *timeout,
++                 int *uaddr2, int val3)
++{
++        int cmd;
++        int val2;
++        if ((futex_op & FUTEX_PRIVATE) == 0) {
++                return -ENOSYS;
++        }
++        cmd = futex_op & FUTEX_CMD_MASK;
++
++        switch (cmd) {
++        case FUTEX_WAIT:
++                return sys_futex_wait(uaddr, futex_op, val, timeout);
++        case FUTEX_WAKE:
++                return sys_futex_wake(uaddr, futex_op, val);
++        case FUTEX_REQUEUE:
++                val2 = (long) timeout;
++                return sys_futex_requeue(uaddr, uaddr2, val, val2);
++        default:
++                return -ENOSYS;
++        }
++}
+diff --git a/kernel/ipc/notification.c b/kernel/ipc/notification.c
+index e6e2670..92d1498 100644
+--- a/kernel/ipc/notification.c
++++ b/kernel/ipc/notification.c
+@@ -20,9 +20,14 @@ void init_notific(struct notification *notifc)
+     notifc->state = NOTIFIC_VALID;
+ }
+ 
++void deinit_notific(struct notification *notifc)
++{
++        /* No deinitialization is required for now. */
++}
++
+ void notification_deinit(void *ptr)
+ {
+-    /* No deinitialization is required for now. */
++        deinit_notific((struct notification *)ptr);
+ }
+ 
+ /*
+@@ -97,86 +102,95 @@ static void notific_timer_cb(struct thread *thread)
+     unlock(&notifc->notifc_lock);
+ }
+ 
+-/* Return 0 if wait successfully, -EAGAIN otherwise */
+-int wait_notific(struct notification *notifc, bool is_block,
+-                 struct timespec *timeout)
++/* Unlock futex lock iff eret_to_thread. */
++int wait_notific_internal(struct notification *notifc, bool is_block,
++                          struct timespec *timeout, bool need_unlock,
++                          bool need_obj_put)
+ {
+-    int ret = 0;
+-    struct thread *thread;
+-
+-    lock(&notifc->notifc_lock);
++        int ret = 0;
++        struct thread *thread;
++        struct lock *futex_lock = NULL;
+ 
+-    /* For recycling: the state is set in stop_notification */
+-    if (notifc->state == NOTIFIC_INVALID) {
+-        unlock(&notifc->notifc_lock);
+-        return -ECAPBILITY;
+-    }
++        lock(&notifc->notifc_lock);
+ 
+-#ifdef CKPT_IRQ_AND_NOTIFICATION_LAZY_COPY
+-    notification_lazy_copy_ckpt(notifc, true);
+-#endif
+-
+-    if (notifc->not_delivered_notifc_count > 0) {
+-        notifc->not_delivered_notifc_count--;
+-        ret = 0;
+-    } else {
+-        if (is_block) {
+-            thread = current_thread;
+-            /*
+-             * queue_lock: grab the lock and then insert/remove
+-             * a thread into one list.
+-             */
+-
+-            lock(&thread->sleep_state.queue_lock);
+-
+-            /* Add this thread to waiting list */
+-            list_append(&thread->notification_queue_node,
+-                        &notifc->waiting_threads);
+-            thread->thread_ctx->state = TS_WAITING;
+-            notifc->waiting_threads_count++;
+-            arch_set_thread_return(thread, 0);
+-
+-            // int count = notifc->waiting_threads_count;
+-            // struct thread *thr;
+-            // for_each_in_list(thr, struct thread, notification_queue_node,
+-            // &notifc->waiting_threads) { 	count--;
+-            // }
+-            // BUG_ON(count);
+-
+-            if (timeout) {
+-                thread->sleep_state.pending_notific = notifc;
+-                enqueue_sleeper(thread, timeout, notific_timer_cb);
+-            }
+-
+-            /*
+-             * Since current_thread is TS_WAITING,
+-             * sched() will not put current_thread into the
+-             * ready_queue.
+-             *
+-             * sched() must executed before unlock.
+-             * Otherwise, current_thread maybe be notified and then
+-             * its state will be set to TS_RUNNING. If so, sched()
+-             * will put it into the ready_queue and it maybe
+-             * directly switch to.
+-             */
+-            sched();
+-
+-            unlock(&thread->sleep_state.queue_lock);
+-
+-            unlock(&notifc->notifc_lock);
+-
+-            /* See the below impl of sys_notify */
+-            obj_put(notifc);
+-
+-            eret_to_thread(switch_context());
+-            /* The control flow will never reach here */
++        /* For recycling: the state is set in stop_notification */
++        if (notifc->state == NOTIFIC_INVALID) {
++                unlock(&notifc->notifc_lock);
++                return -ECAPBILITY;
++        }
+ 
++        if (notifc->not_delivered_notifc_count > 0) {
++                notifc->not_delivered_notifc_count--;
++                ret = 0;
+         } else {
+-            ret = -EAGAIN;
++                if (is_block) {
++                        thread = current_thread;
++                        /*
++                         * queue_lock: grab the lock and then insert/remove
++                         * a thread into one list.
++                         */
++
++                        lock(&thread->sleep_state.queue_lock);
++
++                        /* Add this thread to waiting list */
++                        list_append(&thread->notification_queue_node,
++                                    &notifc->waiting_threads);
++                        thread->thread_ctx->state = TS_WAITING;
++                        notifc->waiting_threads_count++;
++                        arch_set_thread_return(thread, 0);
++
++                        if (timeout) {
++                                thread->sleep_state.pending_notific = notifc;
++                                enqueue_sleeper(
++                                        thread, timeout, notific_timer_cb);
++                        }
++
++                        if (need_unlock) {
++                                futex_lock = &current_cap_group->futex_lock;
++                        }
++
++                        /*
++                         * Since current_thread is TS_WAITING,
++                         * sched() will not put current_thread into the
++                         * ready_queue.
++                         *
++                         * sched() must executed before unlock.
++                         * Otherwise, current_thread maybe be notified and then
++                         * its state will be set to TS_RUNNING. If so, sched()
++                         * will put it into the ready_queue and it maybe
++                         * directly switch to.
++                         */
++                        sched();
++
++                        unlock(&thread->sleep_state.queue_lock);
++
++                        unlock(&notifc->notifc_lock);
++
++                        /* See the below impl of sys_notify */
++                        if (need_obj_put) {
++                                obj_put(notifc);
++                        }
++
++                        if (need_unlock) {
++                                unlock(futex_lock);
++                        }
++
++                        eret_to_thread(switch_context());
++                        /* The control flow will never reach here */
++
++                } else {
++                        ret = -EAGAIN;
++                }
+         }
+-    }
+-    unlock(&notifc->notifc_lock);
+-    return ret;
++        unlock(&notifc->notifc_lock);
++        return ret;
++}
++
++/* Return 0 if wait successfully, -EAGAIN otherwise */
++int wait_notific(struct notification *notifc, bool is_block,
++                 struct timespec *timeout)
++{
++        return wait_notific_internal(notifc, is_block, timeout, false, true);
+ }
+ 
+ extern struct irq_notification *irq_notifcs[MAX_IRQ_NUM];
+@@ -344,6 +358,68 @@ int signal_notific(struct notification *notifc)
+     return 0;
+ }
+ 
++/* For FUTEX_REQUEUE only */
++int requeue_notific(struct notification *src_notifc, struct notification *dst_notifc)
++{
++        struct thread *target = NULL;
++        struct lock *big_lock = &dst_notifc->notifc_lock, *small_lock = &src_notifc->notifc_lock;
++        int ret = 0;
++
++        if (src_notifc == dst_notifc)
++                return 0;
++
++        if (src_notifc > dst_notifc) {
++                big_lock = &src_notifc->notifc_lock;
++                small_lock = &dst_notifc->notifc_lock;
++        }
++        lock(small_lock);
++        lock(big_lock);
++
++        /* For recycling: the state is set in stop_notification */
++        if (src_notifc->state == NOTIFIC_INVALID
++            || dst_notifc->state == NOTIFIC_INVALID) {
++                ret = -ECAPBILITY;
++                goto out_unlock;
++        }
++        if(src_notifc->waiting_threads_count == 0) {
++                ret = 0;
++                goto out_unlock;
++        }
++
++        target = list_entry(src_notifc->waiting_threads.next,
++                            struct thread,
++                            notification_queue_node);
++
++        BUG_ON(target == NULL);
++
++        if (try_lock(&target->sleep_state.queue_lock) != 0) {
++                /* Lock failed: must be timeout now */
++                ret = -EAGAIN;
++                goto out_unlock;
++        }
++
++        /* Delete the thread from the waiting list of the src notification*/
++        list_del(&target->notification_queue_node);
++        src_notifc->waiting_threads_count--;
++
++        /* Add this thread to dst waiting list */
++        if (dst_notifc->not_delivered_notifc_count > 0) {
++                BUG("Futex code should guarantee ZERO not_delivered_notifc_count.");
++        } else {
++                target->sleep_state.pending_notific = dst_notifc;
++                list_append(&target->notification_queue_node, &dst_notifc->waiting_threads);
++                dst_notifc->waiting_threads_count++;
++        }
++
++        unlock(&target->sleep_state.queue_lock);
++
++out_unlock:
++        unlock(big_lock);
++        unlock(small_lock);
++
++        return ret;
++}
++
+ int sys_create_notifc(void)
+ {
+     struct notification *notifc = NULL;
+diff --git a/kernel/lib/radix.c b/kernel/lib/radix.c
+index 5abbef8..a09cf04 100644
+--- a/kernel/lib/radix.c
++++ b/kernel/lib/radix.c
+@@ -1,4 +1,3 @@
+-#ifdef CHCORE
+ #include <mm/kmalloc.h>
+ #include <common/kprint.h>
+ #include <common/macro.h>
+@@ -6,7 +5,6 @@
+ #include <mm/mm.h>
+ #include <mm/page.h>
+ #include <ckpt/ckpt_data.h>
+-#endif
+ 
+ #include <common/errno.h>
+ 
+diff --git a/kernel/object/cap_group.c b/kernel/object/cap_group.c
+index 893ad3a..000e5b0 100644
+--- a/kernel/object/cap_group.c
++++ b/kernel/object/cap_group.c
+@@ -8,6 +8,7 @@
+ #include <mm/uaccess.h>
+ #include <lib/printk.h>
+ #include <ipc/notification.h>
++#include <ipc/futex.h>
+ #include <ckpt/ckpt_data.h>
+ #include <ckpt/ckpt.h>
+ #include <sched/context.h>
+@@ -77,6 +78,8 @@ int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge)
+     /* Set badge of the new cap group. */
+     cap_group->badge = badge;
+ 
++    futex_init(cap_group);
++
+     return 0;
+ }
+ 
+@@ -90,6 +93,7 @@ void cap_group_deinit(void *ptr)
+     kfree(slot_table->slots);
+     kfree(slot_table->slots_bmp);
+     kfree(slot_table->full_slots_bmp);
++    futex_deinit(cap_group);
+ }
+ 
+ /* slot allocation */
+diff --git a/kernel/object/thread.c b/kernel/object/thread.c
+index 6ac9f95..65fd74b 100644
+--- a/kernel/object/thread.c
++++ b/kernel/object/thread.c
+@@ -15,6 +15,7 @@
+ #include <arch/time.h>
+ #include <irq/ipi.h>
+ #include <common/endianness.h>
++#include <ipc/futex.h>
+ #include <ckpt/ckpt_data.h>
+ #include <ckpt/ckpt.h>
+ 
+@@ -286,7 +287,7 @@ void create_root_thread(void)
+  */
+ 
+ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
+-                         u64 arg, u32 prio, u32 type, u64 tls)
++                         u64 arg, u32 prio, u32 type, u64 tls, int *clear_child_tid)
+ {
+     struct thread *thread;
+     cap_t cap, ret = 0;
+@@ -340,6 +341,8 @@ static cap_t create_thread(struct cap_group *cap_group, u64 stack, u64 pc,
+     }
+     thread->cap = cap;
+ 
++    thread->clear_child_tid = clear_child_tid;
++
+     /* ret is thread_cap in the current_cap_group */
+     if (cap_group != current_cap_group)
+         cap = cap_copy(cap_group, current_cap_group, cap);
+@@ -415,6 +418,7 @@ struct thread_args {
+     u64 tls;
+     /* 0: TYPE_USER; 1: TYPE_SHADOW; 2: TYPE_REGISTER */
+     u32 type;
++    int *clear_child_tid;
+ };
+ 
+ /*
+@@ -452,7 +456,7 @@ int sys_create_thread(u64 thread_args_p)
+     }
+ 
+     thread_cap = create_thread(
+-            cap_group, args.stack, args.pc, args.arg, args.prio, type, args.tls);
++            cap_group, args.stack, args.pc, args.arg, args.prio, type, args.tls, args.clear_child_tid);
+ 
+ out:
+     obj_put(cap_group);
+@@ -502,6 +506,12 @@ void sys_thread_exit(void)
+         /* The control flow will not go through */
+     }
+ 
++    if (current_thread->clear_child_tid) {
++        int val = 0;
++        copy_to_user((void *)current_thread->clear_child_tid, (void *)&val, sizeof(int));
++        sys_futex_wake(current_thread->clear_child_tid, 0, 1);
++    }
++
+     kdebug("%s invokes sched\n", __func__);
+     /* Reschedule */
+     sched();
+@@ -583,3 +593,9 @@ s32 sys_get_affinity(u64 thread_cap)
+         obj_put((void *)thread);
+     return aff;
+ }
++
++int sys_set_tid_address(int *tidptr)
++{
++        current_thread->clear_child_tid = tidptr;
++        return current_thread->cap;
++}
+diff --git a/kernel/syscall/syscall.c b/kernel/syscall/syscall.c
+index 5659ccb..0bfb0b4 100644
+--- a/kernel/syscall/syscall.c
++++ b/kernel/syscall/syscall.c
+@@ -19,7 +19,7 @@
+ #include <irq/timer.h>
+ #include <irq/irq.h>
+ #include <drivers/pci.h>
+-
++#include <ipc/futex.h>
+ #ifdef CHCORE_KERNEL_VIRT
+ #include <virt/virt_cmd_dispatcher.h>
+ #endif /* CHCORE_KERNEL_VIRT */
+@@ -412,4 +412,7 @@ const void *syscall_table[NR_SYSCALL] = {
+ 
+         [SYS_shutdown] = sys_shutdown,
+ 
++        [SYS_futex] = sys_futex,
++        [SYS_set_tid_address] = sys_set_tid_address,
++
+ };
+diff --git a/kernel/syscall/syscall_num.h b/kernel/syscall/syscall_num.h
+index 753c450..5d633c0 100644
+--- a/kernel/syscall/syscall_num.h
++++ b/kernel/syscall/syscall_num.h
+@@ -1,6 +1,6 @@
+ #pragma once
+ 
+-#define NR_SYSCALL 256
++#define NR_SYSCALL 512
+ 
+ /* Character */
+ #define SYS_putc 0
+@@ -130,3 +130,7 @@
+ #define SYS_cfork_ckpt    252
+ #define SYS_cfork_restore 253
+ #endif
++
++/* FUTEX */
++#define SYS_futex 254
++#define SYS_set_tid_address 255
+diff --git a/user/musl-1.1.24/include/chcore/defs.h b/user/musl-1.1.24/include/chcore/defs.h
+index e0fb27c..76b97c1 100644
+--- a/user/musl-1.1.24/include/chcore/defs.h
++++ b/user/musl-1.1.24/include/chcore/defs.h
+@@ -210,3 +210,7 @@
+ #define CHCORE_SYS_cfork_prepare 251
+ #define CHCORE_SYS_cfork_ckpt    252
+ #define CHCORE_SYS_cfork_restore 253
++
++/* FUTEX */
++#define CHCORE_SYS_futex 254
++#define CHCORE_SYS_set_tid_address 255
+diff --git a/user/musl-1.1.24/include/chcore/proc.h b/user/musl-1.1.24/include/chcore/proc.h
+index b096acc..f9cbba2 100644
+--- a/user/musl-1.1.24/include/chcore/proc.h
++++ b/user/musl-1.1.24/include/chcore/proc.h
+@@ -41,6 +41,7 @@ struct thread_args {
+ 	u32 prio;
+ 	u64 tls;
+ 	u32 type;
++	int *clear_child_tid;
+ };
+ 
+ struct launch_process_args {
+diff --git a/user/musl-1.1.24/src/chcore-port/syscall_dispatcher.c b/user/musl-1.1.24/src/chcore-port/syscall_dispatcher.c
+index 5c996e4..58215a5 100644
+--- a/user/musl-1.1.24/src/chcore-port/syscall_dispatcher.c
++++ b/user/musl-1.1.24/src/chcore-port/syscall_dispatcher.c
+@@ -338,7 +338,7 @@ long __syscall1(long n, long a)
+ 	case SYS_set_tid_address: {
+ 		// debug("ignore SYS_set_tid_address\n");
+ 		// TODO: maybe we need to obey the convention
+-		return fake_tid_val++;
++		return chcore_syscall1(CHCORE_SYS_set_tid_address, a);
+ 	}
+ 	case SYS_chdir: {
+ 		return chcore_chdir((const char *)a);
+@@ -593,7 +593,7 @@ long __syscall3(long n, long a, long b, long c)
+ 		 * XXX: Multiple sys_futex entries as parameter number varies in
+ 		 *	different futex ops.
+ 		 */
+-		return chcore_futex((int *)a, b, c, NULL, NULL, 0);
++		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, 0, 0, 0);
+ 	}
+ 	case SYS_fcntl: {
+ 		return chcore_fcntl(a, b, c);
+@@ -720,7 +720,7 @@ long __syscall4(long n, long a, long b, long c, long d)
+ 		return chcore_pwrite(a, (const void *)b, c, d);
+ 	}
+ 	case SYS_futex: {
+-		return chcore_futex((int *)a, b, c, (struct timespec *)d, NULL, 0);
++		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, 0, 0);
+ 	}
+ 	case SYS_rt_sigprocmask: {
+ 		warn_once("SYS_rt_sigprocmask is not implemented.\n");
+@@ -770,8 +770,7 @@ long __syscall5(long n, long a, long b, long c, long d, long e)
+ 		return chcore_renameat(a, (const char *)b, c, (const char *)d);
+ 	}
+ 	case SYS_futex:
+-		return chcore_futex((int *)a, b, c, (struct timespec *)d,
+-				    (int *)e, 0);
++		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, e, 0);
+ 	case SYS_mremap: {
+ 		warn_once("SYS_mremap is not implemented.\n");
+ 		/*
+@@ -902,9 +901,7 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
+ 		return chcore_ppoll((struct pollfd *)a, b, (struct timespec *)c,
+ 				    (sigset_t *)d);
+ 	case SYS_futex:
+-		return chcore_futex((int *)a, b, c, (struct timespec *)d,
+-				    (int *)e, f);
+-
++		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, e, f);
+ 	case SYS_readv: {
+ 		return chcore_readv(a, (const struct iovec *)b, c);
+ 	}
+diff --git a/user/musl-1.1.24/src/thread/pthread_create.c b/user/musl-1.1.24/src/thread/pthread_create.c
+index c9c9a02..e746960 100644
+--- a/user/musl-1.1.24/src/thread/pthread_create.c
++++ b/user/musl-1.1.24/src/thread/pthread_create.c
+@@ -467,6 +467,7 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
+ 		_args.prio = attr._a_sched? attr._a_prio: CHILD_THREAD_PRIO;
+ 		_args.tls = (u64)TP_ADJ(new);
+ 		_args.type = type;
++		_args.clear_child_tid = (int *)&__thread_list_lock;
+ 
+ 		ret = new->tid = usys_create_thread((u64)&_args);
+ 	}
+-- 
+2.45.1
+

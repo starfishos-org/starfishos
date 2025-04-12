@@ -20,7 +20,7 @@
 #include <irq/timer.h>
 #include <irq/irq.h>
 #include <drivers/pci.h>
-
+#include <ipc/futex.h>
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -50,7 +50,7 @@ void hook_syscall(long n)
 /* Placeholder for system calls that are not implemented */
 void sys_null_placeholder(long arg)
 {
-    BUG("Invoke non-implemented syscall\n");
+    BUG("Invoke non-implemented syscall %lx\n", arg);
 }
 
 void sys_putc(char ch)
@@ -390,6 +390,9 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_create_notifc] = sys_create_notifc,
         [SYS_wait] = sys_wait,
         [SYS_notify] = sys_notify,
+        /* - futex */
+        [SYS_futex] = sys_futex,
+        [SYS_set_tid_address] = sys_set_tid_address,
 
         /* Exception */
         /* - irq */

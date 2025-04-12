@@ -45,6 +45,7 @@
 #include <irq/irq.h>
 #include <ckpt/ckpt.h>
 #include <dsm/dsm-single.h>
+#include <dsm/tiering.h>
 
 #ifdef IPC_PERF_ENABLED
 #include <arch/machine/pmu.h>
@@ -803,6 +804,15 @@ u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg_in_client, u64 cap_num)
             goto out_obj_put2;
     }
 
+#ifdef DSM_ENABLED
+    if (unlikely(obj2object(conn->current_client_thread)->status 
+            == DSM_STATUS_MIGRATED)) {
+        struct object *object = dsm_get_inuse_object(
+                obj2object(conn->current_client_thread), false);
+        BUG_ON(!object);
+        conn->current_client_thread = (struct thread *)object2obj(object);
+    }
+#endif
     conn->user_ipc_msg = ipc_msg_in_client;
 
     /*

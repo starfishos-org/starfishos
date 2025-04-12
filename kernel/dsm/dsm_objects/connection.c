@@ -15,6 +15,7 @@ void dsm_copy_shm_for_ipc_connection(struct shm_for_ipc_connection *src_shm, str
         dst_shm, dst_shm->shm_size, dst_shm->shm_cap_in_client, dst_shm->shm_cap_in_server);
 }
 
+/* reuse old ipc, call remote ipc */
 int dsm_copy_connection(struct object *src_obj, struct object *dst_obj)
 {
     struct ipc_connection *src_conn = (struct ipc_connection *)src_obj->opaque;
@@ -34,37 +35,34 @@ int dsm_copy_connection(struct object *src_obj, struct object *dst_obj)
     dst_conn->conn_cap_in_client = src_conn->conn_cap_in_client;
     dst_conn->conn_cap_in_server = src_conn->conn_cap_in_server;
     dst_conn->state = src_conn->state;
+    dst_conn->trans_machine = 1;
 
     /* Copy ipc msg and shm */
-    if (!dst_conn->user_ipc_msg) {
-        dst_conn->user_ipc_msg = (struct ipc_msg *)kmalloc(sizeof(struct ipc_msg), mem_type);
+    if (likely(!dst_conn->user_ipc_msg)) {
+        dst_conn->user_ipc_msg = (struct ipc_msg *)
+            kmalloc(sizeof(struct ipc_msg), mem_type);
         BUG_ON(!dst_conn->user_ipc_msg);
     }
-    DSM_TIER_LOG_DEBUG("user ipc msg: %p\n", dst_conn->user_ipc_msg);
-    src_conn->user_ipc_msg = dst_conn->user_ipc_msg;
-
     dsm_copy_shm_for_ipc_connection(&src_conn->shm, &dst_conn->shm);
 
-    /* Threads will be handled separately */
-    dst_conn->current_client_thread = src_conn->current_client_thread;
-    dst_conn->server_handler_thread = src_conn->server_handler_thread;
-
+    /* Step-1: copy server handler thread, which is a SHADOW thread */
     /* Create a hooked object for the connection*/
     struct object *obj, *shared_obj;
 
+    // demote server handler thread
     obj = obj2object(src_conn->server_handler_thread);
-    shared_obj = dsm_get_object_by_mem_type(obj, mem_type, true);
-    shared_obj->status = DSM_STATUS_INVALID;
-    shared_obj->dsm_type = DSM_TYPE_CROSS_SHARED;
-    dst_conn->server_handler_thread = (struct thread *)object2obj(shared_obj);
-    ret = dsm_copy_shadow_thread(src_conn->server_handler_thread, dst_conn->server_handler_thread, mem_type);
+    ret = dsm_demote_object(obj);
     if (ret != 0) {
-        DSM_TIER_LOG_ERR("copy shadow thread failed\n");
+        DSM_TIER_LOG_ERR("demote server handler thread failed\n");
         return ret;
     }
+    shared_obj = dsm_get_object_by_mem_type(obj, mem_type, false);
+    BUG_ON(!shared_obj);
+    dst_conn->server_handler_thread = (struct thread *)object2obj(shared_obj);
 
     print_thread(src_conn->server_handler_thread);
 
+    /* Step-2: copy the client thread, which is the thread itself */
     obj = obj2object(src_conn->current_client_thread);
     shared_obj = dsm_get_object_by_mem_type(obj, mem_type, true);
     dst_conn->current_client_thread = (struct thread *)object2obj(shared_obj);

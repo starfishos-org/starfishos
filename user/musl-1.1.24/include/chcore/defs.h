@@ -72,7 +72,7 @@
 
 #define MALLOC_TYPE_PRIVATE (1)
 #define MALLOC_TYPE_SHARED  (2)
-#define MALLOC_TYPE_DEFAULT (MALLOC_TYPE_PRIVATE)
+#define MALLOC_TYPE_DEFAULT (3)
 
 /* a thread's own cap_group */
 #define SELF_CAP 0
@@ -154,6 +154,9 @@
 #define CHCORE_SYS_create_notifc 130
 #define CHCORE_SYS_wait          131
 #define CHCORE_SYS_notify        132
+/* - futex */
+#define CHCORE_SYS_futex           133
+#define CHCORE_SYS_set_tid_address 134
 
 /* Exception */
 /* - irq */

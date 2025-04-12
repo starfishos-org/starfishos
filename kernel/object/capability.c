@@ -61,7 +61,7 @@ struct object *object_alloc(u64 type, u64 size, mem_t flags)
     object->machine_id = CUR_MACHINE_ID;
     object->status = DSM_STATUS_INVALID;
     object->pair_obj = NULL;
-    lock_init(&object->tiering_lock);
+    rwlock_init(&object->tiering_lock);
 #endif
 
     /*
@@ -90,6 +90,12 @@ void *obj_alloc(u64 type, u64 size, mem_t flags)
     return object->opaque;
 }
 
+void object_free(struct object *object)
+{
+    BUG_ON(object->refcount != 0);
+    kfree(object);
+}
+
 /*
  * After the fail initialization of a cap (after obj_alloc and before
  * cap_alloc), invoke this interface to free the object allocated by obj_alloc.
@@ -102,8 +108,7 @@ void obj_free(void *obj)
         return;
     object = container_of(obj, struct object, opaque);
 
-    BUG_ON(object->refcount != 0);
-    kfree(object);
+    object_free(object);
 }
 
 int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
