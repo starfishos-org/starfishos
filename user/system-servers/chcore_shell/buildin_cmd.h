@@ -22,6 +22,13 @@ struct history_cmd_node {
 };
 extern struct history_cmd_node *history_cmd_pointer;
 
+/* Builtin command list */
+extern const char *builtin_commands[];
+extern const int builtin_commands_count;
+
+/* Function to check if a command is builtin */
+bool is_builtin_command(const char *cmd);
+
 void init_buildin_cmd(void);
 
 void add_cmd_to_history(char *cmd);

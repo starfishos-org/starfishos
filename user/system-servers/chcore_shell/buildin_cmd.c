@@ -29,6 +29,32 @@ struct history_cmd_node *history_cmd_pointer = NULL;
 
 static int history_cmd_count = 0;
 
+/* Builtin command list */
+const char *builtin_commands[] = {
+	"cd",
+	"ls",
+	"clear",
+	"top",
+	"jobs",
+	"fg",
+	"history",
+	"source",
+	"quit",
+	"exit"
+};
+
+const int builtin_commands_count = sizeof(builtin_commands) / sizeof(builtin_commands[0]);
+
+bool is_builtin_command(const char *cmd)
+{
+	for (int i = 0; i < builtin_commands_count; i++) {
+		if (strcmp(cmd, builtin_commands[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void init_buildin_cmd(void)
 {
 	init_list_head(&history_cmd_head);
@@ -62,40 +88,57 @@ int do_complement(char *buf, char *complement, int complement_time)
 	}
 	buf_lower[buf_len] = '\0';
 
-	/* XXX: only support '/' here */
-	int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-	if (root_fd < 0) {
-		return -1;
-	}
-
-	/* First pass: collect all matches */
-	do {
-		ret = getdents(root_fd, (struct dirent *)scan_buf, BUFLEN);
-		if (ret <= 0) {
-			break;
-		}
-
-		for (offset = 0; offset < ret; offset += p->d_reclen) {
-			p = (struct dirent *)(scan_buf + offset);
-			get_dent_name(p, name);
-			
-			/* Create lowercase version of name for comparison */
-			char name_lower[BUFLEN];
-			size_t name_len = strlen(name);
-			for (size_t i = 0; i < name_len; i++) {
-				name_lower[i] = tolower(name[i]);
-			}
-			name_lower[name_len] = '\0';
-			
-			/* Match at the beginning like bash, but case-insensitive */
-			if (strncmp(name_lower, buf_lower, buf_len) == 0) {
+	/* First check builtin commands */
+	if (strchr(buf, ' ') == NULL) { /* Only check builtins if no space in input */
+		for (int i = 0; i < builtin_commands_count; i++) {
+			if (strncmp(builtin_commands[i], buf, buf_len) == 0) {
 				if (count < 256) {
-					matches[count] = strdup(name);
+					matches[count] = strdup(builtin_commands[i]);
 					count++;
 				}
 			}
 		}
-	} while (ret > 0);
+	}
+
+	/* If no builtin matches, check files */
+	if (count == 0) {
+		/* XXX: only support '/' here */
+		int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (root_fd < 0) {
+			return -1;
+		}
+
+		/* First pass: collect all matches */
+		do {
+			ret = getdents(root_fd, (struct dirent *)scan_buf, BUFLEN);
+			if (ret <= 0) {
+				break;
+			}
+
+			for (offset = 0; offset < ret; offset += p->d_reclen) {
+				p = (struct dirent *)(scan_buf + offset);
+				get_dent_name(p, name);
+				
+				/* Create lowercase version of name for comparison */
+				char name_lower[BUFLEN];
+				size_t name_len = strlen(name);
+				for (size_t i = 0; i < name_len; i++) {
+					name_lower[i] = tolower(name[i]);
+				}
+				name_lower[name_len] = '\0';
+				
+				/* Match at the beginning like bash, but case-insensitive */
+				if (strncmp(name_lower, buf_lower, buf_len) == 0) {
+					if (count < 256) {
+						matches[count] = strdup(name);
+						count++;
+					}
+				}
+			}
+		} while (ret > 0);
+
+		close(root_fd);
+	}
 
 	/* If we have matches */
 	if (count > 0) {
@@ -113,6 +156,12 @@ int do_complement(char *buf, char *complement, int complement_time)
 		/* Get the match based on complement_time (tab press count) */
 		int match_index = complement_time % count;
 		strlcpy(complement, matches[match_index], BUFLEN);
+		
+		/* Add a space after the command if it's a builtin command */
+		if (strchr(buf, ' ') == NULL && is_builtin_command(complement)) {
+			strlcat(complement, " ", BUFLEN);
+		}
+		
 		r = 0;
 
 		/* Free allocated memory */
@@ -121,7 +170,6 @@ int do_complement(char *buf, char *complement, int complement_time)
 		}
 	}
 
-	close(root_fd);
 	return r;
 }
 
