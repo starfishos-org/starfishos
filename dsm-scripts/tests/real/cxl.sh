@@ -58,15 +58,8 @@ kernel_ready 1
 if [ $machine == "1" ]; then
     echo "RUNNING MATRIX & LEVELDB & LINEAR REGRESSION"
 
-    tmux send -t $session_name:0 "write leveldb_bind_cpu.txt 0-7" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write matrix_bind_cpu.txt 8-15" ENTER
-    sleep 1
-    tmux send -t $session_name:1 "write linear_regression_bind_cpu.txt 16-23" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "$matrix" ENTER
-    tmux send -t $session_name:0 "$leveldb" ENTER
-    tmux send -t $session_name:1 "$linear_regression" ENTER
+    tmux send -t $session_name:0 "source cross_stress_type1_m0.sh" ENTER
+    tmux send -t $session_name:1 "source cross_stress_type1_m1.sh" ENTER
 fi
 
 if [ $machine == "2" ]; then
