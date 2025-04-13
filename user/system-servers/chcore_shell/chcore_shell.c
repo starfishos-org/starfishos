@@ -416,6 +416,34 @@ int builtin_cmd(char *cmdline)
 		do_source(cmdline);
 		return 1;
 	}
+	if (!strcmp(cmd, "sleep")) {
+		ret = do_sleep(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "pwd")) {
+		ret = do_pwd(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "echo")) {
+		ret = do_echo(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "cat")) {
+		ret = do_cat(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "mkdir")) {
+		ret = do_mkdir(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "rm")) {
+		ret = do_rm(cmdline);
+		return !ret ? 1 : -1;
+	}
+	if (!strcmp(cmd, "touch")) {
+		ret = do_touch(cmdline);
+		return !ret ? 1 : -1;
+	}
 	return 0;
 }
 
