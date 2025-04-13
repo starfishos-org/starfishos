@@ -221,7 +221,11 @@ static void __hostfs_fill_statfsbuf(struct statfs *statbuf)
 
 int chcore_hostfs_fstat(int fd, char *path, int flags, struct statfs *statbuf, size_t bufsize) {
 	/* Open the file if it is not opened */
-	if (fd < 0 || fd >= MAX_FD || fd_dic[fd] == NULL) {
+	if (fd < 0 || fd >= MAX_FD) {
+		if ((fd = alloc_fd()) < 0) {
+			printf("chcore_hostfs_stat: failed to alloc fd\n");
+			return -ENFILE;
+		}
 		chcore_hostfs_open(fd, path);
 	}
 	/* Check if the file is FD_TYPE_HOSTFS */
@@ -241,9 +245,14 @@ int chcore_hostfs_stat(int fd, char *path, int flags, struct stat *statbuf, size
 	printf("chcore_hostfs_stat: fd %d, statbuf %p, size %ld\n", fd, statbuf, statbuf->st_size);
 
 	/* Open the file if it is not opened */
-	if (fd < 0 || fd >= MAX_FD || fd_dic[fd] == NULL) {
+	if (fd < 0 || fd >= MAX_FD) {
+		if ((fd = alloc_fd()) < 0) {
+			printf("chcore_hostfs_stat: failed to alloc fd\n");
+			return -ENFILE;
+		}
 		chcore_hostfs_open(fd, path);
 	}
+
 	/* Check if the file is FD_TYPE_HOSTFS */
 	if (fd_dic[fd]->type != FD_TYPE_HOSTFS) {
 		printf("chcore_hostfs_stat: invalid fd\n");

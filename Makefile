@@ -150,3 +150,6 @@ clean-dsm-meta:
 
 tmux:
 	./dsm-scripts/simulate_tmux.sh
+
+gemini: clean-dsm
+	./dsm-scripts/tests/gemini.exp

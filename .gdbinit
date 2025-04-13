@@ -4,5 +4,7 @@ source ./scripts/gdb/gdb.py
 
 set debuginfod enabled on
 
-add-symbol-file user/musl-1.1.24/build/lib/libc.so 0x400000000000
 file build/kernel.img
+add-symbol-file user/build/ramdisk/libc.so 0x400000000000
+add-symbol-file user/build/ramdisk/libstdc++.so.6 0x400000000000
+add-symbol-file user/build/ramdisk/libgcc_s.so.1 0x400000000000

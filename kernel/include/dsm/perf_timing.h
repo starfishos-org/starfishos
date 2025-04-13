@@ -6,36 +6,41 @@
 #ifdef PERF_TIMING_CFORK
 #include <arch/time.h>
 enum perf_cfork_type {
-    PERF_CFORK_KVS_CKPT = 0,
-    PERF_CFORK_PREPARE,
-    PERF_CFORK_STOP_ALL_THREADS,
+    // prepare
+    PERF_CFORK_PREPARE = 0,
+    PERF_CFORK_PREPARE_KVS,
+    // ckpt
     PERF_CFORK_CKPT,
-// a deeper breakdown of PERF_CFORK_CKPT
-    PERF_CFORK_CKPT_OBJECTS_OTHER,
-    PERF_CFORK_CKPT_OBJECTS_CAP_GROUP,
-    PERF_CFORK_CKPT_OBJECTS_THREAD,
-// end
-    PERF_CFORK_KVS_RESTORE,
+    PERF_CFORK_CKPT_STOP_ALL_THREADS,
+    PERF_CFORK_CKPT_THREADS,
+    PERF_CFORK_CKPT_CAP_GROUP,
+    PERF_CFORK_CKPT_OTHER,
+    // restore
     PERF_CFORK_RESTORE,
+    PERF_CFORK_RESTORE_KVS,
+    PERF_CFORK_RESTORE_PROMOTE_THREADS,
     PERF_CFORK_START_ALL_THREADS,
     PERF_CFORK_TYPE_NR,
 };
 
 static const char *perf_cfork_type_str[PERF_CFORK_TYPE_NR] = {
     [0 ... PERF_CFORK_TYPE_NR - 1] = "",
-    [PERF_CFORK_KVS_CKPT] = "PERF_CFORK_KVS_CKPT",
-    [PERF_CFORK_KVS_RESTORE] = "PERF_CFORK_KVS_RESTORE",
-    [PERF_CFORK_START_ALL_THREADS] = "PERF_CFORK_START_ALL_THREADS",
-    [PERF_CFORK_STOP_ALL_THREADS] = "PERF_CFORK_STOP_ALL_THREADS",
-    [PERF_CFORK_PREPARE] = "PERF_CFORK_PREPARE",
+    [PERF_CFORK_PREPARE_KVS] = "PERF_CFORK_PREPARE_KVS",
+    [PERF_CFORK_CKPT_STOP_ALL_THREADS] = "PERF_CFORK_CKPT_STOP_ALL_THREADS",
     [PERF_CFORK_CKPT] = "PERF_CFORK_CKPT",
     [PERF_CFORK_RESTORE] = "PERF_CFORK_RESTORE",
-    [PERF_CFORK_CKPT_OBJECTS_OTHER] = "PERF_CFORK_CKPT_OBJECTS_OTHER",
-    [PERF_CFORK_CKPT_OBJECTS_CAP_GROUP] = "PERF_CFORK_CKPT_OBJECTS_CAP_GROUP",
-    [PERF_CFORK_CKPT_OBJECTS_THREAD] = "PERF_CFORK_CKPT_OBJECTS_THREAD",
+    [PERF_CFORK_CKPT_STOP_ALL_THREADS] = "PERF_CFORK_CKPT_STOP_ALL_THREADS",
+    [PERF_CFORK_CKPT_THREADS] = "PERF_CFORK_CKPT_THREADS",
+    [PERF_CFORK_CKPT_OTHER] = "PERF_CFORK_CKPT_OTHER",
+    [PERF_CFORK_RESTORE_KVS] = "PERF_CFORK_RESTORE_KVS",
+    [PERF_CFORK_RESTORE_PROMOTE_THREADS] = "PERF_CFORK_RESTORE_PROMOTE_THREADS",
+    [PERF_CFORK_START_ALL_THREADS] = "PERF_CFORK_START_ALL_THREADS",
 };
 
 extern u64 perf_cfork_time[];
+
+extern u64 perf_dsm_obj_copy_time[TYPE_NR];
+extern u64 perf_dsm_obj_count[TYPE_NR];
 
 static inline u64 perf_timing_get_time(void) {
     return plat_get_mono_time(); // ns
@@ -47,6 +52,13 @@ static inline void print_perf_cfork_time(void) {
         printk("perf_cfork_time[%s]: %llu us\n", // double precision
             perf_cfork_type_str[i], 
             perf_cfork_time[i] / 1000);
+    }
+
+    for (i = 0; i < TYPE_NR; i++) {
+        printk("prepare copy time object: %s, %llu us, cnt: %llu\n", // double precision
+            obj_name_tbl[i], 
+            perf_dsm_obj_copy_time[i] / 1000,
+            perf_dsm_obj_count[i]);
     }
 }
 #endif

@@ -50,7 +50,7 @@ dsm_alloc_pair_object(struct object *obj, mem_t mem_type)
 static inline struct object *
 dsm_get_object_by_mem_type(struct object *obj, mem_t mem_type, bool alloc)
 {
-    BUG_ON(!IS_VALID_MEM_TYPE(mem_type));
+    // BUG_ON(!IS_VALID_MEM_TYPE(mem_type));
     if (obj->mem_type == mem_type) {
         return obj;
     }

@@ -10,6 +10,7 @@
 
 #ifdef PERF_TIMING_CFORK
 extern u64 perf_cfork_time[PERF_CFORK_TYPE_NR];
+extern u64 perf_dsm_copy_time[TYPE_NR];
 #endif
 
 static int reinstall_system_services(struct cap_group *cap_group)
@@ -26,7 +27,8 @@ int dsm_migrate_process_prepare(struct object *root_cg_obj)
     /* Check the memory of process first */
     // flags = ~((1L << TYPE_CAP_GROUP) | (1L << TYPE_THREAD));
     // flags = ~((1L << TYPE_THREAD) | (1L << TYPE_CONNECTION) | (1L << TYPE_NOTIFICATION));
-    flags = ~((1L << TYPE_THREAD) | (1L << TYPE_CAP_GROUP));
+    // flags = ~((1L << TYPE_THREAD) | (1L << TYPE_CAP_GROUP));
+    flags = 0xFFFFFFFF;
     /* demote all objects except cap group and thread */
     ret = demote_each_object_in_cap_group((struct cap_group *)object2obj(root_cg_obj), flags);
     if (ret) {
@@ -74,38 +76,43 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 #ifdef PERF_TIMING_CFORK
     u64 start_time = perf_timing_get_time(), end_time;
 #endif
-    int ret = 0, flags;
+    int ret = 0;
     struct cap_group *src_cap_group, *dst_cap_group;
     struct object *dst_cap_group_obj;
 
     src_cap_group = (struct cap_group *)object2obj(src_cap_group_obj);
-
-    flags = (1L << TYPE_THREAD);
-
-    /* demote the threads */
-    ret = demote_each_object_in_cap_group(src_cap_group, flags);
+    
+    /* ckpt the threads */
+    ret = ckpt_each_object_in_cap_group(src_cap_group,  (1L << TYPE_THREAD));
     if (ret) {
-        DSM_TIER_LOG_ERR("%s: failed to demote thread\n", __func__);
+        DSM_TIER_LOG_ERR("%s: failed to ckpt thread\n", __func__);
         return ret;
     }
 
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_CKPT_OBJECTS_THREAD] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_CKPT_THREADS] += end_time - start_time;
     start_time = end_time;
 #endif
 
-    /* demote the cap group finally */
-    ret = dsm_demote_object(src_cap_group_obj);
+    /* ckpt the cap group finally */
+    dst_cap_group_obj = dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false);
+    BUG_ON(!dst_cap_group_obj);
+
+    ret = dsm_ckpt_cap_group(src_cap_group_obj, dst_cap_group_obj);
     if (ret) {
-        DSM_TIER_LOG_ERR("%s: failed to demote cap group\n", __func__);
+        DSM_TIER_LOG_ERR("%s: failed to ckpt cap group\n", __func__);
         return ret;
     }
 
-    dst_cap_group_obj = dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false);
-    BUG_ON(!dst_cap_group_obj);
     dst_cap_group = (struct cap_group *)object2obj(dst_cap_group_obj);
     BUG_ON(!dst_cap_group);
+
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT_CAP_GROUP] += end_time - start_time;
+    start_time = end_time;
+#endif
 
     /* add the threads to the cap group */
     struct thread *src_thread, *tmp, *dst_thread;
@@ -131,12 +138,6 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
         object_free(src_thread_obj);
         dst_thread_obj->pair_obj = NULL;
 
-#ifdef PERF_TIMING_CFORK
-    end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_CKPT_OBJECTS_CAP_GROUP] += end_time - start_time;
-    start_time = end_time;
-#endif
-
 #if 0
     // Check the validity of the dst thread
     print_thread(dst_thread);
@@ -147,6 +148,11 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 #endif
     }
 
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT_THREADS] += end_time - start_time;
+    start_time = end_time;
+#endif
     /* TODO(FN): recycle the old cap group */
 
     return 0;

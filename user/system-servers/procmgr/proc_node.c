@@ -118,6 +118,10 @@ struct proc_node *new_proc_node(struct proc_node *parent, char *name)
 		proc->pcid = LWIP_PCID;
 		proc->badge = LWIP_BADGE;
 		proc->thread_type = THREAD_TYPE_SERVICES;
+	} else if (strcmp(name, "tmpfs") == 0) {
+		proc->pcid = alloc_id(&pcid_mgr);
+		proc->badge = generate_badge(proc);
+		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else {
 		proc->pcid = alloc_id(&pcid_mgr);
 		proc->badge = generate_badge(proc);
