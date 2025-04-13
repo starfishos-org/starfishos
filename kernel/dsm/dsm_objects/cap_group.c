@@ -55,9 +55,49 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
             dst_slot_table, slot_id, dst_object, obj_name_tbl[dst_object->type]);
     }
 
-    BUG_ON(dst_slot_table->slots_size != src_slot_table->slots_size);
-    for_each_set_bit(slot_id, dst_slot_table->slots_bmp, dst_slot_table->slots_size) {
-        BUG_ON(dst_slot_table->slots[slot_id] == NULL);
+    // BUG_ON(dst_slot_table->slots_size != src_slot_table->slots_size);
+    // for_each_set_bit(slot_id, dst_slot_table->slots_bmp, dst_slot_table->slots_size) {
+    //     BUG_ON(dst_slot_table->slots[slot_id] == NULL);
+    // }
+
+    return 0;
+}
+
+int dsm_ckpt_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_cap_group, mem_t mem_type)
+{
+    struct slot_table *src_slot_table = &src_cap_group->slot_table;
+    struct slot_table *dst_slot_table = &dst_cap_group->slot_table;
+    int src_slot_size = src_slot_table->slots_size;
+
+    /* Allocate new slots_bmp and slots if the size is different */
+    if (unlikely(dst_slot_table->slots_size != src_slot_size)) {
+        slot_table_free(dst_slot_table);
+        slot_table_init(dst_slot_table, src_slot_size, true, mem_type);
+    }
+
+    // check whether each slot is update with the old one
+    int slot_id;
+    struct object *dst_object;
+    struct object_slot *src_slot, *dst_slot;
+    int ret = 0;
+    
+    for_each_set_bit (slot_id, src_slot_table->slots_bmp, src_slot_size) {
+        src_slot = src_slot_table->slots[slot_id];
+        BUG_ON(src_slot == NULL);
+        dst_slot = dst_slot_table->slots[slot_id];
+        if (unlikely(dst_slot == NULL)) {
+            printk("newly created slot is found, should update it\n");
+            // a newly created slot is found, should update it
+            if (unlikely(ret = dsm_demote_object(src_slot->object)) != 0) {
+                DSM_TIER_LOG_ERR("%s: failed to demote object\n", __func__);
+                return ret;
+            }
+            dst_object = dsm_get_object_by_mem_type(
+                            src_slot->object, mem_type, false);
+            BUG_ON(dst_object == NULL);
+            /* insert cap */
+            cap_insert(dst_cap_group, dst_object, src_slot->rights, slot_id, mem_type);
+        }
     }
 
     return 0;
@@ -89,7 +129,26 @@ int dsm_copy_cap_group(struct object *src_obj, struct object *dst_obj)
 
     /* Copy futex */
     dst_cap_group->futex = kzalloc(sizeof(struct futex), mem_type);
+    // futex_copy(src_cap_group->futex, dst_cap_group->futex, mem_type);
+
+    return 0;
+}
+
+int dsm_ckpt_cap_group(struct object *src_obj, struct object *dst_obj)
+{
+    struct cap_group *src_cap_group = (struct cap_group *)src_obj->opaque;
+    struct cap_group *dst_cap_group = (struct cap_group *)dst_obj->opaque;
+    int is_demote = is_private_object(src_obj);
+    mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
+    int ret = 0;
+
+    BUG_ON(dst_cap_group->futex == NULL);
     futex_copy(src_cap_group->futex, dst_cap_group->futex, mem_type);
+
+    if ((ret = dsm_ckpt_slot_table(src_cap_group, dst_cap_group, mem_type)) != 0) {
+        DSM_TIER_LOG_ERR("%s: failed to ckpt slot table\n", __func__);
+        return ret;
+    }
 
     return 0;
 }

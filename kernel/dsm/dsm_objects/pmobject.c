@@ -138,3 +138,8 @@ int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj)
 
     return 0;
 }
+
+int dsm_ckpt_pmo(struct object *src_obj, struct object *dst_obj)
+{
+    return 0;
+}

@@ -6,6 +6,11 @@
 
 #include "dsm_tiering.h"
 
+#ifdef PERF_TIMING_CFORK
+u64 perf_dsm_obj_copy_time[TYPE_NR];
+u64 perf_dsm_obj_count[TYPE_NR];
+#endif
+
 const dsm_copy_func dsm_copy_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
         [TYPE_CAP_GROUP] = dsm_copy_cap_group,
@@ -15,6 +20,17 @@ const dsm_copy_func dsm_copy_tbl[TYPE_NR] = {
         [TYPE_IRQ] = dsm_copy_irq,
         [TYPE_PMO] = dsm_copy_pmo,
         [TYPE_VMSPACE] = dsm_copy_vmspace,
+};
+
+const dsm_ckpt_func dsm_ckpt_tbl[TYPE_NR] = {
+        [0 ... TYPE_NR - 1] = NULL,
+        [TYPE_CAP_GROUP] = dsm_ckpt_cap_group,
+        [TYPE_THREAD] = dsm_ckpt_thread,
+        [TYPE_CONNECTION] = dsm_ckpt_connection,
+        [TYPE_NOTIFICATION] = dsm_ckpt_notification,
+        [TYPE_IRQ] = dsm_ckpt_irq,
+        [TYPE_PMO] = dsm_ckpt_pmo,
+        [TYPE_VMSPACE] = dsm_ckpt_vmspace,
 };
 
 static int __dsm_tiering_start_migration(struct object *obj)
@@ -64,7 +80,7 @@ static inline int __dsm_tiering_finish_migration(struct object *obj)
 }
 
 /**
- * @brief demote the object to the lower tier
+ * @brief demote the object to the lower tierå
  * the object can be already put on the lower tier,
  * so we don't need to do anything
  * @param obj 
@@ -106,7 +122,7 @@ int dsm_demote_object(struct object *obj)
     } // else ret == 0; start migration
 
     /* Malloc shared object */
-    if (!obj->pair_obj) {
+    if (unlikely(!obj->pair_obj)) {
         if ((ret = dsm_alloc_pair_object(obj, __MT_SHARED__)) != 0) {
             DSM_TIER_LOG_ERR("%s: failed to alloc pair object\n", __func__);
             return ret;
@@ -120,6 +136,9 @@ copy_again:
     /* clear dirty bit first */
     obj->dirty_bit = 0;
 
+    DSM_TIER_LOG_DEBUG("%s: try to demote %s object %p, target %p\n", 
+        __func__, obj_name_tbl[obj->type], obj, target);
+
     /* copy data from obj to target */
     dsm_copy_func func = dsm_copy_tbl[obj->type];
     if (!func) {
@@ -128,8 +147,8 @@ copy_again:
     }
     func(obj, target);
 
-    DSM_TIER_LOG_DEBUG("demote %s object %p, target %p\n", 
-        obj_name_tbl[obj->type], obj, target);
+    DSM_TIER_LOG_DEBUG("%s: finish demote %s object %p, target %p\n", 
+        __func__, obj_name_tbl[obj->type], obj, target);
 
     /* Enable shared object */
     ret = __dsm_tiering_finish_migration(obj);
@@ -218,6 +237,37 @@ copy_again:
     return 0;
 }
 
+int ckpt_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+{
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    int ret = 0;
+    for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+
+        if (!(type_mask & (1L << (object->type)))) {
+            continue;
+        }
+
+        struct object *dst_obj = dsm_get_object_by_mem_type(object, __MT_SHARED__, false);
+        BUG_ON(!dst_obj);
+        dsm_copy_func func = dsm_copy_tbl[object->type];
+        if (!func) {
+            DSM_TIER_LOG_ERR("dsm tiering copy function not found\n");
+            return -EINVAL;
+        }
+        func(object, dst_obj);
+        if (ret) {
+            DSM_TIER_LOG_DEBUG("Failed to ckpt object %p\n", object);
+            return ret;
+        }
+    }
+    return 0;
+}
+
 int demote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
@@ -233,12 +283,19 @@ int demote_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
             continue;
         }
 
-        // kinfo("try to demote object %p type: %d\n", object, object->type);
+#ifdef PERF_TIMING_CFORK
+        u64 start_time = perf_timing_get_time(), end_time;
+#endif
         ret = dsm_demote_object(object);
         if (ret) {
             DSM_TIER_LOG_DEBUG("Failed to demote object %p\n", object);
             return ret;
         }
+#ifdef PERF_TIMING_CFORK
+        end_time = perf_timing_get_time();
+        perf_dsm_obj_copy_time[object->type] += end_time - start_time;
+        perf_dsm_obj_count[object->type]++;
+#endif
     }
     return 0;
 }

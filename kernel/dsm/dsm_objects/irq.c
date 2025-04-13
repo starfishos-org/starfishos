@@ -36,3 +36,8 @@ int dsm_copy_irq(struct object *src_obj, struct object *dst_obj)
 
     return 0;
 }
+
+int dsm_ckpt_irq(struct object *src_obj, struct object *dst_obj)
+{
+    return 0;
+}
