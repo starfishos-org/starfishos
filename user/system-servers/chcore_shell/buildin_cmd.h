@@ -37,3 +37,4 @@ int do_fg(char *cmdline);
 void do_history(void);
 bool do_up(void);
 bool do_down(void);
+int do_source(char *cmdline);

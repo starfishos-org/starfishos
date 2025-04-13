@@ -412,6 +412,10 @@ int builtin_cmd(char *cmdline)
 		do_history();
 		return 1;
 	}
+	if (!strcmp(cmd, "source")) {
+		do_source(cmdline);
+		return 1;
+	}
 	return 0;
 }
 

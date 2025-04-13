@@ -535,4 +535,56 @@ void clear_history_point(void)
 	history_cmd_pointer = NULL;
 }
 
+int do_source(char *cmdline)
+{
+	char script_path[BUFLEN];
+	FILE *fp;
+	char line[BUFLEN];
+	int ret = 0;
 
+	/* Skip the 'source' command and any spaces */
+	cmdline += 6;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("source: missing file operand\n");
+		return -1;
+	}
+
+	/* Get the script path */
+	strlcpy(script_path, cmdline, BUFLEN);
+
+	/* Open the script file */
+	fp = fopen(script_path, "r");
+	if (fp == NULL) {
+		printf("source: cannot open '%s': %s\n", script_path, strerror(errno));
+		return -1;
+	}
+
+	/* Read and execute each line */
+	while (fgets(line, BUFLEN, fp) != NULL) {
+		/* Remove trailing newline */
+		line[strcspn(line, "\n")] = 0;
+
+		/* Skip empty lines and comments */
+		if (line[0] == '\0' || line[0] == '#')
+			continue;
+
+		/* Execute the command */
+		if ((ret = builtin_cmd(line)) != 0) {
+			if (ret < 0) {
+				printf("Error executing command: %s\n", line);
+				break;
+			}
+			continue;
+		}
+		if ((ret = run_cmd(line)) < 0) {
+			printf("Cannot run %s, ERROR %d\n", line, ret);
+			break;
+		}
+	}
+
+	fclose(fp);
+	return ret;
+}
