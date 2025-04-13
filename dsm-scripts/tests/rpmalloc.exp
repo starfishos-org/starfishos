@@ -1,10 +1,9 @@
 #!/usr/bin/expect  
 
-set timeout 60
-set thread_num [lindex $argv 0]
+set timeout 120
 
-if { $thread_num == "" } {
-    set thread_num 1
+if { $argv == "" } {
+    set argv "1 0 1 0 2000 50000 5000 16 1024"
 }
 
 # start
@@ -12,6 +11,6 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "kmeans.bin -p 100000 -t $thread_num \n"
+send -- "malloc_benchmark.bin $argv \n"
 expect "done"
 exit
