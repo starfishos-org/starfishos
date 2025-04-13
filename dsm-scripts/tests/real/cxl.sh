@@ -45,13 +45,13 @@ welcome_str="Welcome to ChCore shell!"
 
 echo "machine type: $machine"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
-tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 | tee exec_log0.log"
+tmux new -d -s $session_name -n 0 "./build/simulate.sh 0"
 
 sleep 3
 
 kernel_ready 0
 
-tmux new-window -n 1 "./build/simulate.sh 1 | tee exec_log1.log"
+tmux new-window -n 1 "./build/simulate.sh 1"
 
 kernel_ready 1
 

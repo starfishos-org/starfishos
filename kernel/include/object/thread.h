@@ -27,6 +27,13 @@ extern bool resched_flags[PLAT_CPU_NUM];
 
 #define THREAD_ITSELF ((void *)(-1))
 
+#define MAX_SCHED_HISTORY 128  /* Maximum number of scheduling records to keep */
+struct sched_history {
+    u32 cpu_history[MAX_SCHED_HISTORY];  /* History of CPUs this thread ran on */
+    u32 history_count;                   /* Number of scheduling records */
+    u32 history_index;                   /* Current index in the circular buffer */
+};
+
 struct thread {
     struct list_head node; // link threads in a same cap_group
     struct list_head ready_queue_node; // link threads in a ready queue
@@ -86,7 +93,32 @@ struct thread {
     mid_t machine_id;
 
     int *clear_child_tid;
+
+    /* Scheduling history */
+    struct sched_history sched_history;
+
+    /* Shadow caller thread */
+    struct thread *shadow_caller_thread;
 };
+
+static inline void display_sched_history(struct thread *target) {
+    if (target->sched_history.history_count == 0) {
+        return;
+    }
+    
+    int start_idx = 0;
+    if (target->sched_history.history_count == MAX_SCHED_HISTORY) {
+        start_idx = (int)target->sched_history.history_index;
+    }
+    
+    for (int i = 0; i < target->sched_history.history_count - 1; i++) {
+        int idx = (start_idx + i) % MAX_SCHED_HISTORY;
+        printk("%d -> ", target->sched_history.cpu_history[idx]);
+    }
+    
+    int last_idx = (start_idx + target->sched_history.history_count - 1) % MAX_SCHED_HISTORY;
+    printk("%d\n", target->sched_history.cpu_history[last_idx]);
+}
 
 void create_root_thread(void);
 void switch_thread_vmspace_to(struct thread *);
