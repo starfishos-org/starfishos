@@ -647,7 +647,12 @@ int do_source(char *cmdline)
 	}
 
 	/* Get the script path */
-	strlcpy(script_path, cmdline, BUFLEN);
+	int i = 0;
+	while (cmdline[i] != ' ' && cmdline[i] != '\n' && cmdline[i] != '\t' && cmdline[i] != '\0') {
+		script_path[i] = cmdline[i];
+		i++;
+	}
+	script_path[i] = '\0';
 
 	/* Open the script file */
 	fp = fopen(script_path, "r");
