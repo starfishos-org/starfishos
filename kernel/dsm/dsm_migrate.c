@@ -42,6 +42,22 @@ int dsm_migrate_process_prepare(struct object *root_cg_obj)
 extern int stop_connection(struct ipc_connection *conn);
 extern int stop_notification(struct notification *notifc);
 
+#if 0 /* print the cap group */
+static int print_cap_group(struct cap_group *cap_group)
+{
+    struct slot_table *slot_table = &cap_group->slot_table;
+    int slot_id;
+    for_each_set_bit (slot_id, slot_table->slots_bmp, slot_table->slots_size) {
+        struct object_slot *slot = slot_table->slots[slot_id];
+        BUG_ON(!slot);
+        struct object *object = slot->object;
+        BUG_ON(!object);
+        printk("slot_id: %d object: %p type: %d\n", slot_id, object, object->type);
+    }
+    return 0;
+}
+#endif
+
 int stop_all_connections(struct cap_group *cap_group)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
@@ -155,6 +171,9 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
 #endif
     /* TODO(FN): recycle the old cap group */
 
+#if 0 /* check the validity of the restored cap group */
+    print_cap_group(dst_cap_group);
+#endif
     return 0;
 }
 
@@ -165,7 +184,7 @@ static int dsm_promote_thread(struct object *thread_obj, struct cap_group *new_c
     struct thread *new_thread;
 
     ret = dsm_promote_object(thread_obj);
-    if (ret) {
+    if (unlikely(ret)) {
         DSM_TIER_LOG_ERR("%s: failed to promote the thread: %p", __func__, thread_obj);
         return ret;
     }
@@ -176,7 +195,7 @@ static int dsm_promote_thread(struct object *thread_obj, struct cap_group *new_c
     BUG_ON(!new_thread);
 
     ret = dsm_stw_copy_thread(thread_obj, thread_new_object);
-    if (ret) {
+    if (unlikely(ret)) {
         DSM_TIER_LOG_ERR("%s: failed to copy the thread: %p", __func__, thread_obj);
         return ret;
     }

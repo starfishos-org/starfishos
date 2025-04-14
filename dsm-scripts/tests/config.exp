@@ -13,6 +13,7 @@ array set program_names {
     "pyaes" "test_pyaes.bin"
     "pca" "pca.bin"
     "matrix_multiply" "matrix_multiply.bin"
+    "db1000" "rundb.bin"
     # ...
 }
 
@@ -27,6 +28,7 @@ array set program_args {
     "pyaes" "10000000 100 2"
     "pca" "-c 1000 -r 1000 -t 4"
     "matrix_multiply" "-l 3000 -r 3000 -t 4" 
+    "db1000" "-t8 -r1.0 -w0.0 -z0.6"
     # ...
 }
 # "leveldb" "--benchmarks=fillbatch --num=1000000"
@@ -43,5 +45,6 @@ array set program_expects {
     "pyaes" "Running /test_pyaes.bin"
     "pca" "inter library:"
     "matrix_multiply" "inter library:"
+    "db1000" "workload initialized"
     # ...
 }

@@ -568,6 +568,7 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         thread = current_thread;
         /* -2 means use global aff */
         BUG_ON(!thread);
+
         /* FIXME(FN): do not allow already bind thread to be changed */
         /* We can not change FPU owner */
         if (thread->thread_ctx->affinity != NO_AFF) {

@@ -159,6 +159,9 @@ int dsm_stw_copy_thread(struct object *src_obj, struct object *dst_obj)
     mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
     int ret = 0;
 
+    // kinfo("dsm_stw_copy_thread %s\n", src_thread->cap_group->cap_group_name);
+    // print_thread(src_thread);
+
     BUG_ON(!src_thread || !dst_thread || !src_thread->thread_ctx);
 
     /* Do not demote server threads */

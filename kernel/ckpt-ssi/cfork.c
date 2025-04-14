@@ -154,11 +154,11 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
     CFORK_LOG_DEBUG("ckpt_obj_root: %p, ckpt_obj_root->obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
 
     // add the cap group to the kvs
-    ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
-    if (ret) {
-        CFORK_LOG_ERR("cfork_ckpt: add_ckpt_obj_root_by_name failed\n");
-        goto out;
-    }
+    // ret = add_ckpt_obj_root_by_name(ckpt_obj_root, pname, pname_len);
+    // if (ret) {
+    //     CFORK_LOG_ERR("cfork_ckpt: add_ckpt_obj_root_by_name failed\n");
+    //     goto out;
+    // }
 
     CFORK_LOG_INFO("checkpoint %s done\n", pname);
 
@@ -206,6 +206,8 @@ retry:
     }
 
     CFORK_LOG_DEBUG("find_ckpt_obj_root_by_name: %p, obj_dst: %p\n", ckpt_obj_root, ckpt_obj_root->obj_dst);
+
+    ckpt_obj_root->valid = false;
 
     // restore the cap group
     // if ((ret = cfork_restore_process(ckpt_obj_root, &restored_cg))) {
