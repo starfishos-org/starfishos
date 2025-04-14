@@ -1,0 +1,13 @@
+#!/usr/bin/expect  
+
+set timeout 60
+set script_path [lindex $argv 0]
+
+if { $script_path == "" } {
+    set script_path "run_pca.sh"
+}
+
+# start
+spawn ./build/simulate.sh
+expect "kernel tests done"
+exit
