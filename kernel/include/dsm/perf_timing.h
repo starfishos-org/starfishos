@@ -50,9 +50,9 @@ static inline u64 perf_timing_get_time(void) {
 static inline void print_perf_cfork_time(void) {
     int i;
     for (i = PERF_CFORK_PREPARE; i < PERF_CFORK_RESTORE; i++) {
-        printk("perf_cfork_time[%s]: %llu us\n", // double precision
+        printk("perf_cfork_time[%s]: %llu ns\n", // double precision
             perf_cfork_type_str[i], 
-            perf_cfork_time[i] / 1000);
+            perf_cfork_time[i]);
     }
 
     for (i = 0; i < TYPE_NR; i++) {

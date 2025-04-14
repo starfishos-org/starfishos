@@ -12,6 +12,7 @@ array set program_names {
     "json" "test_json.bin"
     "pyaes" "test_pyaes.bin"
     "pca" "pca.bin"
+    "matrix_multiply" "matrix_multiply.bin"
     # ...
 }
 
@@ -24,7 +25,8 @@ array set program_args {
     "float" "100000000 2"
     "json" "english.json 2"
     "pyaes" "10000000 100 2"
-    "pca" "-c 500 -r 500 -t 2"
+    "pca" "-c 1000 -r 1000 -t 4"
+    "matrix_multiply" "-l 3000 -r 3000 -t 4" 
     # ...
 }
 # "leveldb" "--benchmarks=fillbatch --num=1000000"
@@ -40,5 +42,6 @@ array set program_expects {
     "json" "Running /test_json.bin"
     "pyaes" "Running /test_pyaes.bin"
     "pca" "inter library:"
+    "matrix_multiply" "inter library:"
     # ...
 }

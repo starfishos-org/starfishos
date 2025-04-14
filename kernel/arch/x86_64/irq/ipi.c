@@ -45,6 +45,7 @@ void handle_ipi_on_tlb_shootdown(void)
 
 extern void handle_wait_in_kernel(u32 cpuid);
 extern void handle_reset_sched(u32 cpuid);
+extern void stop_and_resched(u32 cpuid);
 void arch_handle_ipi(u32 ipi_vector)
 {
     switch (ipi_vector) {
@@ -60,6 +61,9 @@ void arch_handle_ipi(u32 ipi_vector)
     case IPI_RESET_SCHEDULE:
         handle_reset_sched(smp_get_cpu_id());
         /* should never return */
+        BUG("handle_reset_sched should never return\n");
+    case IPI_STOP_RESCHED:
+        return;
     default:
         BUG("Unsupported IPI vector %u\n", ipi_vector);
         break;

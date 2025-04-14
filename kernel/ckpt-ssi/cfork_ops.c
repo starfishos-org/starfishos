@@ -55,6 +55,10 @@ static int start_user_thread(struct thread *thread)
         return -EINVAL;
     }
 
+    // print_thread(thread);
+    // printk("thread %p fpu_state checksum: %lx vmspace: %p\n", 
+    // thread, calculate_checksum(thread->thread_ctx->fpu_state, STATE_AREA_SIZE), thread->vmspace);
+
     return ret;
 }
 
@@ -89,7 +93,7 @@ int start_all_threads(struct list_head *thread_list)
         }
 
         // print_thread(thread);
-        // CFORK_LOG_DEBUG("thread %p fpu_state checksum: %lx vmspace: %p\n", 
+        // printk("thread %p fpu_state checksum: %lx vmspace: %p\n", 
         // thread, calculate_checksum(thread->thread_ctx->fpu_state, STATE_AREA_SIZE), thread->vmspace);
     }
 
@@ -130,7 +134,7 @@ int stop_all_threads(struct list_head *thread_list)
         case TS_RUNNING:
         case TS_TO_SCHED:
             /* ask the cpu to reschedule a common thread that is running */
-            send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
+            send_ipi(thread->thread_ctx->cpuid, IPI_STOP_RESCHED);
             add_to_waiting_list(&waiting_thread_list, (void *)thread);
             break;
         case TS_READY:
@@ -195,13 +199,13 @@ int stop_all_threads(struct list_head *thread_list)
                 // print_thread(thread);
                 /* If the thread is scheduled to running */
                 if (thread->thread_ctx->state == TS_RUNNING) {
-                    send_ipi(thread->thread_ctx->cpuid, IPI_RESCHED);
+                    send_ipi(thread->thread_ctx->cpuid, IPI_STOP_RESCHED);
                 }
             }
         }
 
         // if (loop_cnt % 100000 == 0) {
-        //     CFORK_LOG_DEBUG("waiting for threads to stop: %d\n", loop_cnt);
+        //     printk("waiting for threads to stop: %d\n", loop_cnt);
         //     for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
         //         print_thread((struct thread *)node->data);
         //     }
@@ -284,7 +288,7 @@ int cfork_restore_process(struct ckpt_obj_root *ckpt_obj_root, struct cap_group 
     struct object *obj;
     struct cap_group *cg;
     
-    // contains tmp mapping from ckpt_obj_root to the restored object
+    // contains tmp mapping fromm ckpt_obj_root to the restored object
     obj_map = new_kvs(KVS_SIZE, __MT_PRIVATE__);
     if (!obj_map) {
         CFORK_LOG_ERR("Failed to allocate the obj_map");

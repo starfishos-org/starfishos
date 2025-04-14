@@ -139,6 +139,14 @@ void plat_enable_timer(void)
     x2apic_enable_timer();
 }
 
+void stop_and_resched(u32 cpuid)
+{
+    mark_in_kernel_ipi_tx(cpuid);
+    arch_ack_irq();
+    sched();
+    eret_to_thread(switch_context());
+}
+
 void handle_reset_sched(u32 cpuid)
 {
     current_thread = NULL;
@@ -220,6 +228,14 @@ void handle_irq(int irqno)
         return;
     case IRQ_IPI_RESET_SCHED:
         handle_ipi();
+        return;
+    case IRQ_IPI_STOP_RESCHED:
+        /* Start the scheduler */
+        handle_ipi();
+        arch_ack_irq();
+        sched();
+        eret_to_thread(switch_context());
+        return;
     /* should never return */
     default:
         kwarn("Unkown Exception\n");
@@ -341,6 +357,7 @@ void trap_c(arch_exec_ctx_t *ec)
     /* Just for kernel tracing and debugging */
     if ((trapno != IRQ_TIMER) && (trapno != T_PF) && (trapno != IRQ_IPI_TLB)
         && (trapno != IRQ_IPI_RESCHED) && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
+        && (trapno != IRQ_IPI_STOP_RESCHED)
         && (trapno != IRQ_IPI_RESET_SCHED) && (trapno != T_NM)) {
         kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
               ec->reg[RIP],
