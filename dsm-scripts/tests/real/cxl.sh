@@ -55,54 +55,7 @@ tmux new-window -n 1 "./build/simulate.sh 1"
 
 kernel_ready 1
 
-if [ $machine == "1" ]; then
-    echo "RUNNING MATRIX & LEVELDB & LINEAR REGRESSION"
-
-    tmux send -t $session_name:0 "source cross_stress_type1_m0.sh" ENTER
-    tmux send -t $session_name:1 "source cross_stress_type1_m1.sh" ENTER
-fi
-
-if [ $machine == "2" ]; then
-    echo "RUNNING LINEAR REGRESSION & DBX1000 & PCA"
-
-    tmux send -t $session_name:0 "write dbx1000_bind_cpu.txt 0-7" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write linear_regression_bind_cpu.txt 8-15" ENTER
-    sleep 1
-    tmux send -t $session_name:1 "write pca_bind_cpu.txt 16-23" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "$linear_regression" ENTER
-    tmux send -t $session_name:0 "$dbx1000" ENTER
-    tmux send -t $session_name:1 "$pca" ENTER
-fi
-
-if [ $machine == "3" ]; then
-    echo "RUNNING PCA & REDIS & WORD COUNT"
-
-    tmux send -t $session_name:0 "write redis_bind_cpu.txt 0-7" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write pca_bind_cpu.txt 8-15" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write word_count_bind_cpu.txt 16-23" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "$redis_server" ENTER
-    sleep 5
-    tmux send -t $session_name:0 "$pca" ENTER
-    tmux send -t $session_name:0 "$redis_benchmark" ENTER
-    tmux send -t $session_name:1 "$word_count" ENTER
-fi
-
-if [ $machine == "4" ]; then
-    echo "RUNNING WORD COUNT & MEMCACHED"
-
-    tmux send -t $session_name:0 "write word_count_bind_cpu.txt 0-7" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write memcached_bind_cpu.txt 3-11" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "$memcached_server" ENTER
-    sleep 5
-    tmux send -t $session_name:0 "$word_count" ENTER
-    tmux send -t $session_name:0 "$memcached_test" ENTER
-fi
+tmux send -t $session_name:0 "source cross_stress_type${machine}_m0.sh" ENTER
+tmux send -t $session_name:1 "source cross_stress_type${machine}_m1.sh" ENTER
 
 tmux a -t $session_name:0
