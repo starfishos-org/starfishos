@@ -1183,5 +1183,6 @@ int main(int argc, char** argv) {
   leveldb::Benchmark benchmark;
   benchmark.Run();
   std::fprintf(stderr, "Benchmark finished\n");
+  std::fprintf(stderr, "done\n");
   return 0;
 }
