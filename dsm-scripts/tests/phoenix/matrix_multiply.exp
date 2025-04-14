@@ -12,6 +12,6 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "matrix_multiply.bin -l 3000 -r 3000 -t $thread_num -c 0 \n"
+send -- "source run_matrix_multiply.sh\n"
 expect "done"
 exit
