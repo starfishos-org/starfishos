@@ -29,6 +29,39 @@ struct history_cmd_node *history_cmd_pointer = NULL;
 
 static int history_cmd_count = 0;
 
+/* Builtin command list */
+const char *builtin_commands[] = {
+	"cd",
+	"ls",
+	"clear",
+	"top",
+	"jobs",
+	"fg",
+	"history",
+	"source",
+	"quit",
+	"exit",
+	"sleep",
+	"pwd",
+	"echo",
+	"cat",
+	"mkdir",
+	"rm",
+	"touch"
+};
+
+const int builtin_commands_count = sizeof(builtin_commands) / sizeof(builtin_commands[0]);
+
+bool is_builtin_command(const char *cmd)
+{
+	for (int i = 0; i < builtin_commands_count; i++) {
+		if (strcmp(cmd, builtin_commands[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void init_buildin_cmd(void)
 {
 	init_list_head(&history_cmd_head);
@@ -62,40 +95,57 @@ int do_complement(char *buf, char *complement, int complement_time)
 	}
 	buf_lower[buf_len] = '\0';
 
-	/* XXX: only support '/' here */
-	int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-	if (root_fd < 0) {
-		return -1;
-	}
-
-	/* First pass: collect all matches */
-	do {
-		ret = getdents(root_fd, (struct dirent *)scan_buf, BUFLEN);
-		if (ret <= 0) {
-			break;
-		}
-
-		for (offset = 0; offset < ret; offset += p->d_reclen) {
-			p = (struct dirent *)(scan_buf + offset);
-			get_dent_name(p, name);
-			
-			/* Create lowercase version of name for comparison */
-			char name_lower[BUFLEN];
-			size_t name_len = strlen(name);
-			for (size_t i = 0; i < name_len; i++) {
-				name_lower[i] = tolower(name[i]);
-			}
-			name_lower[name_len] = '\0';
-			
-			/* Match at the beginning like bash, but case-insensitive */
-			if (strncmp(name_lower, buf_lower, buf_len) == 0) {
+	/* First check builtin commands */
+	if (strchr(buf, ' ') == NULL) { /* Only check builtins if no space in input */
+		for (int i = 0; i < builtin_commands_count; i++) {
+			if (strncmp(builtin_commands[i], buf, buf_len) == 0) {
 				if (count < 256) {
-					matches[count] = strdup(name);
+					matches[count] = strdup(builtin_commands[i]);
 					count++;
 				}
 			}
 		}
-	} while (ret > 0);
+	}
+
+	/* If no builtin matches, check files */
+	if (count == 0) {
+		/* XXX: only support '/' here */
+		int root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (root_fd < 0) {
+			return -1;
+		}
+
+		/* First pass: collect all matches */
+		do {
+			ret = getdents(root_fd, (struct dirent *)scan_buf, BUFLEN);
+			if (ret <= 0) {
+				break;
+			}
+
+			for (offset = 0; offset < ret; offset += p->d_reclen) {
+				p = (struct dirent *)(scan_buf + offset);
+				get_dent_name(p, name);
+				
+				/* Create lowercase version of name for comparison */
+				char name_lower[BUFLEN];
+				size_t name_len = strlen(name);
+				for (size_t i = 0; i < name_len; i++) {
+					name_lower[i] = tolower(name[i]);
+				}
+				name_lower[name_len] = '\0';
+				
+				/* Match at the beginning like bash, but case-insensitive */
+				if (strncmp(name_lower, buf_lower, buf_len) == 0) {
+					if (count < 256) {
+						matches[count] = strdup(name);
+						count++;
+					}
+				}
+			}
+		} while (ret > 0);
+
+		close(root_fd);
+	}
 
 	/* If we have matches */
 	if (count > 0) {
@@ -113,6 +163,12 @@ int do_complement(char *buf, char *complement, int complement_time)
 		/* Get the match based on complement_time (tab press count) */
 		int match_index = complement_time % count;
 		strlcpy(complement, matches[match_index], BUFLEN);
+		
+		/* Add a space after the command if it's a builtin command */
+		if (strchr(buf, ' ') == NULL && is_builtin_command(complement)) {
+			strlcat(complement, " ", BUFLEN);
+		}
+		
 		r = 0;
 
 		/* Free allocated memory */
@@ -121,20 +177,58 @@ int do_complement(char *buf, char *complement, int complement_time)
 		}
 	}
 
-	close(root_fd);
 	return r;
 }
 
 int do_cd(char *cmdline)
 {
+	char path[BUFLEN];
+	char *home_dir = getenv("HOME");
+	static char last_dir[BUFLEN] = {0};
+	char current_dir[BUFLEN];
+	int ret;
+
+	/* Get current directory for 'cd -' */
+	if (getcwd(current_dir, BUFLEN) == NULL) {
+		printf("cd: cannot get current directory\n");
+		return -1;
+	}
+
+	/* Skip the 'cd' command and any spaces */
 	cmdline += 2;
 	while (*cmdline == ' ')
 		cmdline++;
-	if (*cmdline == '\0')
-		return 0;
-	if (*cmdline != '/') {
+
+	/* Handle different cases */
+	if (*cmdline == '\0' || strcmp(cmdline, "~") == 0) {
+		/* cd or cd ~ - go to home directory */
+		if (home_dir == NULL) {
+			printf("cd: HOME environment variable not set\n");
+			return -1;
+		}
+		strlcpy(path, home_dir, BUFLEN);
+	} else if (strcmp(cmdline, "-") == 0) {
+		/* cd - - go to last directory */
+		if (last_dir[0] == '\0') {
+			printf("cd: no previous directory\n");
+			return -1;
+		}
+		strlcpy(path, last_dir, BUFLEN);
+		printf("%s\n", path); /* Print the directory we're changing to */
+	} else {
+		/* Normal path */
+		strlcpy(path, cmdline, BUFLEN);
 	}
-	printf("Build-in command cd %s: Not implemented!\n", cmdline);
+
+	/* Try to change directory */
+	ret = chdir(path);
+	if (ret < 0) {
+		printf("cd: cannot change to directory '%s': %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	/* Save current directory for 'cd -' */
+	strlcpy(last_dir, current_dir, BUFLEN);
 	return 0;
 }
 
@@ -535,4 +629,221 @@ void clear_history_point(void)
 	history_cmd_pointer = NULL;
 }
 
+int do_source(char *cmdline)
+{
+	char script_path[BUFLEN];
+	FILE *fp;
+	char line[BUFLEN];
+	int ret = 0;
 
+	/* Skip the 'source' command and any spaces */
+	cmdline += 6;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("source: missing file operand\n");
+		return -1;
+	}
+
+	/* Get the script path */
+	strlcpy(script_path, cmdline, BUFLEN);
+
+	/* Open the script file */
+	fp = fopen(script_path, "r");
+	if (fp == NULL) {
+		printf("source: cannot open '%s': %s\n", script_path, strerror(errno));
+		return -1;
+	}
+
+	/* Read and execute each line */
+	while (fgets(line, BUFLEN, fp) != NULL) {
+		/* Remove trailing newline */
+		line[strcspn(line, "\n")] = 0;
+
+		/* Skip empty lines and comments */
+		if (line[0] == '\0' || line[0] == '#')
+			continue;
+
+		/* Execute the command */
+		if ((ret = builtin_cmd(line)) != 0) {
+			if (ret < 0) {
+				printf("Error executing command: %s\n", line);
+				break;
+			}
+			continue;
+		}
+		if ((ret = run_cmd(line)) < 0) {
+			printf("Cannot run %s, ERROR %d\n", line, ret);
+			break;
+		}
+	}
+
+	fclose(fp);
+	return ret;
+}
+
+int do_sleep(char *cmdline)
+{
+	char *endptr;
+	long seconds;
+
+	/* Skip the 'sleep' command and any spaces */
+	cmdline += 5;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("sleep: missing operand\n");
+		return -1;
+	}
+
+	/* Convert the argument to a number */
+	seconds = strtol(cmdline, &endptr, 10);
+	if (*endptr != '\0') {
+		printf("sleep: invalid time interval '%s'\n", cmdline);
+		return -1;
+	}
+
+	if (seconds < 0) {
+		printf("sleep: time interval cannot be negative\n");
+		return -1;
+	}
+
+	/* Sleep for the specified number of seconds */
+	usleep(seconds * 1000000);
+	return 0;
+}
+
+int do_pwd(char *cmdline)
+{
+	char cwd[BUFLEN];
+	if (getcwd(cwd, BUFLEN) != NULL) {
+		printf("%s\n", cwd);
+		return 0;
+	} else {
+		printf("pwd: cannot get current directory\n");
+		return -1;
+	}
+}
+
+int do_echo(char *cmdline)
+{
+	/* Skip the 'echo' command and any spaces */
+	cmdline += 4;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	/* Print the rest of the command line */
+	printf("%s\n", cmdline);
+	return 0;
+}
+
+int do_cat(char *cmdline)
+{
+	FILE *fp;
+	char line[BUFLEN];
+	int ret = 0;
+
+	/* Skip the 'cat' command and any spaces */
+	cmdline += 3;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("cat: missing file operand\n");
+		return -1;
+	}
+
+	/* Open the file */
+	fp = fopen(cmdline, "r");
+	if (fp == NULL) {
+		printf("cat: cannot open '%s': %s\n", cmdline, strerror(errno));
+		return -1;
+	}
+
+	/* Read and print each line */
+	while (fgets(line, BUFLEN, fp) != NULL) {
+		printf("%s", line);
+	}
+
+	fclose(fp);
+	return ret;
+}
+
+int do_mkdir(char *cmdline)
+{
+	int ret;
+	char path[BUFLEN];
+
+	/* Skip the 'mkdir' command and any spaces */
+	cmdline += 5;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("mkdir: missing operand\n");
+		return -1;
+	}
+
+	/* Get the path */
+	strlcpy(path, cmdline, BUFLEN);
+
+	/* Create the directory */
+	ret = mkdir(path, 0755);
+	if (ret < 0) {
+		printf("mkdir: cannot create directory '%s': %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+int do_rm(char *cmdline)
+{
+	int ret;
+
+	/* Skip the 'rm' command and any spaces */
+	cmdline += 2;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("rm: missing operand\n");
+		return -1;
+	}
+
+	/* Remove the file */
+	ret = unlink(cmdline);
+	if (ret < 0) {
+		printf("rm: cannot remove '%s': %s\n", cmdline, strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+int do_touch(char *cmdline)
+{
+	FILE *fp;
+
+	/* Skip the 'touch' command and any spaces */
+	cmdline += 5;
+	while (*cmdline == ' ')
+		cmdline++;
+
+	if (*cmdline == '\0') {
+		printf("touch: missing file operand\n");
+		return -1;
+	}
+
+	/* Try to open the file for writing */
+	fp = fopen(cmdline, "a");
+	if (fp == NULL) {
+		printf("touch: cannot touch '%s': %s\n", cmdline, strerror(errno));
+		return -1;
+	}
+
+	fclose(fp);
+	return 0;
+}

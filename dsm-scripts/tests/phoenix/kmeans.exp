@@ -15,5 +15,3 @@ expect "Welcome to ChCore shell!"
 send -- "kmeans.bin -p 100000 -t $thread_num \n"
 expect "done"
 exit
-
-interact

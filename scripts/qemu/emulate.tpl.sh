@@ -37,5 +37,5 @@ echo $port >$basedir/gdb-port-$vm_id
 cxl_backend_file="/tmp/cxltest0.raw"
 
 $basedir/../scripts/qemu/qemu_wrapper.sh  $vm_id \
-	@qemu@ -gdb tcp::$port @qemu_options@ | tee exec_log
-# @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log
+	@qemu@ -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log
+# @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log

@@ -828,7 +828,6 @@ benchmark_run(int argc, char** argv) {
 		for (size_t ithread = 0; ithread < thread_count; ++ithread) {
 			thread_join(thread_handle[ithread]);
 			ticks += arg[ithread].ticks;
-			printf("thread %lu cost %.8f\n", ithread, timer_ticks_to_seconds(arg[ithread].ticks));
 			mops += arg[ithread].mops;
 			if (!arg[ithread].accumulator)
 				exit(-1);
@@ -869,6 +868,8 @@ benchmark_run(int argc, char** argv) {
 	fprintf(stderr, "\n%u memory ops/CPU second (peak %uMiB)\n",
 	       (unsigned int)average_mops,
 	       (unsigned int)(process_peak_usage / (1024 * 1024)));
+	fprintf(stderr, "throughput(ops/s): %lu\n", (size_t)average_mops * thread_count);
+	fprintf(stderr, "done\n");
 	fflush(stderr);
 
 	if (fd)

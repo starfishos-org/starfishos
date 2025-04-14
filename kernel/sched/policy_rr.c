@@ -16,6 +16,7 @@
 #include <irq/irq.h>
 #include <sched/context.h>
 #include <sched/sched.h>
+#include <arch/time.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
@@ -531,6 +532,18 @@ int rr_sched(void)
         if (old->thread_ctx->type != TYPE_SHADOW
             && old->thread_ctx->type != TYPE_REGISTER) {
             BUG_ON(!old->thread_ctx->sc);
+        }
+
+        /* Update scheduling history for old thread */
+        u32 current_cpu = cpuid_l2g(smp_get_cpu_id());
+        /* Only record if the current CPU is different from the previous one */
+        if (old->sched_history.history_count == 0 || 
+            old->sched_history.cpu_history[(old->sched_history.history_index + MAX_SCHED_HISTORY - 1) % MAX_SCHED_HISTORY] != current_cpu) {
+            old->sched_history.cpu_history[old->sched_history.history_index] = current_cpu;
+            old->sched_history.history_index = (old->sched_history.history_index + 1) % MAX_SCHED_HISTORY;
+            if (old->sched_history.history_count < MAX_SCHED_HISTORY) {
+                old->sched_history.history_count++;
+            }
         }
 
         switch (old->thread_ctx->thread_exit_state) {

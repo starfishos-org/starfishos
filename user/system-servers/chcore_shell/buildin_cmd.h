@@ -22,6 +22,13 @@ struct history_cmd_node {
 };
 extern struct history_cmd_node *history_cmd_pointer;
 
+/* Builtin command list */
+extern const char *builtin_commands[];
+extern const int builtin_commands_count;
+
+/* Function to check if a command is builtin */
+bool is_builtin_command(const char *cmd);
+
 void init_buildin_cmd(void);
 
 void add_cmd_to_history(char *cmd);
@@ -37,3 +44,11 @@ int do_fg(char *cmdline);
 void do_history(void);
 bool do_up(void);
 bool do_down(void);
+int do_source(char *cmdline);
+int do_sleep(char *cmdline);
+int do_pwd(char *cmdline);
+int do_echo(char *cmdline);
+int do_cat(char *cmdline);
+int do_mkdir(char *cmdline);
+int do_rm(char *cmdline);
+int do_touch(char *cmdline);

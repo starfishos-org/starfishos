@@ -38,6 +38,7 @@
  *	- switches to C
  */
 
+#include "sched/sched.h"
 #include <ipc/connection.h>
 #include <mm/kmalloc.h>
 #include <mm/uaccess.h>
@@ -369,6 +370,8 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 
     /* Pass the scheduling context */
     target->thread_ctx->sc = current_thread->thread_ctx->sc;
+
+    target->shadow_caller_thread = current_thread;
 
     /* Set target thread SP/IP/arg */
 #if defined(CHCORE_ARCH_X86_64)

@@ -85,6 +85,11 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
     // FN: mark empty to check when deinit thread
     init_list_head(&thread->ready_queue_node);
 
+    /* Initialize scheduling history */
+    memset(thread->sched_history.cpu_history, 0, sizeof(thread->sched_history.cpu_history));
+    thread->sched_history.history_count = 0;
+    thread->sched_history.history_index = 0;
+
     return 0;
 }
 

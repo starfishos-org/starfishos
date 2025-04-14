@@ -42,6 +42,9 @@ add_custom_target(
     COMMAND ${_copy_chpm_install_cmd}
     # libevent
     COMMAND rsync -a /usr/libevent/lib/libevent-2.2.so.1.0.0 ${build_ramdisk_dir}/libevent-2.2.so.1
+
+    COMMAND rsync -a ${CMAKE_CURRENT_SOURCE_DIR}/script/* ${build_ramdisk_dir}/
+
     # install custom ramdisk content
     COMMAND [ -d ${custom_ramdisk_dir} ] && rsync -av ${custom_ramdisk_dir}/* . || echo "No custom ramdisk found, skipping"
     # archive ramdisk into ramdisk.cpio

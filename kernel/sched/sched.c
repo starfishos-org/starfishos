@@ -86,7 +86,7 @@ void print_thread(struct thread *thread)
            thread->thread_ctx->prio,
            arch_get_thread_next_ip(thread),
            thread->cap_group ? thread->cap_group->cap_group_name : "NULL");
-
+    display_sched_history(thread);
 #if TRACK_THREAD_MM == ON
     printk("Thread Mem_size:0x%lx\n", thread->mm_size);
 #endif
@@ -336,6 +336,10 @@ s32 get_cpubind(struct thread *thread)
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
     s32 affinity, is_fpu_owner;
     u32 local_cpuid;
+
+    if (thread->thread_ctx->type == TYPE_SHADOW && thread->shadow_caller_thread) {
+        return cpuid_l2g(thread->shadow_caller_thread->thread_ctx->cpuid);
+    }
 
     local_cpuid = smp_get_cpu_id();
     affinity = thread->thread_ctx->affinity;

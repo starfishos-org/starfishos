@@ -45,28 +45,21 @@ welcome_str="Welcome to ChCore shell!"
 
 echo "machine type: $machine"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
-tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 | tee exec_log0.log"
+tmux new -d -s $session_name -n 0 "./build/simulate.sh 0"
 
 sleep 3
 
 kernel_ready 0
 
-tmux new-window -n 1 "./build/simulate.sh 1 | tee exec_log1.log"
+tmux new-window -n 1 "./build/simulate.sh 1"
 
 kernel_ready 1
 
 if [ $machine == "1" ]; then
     echo "RUNNING MATRIX & LEVELDB & LINEAR REGRESSION"
 
-    tmux send -t $session_name:0 "write leveldb_bind_cpu.txt 0-7" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "write matrix_bind_cpu.txt 8-15" ENTER
-    sleep 1
-    tmux send -t $session_name:1 "write linear_regression_bind_cpu.txt 16-23" ENTER
-    sleep 1
-    tmux send -t $session_name:0 "$matrix" ENTER
-    tmux send -t $session_name:0 "$leveldb" ENTER
-    tmux send -t $session_name:1 "$linear_regression" ENTER
+    tmux send -t $session_name:0 "source cross_stress_type1_m0.sh" ENTER
+    tmux send -t $session_name:1 "source cross_stress_type1_m1.sh" ENTER
 fi
 
 if [ $machine == "2" ]; then
