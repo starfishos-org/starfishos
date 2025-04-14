@@ -83,7 +83,7 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     src_cap_group = (struct cap_group *)object2obj(src_cap_group_obj);
     
     /* ckpt the threads */
-    ret = ckpt_each_object_in_cap_group(src_cap_group,  (1L << TYPE_THREAD));
+    ret = stw_copy_each_object_in_cap_group(src_cap_group,  (1L << TYPE_THREAD));
     if (ret) {
         DSM_TIER_LOG_ERR("%s: failed to ckpt thread\n", __func__);
         return ret;
@@ -99,7 +99,7 @@ int dsm_migrate_process_ckpt(struct object *src_cap_group_obj)
     dst_cap_group_obj = dsm_get_object_by_mem_type(src_cap_group_obj, __MT_SHARED__, false);
     BUG_ON(!dst_cap_group_obj);
 
-    ret = dsm_ckpt_cap_group(src_cap_group_obj, dst_cap_group_obj);
+    ret = dsm_stw_copy_cap_group(src_cap_group_obj, dst_cap_group_obj);
     if (ret) {
         DSM_TIER_LOG_ERR("%s: failed to ckpt cap group\n", __func__);
         return ret;
@@ -174,6 +174,14 @@ static int dsm_promote_thread(struct object *thread_obj, struct cap_group *new_c
     BUG_ON(!thread_new_object);
     new_thread = (struct thread *)object2obj(thread_new_object);
     BUG_ON(!new_thread);
+
+    ret = dsm_stw_copy_thread(thread_obj, thread_new_object);
+    if (ret) {
+        DSM_TIER_LOG_ERR("%s: failed to copy the thread: %p", __func__, thread_obj);
+        return ret;
+    }
+
+    /* Update thread affinity to avoid cross machine rescheduling */
     if (unlikely(new_thread->thread_ctx->affinity != NO_AFF)) {
         new_thread->thread_ctx->affinity = NO_AFF;
     }
@@ -181,6 +189,9 @@ static int dsm_promote_thread(struct object *thread_obj, struct cap_group *new_c
     /* add the thread to the cap group */
     new_thread->cap_group = new_cap_group;
     BUG_ON(new_thread->vmspace == NULL || new_thread->vmspace->pgtbl == NULL);
+
+    // DSM_TIER_LOG_DEBUG("%s: promote thread: %p\n", __func__, new_thread);
+    // print_thread(new_thread);
 
     return 0;
 }

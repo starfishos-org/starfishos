@@ -63,7 +63,7 @@ int dsm_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_c
     return 0;
 }
 
-int dsm_ckpt_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_cap_group, mem_t mem_type)
+int dsm_stw_copy_slot_table(struct cap_group *src_cap_group, struct cap_group *dst_cap_group, mem_t mem_type)
 {
     struct slot_table *src_slot_table = &src_cap_group->slot_table;
     struct slot_table *dst_slot_table = &dst_cap_group->slot_table;
@@ -134,7 +134,7 @@ int dsm_copy_cap_group(struct object *src_obj, struct object *dst_obj)
     return 0;
 }
 
-int dsm_ckpt_cap_group(struct object *src_obj, struct object *dst_obj)
+int dsm_stw_copy_cap_group(struct object *src_obj, struct object *dst_obj)
 {
     struct cap_group *src_cap_group = (struct cap_group *)src_obj->opaque;
     struct cap_group *dst_cap_group = (struct cap_group *)dst_obj->opaque;
@@ -145,7 +145,7 @@ int dsm_ckpt_cap_group(struct object *src_obj, struct object *dst_obj)
     BUG_ON(dst_cap_group->futex == NULL);
     futex_copy(src_cap_group->futex, dst_cap_group->futex, mem_type);
 
-    if ((ret = dsm_ckpt_slot_table(src_cap_group, dst_cap_group, mem_type)) != 0) {
+    if ((ret = dsm_stw_copy_slot_table(src_cap_group, dst_cap_group, mem_type)) != 0) {
         DSM_TIER_LOG_ERR("%s: failed to ckpt slot table\n", __func__);
         return ret;
     }

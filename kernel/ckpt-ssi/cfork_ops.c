@@ -213,10 +213,10 @@ int stop_all_threads(struct list_head *thread_list)
     }
 
     CFORK_LOG_DEBUG("%s: all threads have been stoped:\n", __func__);
-    for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
-        print_thread(thread);
-        CFORK_LOG_DEBUG("thread %p fpu_state checksum: %lx\n", thread, calculate_checksum(thread->thread_ctx->fpu_state, STATE_AREA_SIZE));
-    }
+    // for_each_in_list_safe(thread, thread_tmp, node, thread_list) {
+    //     print_thread(thread);
+    //     CFORK_LOG_DEBUG("thread %p fpu_state checksum: %lx\n", thread, calculate_checksum(thread->thread_ctx->fpu_state, STATE_AREA_SIZE));
+    // }
 
     return 0;
 }

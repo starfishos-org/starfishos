@@ -19,22 +19,23 @@ enum perf_cfork_type {
     PERF_CFORK_RESTORE,
     PERF_CFORK_RESTORE_KVS,
     PERF_CFORK_RESTORE_PROMOTE_THREADS,
-    PERF_CFORK_START_ALL_THREADS,
+    PERF_CFORK_RESTORE_START_ALL_THREADS,
     PERF_CFORK_TYPE_NR,
 };
 
 static const char *perf_cfork_type_str[PERF_CFORK_TYPE_NR] = {
     [0 ... PERF_CFORK_TYPE_NR - 1] = "",
-    [PERF_CFORK_PREPARE_KVS] = "PERF_CFORK_PREPARE_KVS",
-    [PERF_CFORK_CKPT_STOP_ALL_THREADS] = "PERF_CFORK_CKPT_STOP_ALL_THREADS",
-    [PERF_CFORK_CKPT] = "PERF_CFORK_CKPT",
-    [PERF_CFORK_RESTORE] = "PERF_CFORK_RESTORE",
-    [PERF_CFORK_CKPT_STOP_ALL_THREADS] = "PERF_CFORK_CKPT_STOP_ALL_THREADS",
-    [PERF_CFORK_CKPT_THREADS] = "PERF_CFORK_CKPT_THREADS",
-    [PERF_CFORK_CKPT_OTHER] = "PERF_CFORK_CKPT_OTHER",
-    [PERF_CFORK_RESTORE_KVS] = "PERF_CFORK_RESTORE_KVS",
-    [PERF_CFORK_RESTORE_PROMOTE_THREADS] = "PERF_CFORK_RESTORE_PROMOTE_THREADS",
-    [PERF_CFORK_START_ALL_THREADS] = "PERF_CFORK_START_ALL_THREADS",
+    [PERF_CFORK_PREPARE] = "PREPARE",
+    [PERF_CFORK_PREPARE_KVS] = "PREPARE_KVS",
+    [PERF_CFORK_CKPT] = "CKPT",
+    [PERF_CFORK_CKPT_STOP_ALL_THREADS] = "CKPT_STOP_ALL_THREADS",
+    [PERF_CFORK_CKPT_THREADS] = "CKPT_THREADS",
+    [PERF_CFORK_CKPT_CAP_GROUP] = "CKPT_CAP_GROUP",
+    [PERF_CFORK_CKPT_OTHER] = "CKPT_OTHER",
+    [PERF_CFORK_RESTORE] = "RESTORE",
+    [PERF_CFORK_RESTORE_KVS] = "RESTORE_KVS",
+    [PERF_CFORK_RESTORE_PROMOTE_THREADS] = "RESTORE_PROMOTE_THREADS",
+    [PERF_CFORK_RESTORE_START_ALL_THREADS] = "RESTORE_START_ALL_THREADS",
 };
 
 extern u64 perf_cfork_time[];
@@ -48,17 +49,26 @@ static inline u64 perf_timing_get_time(void) {
 
 static inline void print_perf_cfork_time(void) {
     int i;
-    for (i = 0; i < PERF_CFORK_TYPE_NR; i++) {
+    for (i = PERF_CFORK_PREPARE; i < PERF_CFORK_RESTORE; i++) {
         printk("perf_cfork_time[%s]: %llu us\n", // double precision
             perf_cfork_type_str[i], 
             perf_cfork_time[i] / 1000);
     }
 
     for (i = 0; i < TYPE_NR; i++) {
-        printk("prepare copy time object: %s, %llu us, cnt: %llu\n", // double precision
+        printk("prepare copy time object: %s, %llu ns, cnt: %llu\n", // double precision
             obj_name_tbl[i], 
-            perf_dsm_obj_copy_time[i] / 1000,
+            perf_dsm_obj_copy_time[i],
             perf_dsm_obj_count[i]);
+    }
+}
+
+static inline void print_perf_restore_time(void) {
+    int i;
+    for (i = PERF_CFORK_RESTORE; i < PERF_CFORK_TYPE_NR; i++) {
+        printk("perf_restore_time[%s]: %llu ns\n", // double precision
+            perf_cfork_type_str[i], 
+            perf_cfork_time[i]);
     }
 }
 #endif

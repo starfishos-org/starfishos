@@ -151,7 +151,7 @@ int dsm_copy_shadow_thread(struct thread *src_thread, struct thread *dst_thread,
     return 0;
 }
 
-int dsm_ckpt_thread(struct object *src_obj, struct object *dst_obj)
+int dsm_stw_copy_thread(struct object *src_obj, struct object *dst_obj)
 {
     struct thread *src_thread = (struct thread *)src_obj->opaque;
     struct thread *dst_thread = (struct thread *)dst_obj->opaque;

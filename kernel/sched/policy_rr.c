@@ -360,14 +360,21 @@ int rr_sched_enqueue(struct thread *thread)
 #endif
 
     /* Check Prio */
-    if (unlikely(thread->thread_ctx->prio > MAX_PRIO))
+    if (unlikely(thread->thread_ctx->prio > MAX_PRIO)) {
+        kwarn("thread %s prio %d is out of range\n",
+              thread->cap_group->cap_group_name,
+              thread->thread_ctx->prio);
         return -EINVAL;
+    }
 
 #ifdef DSM_ENABLED
     if (unlikely(gcpuid < 0 || gcpuid >= CLUSTER_CPU_NUM)) {
 #else
     if (unlikely(gcpuid < 0 || gcpuid >= PLAT_CPU_NUM)) {
 #endif
+        kwarn("thread %s gcpuid %d is out of range\n",
+              thread->cap_group->cap_group_name,
+              gcpuid);
         return -EINVAL;
     }
 
@@ -580,7 +587,10 @@ int rr_sched(void)
             }
             rr_sched_refill_budget(old, DEFAULT_BUDGET);
             old->thread_ctx->state = TS_TO_SCHED;
-            BUG_ON(rr_sched_enqueue(old) != 0);
+            if (rr_sched_enqueue(old) != 0) {
+                print_thread(old);
+                BUG("failed to enqueue thread: %s\n", old->cap_group->cap_group_name);
+            }
             break;
         case TS_WAITING:
         case TS_WAITING_IPC:

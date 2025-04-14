@@ -100,7 +100,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
 #ifdef PERF_TIMING_CFORK
     end_time = plat_get_mono_time();
-    perf_cfork_time[PERF_CFORK_CKPT_OTHER] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_PREPARE_KVS] += end_time - start_time;
     start_time = end_time;
 #endif
     cap_group = (struct cap_group *)(ckpt_obj_root->obj_src->opaque);
@@ -218,7 +218,7 @@ retry:
 
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_PREPARE_KVS] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_RESTORE_KVS] += end_time - start_time;
     start_time = end_time;
 #endif
 
@@ -233,7 +233,7 @@ retry:
 
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_RESTORE] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_RESTORE_PROMOTE_THREADS] += end_time - start_time;
     start_time = end_time;
 #endif
 
@@ -252,7 +252,7 @@ retry:
     }
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_START_ALL_THREADS] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_RESTORE_START_ALL_THREADS] += end_time - start_time;
     start_time = end_time;
 #endif
 
@@ -262,7 +262,7 @@ out:
     kfree(pname);
 
 #ifdef PERF_TIMING_CFORK
-    print_perf_cfork_time();
+    print_perf_restore_time();
 #endif
     return ret;
 }

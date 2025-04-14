@@ -22,15 +22,15 @@ const dsm_copy_func dsm_copy_tbl[TYPE_NR] = {
         [TYPE_VMSPACE] = dsm_copy_vmspace,
 };
 
-const dsm_ckpt_func dsm_ckpt_tbl[TYPE_NR] = {
+const dsm_stw_copy_func dsm_stw_copy_tbl[TYPE_NR] = {
         [0 ... TYPE_NR - 1] = NULL,
-        [TYPE_CAP_GROUP] = dsm_ckpt_cap_group,
-        [TYPE_THREAD] = dsm_ckpt_thread,
-        [TYPE_CONNECTION] = dsm_ckpt_connection,
-        [TYPE_NOTIFICATION] = dsm_ckpt_notification,
-        [TYPE_IRQ] = dsm_ckpt_irq,
-        [TYPE_PMO] = dsm_ckpt_pmo,
-        [TYPE_VMSPACE] = dsm_ckpt_vmspace,
+        [TYPE_CAP_GROUP] = dsm_stw_copy_cap_group,
+        [TYPE_THREAD] = dsm_stw_copy_thread,
+        [TYPE_CONNECTION] = dsm_stw_copy_connection,
+        [TYPE_NOTIFICATION] = dsm_stw_copy_notification,
+        [TYPE_IRQ] = dsm_stw_copy_irq,
+        [TYPE_PMO] = dsm_stw_copy_pmo,
+        [TYPE_VMSPACE] = dsm_stw_copy_vmspace,
 };
 
 static int __dsm_tiering_start_migration(struct object *obj)
@@ -237,7 +237,7 @@ copy_again:
     return 0;
 }
 
-int ckpt_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
+int stw_copy_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
     int slot_id;
@@ -254,7 +254,7 @@ int ckpt_each_object_in_cap_group(struct cap_group *cap_group, u64 type_mask)
 
         struct object *dst_obj = dsm_get_object_by_mem_type(object, __MT_SHARED__, false);
         BUG_ON(!dst_obj);
-        dsm_copy_func func = dsm_copy_tbl[object->type];
+        dsm_stw_copy_func func = dsm_stw_copy_tbl[object->type];
         if (!func) {
             DSM_TIER_LOG_ERR("dsm tiering copy function not found\n");
             return -EINVAL;

@@ -15,14 +15,14 @@
  * ChCore will check each free operation in the slab allocator.
  * Please refer to kernel/mm/slab.c.
  */
-#define DETECTING_DOUBLE_FREE_IN_SLAB ON
+#define DETECTING_DOUBLE_FREE_IN_SLAB OFF
 
 /*
  * When CHECK_FREE_COUNT_IN_SLAB is ON,
  * ChCore will check each slot's free cnt in the slab allocator.
  * Please refer to kernel/mm/slab.c.
  */
-#define CHECK_FREE_COUNT_IN_SLAB ON
+#define CHECK_FREE_COUNT_IN_SLAB OFF
 
 /*
  * When ENABLE_BACKTRACE_FUNC is ON,

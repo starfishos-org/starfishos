@@ -21,6 +21,7 @@ static struct lock cxl_slabs_locks[SLAB_MAX_ORDER + 1];
 #define cxl_slabs_locks (dsm_meta->slabs_locks)
 #endif
 
+#if CHECK_FREE_COUNT_IN_SLAB == ON
 static bool check_slot_free_count(struct slab_header *slab)
 {
     struct slab_slot_list *cur_slot;
@@ -44,6 +45,7 @@ static bool check_slot_free_count(struct slab_header *slab)
 
     return 0;
 }
+#endif
 
 static void *alloc_slab_memory(unsigned long size)
 {

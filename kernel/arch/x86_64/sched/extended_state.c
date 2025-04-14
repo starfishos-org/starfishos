@@ -250,7 +250,7 @@ void save_and_release_fpu(struct thread *thread, u32 cpuid)
 /* use this function to copy fpu state for checkpoint */
 void copy_fpu_state(void *src_fpu_state, void *dst_fpu_state)
 {
-    extern void memcpy_nt(void *dst, void *src, size_t len);
-    memcpy_nt(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
-    // memcpy(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
+    // extern void memcpy_nt(void *dst, void *src, size_t len);
+    // memcpy_nt(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
+    memcpy(dst_fpu_state, src_fpu_state, STATE_AREA_SIZE);
 }

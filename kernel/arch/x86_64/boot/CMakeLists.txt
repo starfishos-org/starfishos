@@ -58,6 +58,7 @@ if(CHCORE_SSI)
       -device ivshmem-plain,memdev=hostfs \
       -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
     )
+  
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL")
     chcore_generate_emulate_sh(
       "qemu-6.2-system-x86_64"
