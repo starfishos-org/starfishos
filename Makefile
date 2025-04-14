@@ -139,6 +139,9 @@ word_count: clean-dsm
 histogram: clean-dsm
 	./dsm-scripts/tests/phoenix/histogram.exp $(T)
 
+kmalloc: clean-dsm
+	./dsm-scripts/tests/kmalloc.exp
+
 clean-ramdisk:
 	rm -rf ./user/build/ramdisk/*
 
