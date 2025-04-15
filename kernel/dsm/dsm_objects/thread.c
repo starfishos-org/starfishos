@@ -60,9 +60,9 @@ int dsm_copy_ipc_config(void *src_ipc_config, void **dst_ipc_config, mem_t mem_t
 {
     switch (((struct ipc_config *)src_ipc_config)->config_type) {
     case IPC_SERVER_REGISTER_CB: {
-        if (!*dst_ipc_config) {
+        if (unlikely(!*dst_ipc_config)) {
             *dst_ipc_config = kmalloc(sizeof(struct ipc_server_register_cb_config), mem_type);
-            if (!*dst_ipc_config) {
+            if (unlikely(!*dst_ipc_config)) {
                 return -ENOMEM;
             }
         }
@@ -70,9 +70,9 @@ int dsm_copy_ipc_config(void *src_ipc_config, void **dst_ipc_config, mem_t mem_t
         break;
     }
     case IPC_SERVER_HANDLER: {
-        if (!*dst_ipc_config) {
+        if (unlikely(!*dst_ipc_config)) {
             *dst_ipc_config = kmalloc(sizeof(struct ipc_server_handler_config), mem_type);
-            if (!*dst_ipc_config) {
+            if (unlikely(!*dst_ipc_config)) {
                 return -ENOMEM;
             }
         }
@@ -80,9 +80,9 @@ int dsm_copy_ipc_config(void *src_ipc_config, void **dst_ipc_config, mem_t mem_t
         break;
     }
     case IPC_SERVER: {
-        if (!*dst_ipc_config) {
+        if (unlikely(!*dst_ipc_config)) {
             *dst_ipc_config = kmalloc(sizeof(struct ipc_server_config), mem_type);
-            if (!*dst_ipc_config) {
+            if (unlikely(!*dst_ipc_config)) {
                 return -ENOMEM;
             }
         }
@@ -109,8 +109,8 @@ static void dsm_copy_thread_ctx(struct thread_ctx *src_ctx, struct thread_ctx *d
     dst_ctx->fpu_state_flags = src_ctx->fpu_state_flags;
 
     if (src_ctx->sc) {
-        if (!dst_ctx->sc) {
-            dst_ctx->sc = kzalloc(sizeof(struct sched_cont), mem_type);
+        if (unlikely(!dst_ctx->sc)) {
+            dst_ctx->sc = kmalloc(sizeof(struct sched_cont), mem_type);
             BUG_ON(!dst_ctx->sc);
         }
         dst_ctx->sc->budget = src_ctx->sc->budget;
@@ -118,7 +118,7 @@ static void dsm_copy_thread_ctx(struct thread_ctx *src_ctx, struct thread_ctx *d
 
     /* Only available for x86 */
     if (src_ctx->fpu_state) {
-        if (!dst_ctx->fpu_state) {
+        if (unlikely(!dst_ctx->fpu_state)) {
             dst_ctx->fpu_state = kmalloc(STATE_AREA_SIZE, mem_type);
             BUG_ON(!dst_ctx->fpu_state);
         }
@@ -151,7 +151,7 @@ int dsm_copy_shadow_thread(struct thread *src_thread, struct thread *dst_thread,
     return 0;
 }
 
-int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
+int dsm_ckpt_thread(struct object *src_obj, struct object *dst_obj)
 {
     struct thread *src_thread = (struct thread *)src_obj->opaque;
     struct thread *dst_thread = (struct thread *)dst_obj->opaque;
@@ -162,26 +162,15 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     BUG_ON(!src_thread || !dst_thread || !src_thread->thread_ctx);
 
     /* Do not demote server threads */
-    if (src_thread->thread_ctx->type == TYPE_SERVICES) {
-        DSM_TIER_LOG_DEBUG("server thread %s; skip and not add to cap group\n", 
-            src_thread->cap_group->cap_group_name);
-        dst_obj->dsm_type = DSM_TYPE_THREAD_SERVICES;
+    if (src_thread->thread_ctx->type == TYPE_SERVICES || src_thread->thread_ctx->type == TYPE_SHADOW) {
         return 0;
-    } else if (src_thread->thread_ctx->type == TYPE_SHADOW) {
-        dst_obj->dsm_type = DSM_TYPE_THREAD_SHADOW;
-        dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
-        dst_thread->vmspace = NULL;
-        DSM_TIER_LOG_DEBUG("shadow thread %s; vmspace: %p\n", 
-            src_thread->cap_group->cap_group_name, src_thread->vmspace);
-        return 0;
-    } else {
-        // now, for all threads, we demote -> bridge -> promote
-        dst_obj->dsm_type = DSM_TYPE_BRIDGE;
     }
 
     /* Copy thread context */
-    dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
-    BUG_ON(!dst_thread->thread_ctx);
+    if (unlikely(!dst_thread->thread_ctx)) {
+        dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
+        BUG_ON(!dst_thread->thread_ctx);
+    }
     dsm_copy_thread_ctx(src_thread->thread_ctx, dst_thread->thread_ctx, mem_type);
 
     /* Copy sleep state */
@@ -200,6 +189,69 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
         dst_thread->general_ipc_config = NULL;
     }
 
+    return 0;
+}
+
+int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
+{
+    struct thread *src_thread = (struct thread *)src_obj->opaque;
+    struct thread *dst_thread = (struct thread *)dst_obj->opaque;
+    int is_demote = is_private_object(src_obj);
+    mem_t mem_type = is_demote ? __MT_SHARED__ : __MT_PRIVATE__;
+
+    if (src_thread->thread_ctx->type == TYPE_SERVICES) {
+        DSM_TIER_LOG_DEBUG("server thread %s; skip and not add to cap group\n", 
+            src_thread->cap_group->cap_group_name);
+        dst_obj->dsm_type = DSM_TYPE_THREAD_SERVICES;
+        return 0;
+    } else if (src_thread->thread_ctx->type == TYPE_SHADOW) {
+        dst_obj->dsm_type = DSM_TYPE_THREAD_SHADOW;
+        // dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
+        dst_thread->vmspace = NULL;
+        DSM_TIER_LOG_DEBUG("shadow thread %s; vmspace: %p\n", 
+            src_thread->cap_group->cap_group_name, src_thread->vmspace);
+        return 0;
+    } else {
+        // now, for all threads, we demote -> bridge -> promote
+        dst_obj->dsm_type = DSM_TYPE_BRIDGE;
+    }
+    
+    dst_thread->thread_ctx = kzalloc(sizeof(struct thread_ctx), mem_type);
+    if (src_thread->thread_ctx->sc) {
+        if (likely(!dst_thread->thread_ctx->sc)) {
+            dst_thread->thread_ctx->sc = kmalloc(sizeof(struct sched_cont), mem_type);
+            BUG_ON(!dst_thread->thread_ctx->sc);
+        }
+    }
+
+    if (src_thread->thread_ctx->fpu_state) {
+        if (likely(!dst_thread->thread_ctx->fpu_state)) {
+            dst_thread->thread_ctx->fpu_state = kmalloc(STATE_AREA_SIZE, mem_type);
+            BUG_ON(!dst_thread->thread_ctx->fpu_state);
+        }
+    }
+
+    if (src_thread->general_ipc_config) {
+        switch (((struct ipc_config *)src_thread->general_ipc_config)->config_type) {
+        case IPC_SERVER_REGISTER_CB: {
+            dst_thread->general_ipc_config = 
+                kmalloc(sizeof(struct ipc_server_register_cb_config), mem_type);
+        }
+        case IPC_SERVER_HANDLER: {
+            dst_thread->general_ipc_config = 
+                kmalloc(sizeof(struct ipc_server_handler_config), mem_type);
+            break;
+        }
+        case IPC_SERVER: {
+            dst_thread->general_ipc_config = 
+                kmalloc(sizeof(struct ipc_server_config), mem_type);
+            break;
+        }
+        default:
+            BUG("Invalid IPC config type\n");
+        }
+    }
+
     /* get the vmspace object */
     struct object *src_vmspace_object = obj2object(src_thread->vmspace);
     struct object *dst_vmspace_object = 
@@ -208,6 +260,7 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
         if (is_demote) {
             BUG("vmspace object %p is not demoted thread %s\n", 
                 src_vmspace_object, src_thread->cap_group->cap_group_name);
+            // print_thread(src_thread);
             return -EINVAL;
         } else {
             // for promote, we allow using the shared vmspace

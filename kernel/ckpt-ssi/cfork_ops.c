@@ -182,7 +182,7 @@ int stop_all_threads(struct list_head *thread_list)
     }
 
     /* Loop until all threads are stopped */
-    int loop_cnt = 0;
+    // int loop_cnt = 0;
     while (!list_empty(&waiting_thread_list)) {
         for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
             thread = (struct thread *)node->data;
@@ -200,13 +200,13 @@ int stop_all_threads(struct list_head *thread_list)
             }
         }
 
-        if (loop_cnt % 100000 == 0) {
-            CFORK_LOG_DEBUG("waiting for threads to stop: %d\n", loop_cnt);
-            for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
-                print_thread((struct thread *)node->data);
-            }
-        }
-        loop_cnt++;
+        // if (loop_cnt % 100000 == 0) {
+        //     CFORK_LOG_DEBUG("waiting for threads to stop: %d\n", loop_cnt);
+        //     for_each_in_waitlist_safe(node, node_tmp, &waiting_thread_list) {
+        //         print_thread((struct thread *)node->data);
+        //     }
+        // }
+        // loop_cnt++;
 
         /* Handle IPI tx while waiting to avoid deadlock. */
         handle_ipi();

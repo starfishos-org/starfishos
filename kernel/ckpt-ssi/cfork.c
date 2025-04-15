@@ -73,7 +73,7 @@ out:
     kfree(pname);
 #ifdef PERF_TIMING_CFORK
     end_time = plat_get_mono_time();
-    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_PREPARE] += end_time - start_time;
     start_time = end_time;
 #endif
     return ret;
@@ -100,7 +100,7 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 
 #ifdef PERF_TIMING_CFORK
     end_time = plat_get_mono_time();
-    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_CKPT_OTHER] += end_time - start_time;
     start_time = end_time;
 #endif
     cap_group = (struct cap_group *)(ckpt_obj_root->obj_src->opaque);
@@ -111,23 +111,26 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
         CFORK_LOG_ERR("cfork_ckpt: stop_all_threads failed\n");
         goto out;
     }
-
-#ifdef PERF_TIMING_CFORK
-    end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_STOP_ALL_THREADS] += end_time - start_time;
-    start_time = end_time;
-#endif
-
     // ret = stop_all_connections(cap_group);
     // if (ret) {
     //     CFORK_LOG_ERR("cfork_ckpt: stop_all_connections failed\n");
     //     goto out;
     // }
 
+#ifdef PERF_TIMING_CFORK
+    end_time = perf_timing_get_time();
+    perf_cfork_time[PERF_CFORK_CKPT_STOP_ALL_THREADS] += end_time - start_time;
+    start_time = end_time;
+#endif
+
     // checkpoint the remaining part to the shared memory
     // ret = cfork_ckpt_process(ckpt_obj_root);
     ret = dsm_migrate_process_prepare(ckpt_obj_root->obj_src);
-
+    if (unlikely(ret)) {
+        CFORK_LOG_ERR("cfork_ckpt: dsm_migrate_process_prepare failed\n");
+        ret = -ENOENT;
+        goto out;
+    }
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
     perf_cfork_time[PERF_CFORK_PREPARE] += end_time - start_time;
@@ -135,18 +138,16 @@ int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len)
 #endif
 
     ret = dsm_migrate_process_ckpt(ckpt_obj_root->obj_src);
-
+    if (unlikely(ret)) {
+        CFORK_LOG_ERR("cfork_ckpt: cfork_ckpt_process failed\n");
+        ret = -ENOENT;
+        goto out;
+    }
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
     perf_cfork_time[PERF_CFORK_CKPT] += end_time - start_time;
     start_time = end_time;
 #endif
-
-    if (ret) {
-        CFORK_LOG_ERR("cfork_ckpt: cfork_ckpt_process failed\n");
-        ret = -ENOENT;
-        goto out;
-    }
 
     ckpt_obj_root->obj_dst = ckpt_obj_root->obj_src->pair_obj;
     ckpt_obj_root->valid = true;
@@ -165,7 +166,7 @@ out:
     kfree(pname);
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_KVS_CKPT] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_CKPT_OTHER] += end_time - start_time;
     start_time = end_time;
 
     print_perf_cfork_time();
@@ -217,7 +218,7 @@ retry:
 
 #ifdef PERF_TIMING_CFORK
     end_time = perf_timing_get_time();
-    perf_cfork_time[PERF_CFORK_KVS_RESTORE] += end_time - start_time;
+    perf_cfork_time[PERF_CFORK_PREPARE_KVS] += end_time - start_time;
     start_time = end_time;
 #endif
 
