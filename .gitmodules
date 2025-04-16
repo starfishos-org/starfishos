@@ -28,3 +28,6 @@
 [submodule "user/demos/GeminiGraph"]
 	path = user/demos/GeminiGraph
 	url = git@ipads.se.sjtu.edu.cn:nvsys/shm-lock/GeminiGraph.git
+[submodule "user/demos/VeryTinyCnn"]
+	path = user/demos/VeryTinyCnn
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/tiny-cnn.git

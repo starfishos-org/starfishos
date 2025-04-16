@@ -420,3 +420,7 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 if (CHCORE_DEMOS_GEIMINIGRAPH)
   add_subdirectory(${build_demos_dir}/GeminiGraph)
 endif()
+
+if (CHCORE_DEMOS_TINYCNN)
+  add_subdirectory(${build_demos_dir}/VeryTinyCnn)
+endif()

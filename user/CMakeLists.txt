@@ -6,6 +6,7 @@ set(build_user_dir ${CMAKE_CURRENT_SOURCE_DIR}/build)
 set(build_ramdisk_dir ${build_user_dir}/ramdisk)
 set(build_tools_dir ${CHCORE_PROJECT_DIR}/tools/build)
 set(build_demos_dir ${CMAKE_CURRENT_SOURCE_DIR}/demos)
+set(libc_src_dir ${CMAKE_CURRENT_SOURCE_DIR}/musl-1.1.24)
 set(libc_install_dir ${CHCORE_MUSL_LIBC_INSTALL_DIR})
 
 # Target to re-create ramdisk, must be run before build user-level stuffs
@@ -66,6 +67,7 @@ string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}
 chcore_get_nproc(_nproc)
 
 include_directories(sys-include)
+# include_directories(${libc_src_dir}/include)
 
 add_subdirectory(libraries)
 add_subdirectory(system-servers)
