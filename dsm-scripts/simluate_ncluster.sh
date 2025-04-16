@@ -39,7 +39,7 @@ welcome_str="Welcome to ChCore shell!"
 echo "num_windows: $num_windows"
 echo "program: $program"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
-tmux new -d -s $session_name -n 0 "./build/simulate.sh 0"
+tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 | tee exec_log.log"
 
 sleep 3
 
@@ -57,10 +57,10 @@ done
 tmux send -t $session_name:0 "$program" ENTER
 
 while true; do
-    grep -q "$expected_str" exec_log0.log
+    grep -q "$expected_str" exec_log.log
     
     if [ $? -eq 0 ]; then
-        grep "$expected_str" exec_log0.log >> $log_file
+        grep "$expected_str" exec_log.log >> $log_file
         break
     fi
     
