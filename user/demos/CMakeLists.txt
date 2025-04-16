@@ -81,40 +81,26 @@ endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
   set(MEMCACHED_BUILD_DIR ${build_demos_dir}/memcached)
-  set(MEMCACHED_CONFIG_DONE_FILE ${MEMCACHED_BUILD_DIR}/.config_done)
 
-  add_custom_command(
-    OUTPUT ${MEMCACHED_CONFIG_DONE_FILE}
-    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
-    COMMAND ./autogen.sh
-    COMMAND ./configure --disable-coverage --with-libevent=/usr/libevent/ --enable-static
-    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHED_CONFIG_DONE_FILE}
-    COMMENT "Configuring memcached (only runs once)"
-  )
-
-  add_custom_command(
-    OUTPUT ${MEMCACHED_BUILD_DIR}/memcached
+  add_custom_target(memcached ALL
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND make CC=${MUSL_CC} 
-    DEPENDS ${MEMCACHED_CONFIG_DONE_FILE}
     COMMENT "Building memcached"
   )
 
-  add_custom_target(memcached ALL
-    DEPENDS ${MEMCACHED_BUILD_DIR}/memcached
-  )
-
-  add_custom_command(
-    TARGET memcached POST_BUILD
-    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+  add_custom_target(
+    memcached-copy-data
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
+    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+    DEPENDS memcached
     COMMENT "Copying memcached to ramdisk"
   )
+
+  add_dependencies(ramdisk memcached-copy-data)
 
   add_custom_target(memcached-clean
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND make maintainer-clean-local
-    COMMAND ${CMAKE_COMMAND} -E remove -f ${MEMCACHED_CONFIG_DONE_FILE}
     COMMENT "Cleaning memcached"
   )
 
@@ -124,38 +110,24 @@ endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
   set(MEMCACHETEST_BUILD_DIR ${build_demos_dir}/memcachetest)
-  set(MEMCACHETEST_CONFIG_DONE_FILE ${MEMCACHETEST_BUILD_DIR}/.config_done)
-
-  # 配置阶段（只运行一次）
-  add_custom_command(
-    OUTPUT ${MEMCACHETEST_CONFIG_DONE_FILE}
-    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
-    COMMAND ./config/autorun.sh
-    COMMAND ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHETEST_CONFIG_DONE_FILE}
-    COMMENT "Configuring memcachetest (only runs once)"
-  )
 
   # 编译阶段
-  add_custom_command(
-    OUTPUT ${MEMCACHETEST_BUILD_DIR}/memcachetest
+  add_custom_target(memcachetest ALL
     WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
     COMMAND make CC=${MUSL_CC}
-    DEPENDS ${MEMCACHETEST_CONFIG_DONE_FILE}
     COMMENT "Building memcachetest"
   )
 
-  # 主构建目标
-  add_custom_target(memcachetest ALL
-    DEPENDS ${MEMCACHETEST_BUILD_DIR}/memcachetest
-  )
-
   # 拷贝到 ramdisk
-  add_custom_command(
-    TARGET memcachetest POST_BUILD
+  add_custom_target(
+    memcachetest-copy-data
+    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
     COMMAND rsync -a ${MEMCACHETEST_BUILD_DIR}/memcachetest ${build_ramdisk_dir}/
+    DEPENDS memcachetest
     COMMENT "Copying memcachetest to ramdisk"
   )
+
+  add_dependencies(ramdisk memcachetest-copy-data)
 
   # 清理目标
   add_custom_target(memcachetest-clean

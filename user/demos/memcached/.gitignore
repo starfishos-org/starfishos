@@ -7,7 +7,7 @@
 .deps
 .buildbot
 INSTALL
-Makefile
+# Makefile
 Makefile.in
 config.guess
 config.h

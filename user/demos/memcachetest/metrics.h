@@ -50,6 +50,7 @@ struct ResultMetrics {
     hrtime_t max95th_result;
     hrtime_t max99th_result;
     hrtime_t average;
+    double throughput;
     long success_count;
     long error_count;
 };
