@@ -5,3 +5,7 @@ foreach(_source ${_sources})
     target_link_options(${exename} PRIVATE -static)
     target_link_libraries(${exename} PRIVATE libc-static)
 endforeach()
+
+if (CHCORE_IPC_PERF_ENABLED)
+    target_compile_definitions(ipc_perf PRIVATE IPC_PERF_ENABLED)
+endif()
