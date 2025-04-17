@@ -238,35 +238,47 @@ if(CHCORE_DEMOS_GEMM)
 endif()
 
 if(CHCORE_DEMOS_LLAMACPP)
-  add_custom_target(
-    llama-clean
-    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
-    COMMAND rm -rf build
-  )
-  list(APPEND _demos_clean_targets llama-clean)
+  # add_custom_target(
+  #   llama-clean
+  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   COMMAND rm -rf build
+  # )
+  # list(APPEND _demos_clean_targets llama-clean)
 
-  add_custom_target(
-    llama ALL
-    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
-    COMMAND cmake -B build 
-      -DCMAKE_C_COMPILER=${MUSL_CC}
-      -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-      -DCMAKE_CROSSCOMPILING=1 
-      -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
-      -DCMAKE_SKIP_RPATH=ON
-    COMMAND cmake --build build --config Release -- -j
-    COMMENT "Build llama.cpp finished"
-    DEPENDS)
-  list(APPEND _targets llama)
-  add_dependencies(ramdisk llama)
+  # add_custom_target(
+  #   llama ALL
+  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   COMMAND cmake -B build 
+  #     -DCMAKE_C_COMPILER=${MUSL_CC}
+  #     -DCMAKE_CXX_COMPILER=${MUSL_CXX}
+  #     -DCMAKE_CROSSCOMPILING=1 
+  #     -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
+  #     -DCMAKE_SKIP_RPATH=ON
+  #     -DLLAMA_BUILD_TESTS=0
+  #   COMMAND cmake --build build --config Release -- -j
+  #   COMMENT "Build llama.cpp finished"
+  #   DEPENDS)
+  # list(APPEND _targets llama)
+  # add_dependencies(ramdisk llama)
 
-  add_custom_command(
-    TARGET llama
-    POST_BUILD
+  # add_custom_command(
+  #   TARGET llama
+  #   POST_BUILD
+  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+  #   COMMENT "Copying llama.cpp files to ramdisk directory"
+  #   DEPENDS llama)
+  add_subdirectory(${build_demos_dir}/llama.cpp)
+  target_compile_options(llama-bench PRIVATE -fPIE -fPIC)
+  target_link_options(llama-bench PRIVATE -pie)
+  set(llama-targets llama-bench ggml-base ggml-cpu ggml llama)
+  add_dependencies(ramdisk ${llama-targets})
+  add_custom_target(llama-copy-data
     COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
     COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
     COMMENT "Copying llama.cpp files to ramdisk directory"
-    DEPENDS llama)
+    DEPENDS ${llama-targets})
+  add_dependencies(ramdisk llama-copy-data)
 endif()
 
 if(CHCORE_DEMOS_DBX1000)

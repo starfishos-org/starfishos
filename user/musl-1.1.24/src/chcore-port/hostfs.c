@@ -44,8 +44,10 @@ int chcore_hostfs_pread(int fd, void *buf, size_t count, off_t offset) {
 		// 	fd, info->mmap_vaddr, offset);
 	}
 	if (offset + count > info->file_size) {
-		printf("%s: invalid offset\n", __func__);
-		return -EINVAL;
+		warn("%s: invalid offset %ld, count %ld, offset + count %ld, file size %ld\n", 
+			__func__, offset, count, offset + count, info->file_size);
+		memcpy(buf, (void *)(info->mmap_vaddr + offset), info->file_size - offset);
+		return info->file_size - offset;
 	}
 	memcpy(buf, (void *)(info->mmap_vaddr + offset), count);
 	return count;

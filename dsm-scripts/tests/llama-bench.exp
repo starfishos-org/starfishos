@@ -7,6 +7,7 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "llama-bench -m /host/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf -p 0 -t 1\r"
+send -- "llama-bench -m cerebras-256m.Q2_K.gguf -v --progress -t 2 \r"
+# send -- "llama-bench -m /host/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf --progress -v -t 1 -p 1\r"
 
 interact

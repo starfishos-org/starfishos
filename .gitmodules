@@ -31,3 +31,6 @@
 [submodule "user/demos/VeryTinyCnn"]
 	path = user/demos/VeryTinyCnn
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/tiny-cnn.git
+[submodule "user/demos/llama.cpp"]
+	path = user/demos/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git
