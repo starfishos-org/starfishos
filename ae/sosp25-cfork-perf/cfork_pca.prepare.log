@@ -1,0 +1,141 @@
+spawn ./build/simulate.sh 0
+vm_id: 0, qemu: qemu-6.2-system-x86_64, qemu_options: -gdb tcp::39713 --enable-kvm -M q35 -name chcore-0 -m 32G -object memory-backend-file,size=32G,share=on,mem-path=/dev/shm/ivshmem-wfn,id=hostmem -device ivshmem-plain,memdev=hostmem -object memory-backend-file,size=16G,share=on,mem-path=/dev/shm/ivshmem-conn-wfn,id=hostfs -device ivshmem-plain,memdev=hostfs -cpu host -smp 12 -serial mon:stdio -nographic -cdrom ./build/chcore.iso
+c[?7l[2J[0mSeaBIOS (version rel-1.15.0-0-g2dd4b9b3f840-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7FF910D0+7FEF10D0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: could not read the boot disk
+
+Booting from DVD/CD...
+[2J[INFO] [Multiboot2 INFO] Detect framebuffer type RGB, width = 640, height = 480, depth = 32, addr = 0xfd000000
+[INFO] [Multiboot2 INFO] Found old acpi tag, size = 28, rsdp = 0xffffff002ba004e8
+[INFO] [ChCore] framebuffer console init finished
+[INFO] [ACPI INFO] ACPI version 1.0, use COMMON RSDP and RSDT
+[INFO] [ACPI] [CEDT] table not found
+[INFO] [ACPI] [NFIT] table not found
+[INFO] [ACPI] [SRAT] table not found
+[INFO] [ChCore] cpu frequency=(Dec)2100304591
+[INFO] start_addr = 0x0, end_addr = 0x9fc00, type = 0x1
+[INFO] start_addr = 0x9fc00, end_addr = 0xa0000, type = 0x2
+[INFO] start_addr = 0xf0000, end_addr = 0x100000, type = 0x2
+[INFO] start_addr = 0x100000, end_addr = 0x7ffdf000, type = 0x1
+[INFO] start_addr = 0x7ffdf000, end_addr = 0x80000000, type = 0x2
+[INFO] start_addr = 0xb0000000, end_addr = 0xc0000000, type = 0x2
+[INFO] start_addr = 0xfed1c000, end_addr = 0xfed20000, type = 0x2
+[INFO] start_addr = 0xfeffc000, end_addr = 0xff000000, type = 0x2
+[INFO] start_addr = 0xfffc0000, end_addr = 0x100000000, type = 0x2
+[INFO] start_addr = 0x100000000, end_addr = 0x880000000, type = 0x1
+[INFO] fill kernel page table range: 1 - 22
+[INFO] map range: 0x40000000 - 0x80000000
+[INFO] Use dram memory: 0x100000000 - 0x880000000
+[INFO] mem pool type 0, free_mem_start: 0x100000000, free_mem_end: 0x140000000
+[INFO] [ACPI] [MCFG INFO] address: 0xb0000000, pci_seg: 0, start_bus_n=0, end_bus_n=255
+[PCI] [0000:00:00.0] find device [8086:29c0]
+[WARN] file:/home/wfn/chcore-cxl/kernel/drivers/pci/pci.c pci_cfg_space_size: need to check if it is a PCIE device
+[PCI] [0000:00:01.0] find device [1234:1111]
+[PCI] [0000:00:02.0] find device [8086:10d3]
+[PCI] [0000:00:03.0] find device [1af4:1110]
+[PCI] [0000:00:04.0] find device [1af4:1110]
+[PCI] [0000:00:1f.0] find device [8086:2918]
+[PCI] [0000:00:1f.2] find device [8086:2922]
+[PCI] [0000:00:1f.3] find device [8086:2930]
+[PCI] [IVSHMEM] [0] iopa=0x1800000000, iova=0xffffff1800000000, iosize=0x400000000
+[INFO] fill kernel page table range: 60 - 70
+[INFO] map range: 0x0 - 0x0
+[PCI] [IVSHMEM] [0] magic "match hostfs"
+[PCI] [IVSHMEM] [1] iopa=0x1000000000, iova=0xffffff1000000000, iosize=0x800000000
+[INFO] fill kernel page table range: 40 - 60
+[INFO] map range: 0x0 - 0x0
+[INFO] [DSM] machine 0 local memory range: 140000000-340000000
+[INFO] mem pool type 0, free_mem_start: 0x140000000, free_mem_end: 0x340000000
+[INFO] [DSM] machine 0 local memory range: 140000000-340000000
+[INFO] [31m[DSM] machine 0 (cpu0 - cpu11) join the cluster!
+[0m[INFO] [SHM] Use 0x1000009000 - 0x1800000000
+[INFO] mem pool type 3, free_mem_start: 0x1000009000, free_mem_end: 0x1800000000
+[INFO] list hostfs file info
+[PCI] [HOSTFS] /host/: file_num=1
+[PCI] [HOSTFS] /host/twitter-2010.bin: offset=1000, size=2bc2bcbf0
+[INFO] [ChCore] create initial thread done
+[WARN] SYS_rt_sigprocmask is not implemented.
+User Init: booting fs servUsere r( FISnMiGtR:  abnodo trienagl f sF Ss)e rv
+er (FSMGR and real FS) [procmgr] register server value = 0
+procmgr_launch_basic_server
+[procmgr] Launching tmpfs... (is_cross_machine: 0)
+procmgr_launch_basic_se[WARN] SYS_rt_sigprocmask is not implemented.
+rver
+[procmgr] Launching fsm... (is_cross_machine: 0)
+User Init: booting network serve[rfs
+m] Mounting fs from local binary: /tmpfs.srv...
+[fsm] Mounting TMPFS, cap = 13
+[fsm] TMPFS is up, with cap = 13
+[t[WmApRfNs]]  S[YtSm_prfts_]s irgepgriosctmears ks eirsv enro tv ailmupel e= me0nt
+ed.
+[fsm] [FSM] register server value = 0
+[procmgr] Launching lwip... (is_cross_machine: 0)
+[lwip] Host at 192.168.0.3 mask 255.255.255.0 gateway 1[9pr2o.c1m6g8r.]0 .L1aunchi
+ng chcore-shell... (is_cross_machine: 0)
+[WARN] SYS_rt_sigprocmask is not implemented.
+
+[WARN] SYS_rt_sigprocmask is not implemented.
+[lwip] TCP/IP initialized.
+[lwip] Add netif 0x5000007feea0
+[lwip] register server value = 0
+ ______     __  __     ______     __  __     ______     __         __        
+/\  ___\   /\ \_\ \   /\  ___\   /\ \_\ \   /\  ___\   /\ \       /\ \       
+\ \ \____  \ \  __ \  \ \___  \  \ \  __ \  \ \  __\   \ \ \____  \ \ \____  
+ \ \_____\  \ \_\ \_\  \/\_____\  \ \_\ \_\  \ \_____\  \ \_____\  \ \_____\ 
+  \/_____/   \/_/\/_/   \/_____/   \/_/\/_/   \/_____/   \/_____/   \/_____/ 
+
+
+Welcome to ChCore shell!
+$ pca.bin -c 500 -r 500 -t 2 & 
+
+[procmgr] Launching /pca.bin -c 500 -r 500 -t 2... (is_cross_machine: 0)
+
+$ Number of rows = 500
+Number of cols = 500
+Max value for each element = 100
+Number of threads=2
+Thread bind cpu filename is not set default to pca_bind_cpu.txt
+Thread bind cpu filename=pca_bind_cpu.txt
+bind 8 cpu: 0 1 2 3 4 5 6 7 
+PCA Mean: Calling MapReduce Scheduler
+initialize: 6062
+[WARN] SYS_rt_sigprocmask is not implemented.
+[WARN] SYS_madvise is not implemented.
+PCA Mean: MapReduce Completed
+PCA Cov: Calling MapReduce Scheduler
+inter library: 922
+test_cfork_prepare.bin pca.bin & 
+
+[procmgr] Launching /test_cfork_prepare.bin pca.bin... (is_cross_machine: 0)
+
+$ [cfork] checkpoint program: pca.bin
+perf_cfork_time[PREPARE]: 14975 us
+perf_cfork_time[PREPARE_KVS]: 0 us
+perf_cfork_time[CKPT]: 24 us
+perf_cfork_time[CKPT_STOP_ALL_THREADS]: 92 us
+perf_cfork_time[CKPT_THREADS]: 22 us
+perf_cfork_time[CKPT_CAP_GROUP]: 1 us
+perf_cfork_time[CKPT_OTHER]: 1 us
+prepare copy time object: cap group, 4098781 ns, cnt: 1
+prepare copy time object: thread, 3940 ns, cnt: 7
+prepare copy time object: connection, 1370 ns, cnt: 3
+prepare copy time object: notification, 0 ns, cnt: 0
+prepare copy time object: irq notification, 0 ns, cnt: 0
+prepare copy time object: pmobject, 753 ns, cnt: 13
+prepare copy time object: vmspace, 6401602 ns, cnt: 1
+
+
+$ [2K$ test_cfork_prepare.bin pca.bin &                                  [2K$ pca.bin -c 500 -r 500 -t 2 & 
+
+[procmgr] Launching /pca.bin -c 500 -r 500 -t 2... (is_cross_machine: 0)
+
+$ Number of rows = 500
+
+
+$ 

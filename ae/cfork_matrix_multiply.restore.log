@@ -1,0 +1,13 @@
+spawn ./build/simulate.sh 1
+vm_id: 1, qemu: qemu-6.2-system-x86_64, qemu_options: -gdb tcp::34850 --enable-kvm -M q35 -name chcore-1 -m 32G -object memory-backend-file,size=32G,share=on,mem-path=/dev/shm/ivshmem-wfn,id=hostmem -device ivshmem-plain,memdev=hostmem -object memory-backend-file,size=16G,share=on,mem-path=/dev/shm/ivshmem-conn-wfn,id=hostfs -device ivshmem-plain,memdev=hostfs -cpu host -smp 12 -serial mon:stdio -nographic -cdrom ./build/chcore.iso
+c[?7l[2J[0mSeaBIOS (version rel-1.15.0-0-g2dd4b9b3f840-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7FF910D0+7FEF10D0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: could not read the boot disk
+
+Booting from DVD/CD...
