@@ -83,7 +83,7 @@ cluster: clean-dsm
 	./dsm-scripts/simulate_4clusters.sh
 
 leveldb: clean-dsm
-	./dsm-scripts/leveldb.sh
+	./dsm-scripts/tests/leveldb.exp
 
 json-test-py: clean-dsm
 	./dsm-scripts/tests/python.exp json_test.py json/english.json
@@ -138,6 +138,9 @@ word_count: clean-dsm
 
 histogram: clean-dsm
 	./dsm-scripts/tests/phoenix/histogram.exp $(T)
+
+kmalloc: clean-dsm
+	./dsm-scripts/tests/kmalloc.exp
 
 clean-ramdisk:
 	rm -rf ./user/build/ramdisk/*

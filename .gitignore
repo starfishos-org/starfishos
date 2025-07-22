@@ -24,8 +24,6 @@ musl-1.1.24/lib
 
 asm
 
-run_*
-
 exec_log*
 make-tag.sh
 
@@ -54,3 +52,4 @@ user/demos/phoenix-2.0/data/matrix_datafiles/*
 user/demos/phoenix-2.0/data/word_count_datafiles/*
 third_party/
 .cache
+chcore-ckpt-logs

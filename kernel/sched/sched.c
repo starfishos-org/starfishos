@@ -337,10 +337,6 @@ s32 get_cpubind(struct thread *thread)
     s32 affinity, is_fpu_owner;
     u32 local_cpuid;
 
-    if (thread->thread_ctx->type == TYPE_SHADOW && thread->shadow_caller_thread) {
-        return cpuid_l2g(thread->shadow_caller_thread->thread_ctx->cpuid);
-    }
-
     local_cpuid = smp_get_cpu_id();
     affinity = thread->thread_ctx->affinity;
     is_fpu_owner = thread->thread_ctx->is_fpu_owner;

@@ -386,22 +386,27 @@ int builtin_cmd(char *cmdline)
 	}
 	if (!strcmp(cmd, "cd")) {
 		ret = do_cd(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "ls")) {
 		ret = do_ls(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "clear")) {
 		do_clear();
+		fflush(stdout);
 		return 1;
 	}
 	if (!strcmp(cmd, "top")) {
 		ret = do_top();
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "jobs")) {
 		do_jobs();
+		fflush(stdout);
 		return 1;
 	}
 	if (!strcmp(cmd, "fg")) {
@@ -414,34 +419,42 @@ int builtin_cmd(char *cmdline)
 	}
 	if (!strcmp(cmd, "source")) {
 		do_source(cmdline);
+		fflush(stdout);
 		return 1;
 	}
 	if (!strcmp(cmd, "sleep")) {
 		ret = do_sleep(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "pwd")) {
 		ret = do_pwd(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "echo")) {
 		ret = do_echo(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "cat")) {
 		ret = do_cat(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "mkdir")) {
 		ret = do_mkdir(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "rm")) {
 		ret = do_rm(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	if (!strcmp(cmd, "touch")) {
 		ret = do_touch(cmdline);
+		fflush(stdout);
 		return !ret ? 1 : -1;
 	}
 	return 0;
@@ -613,6 +626,7 @@ int main(void)
 		if ((ret = run_cmd(buf)) < 0) {
 			printf("Cannot run %s, ERROR %d\n", buf, ret);
 		}
+		fflush(stdout);
 	handle_wait:
 		memset(buf, 0, strlen(buf));
 		if (waitchild) {
@@ -638,5 +652,6 @@ int main(void)
 			waitchild = false;
 			pthread_mutex_unlock(&job_mutex);
 		}
+		fflush(stdout);
 	}
 }

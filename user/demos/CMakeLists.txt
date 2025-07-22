@@ -81,40 +81,26 @@ endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
   set(MEMCACHED_BUILD_DIR ${build_demos_dir}/memcached)
-  set(MEMCACHED_CONFIG_DONE_FILE ${MEMCACHED_BUILD_DIR}/.config_done)
 
-  add_custom_command(
-    OUTPUT ${MEMCACHED_CONFIG_DONE_FILE}
-    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
-    COMMAND ./autogen.sh
-    COMMAND ./configure --disable-coverage --with-libevent=/usr/libevent/ --enable-static
-    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHED_CONFIG_DONE_FILE}
-    COMMENT "Configuring memcached (only runs once)"
-  )
-
-  add_custom_command(
-    OUTPUT ${MEMCACHED_BUILD_DIR}/memcached
+  add_custom_target(memcached ALL
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND make CC=${MUSL_CC} 
-    DEPENDS ${MEMCACHED_CONFIG_DONE_FILE}
     COMMENT "Building memcached"
   )
 
-  add_custom_target(memcached ALL
-    DEPENDS ${MEMCACHED_BUILD_DIR}/memcached
-  )
-
-  add_custom_command(
-    TARGET memcached POST_BUILD
-    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+  add_custom_target(
+    memcached-copy-data
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
+    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+    DEPENDS memcached
     COMMENT "Copying memcached to ramdisk"
   )
+
+  add_dependencies(ramdisk memcached-copy-data)
 
   add_custom_target(memcached-clean
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
     COMMAND make maintainer-clean-local
-    COMMAND ${CMAKE_COMMAND} -E remove -f ${MEMCACHED_CONFIG_DONE_FILE}
     COMMENT "Cleaning memcached"
   )
 
@@ -124,38 +110,24 @@ endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
   set(MEMCACHETEST_BUILD_DIR ${build_demos_dir}/memcachetest)
-  set(MEMCACHETEST_CONFIG_DONE_FILE ${MEMCACHETEST_BUILD_DIR}/.config_done)
-
-  # 配置阶段（只运行一次）
-  add_custom_command(
-    OUTPUT ${MEMCACHETEST_CONFIG_DONE_FILE}
-    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
-    COMMAND ./config/autorun.sh
-    COMMAND ./configure --with-libevent-prefix=/usr/libevent/ --enable-static
-    COMMAND ${CMAKE_COMMAND} -E touch ${MEMCACHETEST_CONFIG_DONE_FILE}
-    COMMENT "Configuring memcachetest (only runs once)"
-  )
 
   # 编译阶段
-  add_custom_command(
-    OUTPUT ${MEMCACHETEST_BUILD_DIR}/memcachetest
+  add_custom_target(memcachetest ALL
     WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
     COMMAND make CC=${MUSL_CC}
-    DEPENDS ${MEMCACHETEST_CONFIG_DONE_FILE}
     COMMENT "Building memcachetest"
   )
 
-  # 主构建目标
-  add_custom_target(memcachetest ALL
-    DEPENDS ${MEMCACHETEST_BUILD_DIR}/memcachetest
-  )
-
   # 拷贝到 ramdisk
-  add_custom_command(
-    TARGET memcachetest POST_BUILD
+  add_custom_target(
+    memcachetest-copy-data
+    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
     COMMAND rsync -a ${MEMCACHETEST_BUILD_DIR}/memcachetest ${build_ramdisk_dir}/
+    DEPENDS memcachetest
     COMMENT "Copying memcachetest to ramdisk"
   )
+
+  add_dependencies(ramdisk memcachetest-copy-data)
 
   # 清理目标
   add_custom_target(memcachetest-clean
@@ -266,35 +238,47 @@ if(CHCORE_DEMOS_GEMM)
 endif()
 
 if(CHCORE_DEMOS_LLAMACPP)
-  add_custom_target(
-    llama-clean
-    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
-    COMMAND rm -rf build
-  )
-  list(APPEND _demos_clean_targets llama-clean)
+  # add_custom_target(
+  #   llama-clean
+  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   COMMAND rm -rf build
+  # )
+  # list(APPEND _demos_clean_targets llama-clean)
 
-  add_custom_target(
-    llama ALL
-    WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
-    COMMAND cmake -B build 
-      -DCMAKE_C_COMPILER=${MUSL_CC}
-      -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-      -DCMAKE_CROSSCOMPILING=1 
-      -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
-      -DCMAKE_SKIP_RPATH=ON
-    COMMAND cmake --build build --config Release -- -j
-    COMMENT "Build llama.cpp finished"
-    DEPENDS)
-  list(APPEND _targets llama)
-  add_dependencies(ramdisk llama)
+  # add_custom_target(
+  #   llama ALL
+  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   COMMAND cmake -B build 
+  #     -DCMAKE_C_COMPILER=${MUSL_CC}
+  #     -DCMAKE_CXX_COMPILER=${MUSL_CXX}
+  #     -DCMAKE_CROSSCOMPILING=1 
+  #     -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
+  #     -DCMAKE_SKIP_RPATH=ON
+  #     -DLLAMA_BUILD_TESTS=0
+  #   COMMAND cmake --build build --config Release -- -j
+  #   COMMENT "Build llama.cpp finished"
+  #   DEPENDS)
+  # list(APPEND _targets llama)
+  # add_dependencies(ramdisk llama)
 
-  add_custom_command(
-    TARGET llama
-    POST_BUILD
+  # add_custom_command(
+  #   TARGET llama
+  #   POST_BUILD
+  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+  #   COMMENT "Copying llama.cpp files to ramdisk directory"
+  #   DEPENDS llama)
+  add_subdirectory(${build_demos_dir}/llama.cpp)
+  target_compile_options(llama-bench PRIVATE -fPIE -fPIC)
+  target_link_options(llama-bench PRIVATE -pie)
+  set(llama-targets llama-bench ggml-base ggml-cpu ggml llama)
+  add_dependencies(ramdisk ${llama-targets})
+  add_custom_target(llama-copy-data
     COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
     COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
     COMMENT "Copying llama.cpp files to ramdisk directory"
-    DEPENDS llama)
+    DEPENDS ${llama-targets})
+  add_dependencies(ramdisk llama-copy-data)
 endif()
 
 if(CHCORE_DEMOS_DBX1000)
@@ -419,4 +403,8 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 
 if (CHCORE_DEMOS_GEIMINIGRAPH)
   add_subdirectory(${build_demos_dir}/GeminiGraph)
+endif()
+
+if (CHCORE_DEMOS_TINYCNN)
+  add_subdirectory(${build_demos_dir}/VeryTinyCnn)
 endif()

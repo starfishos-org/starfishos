@@ -301,7 +301,7 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
      * Record (fault_badge, fault_va) -> thread here.
      */
     pending_thread = (struct fault_pending_thread *)kmalloc(
-            sizeof(*pending_thread), __MT_OBJECT__);
+            sizeof(*pending_thread), pmo->mm_type);
     if (!pending_thread) {
         /* TODO: handle no memory */
         BUG_ON(1);

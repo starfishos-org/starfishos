@@ -10,6 +10,6 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "word_count.bin -f word_50MB.txt -t $thread_num -n 10 & \r"
+send -- "source run_word_count.sh\n"
 expect "done"
 exit

@@ -12,6 +12,6 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "kmeans.bin -p 100000 -t $thread_num \n"
+send -- "source run_kmeans.sh\n"
 expect "done"
 exit

@@ -442,7 +442,6 @@ if(LEVELDB_BUILD_BENCHMARKS)
       if (${OS} STREQUAL "CHCORE")
         add_custom_target(copy-${bench_target_name}-data ALL
           COMMAND rsync -a ${CMAKE_CURRENT_BINARY_DIR}/db_bench ${build_ramdisk_dir}/leveldb-dbbench.bin
-          COMMAND rsync -a ${CMAKE_CURRENT_SOURCE_DIR}/leveldb_bind_cpu_chcore.txt ${build_ramdisk_dir}/leveldb_bind_cpu.txt
           DEPENDS ${bench_target_name}
         )
         add_dependencies(ramdisk copy-${bench_target_name}-data)

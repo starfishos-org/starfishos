@@ -1,3 +1,4 @@
+#include "common/types.h"
 #include <common/lock.h>
 #include <common/kprint.h>
 #include <arch/machine/smp.h>
@@ -9,16 +10,19 @@
 
 #include <arch/machine/pmu.h>
 
-#define MALLOC_TEST_NUM   4096
+#define MALLOC_TEST_NUM   512
 #define MALLOC_TEST_ROUND 10
 
 volatile int malloc_start_flag = 0;
 volatile int malloc_finish_flag = 0;
+extern int malloc_data[];
 
-void tst_malloc(void)
+void tst_malloc(u32 parallel_num)
 {
     char **buf;
     unsigned long start, end;
+    int total_malloc_num = MALLOC_TEST_NUM * MALLOC_TEST_ROUND;
+    u32 cpu_id = smp_get_cpu_id();
 
     buf = (char **)kmalloc(sizeof(char *) * MALLOC_TEST_NUM, __MT_DEFAULT__);
 
@@ -26,7 +30,7 @@ void tst_malloc(void)
     lock(&big_kernel_lock);
     malloc_start_flag++;
     unlock(&big_kernel_lock);
-    while (malloc_start_flag != PLAT_CPU_NUM)
+    while (malloc_start_flag != parallel_num)
         ;
     /* ============ Start Barrier ============ */
 
@@ -34,7 +38,7 @@ void tst_malloc(void)
 
     for (int round = 0; round < MALLOC_TEST_ROUND; round++) {
         for (int i = 0; i < MALLOC_TEST_NUM; i++) {
-            int size = 0x1 + i;
+            int size = 1 + malloc_data[((i + round * MALLOC_TEST_NUM) * cpu_id) % 95000];
             buf[i] = kmalloc(size, __MT_DEFAULT__);
             BUG_ON(!buf[i]);
             for (int j = 0; j < size; j++) {
@@ -43,7 +47,7 @@ void tst_malloc(void)
         }
 
         for (int i = 0; i < MALLOC_TEST_NUM; i++) {
-            int size = 0x1 + i;
+            int size = 1 + malloc_data[((i + round * MALLOC_TEST_NUM) * cpu_id) % 95000];
             for (int j = 0; j < size; j++) {
                 BUG_ON(buf[i][j] != (char)(i + size));
             }
@@ -55,12 +59,13 @@ void tst_malloc(void)
 
     /* ============ Finish Barrier ============ */
     lock(&big_kernel_lock);
-    kinfo("CPU: %d, kmalloc test takes %ld cycles.\n",
+    // ops/s
+    kinfo("CPU: %d, kmalloc test throughput: %ld\n",
           smp_get_cpu_id(),
-          end - start);
+          (u64)(total_malloc_num / ((double)(end - start) / 1000000000)));
     malloc_finish_flag++;
     unlock(&big_kernel_lock);
-    while (malloc_finish_flag != PLAT_CPU_NUM)
+    while (malloc_finish_flag != parallel_num)
         ;
     /* ============ Finish Barrier ============ */
 

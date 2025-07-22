@@ -1165,6 +1165,7 @@ int main(int argc, char **argv) {
             fprintf(stdout, "Tot: %s\n", timeval2text(&endtime,
                                                       buffer,
                                                       sizeof(buffer)));
+            fprintf(stdout,"Total throughput: %f\n", (double)(nget + nset) / ((double)endtime.tv_sec + (double)endtime.tv_usec / 1000000));
         }
 
         if (get_server_rusage(hosts, &rusage) != -1) {

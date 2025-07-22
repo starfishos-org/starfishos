@@ -101,7 +101,7 @@ void tst_rr(void)
             prio = (prio & ~(RISCV_SSTATUS_FS | RISCV_SSTATUS_SD));
 
             thread = kzalloc(sizeof(struct thread), __MT_DEFAULT__);
-            BUG_ON(!(thread->thread_ctx = create_thread_ctx(TYPE_TESTS)));
+            thread->thread_ctx = create_thread_ctx(TYPE_TESTS, __MT_DEFAULT__);
             init_thread_ctx(thread, 0, 0, prio, TYPE_TESTS, j);
             for (k = 0; k < REG_NUM; k++)
                 thread->thread_ctx->ec.reg[k] = prio;
@@ -201,7 +201,7 @@ void tst_pbrr(void)
             prio = (prio & ~(RISCV_SSTATUS_FS | RISCV_SSTATUS_SD));
 
             thread = kzalloc(sizeof(struct thread), __MT_DEFAULT__);
-            BUG_ON(!(thread->thread_ctx = create_thread_ctx(TYPE_TESTS)));
+            thread->thread_ctx = create_thread_ctx(TYPE_TESTS, __MT_DEFAULT__);
             init_thread_ctx(thread, 0, 0, prio, TYPE_TESTS, j);
             for (k = 0; k < REG_NUM; k++)
                 thread->thread_ctx->ec.reg[k] = prio;

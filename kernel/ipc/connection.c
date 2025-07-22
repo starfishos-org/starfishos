@@ -373,6 +373,13 @@ static void thread_migrate_to_server(struct ipc_connection *conn, u64 arg)
 
     target->shadow_caller_thread = current_thread;
 
+#if 0
+   // TODO(yjs): ugly implementation, only for test
+    if (CUR_MACHINE_ID == 1 && target->thread_ctx->type == TYPE_SHADOW && strcmp(target->cap_group->cap_group_name, "/tmpfs.srv") == 0) {
+        target->thread_ctx->affinity = 0;
+    }
+#endif
+
     /* Set target thread SP/IP/arg */
 #if defined(CHCORE_ARCH_X86_64)
     /* Remove the simple function calls can save about 20 cycles */
@@ -425,6 +432,13 @@ static void thread_migrate_to_client(struct thread *client, u64 ret_value)
         ipc_perf_time_p7[ipc_perf_count_p7++] = rdtsc();
     }
 #endif
+#if 0
+    // TODO(yjs): ugly implementation, only for test
+    if (CUR_MACHINE_ID == 0 && client->machine_id == 1) {
+        client->thread_ctx->affinity = 12;
+    }
+#endif
+
     sched_to_thread(client);
 
     /* Function never return */

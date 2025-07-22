@@ -27,7 +27,7 @@
 #include <chcore/defs.h>
 #include <chcore/syscall.h>
 
-#define CHCORE_GDB_AUTO_LOAD_LIB 0
+#define CHCORE_GDB_AUTO_LOAD_LIB 1
 
 #ifdef CHCORE_ENABLE_FMAP
 	/* 1: use mmap if possible; 0: do not use mmap */
