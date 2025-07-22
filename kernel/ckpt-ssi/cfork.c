@@ -20,7 +20,7 @@
 u64 perf_cfork_time[PERF_CFORK_TYPE_NR] = {0};
 #endif
 
-static inline char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
+char *pname_to_pname_ptr(u64 pname_ptr, u64 pname_len)
 {
     char *pname = (char *)kmalloc(pname_len + 1, __MT_PRIVATE__);
     copy_from_user(pname, (void *)pname_ptr, pname_len);

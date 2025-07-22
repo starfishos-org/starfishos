@@ -42,6 +42,8 @@ int sys_copy_time_traveling_data();
 int sys_cfork_prepare(u64 pname_ptr, u64 pname_len);
 int sys_cfork_ckpt(u64 pname_ptr, u64 pname_len);
 int sys_cfork_restore(u64 pname_ptr, u64 pname_len);
+int sys_ckpt_process(u64 pname_ptr, u64 pname_len);
+int sys_restore_process(u64 pname_ptr, u64 pname_len);
 #endif
 
 void sys_ipi_stop_all();

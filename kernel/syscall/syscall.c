@@ -469,6 +469,9 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_cfork_prepare] = sys_cfork_prepare,
         [SYS_cfork_ckpt] = sys_cfork_ckpt,
         [SYS_cfork_restore] = sys_cfork_restore,
+
+        [SYS_ckpt_process] = sys_ckpt_process,
+        [SYS_restore_process] = sys_restore_process,
 #endif
 
         [SYS_shutdown] = sys_shutdown,

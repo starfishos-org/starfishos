@@ -106,10 +106,10 @@ error:
 	return err;
 }
 
-int init_tmpfs(void)
+int init_tmpfs(char *mount_path)
 {
 	tmpfs_root = new_dir(NULL);
-	tmpfs_root_dent = new_dent(tmpfs_root, "/", 1);
+	tmpfs_root_dent = new_dent(tmpfs_root, mount_path, strlen(mount_path));
 
 	init_id_manager(&fidman, MAX_NR_FID_RECORDS, DEFAULT_INIT_ID);
 	/**
@@ -131,9 +131,20 @@ int init_tmpfs(void)
 
 extern char __binary_ramdisk_cpio_start;
 
+int restart_tmpfs(char *mount_path)
+{
+	init_tmpfs(mount_path);
+	tfs_load_image((char *)&__binary_ramdisk_cpio_start);
+	info("[tmpfs] register server value = %u\n",
+	ipc_register_server(fs_server_dispatch,
+			DEFAULT_CLIENT_REGISTER_HANDLER));
+	usys_exit(0);
+	return 0;
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
-	init_tmpfs();
+	init_tmpfs("/");
 
 	tfs_load_image((char *)&__binary_ramdisk_cpio_start);
 	info("[tmpfs] register server value = %u\n",

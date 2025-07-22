@@ -92,6 +92,10 @@ int usys_pcie_control(u64);
 int usys_cfork_prepare(char *pname, u64 pname_len);
 int usys_cfork_ckpt(char *pname, u64 pname_len);
 int usys_cfork_restore(char *pname, u64 pname_len);
+
+int usys_ckpt_process(char *pname, u64 pname_len);
+int usys_restore_process(char *pname, u64 pname_len);
+
 int usys_get_machine_id();
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
 u32 usys_register_fs_server(u32 fs_cap);

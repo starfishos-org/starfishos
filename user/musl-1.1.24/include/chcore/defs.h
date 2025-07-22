@@ -226,6 +226,9 @@
 #define CHCORE_SYS_cfork_ckpt    252
 #define CHCORE_SYS_cfork_restore 253
 
+#define CHCORE_SYS_ckpt_process  254
+#define CHCORE_SYS_restore_process 255
+
 /* Machine ID */
 #define CHCORE_SYS_get_machine_id       256
 

@@ -321,6 +321,16 @@ int usys_cfork_restore(char *pname, u64 pname_len)
 	return chcore_syscall2(CHCORE_SYS_cfork_restore, (u64)pname, pname_len);
 }
 
+int usys_ckpt_process(char *pname, u64 pname_len)
+{
+	return chcore_syscall2(CHCORE_SYS_ckpt_process, (u64)pname, pname_len);
+}
+
+int usys_restore_process(char *pname, u64 pname_len)
+{
+	return chcore_syscall2(CHCORE_SYS_restore_process, (u64)pname, pname_len);
+}
+
 void usys_ipi_stop_all()
 {
 	chcore_syscall0(CHCORE_SYS_ipi_stop_all);

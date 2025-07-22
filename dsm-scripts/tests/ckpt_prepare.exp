@@ -1,0 +1,53 @@
+#!/usr/bin/expect  
+
+# include the config file
+source ./dsm-scripts/tests/config.exp
+
+set timeout 60
+
+# Check if a program was passed as the first argument, otherwise use default
+if {[llength $argv] == 0} {
+    set program $default_program
+} else {
+    set program [lindex $argv 0]
+}
+
+# Check if the program_name is in the config list
+if {![info exists program_names($program)]} {
+    puts "Error: program '$program' is not in the config list."
+    exit 1
+}
+
+# Get the program_name from the program_names array
+set program_name $program_names($program)
+
+# Check if the args for the program_name are in the config list
+if {![info exists program_args($program)]} {
+    puts "Error: args for program_name '$program' are not in the config list."
+    exit 1
+}
+
+# Get the args from the program_args array
+set args $program_args($program)
+
+# Check if the args for the program_name are in the config list
+if {![info exists program_expects($program)]} {
+    puts "Error: expects for program_name '$program' are not in the config list."
+    exit 1
+}
+
+# Get the args from the program_args array
+set expect_line $program_expects($program)
+
+# start
+spawn ./build/simulate.sh 0
+expect "Welcome to ChCore shell!"
+
+# start the program
+send -- "$program_name $args & \n"
+expect $expect_line
+
+# prepare the checkpoint
+send -- "ckpt_process.bin $program_name & \n"
+
+interact

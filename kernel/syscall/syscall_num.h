@@ -133,6 +133,9 @@
 #define SYS_cfork_prepare 251
 #define SYS_cfork_ckpt    252
 #define SYS_cfork_restore 253
+
+#define SYS_ckpt_process  254
+#define SYS_restore_process 255
 #endif
 
 /* Machine ID */

@@ -157,6 +157,7 @@ struct ckpt_obj_root *ckpt_obj_root_get(struct object *obj, int flags)
     if (!root && (flags & FLAGS_ALLOC)) {
         root = ckpt_obj_root_alloc(flags);
         obj->obj_root = root;
+        root->obj = obj;
     }
 
     return root;
