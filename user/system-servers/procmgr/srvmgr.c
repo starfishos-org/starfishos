@@ -202,7 +202,6 @@ struct proc_node *procmgr_launch_basic_server(int input_argc, char **input_argv,
                                               char *name, bool if_has_parent,
                                               u64 parent_badge)
 {
-        printf("%s\n", __func__);
         int ret;
         struct proc_node *node;
         struct user_elf user_elf;

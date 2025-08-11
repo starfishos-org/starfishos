@@ -771,7 +771,6 @@ void *mixed_malloc(size_t n, int flags) {
 	int i, j;
 
 	if (adjust_size(&n) < 0) return NULL;
-	// fprintf(stderr, "mixed_malloc called memory_malloc_type: %d size: %ld MMAP_THRESHOLD: %d\n", memory_malloc_type, n, MMAP_THRESHOLD);
 	if (n > MMAP_THRESHOLD) {
 		size_t len = n + OVERHEAD + PAGE_SIZE - 1 & -PAGE_SIZE;
 		char *base;

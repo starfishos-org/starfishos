@@ -115,20 +115,20 @@ BenchmarkResult linpack(int n) {
 int main(int argc, char** argv) {
     int n = 1000;
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <matrix_size> <memory_malloc_type>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <matrix_size> <global_memory_malloc_type>" << std::endl;
         return 1;
     }
 
     n = atoi(argv[1]);
 
-    extern int memory_malloc_type;
-    memory_malloc_type = atoi(argv[2]);
+    extern int global_memory_malloc_type;
+    global_memory_malloc_type = atoi(argv[2]);
 
     std::cout << "Running " << argv[0] << std::endl;
 
     cout << "Running LINPACK benchmark with matrix size " << n << "x" << n << endl;
 
-    cout << "memory_malloc_type: " << memory_malloc_type << endl;
+    cout << "global_memory_malloc_type: " << global_memory_malloc_type << endl;
 
     BenchmarkResult result = linpack(n);
 

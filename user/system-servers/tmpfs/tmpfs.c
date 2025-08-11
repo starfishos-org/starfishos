@@ -144,6 +144,9 @@ int restart_tmpfs(char *mount_path)
 
 int main(int argc, char *argv[], char *envp[])
 {
+	extern int global_memory_malloc_type;
+	global_memory_malloc_type = MALLOC_TYPE_SHARED;
+
 	init_tmpfs("/");
 
 	tfs_load_image((char *)&__binary_ramdisk_cpio_start);

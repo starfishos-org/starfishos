@@ -104,17 +104,17 @@ BenchmarkResult linpack(int n) {
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        cerr << "Usage: " << argv[0] << " <matrix_size> <memory_malloc_type>" << endl;
+        cerr << "Usage: " << argv[0] << " <matrix_size> <global_memory_malloc_type>" << endl;
         return 1;
     }
     
     int n = stoi(argv[1]);
-    extern int memory_malloc_type;
-    memory_malloc_type = stoi(argv[2]);
+    extern int global_memory_malloc_type;
+    global_memory_malloc_type = stoi(argv[2]);
 
     std::cout << "Running " << argv[0] << std::endl;
     cout << "n: " << n << endl;
-    cout << "memory_malloc_type: " << memory_malloc_type << endl;
+    cout << "global_memory_malloc_type: " << global_memory_malloc_type << endl;
     auto result = linpack(n);
     
     cout << "MFLOPS: " << result.mflops << endl;

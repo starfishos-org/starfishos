@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 
-extern int memory_malloc_type;
+extern int global_memory_malloc_type;
 
 double float_operation(int N) {
   auto start = std::chrono::steady_clock::now();
@@ -25,7 +25,7 @@ double float_operation(int N) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " <N> <memory_malloc_type>\n";
+    std::cerr << "Usage: " << argv[0] << " <N> <global_memory_malloc_type>\n";
     return 1;
   }
 
@@ -37,9 +37,9 @@ int main(int argc, char** argv) {
     return 1;
   }
   try {
-    memory_malloc_type = std::stoi(argv[2]);
+    global_memory_malloc_type = std::stoi(argv[2]);
   } catch (const std::exception& e) {
-    std::cerr << "Invalid input for memory_malloc_type: " << e.what() << '\n';
+    std::cerr << "Invalid input for global_memory_malloc_type: " << e.what() << '\n';
     return 1;
   }
 
@@ -47,14 +47,14 @@ int main(int argc, char** argv) {
     std::cerr << "N must be greater than 0\n";
     return 1;
   }
-  if (memory_malloc_type != 0 && memory_malloc_type != 1 && memory_malloc_type != 2) {
-    std::cerr << "memory_malloc_type must be 0 or 1 or 2\n";
+  if (global_memory_malloc_type != 0 && global_memory_malloc_type != 1 && global_memory_malloc_type != 2) {
+    std::cerr << "global_memory_malloc_type must be 0 or 1 or 2\n";
     return 1;
   }
 
   std::cout << "Running " << argv[0] << std::endl;
   std::cout << "N: " << N << '\n';
-  std::cout << "memory_malloc_type: " << memory_malloc_type << '\n';
+  std::cout << "global_memory_malloc_type: " << global_memory_malloc_type << '\n';
 
   double latency = float_operation(N);
   std::cout << "Time: " << latency << " seconds\n";

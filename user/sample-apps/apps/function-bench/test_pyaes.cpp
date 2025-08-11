@@ -132,14 +132,14 @@ double benchmarkAES(int messageLength, int iterations) {
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
-        cerr << "Usage: " << argv[0] << " <message_length> <iterations> <memory_malloc_type>" << endl;
+        cerr << "Usage: " << argv[0] << " <message_length> <iterations> <global_memory_malloc_type>" << endl;
         return 1;
     }
     
     int messageLength = stoi(argv[1]);
     int iterations = stoi(argv[2]);
-    extern int memory_malloc_type;
-    memory_malloc_type = atoi(argv[3]);
+    extern int global_memory_malloc_type;
+    global_memory_malloc_type = atoi(argv[3]);
 
     std::cout << "Running " << argv[0] << std::endl;
 

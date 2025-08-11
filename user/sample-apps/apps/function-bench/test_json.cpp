@@ -18,19 +18,19 @@
 
 int main(int argc, char **argv) {
   std::string file_path;
-  extern int memory_malloc_type;
+  extern int global_memory_malloc_type;
 
   if (argc == 3) {
     file_path = argv[1];
-    memory_malloc_type = atoi(argv[2]);
+    global_memory_malloc_type = atoi(argv[2]);
   } else {
-    std::cerr << "Usage: " << argv[0] << " <file_path> <memory_malloc_type>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <file_path> <global_memory_malloc_type>" << std::endl;
     return 1;
   }
 
   std::cout << "Running " << argv[0] << std::endl;
 
-  std::cout << "memory_malloc_type: " << memory_malloc_type << std::endl;
+  std::cout << "global_memory_malloc_type: " << global_memory_malloc_type << std::endl;
 
   std::ifstream file(file_path);
   std::string content((std::istreambuf_iterator<char>(file)),
