@@ -16,6 +16,6 @@
 
 # add_executable(perf_mem.bin perf_mem.c)
 
-add_subdirectory(malloc_benckmark)
+# add_subdirectory(malloc_benckmark)
 
 # add_subdirectory(fxmark)
