@@ -3,8 +3,12 @@
 set -e
 
 vm_id=0
+machine_id=0
 if [ -n "$1" ]; then
 	vm_id=$1
+	machine_id=$1
+else
+	machine_id=-1
 fi
 basedir=$(dirname "$0")
 # basedir should be /build directory

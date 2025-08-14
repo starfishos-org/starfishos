@@ -17,6 +17,7 @@
 #include <ckpt/hybird_mem.h>
 #include <ckpt/hot_pages_tracker.h>
 #include <dsm/dsm-single.h>
+#include <lib/fw_cfg.h>
 
 /* Global big kernel lock */
 struct lock big_kernel_lock;
@@ -65,6 +66,9 @@ void main(u64 mbmagic, paddr_t mbaddr)
     /* Configure drivers info */
     pci_setup_devices();
     kdebug("[ChCore] pci setup finished\n");
+
+    fw_cfg_init();
+    kdebug("[ChCore] fw_cfg init finished\n");
 
     ext_mm_init();
     kdebug("[ChCore] external mm init finished\n");

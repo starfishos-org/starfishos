@@ -1,22 +1,33 @@
-#include "mm/mm.h"
 #include <dsm/dsm-single.h>
+#include <lib/fw_cfg.h>
 
 void dsm_add_machine()
 {
     BUG_ON(!dsm_meta);
 
-    /* machine id */
-    CUR_MACHINE_ID = atomic_fetch_add_32(&(dsm_meta->cluster_machine_num), 1);
-    if (dsm_meta->cluster_machine_num > CLUSTER_MAX_MACHINE_NUM)
-        BUG("[DSM] machine number exceed max allowed num\n");
+    CUR_MACHINE_ID = FW_MACHINE_ID;
 
-    /* cpu range */
-    CPU_RANGE_LOW =
-            atomic_fetch_add_32(&(dsm_meta->cluster_cpu_num), PLAT_CPU_NUM);
-    CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
+    if (CUR_MACHINE_ID > dsm_meta->cluster_machine_num) {
+        BUG("[DSM] machine id exceed\n");
+    }
 
-    if (dsm_meta->cluster_cpu_num > CLUSTER_MAX_CPU_NUM)
-        BUG("[DSM] cpu number exceed max allowed num\n");
+    int init = CUR_MACHINE_ID == dsm_meta->cluster_machine_num;
+
+    if (init) {
+        atomic_fetch_add_32(&(dsm_meta->cluster_machine_num), 1);
+        if (dsm_meta->cluster_machine_num > CLUSTER_MAX_MACHINE_NUM) {
+            BUG("[DSM] machine number exceed max allowed num\n");
+        }
+        CPU_RANGE_LOW =
+                atomic_fetch_add_32(&(dsm_meta->cluster_cpu_num), PLAT_CPU_NUM);
+        CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
+        if (dsm_meta->cluster_cpu_num > CLUSTER_MAX_CPU_NUM) {
+            BUG("[DSM] cpu number exceed max allowed num\n");
+        }
+    } else {
+        CPU_RANGE_LOW = CUR_MACHINE_ID * PLAT_CPU_NUM;
+        CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
+    }
 
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_low = CPU_RANGE_LOW;
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_high = CPU_RANGE_HIGH;
@@ -26,7 +37,12 @@ void dsm_add_machine()
     // u64 lmem_old_start,
     u64 lmem_new_start, lmem_size = SIZE_8G;
 
-    lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);
+    if (init) {
+        lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);
+    } else {
+        lmem_new_start = dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_start;
+    }
+
     kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
           CUR_MACHINE_ID,
           lmem_new_start,
@@ -56,10 +72,10 @@ void dsm_add_machine()
     //       lmem_new_start + lmem_size,
     //       lmem_old_start,
     //       lmem_old_start + lmem_size);
-    kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
-          CUR_MACHINE_ID,
-          lmem_new_start,
-          lmem_new_start + lmem_size);
+    // kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
+    //       CUR_MACHINE_ID,
+    //       lmem_new_start,
+    //       lmem_new_start + lmem_size);
 #endif
     kinfo("\033[31m"
           "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
