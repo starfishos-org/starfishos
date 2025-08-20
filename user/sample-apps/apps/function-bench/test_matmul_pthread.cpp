@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
     vector<thread> threads;
     int rows_per_thread = size / num_threads;
     atomic<double> total_time(0.0);
+    bind_thread_to_core(0);
 
     for (int t = 0; t < num_threads; ++t) {
         int start_row = t * rows_per_thread;

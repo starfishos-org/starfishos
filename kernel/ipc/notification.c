@@ -373,6 +373,7 @@ int signal_notific(struct notification *notifc)
         } else if (target->thread_ctx->thread_exit_state == TE_STOPPING) {
             target->thread_ctx->thread_exit_state = TE_STOPPED;
         } else {
+            // TODO(yjs): sched error reason
             BUG_ON(sched_enqueue(target));
         }
 

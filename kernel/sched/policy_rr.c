@@ -172,8 +172,9 @@ int rr_sched_migrate_to_remote(struct thread *thread)
 
     gcpuid = affinitiy;
     m_id = cpuid_g2mid(gcpuid);
-    dsm_debug("[%s] enqueue thread (%s, %p, affinity=%d) to cpuid %d machine %d\n",
-                __func__,
+    dsm_debug("[%s:%d] enqueue thread (%s, %p, affinity=%d) to cpuid %d machine %d\n",
+                __FILE__,
+                __LINE__,
                 thread->cap_group->cap_group_name,
                 thread,
                 thread->thread_ctx->affinity,
@@ -185,6 +186,15 @@ int rr_sched_migrate_to_remote(struct thread *thread)
     unlock(&(rr_shared_queue[gcpuid].queue_lock));
 
     return ret;
+}
+
+void copy_thread_ctx_to_dst(struct thread_ctx *src, struct thread_ctx *dst)
+{
+    memcpy(dst, src, sizeof(struct thread_ctx));
+    dst->fpu_state = kzalloc(STATE_AREA_SIZE, __MT_PRIVATE__);
+    memcpy(dst->fpu_state, src->fpu_state, STATE_AREA_SIZE);
+    dst->sc = kzalloc(sizeof(sched_cont_t), __MT_PRIVATE__);
+    memcpy(dst->sc, src->sc, sizeof(sched_cont_t));
 }
 
 /**
@@ -220,6 +230,8 @@ int rr_sched_migrate_from_shared_queue()
     for_each_in_list_safe (thread, tmp,
                       shared_queue_node,
                       &(rr_cur_shared_queue.queue_head)) {
+        // measure dequeue shared & enqueue local
+        // u64 begin = plat_get_mono_time();
         gcpuid = thread->thread_ctx->affinity;
         // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
@@ -229,16 +241,24 @@ int rr_sched_migrate_from_shared_queue()
         thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
+        thread->machine_id = CUR_MACHINE_ID;
+
+        // copy thread_ctx to local thread_ctx (for paper) measure copy ctx to local
+        // struct thread_ctx *local_thread_ctx_on_dram = kzalloc(sizeof(struct thread_ctx), __MT_SHARED__);
+        // copy_thread_ctx_to_dst(thread->thread_ctx, local_thread_ctx_on_dram);
+        // thread->thread_ctx = local_thread_ctx_on_dram;
 
         lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
         ret = __rr_sched_enqueue(thread, lcpuid);
         unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
+        // u64 end = plat_get_mono_time();
+        // printk("migrate to local time: %llu\n", end - begin);
+
         dsm_debug("find remote task(%s, %p), sched to %d\n",
                  thread->cap_group->cap_group_name,
                  thread,
                  lcpuid);
-        // print_thread(thread);
     }
 
     unlock(&(rr_cur_shared_queue.queue_lock));
@@ -388,16 +408,23 @@ int rr_sched_enqueue(struct thread *thread)
         //  thread, thread->thread_ctx, gcpuid);
         // print_thread(thread);
         m_id = cpuid_g2mid(gcpuid);
-        dsm_debug("[%s] enqueue thread (%s, %p, affinity=%d) to cpuid %d machine %d\n",
-                    __func__,
+        dsm_debug("[%s:%d] enqueue thread (%s, %p, affinity=%d, current_cpu=%d, machine_id=%d) to cpuid %d machine %d\n",
+                    __FILE__,
+                    __LINE__,
                     thread->cap_group->cap_group_name,
                     thread,
                     thread->thread_ctx->affinity,
+                    thread->thread_ctx->cpuid,
+                    thread->machine_id,
                     gcpuid,
                     m_id);
+        // measure enqueue shared
+        // u64 begin = plat_get_mono_time();
         lock(&(rr_shared_queue[gcpuid].queue_lock));
         ret = __rr_sched_enqueue_shared(thread, gcpuid);
         unlock(&(rr_shared_queue[gcpuid].queue_lock));
+        // u64 end = plat_get_mono_time();
+        // printk("enqueue shared time: %llu\n", end - begin);
         return ret;
     }
 #endif
@@ -594,6 +621,15 @@ int rr_sched(void)
         case TS_RUNNING:
             /* A thread without SC should not be TS_RUNNING. */
             BUG_ON(!old->thread_ctx->sc);
+            if (old->machine_id != CUR_MACHINE_ID) {
+                dsm_debug("[%s:%d] thread %s (cpuid=%d, affinity=%d) is not on current machine\n",
+                            __FILE__,
+                            __LINE__,
+                            old->cap_group->cap_group_name,
+                            old->thread_ctx->cpuid,
+                            old->thread_ctx->affinity);
+                return 0;
+            }
             if (old->thread_ctx->sc->budget != 0) {
                 switch_to_thread(old);
                 return 0; /* no schedule needed */
