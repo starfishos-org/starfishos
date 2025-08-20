@@ -28,6 +28,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/chcore.iso
         DESTINATION ${CMAKE_INSTALL_PREFIX})
 
 # Note: `$basedir` is a shell variable in `emulate.tpl.sh`
+set(QEMU_BINARY "qemu-6.2-system-x86_64")
 if(CHCORE_SLS)
   chcore_generate_emulate_sh(
     "qemu-system-x86_64"
@@ -41,16 +42,7 @@ endif()
 if(CHCORE_SSI)
   include(${CMAKE_SOURCE_DIR}/dsm_config.cmake)
   if("${DSM_SHM_DEVICE}" STREQUAL "IVSHMEM")
-    # chcore_generate_emulate_sh(
-    #   "qemu-6.2-system-x86_64"
-    #   "--enable-kvm -M q35 -name chcore-\$vm_id -m \$dram_size \
-    #   -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
-    #   -device ivshmem-plain,memdev=hostmem \
-    #   -drive file=\$virtio_file_name,if=none,id=virtio-disk,format=raw \
-    #   -device virtio-blk-pci,drive=virtio-disk \
-    #   -cpu host -smp \$plat_cpu_name -serial mon:stdio -nographic -cdrom \$basedir/chcore.iso"
-    chcore_generate_emulate_sh(
-      "qemu-6.2-system-x86_64"
+    set(QEMU_OPTIONS
       "--enable-kvm \
       -M q35 \
       -name chcore-\$vm_id \
@@ -64,12 +56,17 @@ if(CHCORE_SSI)
       -serial mon:stdio \
       -nographic \
       -cdrom \$basedir/chcore.iso \
-      -fw_cfg name=opt/chcore/bootargs,string=\"machine_id=\$vm_id\""
+      -fw_cfg name=opt/chcore/bootargs,string=machine_id=\$vm_id"
     )
+    chcore_generate_emulate_sh(
+      ${QEMU_BINARY}
+      ${QEMU_OPTIONS}
+    )
+    unset(QEMU_OPTIONS)
   
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL")
     chcore_generate_emulate_sh(
-      "qemu-6.2-system-x86_64"
+      ${QEMU_BINARY}
       "--enable-kvm -M q35,cxl=on -m 4G \
       -object memory-backend-ram,id=vmem0,share=on,size=1G \
       -device pxb-cxl,bus_nr=12,bus=pcie.0,id=cxl.1 \
@@ -80,7 +77,7 @@ if(CHCORE_SSI)
     )
   elseif("${DSM_SHM_DEVICE}" STREQUAL "CXL_NUMA")
     chcore_generate_emulate_sh(
-      "qemu-system-x86_64"
+      ${QEMU_BINARY}
       "--enable-kvm -M q35 -m 4G \
       -object memory-backend-ram,size=1G,policy=bind,host-nodes=0,id=ram-node0,prealloc=on,prealloc-threads=8 \
       -numa node,nodeid=0,cpus=0-15,memdev=ram-node0 \
@@ -92,3 +89,4 @@ if(CHCORE_SSI)
     )
   endif()
 endif()
+unset(QEMU_BINARY)

@@ -46,7 +46,10 @@ endfunction()
 # Add target to generate qemu emulation script.
 function(chcore_generate_emulate_sh _qemu _qemu_options)
     set(qemu ${_qemu})
-    set(qemu_options ${_qemu_options})
+    string(STRIP "${_qemu_options}" qemu_options_trimmed)
+    string(REGEX REPLACE "[ \t]+" " " qemu_options_trimmed "${qemu_options_trimmed}")
+    
+    set(qemu_options "${qemu_options_trimmed}")
     configure_file(${CHCORE_PROJECT_DIR}/scripts/qemu/emulate.tpl.sh emulate.sh
                    @ONLY)
     unset(qemu)
