@@ -52,7 +52,7 @@
 /**
  * machine ID of current machine
  */
-mid_t machine_id;
+extern mid_t machine_id;
 #define CUR_MACHINE_ID (machine_id)
 
 /**
@@ -146,6 +146,31 @@ typedef struct {
      */
     struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
 
+    /**
+     * MSI test message area (for boot-time testing)
+     * Each machine has a message slot and reply slot
+     */
+    struct {
+        volatile u32 msg_from;      /* Source machine ID */
+        volatile u32 msg_type;      /* Message type */
+        volatile u32 reply_received; /* Reply received flag */
+        volatile u32 reply_from;    /* Reply from machine ID */
+    } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
+    
+    /**
+     * Mapping from machine_id to ivshmem peer_id
+     * peer_id is assigned by ivshmem-server and may differ from machine_id
+     * 0xFFFFFFFF means uninitialized
+     */
+    volatile u32 machine_to_peer_id[CLUSTER_MAX_MACHINE_NUM];
+
+    /**
+     * Doorbell registers for MSI notification (software-based)
+     * Since ivshmem-plain doesn't support MSI-X, we implement doorbell in shared memory
+     * Each machine has a doorbell register at offset (machine_id * sizeof(u32))
+     */
+    volatile u32 doorbell_regs[CLUSTER_MAX_MACHINE_NUM];
+
     struct {
         struct cap_group *root_cap_group;
         struct thread *procmgr_thread;
@@ -217,8 +242,8 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
     (u64)paddr >= (u64)dsm_meta->shm_paddr \
     && (u64)paddr < (u64)dsm_meta->shm_paddr + (u64)dsm_meta->shm_size)
 #define IS_LOCAL_PADDR(paddr, machineid) ( \
-    (u64)paddr >= (u64)dsm_meta->local_meta[machineid].local_paddr \
-    && (u64)paddr < (u64)dsm_meta->local_meta[machineid].local_paddr + \
+    (u64)paddr >= (u64)dsm_meta->local_meta[machineid].local_mem_start \
+    && (u64)paddr < (u64)dsm_meta->local_meta[machineid].local_mem_start + \
     (u64)dsm_meta->local_meta[machineid].local_mem_size)
 #define IS_INVALID_PADDR(paddr) ( \
     !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, CUR_MACHINE_ID)))

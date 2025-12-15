@@ -18,6 +18,7 @@
 #include <mm/vmspace.h>
 #include <common/vars.h>
 #include <sched/fpu.h>
+#include <drivers/ivshmem.h>
 
 /* idt and idtr */
 struct gate_desc idt[T_NUM] __attribute__((aligned(16)));
@@ -226,6 +227,15 @@ void handle_irq(int irqno)
             BUG_ON(1);
         }
         return;
+
+    case IRQ_MSIX_IVSHMEM:
+        /* Handle MSI-X interrupt from ivshmem-doorbell */
+        /* Note: This interrupt may arrive before full initialization */
+        /* The handler itself will check for NULL pointers */
+        ivshmem_msix_handler();
+        arch_ack_irq();
+        return;
+
     case IRQ_IPI_RESET_SCHED:
         handle_ipi();
         return;
@@ -356,9 +366,12 @@ void trap_c(arch_exec_ctx_t *ec)
 
     /* Just for kernel tracing and debugging */
     if ((trapno != IRQ_TIMER) && (trapno != T_PF) && (trapno != IRQ_IPI_TLB)
-        && (trapno != IRQ_IPI_RESCHED) && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
+        && (trapno != IRQ_IPI_RESCHED) 
+        && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
         && (trapno != IRQ_IPI_STOP_RESCHED)
-        && (trapno != IRQ_IPI_RESET_SCHED) && (trapno != T_NM)) {
+        && (trapno != IRQ_IPI_RESET_SCHED) 
+        && (trapno != IRQ_MSIX_IVSHMEM)
+        && (trapno != T_NM)) {
         kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
               ec->reg[RIP],
               errorcode,

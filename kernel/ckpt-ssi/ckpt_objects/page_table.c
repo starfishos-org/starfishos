@@ -15,8 +15,7 @@ int page_table_restore(struct vmspace *vmspace)
 #ifdef LAZY_PGTBL_RESTORE
     vmspace->flags |= VM_FLAG_PRESERVE;
 #ifdef MULTI_PAGETABLE_ENABLED
-    vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
         vmspace->pgtbl[i] = get_pages(0, __MT_PGTABLE__);
         memset(vmspace->pgtbl[i], 0, PAGE_SIZE);
     }

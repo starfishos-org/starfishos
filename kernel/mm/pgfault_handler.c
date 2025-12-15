@@ -22,9 +22,11 @@
 #include <arch/sync.h>
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
+#include <mm/page_table_func.h>
 #include <object/recycle.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
+#include <lib/fw_cfg.h>
 #endif
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/hot_pages_tracker.h>
@@ -185,7 +187,16 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
     if (pa == 0) {
         /* Not committed before. Then, allocate the physical page. */
+#ifdef MULTI_PAGETABLE_ENABLED
+        /* If MULTI_PAGETABLE is enabled, we need to allocate
+         * a private page for the new mapping. Only when another
+         * machine also want to access this page, the page will
+         * be shared. */
+        void *new_va = get_pages(0, __MT_PRIVATE__);
+        /* Otherwise, allocate according to the pmo's mm_type */
+#else
         void *new_va = get_pages(0, pmo->mm_type);
+#endif
         BUG_ON(new_va == NULL);
 
         pa = virt_to_phys(new_va);
@@ -276,6 +287,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         
         /* handle CoW when a process is forked */
 #ifdef CHCORE_FORK_ENABLED
+#ifdef MULTI_PAGETABLE_ENABLED
+#error "Multi-PAGETABLE_ENABLED is not supported for CoW"
+#endif
         if (!is_shared_pmo(pmo)) {
             if (is_continuous_pmo(pmo)) {
                 page = virt_to_page((void *)phys_to_virt(pmo->start));
@@ -294,11 +308,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     pa = pmo->start + index * PAGE_SIZE;
 
                     lock(&vmspace->pgtbl_lock);
-#ifdef MULTI_PAGETABLE_ENABLED
-                    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-#else
                     void *pgtbl = vmspace->pgtbl;
-#endif
                     if ((vmspace->flags & VM_FLAG_PRESERVE)) {
                         map_range_in_pgtbl(pgtbl,
                                             vmr->start,
@@ -334,12 +344,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     pa = virt_to_phys(new_va);
 
                     lock(&vmspace->pgtbl_lock);
-#ifdef MULTI_PAGETABLE_ENABLED
-                    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-                    map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
-#else
                     map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
-#endif
                     unlock(&vmspace->pgtbl_lock);
 
                     flush_tlbs(vmspace, fault_addr, PAGE_SIZE);
@@ -360,15 +365,43 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         pte_t *pte = NULL;
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
+        /**
+         * If MULTI_PAGETABLE is enabled, we need to map all 
+         * page tables to the shared memory.
+         * Case1: the page is already on shared memory
+         *        -- DO NOTHING! Directly map!
+         * Case2: the page is not on shared memory
+         *        -- 2.1: memcpy the page to the shared memory.
+         *        -- 2.2: remap the page table in old page table.
+         *        -- 2.3: map the page to new page table.
+         */
+        /* NOTE!!: should not define machine_id variable here, 
+        it will cause the error when using CUR_MACHINE_ID */
+        int mid = get_paddr_machine_id(pa);
+        BUG_ON(mid == MACHINE_ID_INVALID);
+        if (mid != MACHINE_ID_SHARED_MEMORY) {
+            pte_t *pte_entry = NULL;
+            paddr_t old_pa = pa;
+            query_in_pgtbl(vmspace->pgtbl[mid], fault_addr, &old_pa, &pte_entry);
+            BUG_ON(old_pa == 0);
+            BUG_ON(pte_entry == NULL);
+            /* 2.1: memcpy the page to the shared memory. */
+            memcpy((void *)phys_to_virt(pa), (void *)phys_to_virt(old_pa), PAGE_SIZE);
+            /* 2.2: remap the page table in old page table. */
+            remap_page_in_pgtbl(pte_entry, pa);
+            /* Flush TLB only for the machine whose page table was remapped */
+            /* Note: We need to flush because remap changes the physical address,
+             * and TLB may have cached the old mapping. We only flush CPUs belonging
+             * to machine_id since only they may have cached mappings from that page table */
+            flush_tlbs_for_machine(vmspace, mid, fault_addr, PAGE_SIZE);
+        }
+        
         void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
         map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif
         unlock(&vmspace->pgtbl_lock);
-
-#ifdef CHCORE_SSI_SLS
-#endif
 
 #ifdef CHCORE_SLS        
         /* do not persist pages belong to external sync pmo */

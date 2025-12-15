@@ -60,7 +60,7 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
     bool need_map_second_pud = false;
     u64 idx = 0, _idx_start, _idx_end;
 
-    kinfo("fill kernel page table range: %lx - %lx\n", idx_start, idx_end);
+    // kinfo("fill kernel page table range: %lx - %lx\n", idx_start, idx_end);
 
     if (idx_start <= (int)(FIRST_PUD_MAPPING_IDX_END)) {
         need_map_first_pud = true;
@@ -93,7 +93,7 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
         }
     }
 
-    kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end * SIZE_1G);
+    // kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end * SIZE_1G);
 }
 
 /**

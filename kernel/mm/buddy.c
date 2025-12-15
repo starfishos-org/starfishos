@@ -3,6 +3,10 @@
 #include <common/kprint.h>
 #include <mm/buddy.h>
 #include <mm/rmap.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#include <arch/mmu.h>
+#endif
 
 static struct page *get_buddy_chunk(struct phys_mem_pool *pool,
                                     struct page *chunk)
@@ -355,6 +359,46 @@ page_type_t get_page_type(struct page *page)
         return page->pool->type;
     /* does not belong to memory pool */
     return INVALID_PAGE;
+}
+
+/* Get machine ID for a given physical address, or -1 if it's shared memory (CXL) or not found */
+#ifdef DSM_ENABLED
+int get_paddr_machine_id(paddr_t paddr)
+{
+    /* Check if it's shared memory (CXL) */
+    if (IS_SHM_PADDR(paddr))
+        return MACHINE_ID_SHARED_MEMORY; /* Shared memory, no specific machine */
+    
+    /* Check each machine's local memory range */
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        if (IS_LOCAL_PADDR(paddr, i))
+            return i;
+    }
+    
+    return MACHINE_ID_INVALID; /* Not found */
+}
+#else
+/* Single machine system, always return 0 */
+int get_paddr_machine_id(paddr_t paddr)
+{
+    UNUSED(paddr);
+    return MACHINE_ID_SHARED_MEMORY;
+}
+#endif
+
+/* Get machine ID for a given page, or -1 if it's shared memory (CXL) or not found */
+int get_page_machine_id(struct page *page)
+{
+    paddr_t paddr;
+    
+    if (!page || !page->pool)
+        return MACHINE_ID_INVALID;
+    
+    /* Get physical address from page */
+    paddr = virt_to_phys(page_to_virt(page));
+    
+    /* Use the paddr-based function */
+    return get_paddr_machine_id(paddr);
 }
 
 unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *pool)

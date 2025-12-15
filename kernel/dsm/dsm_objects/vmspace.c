@@ -65,8 +65,7 @@ int dsm_copy_vmspace(struct object *src_obj, struct object *dst_obj)
 
     /* Init page table */
 #ifdef MULTI_PAGETABLE_ENABLED
-    dst_vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
-    for (int i = 0; i < dst_vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         dst_vmspace->pgtbl[i] = get_pages(0, mem_type);
         memset(dst_vmspace->pgtbl[i], 0, PAGE_SIZE);
     }

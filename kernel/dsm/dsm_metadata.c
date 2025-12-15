@@ -1,11 +1,21 @@
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
 
+/* Define machine_id here (declared as extern in dsm-single.h) */
+mid_t machine_id = -1;
+
 void dsm_add_machine()
 {
     BUG_ON(!dsm_meta);
 
     CUR_MACHINE_ID = FW_MACHINE_ID;
+    
+    /* Initialize machine_to_peer_id array if this is the first machine */
+    if (CUR_MACHINE_ID == 0) {
+        for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
+            dsm_meta->machine_to_peer_id[i] = 0xFFFFFFFF; /* Uninitialized */
+        }
+    }
 
     if (CUR_MACHINE_ID > dsm_meta->cluster_machine_num) {
         BUG("[DSM] machine id exceed\n");

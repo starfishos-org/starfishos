@@ -9,6 +9,8 @@
 #define HANDLE_USER   1
 extern u8 irq_handle_type[MAX_IRQ_NUM];
 
+#define IRQ_MSIX_IVSHMEM 48
+
 /* TODO: split the plat/arch declaration */
 void eret_to_thread(u64 sp);
 void arch_interrupt_init(void); /* in arch/xxx/irq/irq_entry.c */

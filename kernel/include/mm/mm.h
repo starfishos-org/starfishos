@@ -24,3 +24,7 @@ unsigned long get_free_mem_size(void);
 /* Implementations differ on different architectures. */
 void set_page_table(paddr_t pgtbl);
 void flush_tlbs(struct vmspace *, vaddr_t start_va, size_t size);
+#ifdef MULTI_PAGETABLE_ENABLED
+/* Flush TLB only for CPUs belonging to a specific machine */
+void flush_tlbs_for_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t size);
+#endif

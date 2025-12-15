@@ -237,3 +237,62 @@ void flush_tlbs(struct vmspace *vmspace, vaddr_t start_va, size_t len)
 {
     flush_tlb_local_and_remote(vmspace, start_va, len);
 }
+
+#ifdef MULTI_PAGETABLE_ENABLED
+#include <dsm/dsm-single.h>
+#include <drivers/ivshmem.h>
+
+/* Flush TLB only for CPUs belonging to a specific machine */
+void flush_tlbs_for_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t len)
+{
+    u64 page_cnt;
+    u64 pcid;
+    u32 cpuid;
+    u32 i;
+    u32 cpu_range_low, cpu_range_high;
+
+    if (unlikely(len < PAGE_SIZE))
+        kwarn("func: %s. len (%p) < PAGE_SIZE\n", __func__, len);
+
+    if (len == 0)
+        return;
+
+    len = ROUND_UP(len, PAGE_SIZE);
+    page_cnt = len / PAGE_SIZE;
+
+    pcid = vmspace->pcid;
+    cpuid = smp_get_cpu_id();
+
+    /* Get CPU range for the target machine */
+    cpu_range_low = dsm_meta->local_meta[machine_id].cpu_range_low;
+    cpu_range_high = dsm_meta->local_meta[machine_id].cpu_range_high;
+
+    /* If target machine is remote (different from current machine) */
+    mid_t cur_machine_id = CUR_MACHINE_ID;
+    if (machine_id != cur_machine_id) {
+        /* Send MSI interrupt to remote machine */
+        /* Use vector 0 for TLB flush requests */
+        ivshmem_send_msi(machine_id, 0);
+        
+        /* Store TLB flush request in shared memory for remote machine to process */
+        /* TODO: Implement shared memory queue for TLB flush requests */
+        
+        return;
+    }
+
+    /* Flush local TLB if current CPU belongs to the target machine */
+    if (cpuid >= cpu_range_low && cpuid <= cpu_range_high) {
+        flush_local_tlb_opt(start_va, page_cnt, pcid);
+    }
+
+    /* Flush remote TLBs only for CPUs belonging to the target machine */
+    for (i = 0; i < PLAT_CPU_NUM; ++i) {
+        if ((i != cpuid) && 
+            (i >= cpu_range_low && i <= cpu_range_high) &&
+            (vmspace->history_cpus[i] == 1)) {
+            flush_remote_tlb_with_ipi(
+                    i, start_va, page_cnt, pcid, (u64)vmspace);
+        }
+    }
+}
+#endif

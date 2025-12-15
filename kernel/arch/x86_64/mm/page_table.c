@@ -336,7 +336,7 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
 
 int query_in_all_pgtbls(void **pgtbls, size_t pgtbl_cnt, vaddr_t va, paddr_t *pa, pte_t **entry)
 {
-    for (int i = 0; i < pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         int ret = query_in_pgtbl(pgtbls[i], va, pa, entry);
         if (ret != 0) {
             return ret;

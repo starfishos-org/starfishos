@@ -203,7 +203,7 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
         lock(&handler_vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
         extern int query_in_all_pgtbls(void *, int, vaddr_t, paddr_t *, void **);
-        ret = query_in_all_pgtbls(handler_vmspace->pgtbl, handler_vmspace->pgtbl_cnt, remap_va, &pa, NULL);
+        ret = query_in_all_pgtbls(handler_vmspace->pgtbl, CLUSTER_MACHINE_NUM, remap_va, &pa, NULL);
 #else
         extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
         ret = query_in_pgtbl(handler_vmspace->pgtbl, remap_va, &pa, NULL);

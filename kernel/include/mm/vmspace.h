@@ -92,7 +92,6 @@ struct vmspace {
 #ifdef MULTI_PAGETABLE_ENABLED
     /* Root page table array for each machine */
     void *pgtbl[CLUSTER_MAX_MACHINE_NUM];
-    size_t pgtbl_cnt;
 #else
     void *pgtbl;
 #endif

@@ -180,6 +180,14 @@ unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *);
 /* get page type by virt addr of page */
 page_type_t get_page_type(struct page *page);
 
+/* get machine ID for a given page, or -1 if it's shared memory (CXL) or not found */
+int get_page_machine_id(struct page *page);
+
+/* get machine ID for a given physical address, or -1 if it's shared memory (CXL) or not found */
+#define MACHINE_ID_SHARED_MEMORY (-1)
+#define MACHINE_ID_INVALID (-2)
+int get_paddr_machine_id(paddr_t paddr);
+
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* latest log related  */
 void prepare_latest_log(struct phys_mem_pool *pool, log_type_t type, u64 page,

@@ -75,6 +75,21 @@ void main(u64 mbmagic, paddr_t mbaddr)
 
     extern void pci_hostfs_list(void);
     pci_hostfs_list();
+    
+    /* Register peer_id mapping after dsm_meta is initialized */
+    extern void ivshmem_register_peer_id(void);
+    // extern int ivshmem_test_basic(void);
+    extern int ivshmem_test_msi_communication(void);
+    
+    kinfo("[ChCore] Registering IVSHMEM peer_id...\n");
+    ivshmem_register_peer_id();
+    
+    // kinfo("[ChCore] Running IVSHMEM basic test...\n");
+    // ivshmem_test_basic();
+    
+    kinfo("[ChCore] Running IVSHMEM MSI communication test...\n");
+    ivshmem_test_msi_communication();
+    kdebug("[ChCore] MSI communication test finished\n");
 
     /* Configure CPU features: setting per_core registers */
     arch_cpu_init();
@@ -122,7 +137,7 @@ void main(u64 mbmagic, paddr_t mbaddr)
 
     /* Create the first user thread */
     create_root_thread();
-    kinfo("[ChCore] create initial thread done\n");
+    kinfo("[ChCore] create initial thread done, machine id: %d\n", CUR_MACHINE_ID);
 
 #ifdef RESTORE_ENABLED
 skip_create_root_thread:

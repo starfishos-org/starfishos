@@ -75,7 +75,7 @@ void arch_vmspace_init(struct vmspace *vmspace)
 {
 #ifdef MULTI_PAGETABLE_ENABLED
     /* Initialize page tables for all machines */
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
         if (vmspace->pgtbl[i] != NULL) {
             __arch_vmspace_init_single(vmspace->pgtbl[i]);
             vmspace->pgtbl[i] = (void *)((u64)vmspace->pgtbl[i] | vmspace->pcid);
@@ -97,8 +97,7 @@ struct vmspace *create_idle_vmspace(void)
     idle_vmspace = kzalloc(sizeof(*idle_vmspace), __MT_PRIVATE__);
     /* Cannot use the CHCORE_PGD directly because its addr < IMG_END */
 #ifdef MULTI_PAGETABLE_ENABLED
-    idle_vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
-    for (int i = 0; i < idle_vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
 #if defined USE_NVM && defined USE_DRAM
         idle_vmspace->pgtbl[i] = get_dram_pages(0);
 #else
@@ -127,7 +126,7 @@ struct vmspace *create_idle_vmspace(void)
 void *get_vmspace_pgtbl(struct vmspace *vmspace, mid_t machine_id)
 {
 #ifdef MULTI_PAGETABLE_ENABLED
-    if (machine_id >= 0 && machine_id < vmspace->pgtbl_cnt) {
+    if (machine_id >= 0 && machine_id < CLUSTER_MACHINE_NUM) {
         return vmspace->pgtbl[machine_id];
     }
     BUG("Failed to get page table for machine %d\n", machine_id);

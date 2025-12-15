@@ -447,7 +447,7 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
         /* Unmap from all machine page tables */
-        for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+        for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
             void *pgtbl = get_vmspace_pgtbl(vmspace, i);
             if (pgtbl != NULL) {
                 unmap_range_in_pgtbl(pgtbl, va, len);
@@ -539,7 +539,7 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo)
     /* Remove the mapping in page table */
 #ifdef MULTI_PAGETABLE_ENABLED
     /* Unmap from all machine page tables */
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         void *pgtbl = get_vmspace_pgtbl(vmspace, i);
         if (pgtbl != NULL) {
             unmap_range_in_pgtbl(pgtbl, flush_va_start, flush_len);
@@ -750,7 +750,7 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
     lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
     /* Unmap from all machine page tables */
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         void *pgtbl = get_vmspace_pgtbl(vmspace, i);
         if (pgtbl != NULL) {
             unmap_range_in_pgtbl(pgtbl, vmr->start, vmr->size);
@@ -797,8 +797,7 @@ int vmspace_init(struct vmspace *vmspace)
 
     /* Allocate the root page table page for each machine */
 #ifdef MULTI_PAGETABLE_ENABLED
-    vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
         vmspace->pgtbl[i] = get_pages(0, __MT_PGTABLE__);
         BUG_ON(vmspace->pgtbl[i] == NULL);
         memset((void *)vmspace->pgtbl[i], 0, PAGE_SIZE);
@@ -854,7 +853,7 @@ void vmspace_deinit(void *ptr)
 #endif
     extern void free_page_table(void *);
 #ifdef MULTI_PAGETABLE_ENABLED
-    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         if (vmspace->pgtbl[i] != NULL) {
             void *pgtbl = (void *)((u64)vmspace->pgtbl[i] & ~0xFFFUL); /* Remove PCID */
             free_page_table(pgtbl);
