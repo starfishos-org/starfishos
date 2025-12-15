@@ -23,6 +23,9 @@
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
 #include <object/recycle.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/ckpt.h>
@@ -200,7 +203,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
         /* Add mapping in the page table */
         lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
+#else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
+#endif
         unlock(&vmspace->pgtbl_lock);
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
@@ -286,14 +294,19 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     pa = pmo->start + index * PAGE_SIZE;
 
                     lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+                    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
+                    void *pgtbl = vmspace->pgtbl;
+#endif
                     if ((vmspace->flags & VM_FLAG_PRESERVE)) {
-                        map_range_in_pgtbl(vmspace->pgtbl,
+                        map_range_in_pgtbl(pgtbl,
                                             vmr->start,
                                             pmo->start,
                                             pmo->size,
                                             perm & (~VMR_WRITE));
                     } else {
-                        map_range_in_pgtbl(vmspace->pgtbl,
+                        map_range_in_pgtbl(pgtbl,
                                             vmr->start,
                                             pmo->start,
                                             pmo->size,
@@ -321,8 +334,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     pa = virt_to_phys(new_va);
 
                     lock(&vmspace->pgtbl_lock);
-                    map_page_in_pgtbl(
-                            vmspace->pgtbl, fault_addr, pa, perm, &pte);
+#ifdef MULTI_PAGETABLE_ENABLED
+                    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+                    map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
+#else
+                    map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
+#endif
                     unlock(&vmspace->pgtbl_lock);
 
                     flush_tlbs(vmspace, fault_addr, PAGE_SIZE);
@@ -342,7 +359,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         /* Add mapping in the page table */
         pte_t *pte = NULL;
         lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
+#else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
+#endif
         unlock(&vmspace->pgtbl_lock);
 
 #ifdef CHCORE_SSI_SLS

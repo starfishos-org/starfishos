@@ -9,8 +9,11 @@
 #include <common/macro.h>
 #include <common/types.h>
 #include <common/errno.h>
+#include <arch/mm/page_table.h>
 
-#include "arch/mm/page_table.h"
+#ifdef MULTI_PAGETABLE_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 /*
  * Pkey only takes effect on the last level page table page (pte)
@@ -53,7 +56,11 @@ int pkey_protect(struct vmspace *vmspace, vaddr_t va, size_t len, int domain_id)
     BUG_ON(va % PAGE_SIZE);
 
     /* root page table page must exist */
+#ifdef MULTI_PAGETABLE_ENABLED
+    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
     pgtbl = vmspace->pgtbl;
+#endif
     BUG_ON(pgtbl == NULL);
     l0_ptp = (ptp_t *)remove_pcid(pgtbl);
     l1_ptp = NULL;

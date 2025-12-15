@@ -7,6 +7,9 @@
 #include <common/errno.h>
 
 #include <arch/mm/page_table.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 /*
  * Important:
@@ -152,6 +155,14 @@ int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va, ptp_t **next_ptp,
     }
 
     entry = &(cur_ptp->ent[index]);
+    if (!entry) {
+        if (alloc == false) {
+            return -ENOMAPPING;
+        } else {
+            /* alloc a new page table page */
+            printk("cur_ptp: %p, index: %d, entry: %p\n", cur_ptp, index, entry);
+        }
+    }
     /* if not present */
     if (!(entry->pteval & PAGE_PRESENT)) {
         if (alloc == false) {
@@ -321,6 +332,17 @@ int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry)
     if (entry)
         *entry = pte;
     return 0;
+}
+
+int query_in_all_pgtbls(void **pgtbls, size_t pgtbl_cnt, vaddr_t va, paddr_t *pa, pte_t **entry)
+{
+    for (int i = 0; i < pgtbl_cnt; i++) {
+        int ret = query_in_pgtbl(pgtbls[i], va, pa, entry);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+    return -ENOMAPPING;
 }
 
 #define IS_PTE_INVALID(pteval) (!(pteval & PAGE_PRESENT))
@@ -659,7 +681,7 @@ int mprotect_in_pgtbl(void *pgtbl, vaddr_t va, size_t len, vmr_prop_t flags)
 int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len,
                        bool flag)
 {
-    vaddr_t *pgtbl;
+    void *pgtbl;
     s64 total_page_cnt; // must be signed
     ptp_t *l0_ptp, *l1_ptp, *l2_ptp, *l3_ptp;
     pte_t *pte;
@@ -667,7 +689,11 @@ int set_write_in_pgtbl(struct vmspace *vmspace, vaddr_t va, size_t len,
     int pte_index; // the index of pte in the last level page table
     int i;
 
+#ifdef MULTI_PAGETABLE_ENABLED
+    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
     pgtbl = vmspace->pgtbl;
+#endif
     if (pgtbl == NULL)
         return 0;
     l0_ptp = (ptp_t *)remove_pcid(pgtbl);
@@ -816,7 +842,12 @@ int pgtbl_deep_copy(vaddr_t *src_pgtbl, vaddr_t *dst_pgtbl, mem_t mem_type)
 bool check_vmspace_unwritable(struct vmspace *vmspace)
 {
     int i, j, k, l;
-    vaddr_t *pgtbl = vmspace->pgtbl;
+    void *pgtbl;
+#ifdef MULTI_PAGETABLE_ENABLED
+    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
+    pgtbl = vmspace->pgtbl;
+#endif
     ptp_t *l0_ptp, *l1_ptp, *l2_ptp, *l3_ptp;
     pte_t *entry;
     l0_ptp = (ptp_t *)remove_pcid(pgtbl);

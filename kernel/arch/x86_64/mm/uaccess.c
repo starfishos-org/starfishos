@@ -11,6 +11,9 @@
 #include <object/thread.h>
 #include <object/object.h>
 #include <object/cap_group.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 #include <ckpt/hot_pages_tracker.h>
 #include <ckpt/ckpt.h>
 
@@ -102,7 +105,12 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
 #endif
         pte_t *pte;
         lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        map_page_in_pgtbl(pgtbl, va, pa, vmr->perm, &pte);
+#else
         map_page_in_pgtbl(vmspace->pgtbl, va, pa, vmr->perm, &pte);
+#endif
         unlock(&vmspace->pgtbl_lock);
 #if defined CHCORE_SLS
 #ifndef OMIT_PF
@@ -141,7 +149,12 @@ vaddr_t transform_vaddr(char *user_buf, bool write)
         page_type = get_page_type(page);
         switch (page_type) {
         case DRAM_CACHED_PAGE: {
+#ifdef MULTI_PAGETABLE_ENABLED
+            void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+            BUG_ON(query_in_pgtbl(pgtbl, va, NULL, &pte));
+#else
             BUG_ON(query_in_pgtbl(vmspace->pgtbl, va, NULL, &pte));
+#endif
             set_pte_dirty(pte);
             break;
         }

@@ -12,6 +12,10 @@
 
 #include <common/rbtree.h>
 
+#ifndef CLUSTER_MAX_MACHINE_NUM
+#define CLUSTER_MAX_MACHINE_NUM (8)
+#endif
+
 /*
  * The anon_vma heads a list of private "related" vmas.
  *
@@ -85,8 +89,13 @@ struct vmspace {
     /* rbtree root node of vmregion (vmr_tree) */
     struct rb_root vmr_tree;
 
-    /* Root page table */
+#ifdef MULTI_PAGETABLE_ENABLED
+    /* Root page table array for each machine */
+    void *pgtbl[CLUSTER_MAX_MACHINE_NUM];
+    size_t pgtbl_cnt;
+#else
     void *pgtbl;
+#endif
 
     u64 pcid;
 
@@ -197,6 +206,10 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo);
 struct vmregion *find_vmr_for_va(struct vmspace *vmspace, vaddr_t addr);
 
 void switch_vmspace_to(struct vmspace *);
+
+#ifdef MULTI_PAGETABLE_ENABLED
+void *get_vmspace_pgtbl(struct vmspace *vmspace, mid_t machine_id);
+#endif
 
 void commit_page_to_pmo(struct pmobject *pmo, u64 index, paddr_t pa);
 void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa);

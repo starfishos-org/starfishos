@@ -54,7 +54,12 @@ int sys_register_recycle(int notifc_cap, vaddr_t msg_buffer)
     BUG_ON(recycle_notification == NULL);
 
     ret = trans_uva_to_kva(msg_buffer, (vaddr_t *)&recycle_msg_buffer);
-    BUG_ON(ret != 0);
+    if (ret != 0) {
+        printk("Failed to translate user address %p to kernel address: %d\n", msg_buffer, ret);
+        printk("current_thread: %p\n", current_thread);
+        print_thread(current_thread);
+        BUG_ON(1);
+    }
 
     init_list_head(&recycle_msg_head);
     lock_init(&recycle_buffer_lock);

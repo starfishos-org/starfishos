@@ -85,6 +85,9 @@ cluster: clean-dsm
 leveldb: clean-dsm
 	./dsm-scripts/tests/leveldb.exp
 
+db1000: clean-dsm
+	./dsm-scripts/tests/db1000.exp
+
 json-test-py: clean-dsm
 	./dsm-scripts/tests/python.exp json_test.py json/english.json
 

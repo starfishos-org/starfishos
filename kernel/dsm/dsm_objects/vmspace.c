@@ -1,5 +1,8 @@
 #include <mm/vmspace.h>
 #include <arch/mm/page_table.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 #include "../dsm_tiering.h"
 
@@ -61,8 +64,16 @@ int dsm_copy_vmspace(struct object *src_obj, struct object *dst_obj)
     }
 
     /* Init page table */
+#ifdef MULTI_PAGETABLE_ENABLED
+    dst_vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
+    for (int i = 0; i < dst_vmspace->pgtbl_cnt; i++) {
+        dst_vmspace->pgtbl[i] = get_pages(0, mem_type);
+        memset(dst_vmspace->pgtbl[i], 0, PAGE_SIZE);
+    }
+#else
     dst_vmspace->pgtbl = get_pages(0, mem_type);
     memset(dst_vmspace->pgtbl, 0, PAGE_SIZE);
+#endif
     dst_vmspace->flags |= VM_FLAG_PRESERVE;
 
     return 0;

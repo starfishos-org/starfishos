@@ -201,8 +201,13 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
         handler_vmspace =
                 obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
         lock(&handler_vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        extern int query_in_all_pgtbls(void *, int, vaddr_t, paddr_t *, void **);
+        ret = query_in_all_pgtbls(handler_vmspace->pgtbl, handler_vmspace->pgtbl_cnt, remap_va, &pa, NULL);
+#else
         extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
         ret = query_in_pgtbl(handler_vmspace->pgtbl, remap_va, &pa, NULL);
+#endif
         if (ret) {
             read_lock(&handler_vmspace->vmspace_lock);
             handler_vmr = find_vmr_for_va(handler_vmspace, remap_va);
@@ -251,7 +256,11 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
     lock(&fault_vmspace->pgtbl_lock);
     /* FIXME: we never consider overlapped fmap here */
     perm = VMR_READ | VMR_WRITE | VMR_EXEC;
+#ifdef MULTI_PAGETABLE_ENABLED
+    ret = map_page_in_pgtbl(get_vmspace_pgtbl(fault_vmspace, CUR_MACHINE_ID), fault_va, new_pa, perm, &pte);
+#else
     ret = map_page_in_pgtbl(fault_vmspace->pgtbl, fault_va, new_pa, perm, &pte);
+#endif
     BUG_ON(ret);
     unlock(&fault_vmspace->pgtbl_lock);
 

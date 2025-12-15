@@ -5,6 +5,7 @@
 #include <mm/uaccess.h>
 #include <mm/mm.h>
 #include <mm/kmalloc.h>
+#include <mm/page_table_func.h>
 #include <common/lock.h>
 #include <arch/mmu.h>
 #include <common/lock.h>
@@ -13,6 +14,10 @@
 #include <object/user_fault.h>
 
 #include "mmap.h"
+
+#ifdef MULTI_PAGETABLE_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 extern int radix_deep_copy_with_hybird_mem(struct radix *src,
                                            struct radix *dst);
@@ -540,9 +545,13 @@ int sys_get_phys_addr(u64 va, u64 *pa_buf)
     int ret;
 
     lock(&vmspace->pgtbl_lock);
-    extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
-    ret = query_in_pgtbl(vmspace->pgtbl, va, &pa, NULL);
-    unlock(&vmspace->pgtbl_lock);
+    // extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
+#ifdef MULTI_PAGETABLE_ENABLED
+    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
+    void *pgtbl = (void *)vmspace->pgtbl;
+#endif
+    ret = query_in_pgtbl(pgtbl, va, &pa, NULL);
 
     if (ret < 0)
         return ret;
@@ -559,8 +568,13 @@ int trans_uva_to_kva(u64 user_va, u64 *kernel_va)
     int ret;
 
     lock(&vmspace->pgtbl_lock);
-    extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
-    ret = query_in_pgtbl(vmspace->pgtbl, user_va, &pa, NULL);
+    // extern int query_in_pgtbl(void *, vaddr_t, paddr_t *, void **);
+#ifdef MULTI_PAGETABLE_ENABLED
+    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
+    void *pgtbl = (void *)vmspace->pgtbl;
+#endif
+    ret = query_in_pgtbl(pgtbl, user_va, &pa, NULL);
     unlock(&vmspace->pgtbl_lock);
 
     if (ret < 0)

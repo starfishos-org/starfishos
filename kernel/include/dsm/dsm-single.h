@@ -42,8 +42,12 @@
 #define CLUSTER_MAX_CPU_NUM (1024)
 #define CLUSTER_CPU_NUM     (dsm_meta->cluster_cpu_num)
 
-#define CLUSTER_MAX_MACHINE_NUM (16)
+#ifndef CLUSTER_MAX_MACHINE_NUM
+#define CLUSTER_MAX_MACHINE_NUM (8)
+#endif
+#ifndef CLUSTER_MACHINE_NUM
 #define CLUSTER_MACHINE_NUM     (dsm_meta->cluster_machine_num)
+#endif
 
 /**
  * machine ID of current machine

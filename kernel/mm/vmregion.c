@@ -269,7 +269,12 @@ static int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
 #endif
 #endif
     lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+    ret = map_range_in_pgtbl(pgtbl, va, pa, pm_size, perm);
+#else
     ret = map_range_in_pgtbl(vmspace->pgtbl, va, pa, pm_size, perm);
+#endif
     unlock(&vmspace->pgtbl_lock);
 
     return ret;
@@ -440,7 +445,17 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
 
     if (likely(len != 0)) {
         lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        /* Unmap from all machine page tables */
+        for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+            void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+            if (pgtbl != NULL) {
+                unmap_range_in_pgtbl(pgtbl, va, len);
+            }
+        }
+#else
         unmap_range_in_pgtbl(vmspace->pgtbl, va, len);
+#endif
         unlock(&vmspace->pgtbl_lock);
 
         flush_tlbs(vmspace, va, len);
@@ -522,7 +537,17 @@ int unmap_pmo_in_vmspace(struct vmspace *vmspace, struct pmobject *pmo)
 
     lock(&vmspace->pgtbl_lock);
     /* Remove the mapping in page table */
+#ifdef MULTI_PAGETABLE_ENABLED
+    /* Unmap from all machine page tables */
+    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+        void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+        if (pgtbl != NULL) {
+            unmap_range_in_pgtbl(pgtbl, flush_va_start, flush_len);
+        }
+    }
+#else
     unmap_range_in_pgtbl(vmspace->pgtbl, flush_va_start, flush_len);
+#endif
     unlock(&vmspace->pgtbl_lock);
 
     flush_tlbs(vmspace, flush_va_start, flush_len);
@@ -723,7 +748,17 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
 
     /* Umap a whole vmr */
     lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+    /* Unmap from all machine page tables */
+    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+        void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+        if (pgtbl != NULL) {
+            unmap_range_in_pgtbl(pgtbl, vmr->start, vmr->size);
+        }
+    }
+#else
     unmap_range_in_pgtbl(vmspace->pgtbl, vmr->start, vmr->size);
+#endif
     flush_va_start = vmr->start;
     flush_len = vmr->size;
     unlock(&vmspace->pgtbl_lock);
@@ -760,14 +795,20 @@ int vmspace_init(struct vmspace *vmspace)
     init_list_head(&vmspace->vmr_list);
     init_rb_root(&vmspace->vmr_tree);
 
-    /* Allocate the root page table page */
-#if defined USE_NVM && defined USE_DRAM
-    vmspace->pgtbl = get_dram_pages(0);
+    /* Allocate the root page table page for each machine */
+#ifdef MULTI_PAGETABLE_ENABLED
+    vmspace->pgtbl_cnt = CLUSTER_MACHINE_NUM;
+    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+        vmspace->pgtbl[i] = get_pages(0, __MT_PGTABLE__);
+        BUG_ON(vmspace->pgtbl[i] == NULL);
+        memset((void *)vmspace->pgtbl[i], 0, PAGE_SIZE);
+    }
 #else
+    /* For non-DSM builds, use single page table */
     vmspace->pgtbl = get_pages(0, __MT_PGTABLE__);
-#endif
     BUG_ON(vmspace->pgtbl == NULL);
     memset((void *)vmspace->pgtbl, 0, PAGE_SIZE);
+#endif
 
     /* Architecture-dependent initilization */
     arch_vmspace_init(vmspace);
@@ -812,7 +853,19 @@ void vmspace_deinit(void *ptr)
     }
 #endif
     extern void free_page_table(void *);
-    free_page_table(vmspace->pgtbl);
+#ifdef MULTI_PAGETABLE_ENABLED
+    for (int i = 0; i < vmspace->pgtbl_cnt; i++) {
+        if (vmspace->pgtbl[i] != NULL) {
+            void *pgtbl = (void *)((u64)vmspace->pgtbl[i] & ~0xFFFUL); /* Remove PCID */
+            free_page_table(pgtbl);
+        }
+    }
+#else
+    if (vmspace->pgtbl != NULL) {
+        void *pgtbl = (void *)((u64)vmspace->pgtbl & ~0xFFFUL); /* Remove PCID */
+        free_page_table(pgtbl);
+    }
+#endif
 #if 0
         /* FIXME: TLB flush (PCID reusing) */
         extern void flush_tlb_of_vmspace(struct vmspace *);
