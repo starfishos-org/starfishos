@@ -5,6 +5,7 @@ if [ "$1" == "build" ]; then
 	./chbuild build
 fi
 
+make start-ivshmem-server
 make clean-dsm
 
 session_name=$USER-qemu
@@ -24,3 +25,5 @@ tmux send -t $session_name:$window_name.$((window_start_index + 1)) "./build/sim
 
 ## Attach the Tmux session to the front.
 tmux a -t $session_name:$window_name.0
+
+make kill-ivshmem-server

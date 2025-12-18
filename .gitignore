@@ -53,3 +53,4 @@ user/demos/phoenix-2.0/data/word_count_datafiles/*
 third_party/
 .cache
 chcore-ckpt-logs
+ivshmem_server.log

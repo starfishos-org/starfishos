@@ -51,8 +51,6 @@ if(CHCORE_SSI)
       -device ivshmem-plain,memdev=hostmem \
       -chardev socket,path=/tmp/ivshmem-doorbell-\$USER,id=doorbell_chardev \
       -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
-      -object memory-backend-file,size=\$conn_size,share=on,mem-path=\$ivshmem_conn_dev,id=hostfs \
-      -device ivshmem-plain,memdev=hostfs \
       -cpu host \
       -smp \$plat_cpu_name \
       -serial mon:stdio \

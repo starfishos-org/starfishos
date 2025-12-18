@@ -23,6 +23,12 @@ build-all:
 clean-dsm:
 	./dsm-scripts/config_memdev.sh cxl
 
+start-ivshmem-server:
+	./dsm-scripts/start_ivshmem_server.sh
+
+kill-ivshmem-server:
+	./dsm-scripts/kill_ivshmem_server.sh
+
 perf-config:
 	./dsm-scripts/config.sh
 

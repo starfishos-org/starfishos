@@ -4,7 +4,7 @@ set -e
 
 self=$0
 
-docker_image="promisivia/treesls_chcore_builder:v3.5"
+docker_image="promisivia/treesls_chcore_builder:v2.3"
 
 defconfig_command="$self defconfig"
 clean_command="$self clean"

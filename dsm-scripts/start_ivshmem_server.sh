@@ -79,11 +79,17 @@ echo "  PID file: $PID_FILE"
 echo ""
 
 $IVSHMEM_SERVER -F -v \
-    -p "$PID_FILE" \
     -S "$SOCKET_PATH" \
     -M "$SHM_NAME" \
     -l "$SHM_SIZE" \
-    -n "$VECTORS"
+    -n "$VECTORS" \
+    > ivshmem_server.log 2>&1 &
 
-echo ""
-echo "ivshmem-server started successfully (PID: $(cat $PID_FILE))"
+job_pid=$!
+server_pid=$(jobs -p | head -n1)
+
+echo $server_pid
+
+echo $server_pid > $PID_FILE
+
+echo "ivshmem-server started successfully (PID: $(cat $PID_FILE) in ivshmem_server.log)"

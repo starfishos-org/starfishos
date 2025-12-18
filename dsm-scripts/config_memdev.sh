@@ -1,5 +1,5 @@
 mode=$1
-memNumaNode=4
+memNumaNode=5
 size=32 # 64GB shared memory
 devName="/dev/shm/ivshmem-$USER"
 

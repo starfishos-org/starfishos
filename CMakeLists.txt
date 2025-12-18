@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 project(ChCore)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(_cmake_script_dir ${CMAKE_CURRENT_SOURCE_DIR}/scripts/build/cmake)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${_cmake_script_dir}/Modules)
 
@@ -19,7 +21,7 @@ set(_common_args
     -DCMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}
     -DCHCORE_PROJECT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=${CMAKE_EXPORT_COMPILE_COMMANDS})
 
 # Construct cache args list for subprojects (kernel, user)
 macro(chcore_config _config_name _config_type _default _description)

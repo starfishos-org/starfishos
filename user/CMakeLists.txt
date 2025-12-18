@@ -66,7 +66,8 @@ string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}
 
 chcore_get_nproc(_nproc)
 
-include_directories(sys-include)
+include_directories(sys-include ${libc_src_dir}/include)
+add_compile_options(-I${libc_src_dir}/build/include) # for language server to parse the source code
 # include_directories(${libc_src_dir}/include)
 
 add_subdirectory(libraries)
