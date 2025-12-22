@@ -4,6 +4,24 @@
 #include <stdio.h>
 #include <fcntl.h>
 
+struct worker_thread_arg {
+    struct polling_shm_region *shm;
+    int fd;
+    int tid;
+};
+
+void *worker_thread(void *arg)
+{
+    struct worker_thread_arg *wta = (struct worker_thread_arg *)arg;
+    char buf[10];
+    sprintf(buf, "hello%d", wta->tid);
+    for (int i = 0; i < 10; i++) {
+        sprintf(buf, "hello%d-%d\n", wta->tid, i);
+        polling_fs_write(wta->shm, wta->fd, buf, strlen(buf));
+    }
+    return NULL;
+}
+
 int main(int argc, char *argv[])
 {
     void *shm_addr = (void *)chcore_alloc_vaddr(POLLING_SHM_SIZE);
@@ -19,16 +37,25 @@ int main(int argc, char *argv[])
         return -1;
     }
     printf("fd: %d\n", fd);
-    ssize_t write_ret = polling_fs_write(shm, fd, "hello", 5);
-    printf("wrote %ld bytes\n", write_ret);
+    pthread_t tid[10];
+    struct worker_thread_arg wta[10];
+    for (int i = 0; i < 10; i++) {
+        wta[i].shm = shm;
+        wta[i].fd = fd;
+        wta[i].tid = i;
+        pthread_create(&tid[i], NULL, worker_thread, (void *)&wta[i]);
+    }
+    for (int i = 0; i < 10; i++) {
+        pthread_join(tid[i], NULL);
+    }
     fd = polling_fs_open(shm, "test.txt", O_RDWR, 0666);
     if (fd < 0) {
         printf("Failed to open file\n");
         return -1;
     }
     printf("fd: %d\n", fd);
-    char buf[10];
-    ssize_t read_ret = polling_fs_read(shm, fd, buf, 5);
+    char buf[1000];
+    ssize_t read_ret = polling_fs_read(shm, fd, buf, 1000);
     printf("read %ld bytes\n", read_ret);
     printf("buf: %s\n", buf);
     polling_fs_close(shm, fd);
