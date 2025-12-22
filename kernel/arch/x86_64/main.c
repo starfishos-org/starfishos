@@ -18,6 +18,7 @@
 #include <ckpt/hot_pages_tracker.h>
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
+#include <mm/shm.h>
 
 /* Global big kernel lock */
 struct lock big_kernel_lock;
@@ -130,6 +131,10 @@ void main(u64 mbmagic, paddr_t mbaddr)
     ssi_ckpt_init();
 #endif
     kdebug("[ChCore] ckpt init finished\n");
+
+    shm_init();
+
+    kdebug("[ChCore] shm init finished\n");
 
     /* Flush all tlbs during boot (kernel uses the lower addresses at boot
      * time) */

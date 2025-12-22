@@ -26,7 +26,7 @@ extern int radix_deep_copy_with_hybird_mem(struct radix *src,
  * Initialize an allocated pmobject.
  * @paddr is only used when @type == PMO_DEVICE.
  */
-static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
+static int __pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr, mem_t mm_type, mem_t object_mem_type)
 {
     int ret = 0;
@@ -137,6 +137,12 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     return ret;
 }
 
+int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
+    paddr_t paddr, mem_t mm_type, mem_t object_mem_type)
+{
+    return __pmo_init(pmo, type, len, paddr, mm_type, object_mem_type);
+}
+
 static int __create_pmo(u64 paddr, u64 size, u64 type, mem_t flags, 
             struct cap_group *cap_group, struct pmobject **new_pmo)
 {
@@ -156,7 +162,7 @@ static int __create_pmo(u64 paddr, u64 size, u64 type, mem_t flags,
     }
 
     BUG_ON(!IS_VALID_MEM_TYPE(flags));
-    r = pmo_init(pmo, type, size, paddr, flags, object_mem_type);
+    r = __pmo_init(pmo, type, size, paddr, flags, object_mem_type);
     if (r) {
         goto out_free_obj;
     }
@@ -176,6 +182,12 @@ out_free_obj:
     obj_free(pmo);
 out_fail:
     return r;
+}
+
+int create_shm_pmo(paddr_t paddr, u64 size, struct pmobject **new_pmo)
+{
+    return __create_pmo(paddr, size, PMO_SHM, __MT_SHARED__,
+            current_cap_group, new_pmo);
 }
 
 int create_device_pmo(u64 paddr, u64 size, struct pmobject **new_pmo)

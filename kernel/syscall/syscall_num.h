@@ -149,3 +149,6 @@
 #define SYS_ipc_perf_start 259
 #define SYS_ipc_perf_end 260
 #endif
+
+/* Shared Memory */
+#define SYS_mmap_shm 261

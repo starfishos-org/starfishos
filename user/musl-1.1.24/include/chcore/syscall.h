@@ -105,6 +105,8 @@ void usys_ipc_perf_start(void);
 void usys_ipc_perf_end(void);
 #endif
 
+int usys_mmap_shm(u32 shm_id, void *addr);
+
 #ifdef __cplusplus
 }
 #endif

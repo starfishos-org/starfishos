@@ -240,3 +240,6 @@
 #define CHCORE_SYS_ipc_perf_start       259
 #define CHCORE_SYS_ipc_perf_end         260
 #endif
+
+/* Shared Memory */
+#define CHCORE_SYS_mmap_shm 261

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mm/vmspace.h>
 #include <sched/sched.h>
 #include <common/kprint.h>
 #include <common/macro.h>
@@ -47,6 +48,10 @@
 #endif
 #ifndef CLUSTER_MACHINE_NUM
 #define CLUSTER_MACHINE_NUM     (dsm_meta->cluster_machine_num)
+#endif
+
+#ifndef MAX_SHM_NUM
+#define MAX_SHM_NUM (8)
 #endif
 
 /**
@@ -198,6 +203,12 @@ typedef struct {
     /* A KVS to accelerate the lookup of ckpt cap_group */
     struct kvs *ckpt_cg_kvs;
 #endif
+
+    struct shm_data_t {
+        struct pmobject *pmo;
+        char *data;
+    } shm_data[MAX_SHM_NUM];
+     // for testing
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;

@@ -24,6 +24,7 @@ char *__shm_mapname(const char *name, char *buf)
 	return buf;
 }
 
+__attribute__((deprecated("use shmget() shmat() shmctl() instead")))
 int shm_open(const char *name, int flag, mode_t mode)
 {
 	int cs;
@@ -35,6 +36,7 @@ int shm_open(const char *name, int flag, mode_t mode)
 	return fd;
 }
 
+__attribute__((deprecated("use shmdt() instead")))
 int shm_unlink(const char *name)
 {
 	char buf[NAME_MAX+10];

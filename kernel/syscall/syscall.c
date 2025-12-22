@@ -21,6 +21,7 @@
 #include <irq/irq.h>
 #include <drivers/pci.h>
 #include <ipc/futex.h>
+#include <mm/shm.h>
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -483,4 +484,5 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_ipc_perf_start] = sys_ipc_perf_start,
         [SYS_ipc_perf_end] = sys_ipc_perf_end,
 #endif
+        [SYS_mmap_shm] = sys_mmap_shm,
 };
