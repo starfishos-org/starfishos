@@ -4,10 +4,12 @@ project(ChCoreUser ASM C CXX)
 set(custom_ramdisk_dir ${CHCORE_PROJECT_DIR}/ramdisk)
 set(build_user_dir ${CMAKE_CURRENT_SOURCE_DIR}/build)
 set(build_ramdisk_dir ${build_user_dir}/ramdisk)
-set(build_tools_dir ${CHCORE_PROJECT_DIR}/tools/build)
-set(build_demos_dir ${CMAKE_CURRENT_SOURCE_DIR}/demos)
+set(src_demos_dir ${CMAKE_CURRENT_SOURCE_DIR}/demos)
+set(src_system_servers_dir ${CMAKE_CURRENT_SOURCE_DIR}/system-servers)
 set(libc_src_dir ${CMAKE_CURRENT_SOURCE_DIR}/musl-1.1.24)
 set(libc_install_dir ${CHCORE_MUSL_LIBC_INSTALL_DIR})
+
+set(CMAKE_C_STANDARD 11)
 
 # Target to re-create ramdisk, must be run before build user-level stuffs
 

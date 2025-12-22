@@ -10,6 +10,10 @@ extern int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
 
 void shm_init(void)
 {
+    // only init for first machine
+    if (CUR_MACHINE_ID != 0) {
+        return;
+    }
     for (int i = 0; i < MAX_SHM_NUM; i++) {
         void *shm_data = (void *)kmalloc(SHM_DATA_SIZE, __MT_SHARED__);
         if (shm_data == NULL) {

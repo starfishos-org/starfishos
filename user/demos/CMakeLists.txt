@@ -11,19 +11,19 @@ chcore_get_nproc(_nproc)
 set(OS CHCORE)
 
 if(CHCORE_DEMOS_LIGRA)
-  add_subdirectory(${build_demos_dir}/ligra)
+  add_subdirectory(${src_demos_dir}/ligra)
 endif()
 
 if(CHCORE_DEMOS_REDIS)
   add_custom_target(
     redis-clean
-    WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
+    WORKING_DIRECTORY ${src_demos_dir}/redis-6.0.8
     COMMAND make clean
 )
 list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
-    WORKING_DIRECTORY ${build_demos_dir}/redis-6.0.8
+    WORKING_DIRECTORY ${src_demos_dir}/redis-6.0.8
     COMMAND make CC=${MUSL_CC}
     COMMAND rsync -a src/redis-cli ${build_ramdisk_dir}/redis-cli
     COMMAND rsync -a src/redis-server ${build_ramdisk_dir}/redis-server
@@ -36,7 +36,7 @@ endif()
 if(CHCORE_DEMOS_YCSB)
   add_custom_target(
     ycsb-clean
-    WORKING_DIRECTORY ${build_demos_dir}/YCSB-C
+    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C
     COMMAND make clean
 )
 list(APPEND _demos_clean_targets ycsb-clean)
@@ -45,13 +45,13 @@ list(APPEND _demos_clean_targets ycsb-clean)
     COMMAND export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib # to find libhiredis
     # COMMAND export CC=${MUSL_CC}
     # COMMAND export CXX=${MUSL_CC}
-    WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/core
+    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/core
     COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/redis
+    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/redis
     COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${build_demos_dir}/YCSB-C/db
+    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/db
     COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${build_demos_dir}/YCSB-C
+    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C
     COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} ycsb -s
 )
 
@@ -59,8 +59,8 @@ list(APPEND _demos_clean_targets ycsb-clean)
     TARGET ycsb
     POST_BUILD
     COMMAND rsync -a /usr/local/lib/libhiredis.so.0.13 . # already builded in docker
-    COMMAND rsync -a ${build_demos_dir}/YCSB-C/ycsbc .
-    COMMAND rsync -a ${build_demos_dir}/YCSB-C/workloads/*.spec .
+    COMMAND rsync -a ${src_demos_dir}/YCSB-C/ycsbc .
+    COMMAND rsync -a ${src_demos_dir}/YCSB-C/workloads/*.spec .
     WORKING_DIRECTORY ${build_ramdisk_dir}
     DEPENDS)
   add_dependencies(ramdisk ycsb)
@@ -70,7 +70,7 @@ endif()
 if(CHCORE_DEMOS_LIBEVENT)
   add_custom_target(
     libevent ALL
-    WORKING_DIRECTORY ${build_demos_dir}/libevent
+    WORKING_DIRECTORY ${src_demos_dir}/libevent
     COMMAND ./autogen.sh
     COMMAND ./configure --disable-openssl --disable-debug-mode --disable-samples -prefix=/usr/libevent
     COMMAND CC=${MUSL_CC} -s &> /dev/null
@@ -80,7 +80,7 @@ if(CHCORE_DEMOS_LIBEVENT)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
-  set(MEMCACHED_BUILD_DIR ${build_demos_dir}/memcached)
+  set(MEMCACHED_BUILD_DIR ${src_demos_dir}/memcached)
 
   add_custom_target(memcached ALL
     WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
@@ -109,7 +109,7 @@ if(CHCORE_DEMOS_MEMCACHED)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
-  set(MEMCACHETEST_BUILD_DIR ${build_demos_dir}/memcachetest)
+  set(MEMCACHETEST_BUILD_DIR ${src_demos_dir}/memcachetest)
 
   # 编译阶段
   add_custom_target(memcachetest ALL
@@ -144,34 +144,34 @@ endif()
 if(CHCORE_DEMOS_SQLITE)
   add_custom_target(
     sqlite-clean
-    WORKING_DIRECTORY ${build_demos_dir}/sqlite
+    WORKING_DIRECTORY ${src_demos_dir}/sqlite
     COMMAND make clean
 )
 list(APPEND _demos_clean_targets sqlite-clean)
   add_custom_target(
     sqlite ALL
-    WORKING_DIRECTORY ${build_demos_dir}/sqlite
+    WORKING_DIRECTORY ${src_demos_dir}/sqlite
     COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
-    COMMAND rsync -a ${build_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
+    COMMAND rsync -a ${src_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
 if(CHCORE_DEMOS_LEVELDB)
-  set(LEVELDB_DIR ${build_demos_dir}/leveldb-1.23)
+  set(LEVELDB_DIR ${src_demos_dir}/leveldb-1.23)
   add_subdirectory(${LEVELDB_DIR})
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
 
-  file(MAKE_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build)
+  file(MAKE_DIRECTORY ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build)
   add_custom_target(
     gflags-clean
-    COMMAND rm -rf ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
+    COMMAND rm -rf ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
     )
     list(APPEND _demos_clean_targets gflags-clean)
   add_custom_target(
     gflags ALL
-    WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
+    WORKING_DIRECTORY ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
     COMMAND cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CXX_FLAGS=-fPIC
@@ -181,19 +181,19 @@ if(CHCORE_DEMOS_ROCKSDB)
             -DBUILD_TESTING=OFF
             -S ..
             && cmake --build . -j$(_nproc)
-    # COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
-    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
+    # COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
+    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
     DEPENDS)
 
-  file(MAKE_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build)
+  file(MAKE_DIRECTORY ${src_demos_dir}/aurora-rocksdb/build)
   add_custom_target(
     rocksdb-clean
-    COMMAND rm -rf ${build_demos_dir}/aurora-rocksdb/build
+    COMMAND rm -rf ${src_demos_dir}/aurora-rocksdb/build
     )
     list(APPEND _demos_clean_targets rocksdb-clean)
   add_custom_target(
     rocksdb ALL
-    WORKING_DIRECTORY ${build_demos_dir}/aurora-rocksdb/build
+    WORKING_DIRECTORY ${src_demos_dir}/aurora-rocksdb/build
     COMMAND cmake -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
@@ -202,37 +202,37 @@ if(CHCORE_DEMOS_ROCKSDB)
             -S
             ..
     COMMAND cmake --build . -- -j$(_nproc)
-    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
-    COMMAND rsync -a ${build_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
+    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
+    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
     DEPENDS)
   add_dependencies(rocksdb gflags)
   add_dependencies(ramdisk rocksdb)
 endif()
 
 if(CHCORE_DEMOS_PHOENIX)
-  set(PHOENIX_DIR ${build_demos_dir}/phoenix-2.0)
+  set(PHOENIX_DIR ${src_demos_dir}/phoenix-2.0)
   add_subdirectory(${PHOENIX_DIR})
 endif()
 
 if(CHCORE_DEMOS_GEMM)
   add_custom_target(
     gemm-clean
-    WORKING_DIRECTORY ${build_demos_dir}/GEMM
+    WORKING_DIRECTORY ${src_demos_dir}/GEMM
     COMMAND make clean
   )
   
   list(APPEND _demos_clean_targets gemm-clean)
   add_custom_target(
     gemm ALL
-    WORKING_DIRECTORY ${build_demos_dir}/GEMM
+    WORKING_DIRECTORY ${src_demos_dir}/GEMM
     COMMAND make MALLOC=libc CC=${MUSL_CC}
-    COMMAND rsync -a ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+    COMMAND rsync -a ${src_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
     DEPENDS)
   
   add_custom_target(
     TARGET gemm
     POST_BUILD
-    COMMAND rsync -a ${build_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
+    COMMAND rsync -a ${src_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
   )
   add_dependencies(ramdisk gemm)
 endif()
@@ -240,14 +240,14 @@ endif()
 if(CHCORE_DEMOS_LLAMACPP)
   # add_custom_target(
   #   llama-clean
-  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   WORKING_DIRECTORY ${src_demos_dir}/llama.cpp
   #   COMMAND rm -rf build
   # )
   # list(APPEND _demos_clean_targets llama-clean)
 
   # add_custom_target(
   #   llama ALL
-  #   WORKING_DIRECTORY ${build_demos_dir}/llama.cpp
+  #   WORKING_DIRECTORY ${src_demos_dir}/llama.cpp
   #   COMMAND cmake -B build 
   #     -DCMAKE_C_COMPILER=${MUSL_CC}
   #     -DCMAKE_CXX_COMPILER=${MUSL_CXX}
@@ -264,25 +264,25 @@ if(CHCORE_DEMOS_LLAMACPP)
   # add_custom_command(
   #   TARGET llama
   #   POST_BUILD
-  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
-  #   COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+  #   COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+  #   COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
   #   COMMENT "Copying llama.cpp files to ramdisk directory"
   #   DEPENDS llama)
-  add_subdirectory(${build_demos_dir}/llama.cpp)
+  add_subdirectory(${src_demos_dir}/llama.cpp)
   target_compile_options(llama-bench PRIVATE -fPIE -fPIC)
   target_link_options(llama-bench PRIVATE -pie)
   set(llama-targets llama-bench ggml-base ggml-cpu ggml llama)
   add_dependencies(ramdisk ${llama-targets})
   add_custom_target(llama-copy-data
-    COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
-    COMMAND rsync -a ${build_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
+    COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
+    COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
     COMMENT "Copying llama.cpp files to ramdisk directory"
     DEPENDS ${llama-targets})
   add_dependencies(ramdisk llama-copy-data)
 endif()
 
 if(CHCORE_DEMOS_DBX1000)
-  add_subdirectory(${build_demos_dir}/dbx1000)
+  add_subdirectory(${src_demos_dir}/dbx1000)
 endif()
 
 
@@ -394,7 +394,7 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 
 # add_custom_target(
 #   coremark
-#   WORKING_DIRECTORY ${build_demos_dir}/coremark
+#   WORKING_DIRECTORY ${src_demos_dir}/coremark
 #   COMMAND make PORT_DIR=simple link
 #   COMMAND rsync -a coremark.exe ${build_ramdisk_dir}/
 # )
@@ -402,9 +402,9 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 # add_dependencies(ramdisk coremark)
 
 if (CHCORE_DEMOS_GEIMINIGRAPH)
-  add_subdirectory(${build_demos_dir}/GeminiGraph)
+  add_subdirectory(${src_demos_dir}/GeminiGraph)
 endif()
 
 if (CHCORE_DEMOS_TINYCNN)
-  add_subdirectory(${build_demos_dir}/VeryTinyCnn)
+  add_subdirectory(${src_demos_dir}/VeryTinyCnn)
 endif()
