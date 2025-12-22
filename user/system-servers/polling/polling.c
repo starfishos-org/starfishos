@@ -47,8 +47,7 @@ void *polling_reader_thread(void *arg)
     return NULL;
 }
 
-void create_polling_thread(u32 shm_id, pthread_t *tid,
-                           void **shm_addr)
+void create_polling_thread(u32 shm_id, pthread_t *tid, void **shm_addr)
 {
     int ret;
     struct polling_server_ctx *ctx; // free in the thread
@@ -60,7 +59,6 @@ void create_polling_thread(u32 shm_id, pthread_t *tid,
     }
     *shm_addr = (void *)chcore_alloc_vaddr(POLLING_SHM_SIZE);
     ret = usys_mmap_shm(shm_id, *shm_addr);
-    printf("Mapped shm at %p\n", *shm_addr);
     if (ret < 0) {
         printf("Failed to mmap shm by id %d\n", shm_id);
         return;
@@ -89,9 +87,7 @@ void polling_enqueue_fs_request(struct shm_msg *msg,
                                 struct polling_fs_request *req)
 {
     // wait for the message slot to be free
-    while (!check_msg_free(&msg->fs_req.flag)) {
-        // busy polling
-    }
+    wait_msg_free(&msg->fs_req.flag);
 
     memcpy(&msg->fs_req, req, sizeof(struct polling_fs_request));
     set_msg_readable(&msg->fs_req.flag);
@@ -99,9 +95,7 @@ void polling_enqueue_fs_request(struct shm_msg *msg,
 
 void polling_wait_for_response(struct shm_msg *msg)
 {
-    while (!check_msg_readable(&msg->fs_resp.flag)) {
-        // busy polling
-    }
+    wait_msg_readable(&msg->fs_resp.flag);
 }
 
 void handle_polling_fs_request(struct shm_msg *msg)
@@ -131,9 +125,11 @@ void handle_polling_fs_open(struct shm_msg *msg)
     int flags = msg->fs_req.op.open.flags;
     int mode = msg->fs_req.op.open.mode;
     strncpy(path, msg->fs_req.op.open.path, strlen(msg->fs_req.op.open.path));
-
     set_msg_free(&msg->fs_req.flag);
+
     int fd = open(path, flags, mode);
+
+    wait_msg_free(&msg->fs_resp.flag);
     msg->fs_resp.op.open.fd = fd;
     set_msg_readable(&msg->fs_resp.flag);
 }
@@ -142,14 +138,12 @@ void handle_polling_fs_read(struct shm_msg *msg)
 {
     int fd = msg->fs_req.op.read.fd;
     size_t count = msg->fs_req.op.read.count;
-    char buf[POLLING_FS_READ_BUF_SIZE];
     set_msg_free(&msg->fs_req.flag);
 
-    ssize_t ret = read(fd, buf, count);
+    ssize_t ret = read(fd, msg->fs_resp.op.read.buf, count);
+
+    wait_msg_free(&msg->fs_resp.flag);
     msg->fs_resp.op.read.count = ret;
-    printf("read from fd %d, count %ld, ret %ld\n", fd, count, ret);
-    printf("buf: %s\n", buf);
-    memcpy(msg->fs_resp.op.read.buf, buf, ret);
     set_msg_readable(&msg->fs_resp.flag);
 }
 
@@ -162,6 +156,8 @@ void handle_polling_fs_write(struct shm_msg *msg)
     set_msg_free(&msg->fs_req.flag);
 
     ssize_t ret = write(fd, buf, count);
+
+    wait_msg_free(&msg->fs_resp.flag);
     msg->fs_resp.op.write.count = ret;
     set_msg_readable(&msg->fs_resp.flag);
     free(buf);
@@ -173,6 +169,8 @@ void handle_polling_fs_close(struct shm_msg *msg)
     set_msg_free(&msg->fs_req.flag);
 
     int ret = close(fd);
+
+    wait_msg_free(&msg->fs_resp.flag);
     msg->fs_resp.op.close.ret = ret;
     set_msg_readable(&msg->fs_resp.flag);
 }
@@ -192,11 +190,16 @@ int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
     int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
     struct shm_msg *msg = &shm->msgs[idx];
     polling_enqueue_fs_request(msg, &req);
-    polling_wait_for_response(msg);
-    return msg->fs_resp.op.open.fd;
+
+    wait_msg_readable(&msg->fs_resp.flag);
+    int fd = msg->fs_resp.op.open.fd;
+    set_msg_free(&msg->fs_resp.flag);
+
+    return fd;
 }
 
-ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf, size_t count)
+ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
+                        size_t count)
 {
     size_t left_count = count;
     void *buf_ptr = (void *)buf;
@@ -204,19 +207,22 @@ ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf, size_
     while (left_count > 0) {
         size_t read_count = MIN(left_count, POLLING_FS_READ_BUF_SIZE);
         struct polling_fs_request req = {
-            .type = POLLING_FS_REQ_READ,
-            .op.read =
-                {
-                            .fd = fd,
-                            .count = read_count,
-                    },
+                .type = POLLING_FS_REQ_READ,
+                .op.read =
+                        {
+                                .fd = fd,
+                                .count = read_count,
+                        },
         };
         int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
         struct shm_msg *msg = &shm->msgs[idx];
         polling_enqueue_fs_request(msg, &req);
-        polling_wait_for_response(msg);
+
+        wait_msg_readable(&msg->fs_resp.flag);
         ssize_t response_read_count = msg->fs_resp.op.read.count;
-        memcpy(buf_ptr, msg->fs_resp.op.read.buf, read_count);
+        memcpy(buf_ptr, msg->fs_resp.op.read.buf, response_read_count);
+        set_msg_free(&msg->fs_resp.flag);
+
         buf_ptr += response_read_count;
         left_count -= response_read_count;
         total_count += response_read_count;
@@ -227,7 +233,8 @@ ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf, size_
     return total_count;
 }
 
-ssize_t polling_fs_write(struct polling_shm_region *shm, int fd, const void *buf, size_t count)
+ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
+                         const void *buf, size_t count)
 {
     size_t left_count = count;
     void *buf_ptr = (void *)buf;
@@ -235,19 +242,22 @@ ssize_t polling_fs_write(struct polling_shm_region *shm, int fd, const void *buf
     while (left_count > 0) {
         size_t write_count = MIN(left_count, POLLING_FS_WRITE_BUF_SIZE);
         struct polling_fs_request req = {
-            .type = POLLING_FS_REQ_WRITE,
-            .op.write =
-                    {
-                            .fd = fd,
-                            .count = write_count,
-                    },
+                .type = POLLING_FS_REQ_WRITE,
+                .op.write =
+                        {
+                                .fd = fd,
+                                .count = write_count,
+                        },
         };
         memcpy(req.op.write.buf, buf_ptr, write_count);
         int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
         struct shm_msg *msg = &shm->msgs[idx];
         polling_enqueue_fs_request(msg, &req);
-        polling_wait_for_response(msg);
+
+        wait_msg_readable(&msg->fs_resp.flag);
         ssize_t response_write_count = msg->fs_resp.op.write.count;
+        set_msg_free(&msg->fs_resp.flag);
+
         buf_ptr += response_write_count;
         left_count -= response_write_count;
         total_count += response_write_count;
@@ -270,6 +280,10 @@ int polling_fs_close(struct polling_shm_region *shm, int fd)
     int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
     struct shm_msg *msg = &shm->msgs[idx];
     polling_enqueue_fs_request(msg, &req);
-    polling_wait_for_response(msg);
-    return msg->fs_resp.op.close.ret;
+
+    wait_msg_readable(&msg->fs_resp.flag);
+    int ret = msg->fs_resp.op.close.ret;
+    set_msg_free(&msg->fs_resp.flag);
+
+    return ret;
 }

@@ -11,12 +11,12 @@
 #include <stdatomic.h>
 #include <fs_wrapper_defs.h>
 
-#define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
-#define MAX_MSG_COUNT        4
-#define POLLING_FS_SHM_ID    0
+#define POLLING_SHM_SIZE  (PAGE_SIZE * 10UL)
+#define MAX_MSG_COUNT     4
+#define POLLING_FS_SHM_ID 0
 
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
-#define POLLING_FS_READ_BUF_SIZE (PAGE_SIZE)
+#define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 
 enum shm_msg_flag {
     SHM_MSG_FREE = 0,
@@ -101,7 +101,8 @@ struct polling_shm_region {
     int read_index; // next read position
 };
 
-static_assert(sizeof(struct polling_shm_region) <= POLLING_SHM_SIZE, "polling shm region size is too large");
+static_assert(sizeof(struct polling_shm_region) <= POLLING_SHM_SIZE,
+              "polling shm region size is too large");
 
 struct polling_server_ctx {
     struct polling_shm_region *shm;
@@ -117,29 +118,34 @@ inline void set_msg_free(enum shm_msg_flag *flag)
     atomic_store(flag, SHM_MSG_FREE);
 }
 
-inline int check_msg_readable(enum shm_msg_flag *flag)
+inline void wait_msg_readable(enum shm_msg_flag *flag)
 {
-    return atomic_load(flag) == SHM_MSG_READABLE;
+    while (atomic_load(flag) != SHM_MSG_READABLE) {
+        // busy polling
+    }
 }
 
-inline int check_msg_free(enum shm_msg_flag *flag)
+inline void wait_msg_free(enum shm_msg_flag *flag)
 {
-    return atomic_load(flag) == SHM_MSG_FREE;
+    while (atomic_load(flag) != SHM_MSG_FREE) {
+        // busy polling
+    }
 }
 
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
                     int mode);
 
-ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf, size_t count);
+ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
+                        size_t count);
 
-ssize_t polling_fs_write(struct polling_shm_region *shm, int fd, const void *buf, size_t count);
+ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
+                         const void *buf, size_t count);
 
 int polling_fs_close(struct polling_shm_region *shm, int fd);
 
 void init_polling_shm_region(struct polling_shm_region *shm);
 
-void create_polling_thread(u32 shm_id, pthread_t *tid,
-                           void **shm_addr);
+void create_polling_thread(u32 shm_id, pthread_t *tid, void **shm_addr);
 void join_polling_thread(pthread_t tid, void *shm_addr);
 void detach_polling_thread(pthread_t tid);
 
