@@ -1,4 +1,5 @@
-#include "polling.h"
+#include "polling_req.h"
+
 #include <chcore/memory.h>
 #include <chcore/syscall.h>
 #include <stdio.h>
@@ -20,6 +21,12 @@ void *worker_thread(void *arg)
         polling_fs_write(wta->shm, wta->fd, buf, strlen(buf));
     }
     return NULL;
+}
+
+static inline long diff_ns(struct timespec a, struct timespec b)
+{
+    return (b.tv_sec - a.tv_sec) * 1000000000L +
+           (b.tv_nsec - a.tv_nsec);
 }
 
 int main(int argc, char *argv[])
@@ -57,8 +64,15 @@ int main(int argc, char *argv[])
     char buf[1000];
     ssize_t read_ret = polling_fs_read(shm, fd, buf, 1000);
     printf("read %ld bytes\n", read_ret);
-    printf("buf: %s\n", buf);
     polling_fs_close(shm, fd);
     printf("closed file\n");
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (int i = 0; i < 1000; i++) {
+        polling_fs_empty(shm);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("polling_fs_empty 1k times cost: %ld ns average: %ld ns\n", diff_ns(start, end), diff_ns(start, end) / 1000);
     return 0;
 }
