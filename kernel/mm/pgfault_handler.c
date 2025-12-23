@@ -374,30 +374,43 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
          *        -- 2.1: memcpy the page to the shared memory.
          *        -- 2.2: remap the page table in old page table.
          *        -- 2.3: map the page to new page table.
+         * Case3: the page is not on shared memory but belongs to 
+         *        PMO_DATA type, which is pre-defined in the PMO,
+         *        and should be mapped in the page table here.
          */
         /* NOTE!!: should not define machine_id variable here, 
         it will cause the error when using CUR_MACHINE_ID */
         int mid = get_paddr_machine_id(pa);
+        paddr_t new_pa = pa;
         BUG_ON(mid == MACHINE_ID_INVALID);
-        if (mid != MACHINE_ID_SHARED_MEMORY) {
+        /* Case2 */
+        if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
+            kinfo("trigger case2, fault_addr: 0x%lx\n", fault_addr);
             pte_t *pte_entry = NULL;
-            paddr_t old_pa = pa;
+            paddr_t old_pa;
+            void *new_va;
             query_in_pgtbl(vmspace->pgtbl[mid], fault_addr, &old_pa, &pte_entry);
             BUG_ON(old_pa == 0);
             BUG_ON(pte_entry == NULL);
-            /* 2.1: memcpy the page to the shared memory. */
-            memcpy((void *)phys_to_virt(pa), (void *)phys_to_virt(old_pa), PAGE_SIZE);
-            /* 2.2: remap the page table in old page table. */
-            remap_page_in_pgtbl(pte_entry, pa);
-            /* Flush TLB only for the machine whose page table was remapped */
-            /* Note: We need to flush because remap changes the physical address,
-             * and TLB may have cached the old mapping. We only flush CPUs belonging
-             * to machine_id since only they may have cached mappings from that page table */
-            flush_tlbs_for_machine(vmspace, mid, fault_addr, PAGE_SIZE);
+            // kinfo("old_pa: 0x%lx, pte_entry: 0x%lx\n", old_pa, pte_entry);
+            /* 2.1: Allocate shared memory page on current machine */
+            new_va = get_pages(0, __MT_SHARED__);
+            BUG_ON(new_va == NULL);
+            new_pa = virt_to_phys(new_va);
+            // kinfo("malloc new_va: 0x%lx, new_pa: 0x%lx\n", new_va, new_pa);
+            /* 2.2: Request remote machine to perform memcpy and flush TLB */
+            /* The remote machine will copy from old_pa (its own physical address)
+             * to new_pa (shared memory physical address), then flush its TLBs */
+            memcpy_and_flush_tlb_on_remote_machine(vmspace, mid, old_pa, new_pa, PAGE_SIZE, fault_addr);
+            kinfo("memcpy and flush tlb on machine %d completed\n", mid);
+            /* 2.3: remap the page table in old page table. */
+            remap_page_in_pgtbl(pte_entry, new_pa);
+            kinfo("remap pte_entry: 0x%lx\n", pte_entry);
         }
         
         void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-        map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
+        map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+        // kinfo("map page in pgtbl, fault_addr: 0x%lx, new_pa: 0x%lx\n", fault_addr, new_pa);
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif

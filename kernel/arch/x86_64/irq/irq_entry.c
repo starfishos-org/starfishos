@@ -327,6 +327,13 @@ void trap_c(arch_exec_ctx_t *ec)
                 plat_handle_timer_irq(TICK_MS * 1000 * tick_per_us);
                 return;
             }
+            /* For MSI-X interrupts, always handle them even in kernel mode */
+            /* This allows interrupts to break into kernel execution */
+            if (trapno == IRQ_MSIX_IVSHMEM) {
+                /* MSI-X interrupts should be handled immediately */
+                handle_irq(trapno);
+                return;
+            }
         }
     }
 

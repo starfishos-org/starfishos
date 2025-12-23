@@ -14,10 +14,8 @@ add_executable(polling_client.bin polling_client_test.c)
 target_link_options(polling_client.bin PRIVATE -static)
 target_link_libraries(polling_client.bin PRIVATE polling libc-static)
 
-add_executable(tmp.bin tmp.c)
-
-target_link_options(tmp.bin PRIVATE -static)
-target_link_libraries(tmp.bin PRIVATE polling libc-static)
-
+# add_executable(tmp.bin tmp.c)
+# target_link_options(tmp.bin PRIVATE -static)
+# target_link_libraries(tmp.bin PRIVATE polling libc-static)
 
 chcore_copy_all_targets_to_ramdisk()

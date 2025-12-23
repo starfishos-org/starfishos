@@ -9,6 +9,9 @@
 #include <posix/time.h>
 #include <mm/uaccess.h>
 #include <sched/context.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 /* FIXME: Overflow of tick counters */
 
@@ -123,12 +126,21 @@ void handle_timer_irq(void)
     /* Current running thread in current_threads[cpuid] */
     if (current_thread) {
         BUG_ON(!current_thread->thread_ctx->sc);
-        BUG_ON(current_thread->thread_ctx->sc->budget == 0);
-        current_thread->thread_ctx->sc->budget--;
-        /* print debug message */
-#if LOG_LEVEL == DEBUG
-        print_thread(current_thread);
+#ifdef DSM_ENABLED
+        /* Skip budget decrement if thread is migrating to remote or already migrated */
+        if (current_thread->thread_ctx->thread_exit_state == TE_MIGRATING ||
+            current_thread->machine_id != CUR_MACHINE_ID) {
+            /* Thread is being migrated or already on remote machine, skip budget decrement */
+        } else
 #endif
+        {
+            BUG_ON(current_thread->thread_ctx->sc->budget == 0);
+            current_thread->thread_ctx->sc->budget--;
+            /* print debug message */
+#if LOG_LEVEL == DEBUG
+            print_thread(current_thread);
+#endif
+        }
     } else {
         kdebug("Timer: system not runnig!\n");
     }

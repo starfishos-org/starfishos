@@ -241,58 +241,152 @@ void flush_tlbs(struct vmspace *vmspace, vaddr_t start_va, size_t len)
 #ifdef MULTI_PAGETABLE_ENABLED
 #include <dsm/dsm-single.h>
 #include <drivers/ivshmem.h>
+#include <common/lock.h>
 
 /* Flush TLB only for CPUs belonging to a specific machine */
-void flush_tlbs_for_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t len)
+void flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t len)
 {
-    u64 page_cnt;
-    u64 pcid;
-    u32 cpuid;
-    u32 i;
-    u32 cpu_range_low, cpu_range_high;
-
-    if (unlikely(len < PAGE_SIZE))
-        kwarn("func: %s. len (%p) < PAGE_SIZE\n", __func__, len);
-
-    if (len == 0)
+    mid_t my_id = CUR_MACHINE_ID;
+    
+    if (!dsm_meta || machine_id >= CLUSTER_MACHINE_NUM || machine_id == my_id)
         return;
-
-    len = ROUND_UP(len, PAGE_SIZE);
-    page_cnt = len / PAGE_SIZE;
-
-    pcid = vmspace->pcid;
-    cpuid = smp_get_cpu_id();
-
-    /* Get CPU range for the target machine */
-    cpu_range_low = dsm_meta->local_meta[machine_id].cpu_range_low;
-    cpu_range_high = dsm_meta->local_meta[machine_id].cpu_range_high;
-
-    /* If target machine is remote (different from current machine) */
-    mid_t cur_machine_id = CUR_MACHINE_ID;
-    if (machine_id != cur_machine_id) {
-        /* Send MSI interrupt to remote machine */
-        /* Use vector 0 for TLB flush requests */
-        ivshmem_send_msi(machine_id, 0);
-        
-        /* Store TLB flush request in shared memory for remote machine to process */
-        /* TODO: Implement shared memory queue for TLB flush requests */
-        
-        return;
+    
+    /* Prepare message in target machine's slot (with lock protection) */
+    lock(&dsm_meta->msi_test_msg[machine_id].msg_lock);
+    dsm_meta->msi_test_msg[machine_id].msg_from = my_id;
+    dsm_meta->msi_test_msg[machine_id].msg_type = MSI_MSG_TYPE_TLB_FLUSH;
+    dsm_meta->msi_test_msg[machine_id].reply_received = 0;
+    dsm_meta->msi_test_msg[machine_id].reply_from = 0xFFFFFFFF;
+    dsm_meta->msi_test_msg[machine_id].tlb_start_va = start_va;
+    dsm_meta->msi_test_msg[machine_id].tlb_len = len;
+    dsm_meta->msi_test_msg[machine_id].tlb_vmspace = (u64)vmspace;
+    unlock(&dsm_meta->msi_test_msg[machine_id].msg_lock);
+    
+    /* Clear our own slot's reply flag before sending request */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 0;
+    dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    /* Send MSI interrupt if MSI mode is enabled, otherwise rely on polling */
+    extern enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
+    if (ivshmem_get_msg_mode() == IVSHMEM_MSG_MODE_MSI) {
+        /* Send MSI to notify remote machine */
+        extern int ivshmem_send_msi(mid_t target_machine_id, u16 vector);
+        ivshmem_send_msi(machine_id, 0); /* Use vector 0 for TLB flush */
     }
-
-    /* Flush local TLB if current CPU belongs to the target machine */
-    if (cpuid >= cpu_range_low && cpuid <= cpu_range_high) {
-        flush_local_tlb_opt(start_va, page_cnt, pcid);
-    }
-
-    /* Flush remote TLBs only for CPUs belonging to the target machine */
-    for (i = 0; i < PLAT_CPU_NUM; ++i) {
-        if ((i != cpuid) && 
-            (i >= cpu_range_low && i <= cpu_range_high) &&
-            (vmspace->history_cpus[i] == 1)) {
-            flush_remote_tlb_with_ipi(
-                    i, start_va, page_cnt, pcid, (u64)vmspace);
+    /* Note: We still poll for reply even in MSI mode because we're in a page fault handler
+     * and cannot wait for interrupts. The MSI will trigger processing on the remote machine. */
+    
+    /* Wait for remote machine to complete TLB flush and send reply */
+    /* The reply will be placed in our slot (msi_test_msg[my_id]) */
+    /* We poll for the reply even in MSI mode to avoid waiting for interrupts in page fault context */
+    u32 max_wait_iters = 1000000; /* Prevent infinite wait */
+    u32 iter = 0;
+    while (iter < max_wait_iters) {
+        /* Poll for messages sent to us (to check for reply from remote machine) */
+        /* The remote machine will process our message when its polling thread calls ivshmem_poll_messages() */
+        ivshmem_poll_messages();
+        
+        /* Check if we received a reply */
+        lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
+        u32 reply_from = dsm_meta->msi_test_msg[my_id].reply_from;
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        
+        if (reply_received == 1 && reply_from == machine_id) {
+            /* Remote machine has completed TLB flush */
+            break;
         }
+        /* Small delay to avoid busy waiting */
+        asm volatile("pause");
+        iter++;
     }
+    
+    if (iter >= max_wait_iters) {
+        kwarn("[TLB] Timeout waiting for TLB flush reply from machine %d\n", machine_id);
+    }
+    
+    /* Clear the reply flag for next use */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 0;
+    dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+}
+
+/* Request remote machine to perform memcpy and flush TLB */
+void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t target_mid,
+                                             paddr_t src_pa, paddr_t dst_pa, size_t len,
+                                             vaddr_t fault_va)
+{
+    mid_t my_id = CUR_MACHINE_ID;
+    
+    if (!dsm_meta || target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id)
+        return;
+    
+    /* Prepare message in target machine's slot (with lock protection) */
+    lock(&dsm_meta->msi_test_msg[target_mid].msg_lock);
+    dsm_meta->msi_test_msg[target_mid].msg_from = my_id;
+    dsm_meta->msi_test_msg[target_mid].msg_type = MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB;
+    dsm_meta->msi_test_msg[target_mid].reply_received = 0;
+    dsm_meta->msi_test_msg[target_mid].reply_from = 0xFFFFFFFF;
+    dsm_meta->msi_test_msg[target_mid].memcpy_src_pa = src_pa;
+    dsm_meta->msi_test_msg[target_mid].memcpy_dst_pa = dst_pa;
+    dsm_meta->msi_test_msg[target_mid].memcpy_len = len;
+    dsm_meta->msi_test_msg[target_mid].memcpy_fault_va = fault_va;
+    dsm_meta->msi_test_msg[target_mid].memcpy_vmspace = (u64)vmspace;
+    unlock(&dsm_meta->msi_test_msg[target_mid].msg_lock);
+    
+    kinfo("[TLB] Machine %d sending memcpy+flush_tlb request to machine %d (src_pa=0x%llx, dst_pa=0x%llx, len=%zu)\n",
+          my_id, target_mid, src_pa, dst_pa, len);
+    
+    /* Clear our own slot's reply flag before sending request */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 0;
+    dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    /* Send MSI interrupt if MSI mode is enabled, otherwise rely on polling */
+    extern enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
+    enum ivshmem_msg_mode mode = ivshmem_get_msg_mode();
+    if (mode == IVSHMEM_MSG_MODE_MSI) {
+        /* Send MSI to notify remote machine */
+        extern int ivshmem_send_msi(mid_t target_machine_id, u16 vector);
+        int ret = ivshmem_send_msi(target_mid, 0); /* Use vector 0 for memcpy+TLB flush */
+        kinfo("[TLB] Sent MSI to machine %d, ret=%d\n", target_mid, ret);
+    } else {
+        kinfo("[TLB] Using polling mode, not sending MSI\n");
+    }
+    /* Note: We still poll for reply even in MSI mode because we're in a page fault handler
+     * and cannot wait for interrupts. The MSI will trigger processing on the remote machine. */
+    
+    /* Poll for remote machine to complete memcpy and flush TLB, then send reply */
+    /* The reply will be placed in our slot (msi_test_msg[my_id]) */
+    /* We poll for the reply even in MSI mode to avoid waiting for interrupts in page fault context */
+    while (true) {
+        /* Poll for messages sent to us (to check for reply from remote machine) */
+        /* The remote machine will process our message when it calls ivshmem_poll_messages() */
+        ivshmem_poll_messages();
+        
+        /* Check if we received a reply */
+        lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
+        u32 reply_from = dsm_meta->msi_test_msg[my_id].reply_from;
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        
+        if (reply_received == 1 && reply_from == target_mid) {
+            /* Remote machine has completed memcpy and flush TLB */
+            kinfo("[TLB] Machine %d received reply from machine %d\n", my_id, target_mid);
+            break;
+        }
+        /* Small delay to avoid busy waiting */
+        asm volatile("pause");
+    }
+    
+    /* Clear reply flags after receiving reply or timing out */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 0;
+    dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
 }
 #endif

@@ -1,6 +1,13 @@
 /*
  * ivshmem_setup_devices: setup kvm_ivshmem_dev
  */
+
+/* Message processing mode for IVSHMEM */
+enum ivshmem_msg_mode {
+    IVSHMEM_MSG_MODE_MSI = 0,    /* Use MSI interrupts (default) */
+    IVSHMEM_MSG_MODE_POLLING = 1 /* Use polling thread */
+};
+
 void ivshmem_setup_devices(void);
 
 int pci_hostfs_open(void *req);
@@ -25,3 +32,13 @@ int ivshmem_test_basic(void);
 
 /* Test MSI communication with all machines in cluster */
 int ivshmem_test_msi_communication(void);
+
+/* Set/get message processing mode */
+void ivshmem_set_msg_mode(enum ivshmem_msg_mode mode);
+enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
+
+/* Poll for and process messages (non-blocking) */
+int ivshmem_poll_messages(void);
+
+/* Start the polling thread for message processing */
+void ivshmem_start_polling_thread(void);

@@ -4,7 +4,7 @@ set timeout 180
 
 set thread_num [lindex $argv 0]
 if {$thread_num == ""} {
-  set thread_num 1
+  set thread_num 8
 }
 set read_perc [lindex $argv 1]
 if {$read_perc == ""} {
@@ -30,7 +30,8 @@ spawn ./build/simulate.sh
 expect "Welcome to ChCore shell!"
 # run anything you like here
 # interact
-send -- "rundb.bin -t$thread_num -r$read_perc -w$write_perc -z$theta & \r"
+# send -- "rundb.bin -t$thread_num -r$read_perc -w$write_perc -z$theta & \r"
+send -- "rundb.bin -t$thread_num & \r"
 
 expect "done"
 exit 0

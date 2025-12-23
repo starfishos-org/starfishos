@@ -26,5 +26,8 @@ void set_page_table(paddr_t pgtbl);
 void flush_tlbs(struct vmspace *, vaddr_t start_va, size_t size);
 #ifdef MULTI_PAGETABLE_ENABLED
 /* Flush TLB only for CPUs belonging to a specific machine */
-void flush_tlbs_for_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t size);
+void flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id, vaddr_t start_va, size_t len);
+void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
+                                            paddr_t src_pa, paddr_t dst_pa, size_t len,
+                                            vaddr_t fault_va);
 #endif
