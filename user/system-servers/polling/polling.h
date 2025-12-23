@@ -1,6 +1,6 @@
 #pragma once
 
-#include "limits.h"
+#include <limits.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -11,15 +11,17 @@
 #include <stdatomic.h>
 #include <fs_wrapper_defs.h>
 
-#define POLLING_SHM_SIZE  (PAGE_SIZE * 10UL)
-#define POLLING_FS_SHM_ID 0
+#define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
 
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 
-enum shm_msg_flag {
-    SHM_MSG_FREE = 0,
-    SHM_MSG_READABLE = 1,
+enum polling_shm_msg_state {
+    MSG_FREE = 0,
+    MSG_REQ_WRITING,
+    MSG_REQ_READY,
+    MSG_RESP_WRITING,
+    MSG_RESP_READY,
 };
 
 enum polling_fs_request_type {
@@ -70,7 +72,7 @@ struct polling_fs_resp_open {
 
 struct polling_fs_resp_read {
     ssize_t count;
-    char buf[POLLING_FS_WRITE_BUF_SIZE];
+    char buf[POLLING_FS_READ_BUF_SIZE];
 };
 
 struct polling_fs_resp_write {
@@ -94,8 +96,7 @@ struct polling_fs_response {
 };
 
 struct shm_msg {
-    enum shm_msg_flag fs_req_flag;
-    enum shm_msg_flag fs_resp_flag;
+    _Atomic int state;
     union {
         struct polling_fs_request fs_req;
         struct polling_fs_response fs_resp;
@@ -107,37 +108,9 @@ struct shm_msg {
 
 struct polling_shm_region {
     struct shm_msg msgs[MAX_MSG_COUNT];
-    int write_index; // next write position
-    int read_index; // next read position
+    _Atomic int write_index; // next write position
+    _Atomic int read_index; // next read position
 };
 
 static_assert(sizeof(struct polling_shm_region) <= POLLING_SHM_SIZE,
               "polling shm region size is too large");
-
-struct polling_server_ctx {
-    struct polling_shm_region *shm;
-};
-
-inline void set_msg_readable(enum shm_msg_flag *flag)
-{
-    atomic_store(flag, SHM_MSG_READABLE);
-}
-
-inline void set_msg_free(enum shm_msg_flag *flag)
-{
-    atomic_store(flag, SHM_MSG_FREE);
-}
-
-inline void wait_msg_readable(enum shm_msg_flag *flag)
-{
-    while (atomic_load(flag) != SHM_MSG_READABLE) {
-        // busy polling
-    }
-}
-
-inline void wait_msg_free(enum shm_msg_flag *flag)
-{
-    while (atomic_load(flag) != SHM_MSG_FREE) {
-        // busy polling
-    }
-}

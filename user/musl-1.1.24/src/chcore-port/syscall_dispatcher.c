@@ -75,6 +75,7 @@
  */
 int fsm_server_cap = 0;
 int lwip_server_cap = 0;
+int polling_server_cap = 0;
 
 int procmgr_server_cap = 0;
 

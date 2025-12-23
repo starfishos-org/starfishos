@@ -2,10 +2,6 @@
 
 #include "polling.h"
 
-void polling_enqueue_fs_request(struct shm_msg *msg,
-                                struct polling_fs_request *req);
-void polling_wait_for_response(struct shm_msg *msg);
-
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
                     int mode);
 ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,

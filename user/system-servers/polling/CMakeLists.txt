@@ -4,7 +4,7 @@ target_include_directories(polling-client-core PUBLIC . ${src_system_servers_dir
 target_link_options(polling-client-core PRIVATE -static)
 target_link_libraries(polling-client-core PRIVATE libc-static)
 
-add_library(polling-server-core STATIC polling_resp.c)
+add_library(polling-server-core STATIC polling_resp.c polling_tp.c)
 
 target_include_directories(polling-server-core PUBLIC . ${src_system_servers_dir}/fs_base)
 target_link_options(polling-server-core PRIVATE -static)

@@ -1,18 +1,36 @@
 #include "polling_req.h"
 
-void polling_enqueue_fs_request(struct shm_msg *msg,
-                                struct polling_fs_request *req)
+struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
 {
-    // wait for the message slot to be free
-    wait_msg_free(&msg->fs_req_flag);
+    while (1) {
+        uint32_t idx = atomic_fetch_add_explicit(
+                               &shm->write_index, 1, memory_order_relaxed)
+                       % MAX_MSG_COUNT;
 
+        struct shm_msg *msg = &shm->msgs[idx];
+
+        int expected = MSG_FREE;
+        if (atomic_compare_exchange_weak_explicit(&msg->state,
+                                                  &expected,
+                                                  MSG_REQ_WRITING,
+                                                  memory_order_acquire,
+                                                  memory_order_relaxed)) {
+            return msg;
+        }
+    }
+}
+
+void publish_request(struct shm_msg *msg, struct polling_fs_request *req)
+{
     memcpy(&msg->fs_req, req, sizeof(struct polling_fs_request));
-    set_msg_readable(&msg->fs_req_flag);
+    atomic_store_explicit(&msg->state, MSG_REQ_READY, memory_order_release);
 }
 
 void polling_wait_for_response(struct shm_msg *msg)
 {
-    wait_msg_readable(&msg->fs_resp_flag);
+    while (atomic_load_explicit(&msg->state, memory_order_acquire)
+           != MSG_RESP_READY) {
+    }
 }
 
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
@@ -27,85 +45,100 @@ int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
                     },
     };
     strncpy(req.open.path, path, FS_REQ_PATH_BUF_LEN);
-    int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
-    struct shm_msg *msg = &shm->msgs[idx];
-    polling_enqueue_fs_request(msg, &req);
 
-    wait_msg_readable(&msg->fs_resp_flag);
+    struct shm_msg *msg = mpsc_alloc_msg(shm);
+    publish_request(msg, &req);
+
+    while (atomic_load_explicit(&msg->state, memory_order_acquire)
+           != MSG_RESP_READY) {
+    }
+
     int fd = msg->fs_resp.open.fd;
-    set_msg_free(&msg->fs_resp_flag);
 
+    atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
     return fd;
 }
 
 ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
                         size_t count)
 {
-    size_t left_count = count;
-    void *buf_ptr = (void *)buf;
-    ssize_t total_count = 0;
-    while (left_count > 0) {
-        size_t read_count = MIN(left_count, POLLING_FS_READ_BUF_SIZE);
+    size_t left = count;
+    char *p = buf;
+    ssize_t total = 0;
+
+    while (left > 0) {
+        size_t chunk = MIN(left, POLLING_FS_READ_BUF_SIZE);
+
         struct polling_fs_request req = {
                 .type = POLLING_FS_REQ_READ,
                 .read =
                         {
                                 .fd = fd,
-                                .count = read_count,
+                                .count = chunk,
                         },
         };
-        int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
-        struct shm_msg *msg = &shm->msgs[idx];
-        polling_enqueue_fs_request(msg, &req);
 
-        wait_msg_readable(&msg->fs_resp_flag);
-        ssize_t response_read_count = msg->fs_resp.read.count;
-        memcpy(buf_ptr, msg->fs_resp.read.buf, response_read_count);
-        set_msg_free(&msg->fs_resp_flag);
+        struct shm_msg *msg = mpsc_alloc_msg(shm);
+        publish_request(msg, &req);
 
-        buf_ptr += response_read_count;
-        left_count -= response_read_count;
-        total_count += response_read_count;
-        if (response_read_count < read_count) {
-            break;
+        while (atomic_load_explicit(&msg->state, memory_order_acquire)
+               != MSG_RESP_READY) {
         }
+
+        ssize_t n = msg->fs_resp.read.count;
+        memcpy(p, msg->fs_resp.read.buf, n);
+
+        atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
+
+        total += n;
+        p += n;
+        left -= n;
+
+        if (n < (ssize_t)chunk)
+            break;
     }
-    return total_count;
+    return total;
 }
 
 ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
                          const void *buf, size_t count)
 {
-    size_t left_count = count;
-    void *buf_ptr = (void *)buf;
-    ssize_t total_count = 0;
-    while (left_count > 0) {
-        size_t write_count = MIN(left_count, POLLING_FS_WRITE_BUF_SIZE);
+    size_t left = count;
+    const char *p = buf;
+    ssize_t total = 0;
+
+    while (left > 0) {
+        size_t chunk = MIN(left, POLLING_FS_WRITE_BUF_SIZE);
+
         struct polling_fs_request req = {
                 .type = POLLING_FS_REQ_WRITE,
                 .write =
                         {
                                 .fd = fd,
-                                .count = write_count,
+                                .count = chunk,
                         },
         };
-        memcpy(req.write.buf, buf_ptr, write_count);
-        int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
-        struct shm_msg *msg = &shm->msgs[idx];
-        polling_enqueue_fs_request(msg, &req);
+        memcpy(req.write.buf, p, chunk);
 
-        wait_msg_readable(&msg->fs_resp_flag);
-        ssize_t response_write_count = msg->fs_resp.write.count;
-        set_msg_free(&msg->fs_resp_flag);
+        struct shm_msg *msg = mpsc_alloc_msg(shm);
+        publish_request(msg, &req);
 
-        buf_ptr += response_write_count;
-        left_count -= response_write_count;
-        total_count += response_write_count;
-        if (response_write_count < write_count) {
-            break;
+        while (atomic_load_explicit(&msg->state, memory_order_acquire)
+               != MSG_RESP_READY) {
         }
+
+        ssize_t n = msg->fs_resp.write.count;
+
+        atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
+
+        total += n;
+        p += n;
+        left -= n;
+
+        if (n < (ssize_t)chunk)
+            break;
     }
-    return total_count;
+    return total;
 }
 
 int polling_fs_close(struct polling_shm_region *shm, int fd)
@@ -117,14 +150,17 @@ int polling_fs_close(struct polling_shm_region *shm, int fd)
                             .fd = fd,
                     },
     };
-    int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
-    struct shm_msg *msg = &shm->msgs[idx];
-    polling_enqueue_fs_request(msg, &req);
 
-    wait_msg_readable(&msg->fs_resp_flag);
+    struct shm_msg *msg = mpsc_alloc_msg(shm);
+    publish_request(msg, &req);
+
+    while (atomic_load_explicit(&msg->state, memory_order_acquire)
+           != MSG_RESP_READY) {
+    }
+
     int ret = msg->fs_resp.close.ret;
-    set_msg_free(&msg->fs_resp_flag);
 
+    atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
     return ret;
 }
 
@@ -133,9 +169,12 @@ void polling_fs_empty(struct polling_shm_region *shm)
     struct polling_fs_request req = {
             .type = POLLING_FS_REQ_EMPTY,
     };
-    int idx = atomic_fetch_add(&shm->write_index, 1) % MAX_MSG_COUNT;
-    struct shm_msg *msg = &shm->msgs[idx];
-    polling_enqueue_fs_request(msg, &req);
-    wait_msg_readable(&msg->fs_resp_flag);
-    set_msg_free(&msg->fs_resp_flag);
+    struct shm_msg *msg = mpsc_alloc_msg(shm);
+
+    publish_request(msg, &req);
+    while (atomic_load_explicit(&msg->state, memory_order_acquire)
+           != MSG_RESP_READY) {
+    }
+
+    atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
 }

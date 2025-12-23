@@ -20,6 +20,8 @@
 extern int fsm_server_cap;
 /* lwip_server_cap in current process; can be copied to others */
 extern int lwip_server_cap;
+/* polling_server_cap in current process; can be copied to others */
+extern int polling_server_cap;
 
 #define READ_ONCE(t) (*(volatile typeof((t)) *)(&(t)))
 
@@ -365,6 +367,12 @@ void boot_default_servers(void)
         proc_node =
                 procmgr_launch_process(1, &srv_path, "lwip", true, INIT_BADGE, false);
         lwip_server_cap = proc_node->proc_mt_cap;
+
+        printf("User Init: booting polling server\n");
+
+        srv_path = "/polling.srv";
+        procmgr_launch_process(1, &srv_path, "polling", true, INIT_BADGE, false);
+        polling_server_cap = proc_node->proc_mt_cap;
 }
 
 void *handler_thread_routine(void *arg)

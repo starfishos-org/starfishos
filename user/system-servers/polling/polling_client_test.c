@@ -4,6 +4,8 @@
 #include <chcore/syscall.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
 
 struct worker_thread_arg {
     struct polling_shm_region *shm;
@@ -25,16 +27,47 @@ void *worker_thread(void *arg)
 
 static inline long diff_ns(struct timespec a, struct timespec b)
 {
-    return (b.tv_sec - a.tv_sec) * 1000000000L +
-           (b.tv_nsec - a.tv_nsec);
+    return (b.tv_sec - a.tv_sec) * 1000000000L + (b.tv_nsec - a.tv_nsec);
+}
+
+struct args {
+    int shm_id;
+};
+
+void print_usage()
+{
+    printf("Usage: polling_client.bin -s <shm_id>\n");
+}
+
+void parse_args(int argc, char *argv[], struct args *args)
+{
+    args->shm_id = -1;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-s") == 0) {
+            args->shm_id = atoi(argv[i + 1]);
+            i += 1;
+        } else {
+            printf("Unknown argument: %s\n", argv[i]);
+            print_usage();
+            exit(1);
+        }
+    }
+    if (args->shm_id == -1) {
+        args->shm_id = 0;
+        print_usage();
+        printf("shm_id is not provided, using default 0\n");
+    }
 }
 
 int main(int argc, char *argv[])
 {
+    struct args args;
+    parse_args(argc, argv, &args);
+
     void *shm_addr = (void *)chcore_alloc_vaddr(POLLING_SHM_SIZE);
-    int ret = usys_mmap_shm(POLLING_FS_SHM_ID, shm_addr);
+    int ret = usys_mmap_shm(args.shm_id, shm_addr);
     if (ret < 0) {
-        printf("Failed to mmap shm by id %d\n", POLLING_FS_SHM_ID);
+        printf("Failed to mmap shm by id %d\n", args.shm_id);
         return -1;
     }
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
@@ -64,6 +97,8 @@ int main(int argc, char *argv[])
     char buf[1000];
     ssize_t read_ret = polling_fs_read(shm, fd, buf, 1000);
     printf("read %ld bytes\n", read_ret);
+
+    assert(read_ret == 900);
     polling_fs_close(shm, fd);
     printf("closed file\n");
 
@@ -73,6 +108,8 @@ int main(int argc, char *argv[])
         polling_fs_empty(shm);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
-    printf("polling_fs_empty 1k times cost: %ld ns average: %ld ns\n", diff_ns(start, end), diff_ns(start, end) / 1000);
+    printf("polling_fs_empty 1k times cost: %ld ns average: %ld ns\n",
+           diff_ns(start, end),
+           diff_ns(start, end) / 1000);
     return 0;
 }
