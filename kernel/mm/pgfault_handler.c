@@ -27,6 +27,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
+#include <drivers/ivshmem.h>
 #endif
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/hot_pages_tracker.h>
@@ -401,7 +402,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             /* 2.2: Request remote machine to perform memcpy and flush TLB */
             /* The remote machine will copy from old_pa (its own physical address)
              * to new_pa (shared memory physical address), then flush its TLBs */
-            memcpy_and_flush_tlb_on_remote_machine(vmspace, mid, old_pa, new_pa, PAGE_SIZE, fault_addr);
+            memcpy_and_flush_tlb_on_remote_machine(vmspace, mid, old_pa, 
+                                                               new_pa, PAGE_SIZE, fault_addr);
             kinfo("memcpy and flush tlb on machine %d completed\n", mid);
             /* 2.3: remap the page table in old page table. */
             remap_page_in_pgtbl(pte_entry, new_pa);

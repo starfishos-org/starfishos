@@ -4,8 +4,8 @@
 
 /* Message processing mode for IVSHMEM */
 enum ivshmem_msg_mode {
-    IVSHMEM_MSG_MODE_MSI = 0,    /* Use MSI interrupts (default) */
-    IVSHMEM_MSG_MODE_POLLING = 1 /* Use polling thread */
+    IVSHMEM_MSG_MODE_MSI = 0,    /* Use MSI interrupts */
+    IVSHMEM_MSG_MODE_POLLING = 1 /* Use user-space polling server */
 };
 
 void ivshmem_setup_devices(void);
@@ -37,8 +37,4 @@ int ivshmem_test_msi_communication(void);
 void ivshmem_set_msg_mode(enum ivshmem_msg_mode mode);
 enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
 
-/* Poll for and process messages (non-blocking) */
-int ivshmem_poll_messages(void);
 
-/* Start the polling thread for message processing */
-void ivshmem_start_polling_thread(void);

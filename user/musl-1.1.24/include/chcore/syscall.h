@@ -64,6 +64,7 @@ u64 usys_map_with_pmo(u64 pmo_cap, u64 perm);
 int usys_unmap_with_addr(u64 addr);
 
 int usys_cache_flush(u64 start, u64 size, int op_type);
+int usys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va, u64 vmspace);
 u64 usys_get_current_tick(void);
 
 u64 usys_virt_dispatch(u64 syscall_no, u64 param1, u64 param2, u64 param3, u64 param4, u64 param5);

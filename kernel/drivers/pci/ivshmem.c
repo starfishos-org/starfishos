@@ -27,6 +27,7 @@
 #include <object/thread.h>
 #include <object/cap_group.h>
 #include <common/util.h>
+#include <mm/shm.h>
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE (4096)
@@ -111,8 +112,8 @@ struct kvm_ivshmem_device *doorbell_dev;
 u8 kvm_ivshmem_dev_num = 0;
 struct kvm_ivshmem_device kvm_ivshmem_dev_list[MAX_IVSHMEM_DEV];
 
-// Message processing mode: 0 = MSI (default), 1 = Polling
-static enum ivshmem_msg_mode ivshmem_msg_mode = IVSHMEM_MSG_MODE_MSI;
+// Message processing mode: 0 = MSI, 1 = Polling (user-space)
+static enum ivshmem_msg_mode ivshmem_msg_mode = IVSHMEM_MSG_MODE_POLLING;
 
 void ivshmem_setup_mem(u64 *start, u64 *size)
 {
@@ -712,6 +713,7 @@ void ivshmem_msix_handler(void)
           CUR_MACHINE_ID, ivshmem_msg_mode);
     
     /* Only process MSI messages if MSI mode is enabled */
+    /* In polling mode, messages are handled by user-space polling server */
     if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_MSI) {
         /* Process MSI messages */
         ivshmem_process_msi_messages();
@@ -848,73 +850,6 @@ static int ivshmem_handle_test_msg(mid_t my_id, mid_t sender_id)
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
     
     return 0;
-}
-
-/**
- * ivshmem_poll_messages - Poll for and process messages (non-blocking)
- * 
- * This function checks for incoming messages in shared memory and processes them.
- * Unlike ivshmem_process_msi_messages, this function is designed to be called
- * from any context (including page fault handlers) and does not rely on MSI interrupts.
- * 
- * This function only processes messages sent to the current machine.
- * For messages sent to other machines, those machines need to call this function themselves.
- * 
- * @return: 1 if a message was processed, 0 otherwise
- */
-int ivshmem_poll_messages(void)
-{
-    mid_t my_id = CUR_MACHINE_ID;
-    int i;
-    int processed = 0;
-
-    if (!dsm_meta || my_id >= CLUSTER_MACHINE_NUM)
-        return 0;
-
-    /* Check for messages sent to us */
-    for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
-        if (i == my_id)
-            continue;
-
-        /* Check if there's a message for us in our slot (with lock protection) */
-        lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
-        u32 msg_from = dsm_meta->msi_test_msg[my_id].msg_from;
-        u32 msg_type = dsm_meta->msi_test_msg[my_id].msg_type;
-        u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
-        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
-        
-        /* Check if there's a message for us from machine i */
-        if (msg_from == i && reply_received == 0) {
-            kinfo("[IVSHMEM] Machine %d polling: found message msg_from=%u, msg_type=%u, from machine %d\n", 
-                  my_id, msg_from, msg_type, i);
-            int handled = 0;
-            
-            /* Dispatch message to appropriate handler based on message type */
-            switch (msg_type) {
-            case MSI_MSG_TYPE_TLB_FLUSH:
-                handled = ivshmem_handle_tlb_flush_msg(my_id, i);
-                break;
-                
-            case MSI_MSG_TYPE_TEST:
-                handled = ivshmem_handle_test_msg(my_id, i);
-                break;
-                
-            case MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB:
-                handled = ivshmem_handle_memcpy_and_flush_tlb_msg(my_id, i);
-                break;
-                
-            default:
-                /* Unknown message type - skip it */
-                break;
-            }
-            
-            if (handled == 0) {
-                processed = 1;
-            }
-        }
-    }
-    
-    return processed;
 }
 
 /**
@@ -1207,7 +1142,7 @@ int ivshmem_test_msi_communication(void)
     }
 
     /* Wait for replies from all machines */
-    /* Note: We rely on MSI-X interrupts to process messages, not polling */
+    /* We rely on MSI-X interrupts to process messages */
     // kinfo("[IVSHMEM] Waiting for replies (relying on MSI-X interrupts)...\n");
     
     /* Give some time for MSI-X interrupts to be delivered and processed */
@@ -1277,41 +1212,16 @@ int ivshmem_test_msi_communication(void)
 }
 
 /**
- * ivshmem_polling_thread_routine - Polling thread routine
- * 
- * This function runs in a dedicated kernel thread and continuously polls
- * for incoming messages from other machines. This allows message processing
- * without relying on MSI interrupts, which can cause nested exceptions
- * in page fault handlers.
- */
-static void ivshmem_polling_thread_routine(void)
-{
-    while (1) {
-        /* Only poll if polling mode is enabled */
-        if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_POLLING) {
-            /* Poll for messages sent to this machine */
-            ivshmem_poll_messages();
-        }
-        
-        /* Small delay to avoid busy waiting */
-        /* TODO: Could use a more sophisticated sleep mechanism */
-        for (volatile int i = 0; i < 1000; i++) {
-            asm volatile("pause");
-        }
-    }
-}
-
-/**
  * ivshmem_set_msg_mode - Set message processing mode
  * 
  * @param mode: IVSHMEM_MSG_MODE_MSI (0) for MSI interrupts, 
- *              IVSHMEM_MSG_MODE_POLLING (1) for polling thread
+ *              IVSHMEM_MSG_MODE_POLLING (1) for user-space polling server
  */
 void ivshmem_set_msg_mode(enum ivshmem_msg_mode mode)
 {
     ivshmem_msg_mode = mode;
     kinfo("[IVSHMEM] Message processing mode set to: %s\n", 
-          mode == IVSHMEM_MSG_MODE_MSI ? "MSI" : "Polling");
+          mode == IVSHMEM_MSG_MODE_MSI ? "MSI" : "Polling (user-space)");
 }
 
 /**
@@ -1324,124 +1234,3 @@ enum ivshmem_msg_mode ivshmem_get_msg_mode(void)
     return ivshmem_msg_mode;
 }
 
-/**
- * ivshmem_start_polling_thread - Start the polling thread for message processing
- * 
- * This function creates a kernel thread that continuously polls for incoming
- * messages from other machines. The thread runs with low priority and processes
- * messages without relying on MSI interrupts.
- * 
- * This should be called after dsm_meta is initialized and CUR_MACHINE_ID is set.
- */
-void ivshmem_start_polling_thread(void)
-{
-    mid_t my_id = CUR_MACHINE_ID;
-    
-    if (!dsm_meta || my_id < 0 || my_id >= CLUSTER_MACHINE_NUM) {
-        kwarn("[IVSHMEM] Cannot start polling thread: invalid configuration (dsm_meta=%p, CUR_MACHINE_ID=%d)\n",
-              dsm_meta, my_id);
-        return;
-    }
-    
-    /* Create thread context for polling thread */
-    static struct thread polling_thread;
-    static char polling_thread_stack[DEFAULT_STACK_SIZE];
-    static struct cap_group *polling_cap_group = NULL;
-    static bool polling_thread_started = false;
-    
-    /* Check if polling thread has already been started */
-    if (polling_thread_started) {
-        kinfo("[IVSHMEM] Polling thread already started, skipping\n");
-        return;
-    }
-    
-    struct vmspace *idle_vmspace;
-    struct vmspace *vmspace_obj;
-    int ret;
-    int slot_id;
-    const char *polling_name = "IVSHMEM-POLLING";
-    u32 polling_name_len = strlen(polling_name);
-    
-    /* Create cap_group similar to create_root_cap_group */
-    extern void *obj_alloc(u64 type, u64 size, mem_t mem_type);
-    extern int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge, bool is_cross_machine);
-    extern int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights);
-    
-    polling_cap_group = (struct cap_group *)obj_alloc(TYPE_CAP_GROUP, sizeof(*polling_cap_group), __MT_OBJECT__);
-    if (!polling_cap_group) {
-        kwarn("[IVSHMEM] Failed to allocate polling_cap_group\n");
-        return;
-    }
-    
-    ret = cap_group_init(polling_cap_group, BASE_OBJECT_NUM, 0, false);
-    if (ret != 0) {
-        kwarn("[IVSHMEM] Failed to initialize polling_cap_group: %d\n", ret);
-        return;
-    }
-    
-    /* 1st cap is cap_group itself */
-    slot_id = cap_alloc(polling_cap_group, polling_cap_group, 0);
-    if (slot_id != CAP_GROUP_OBJ_ID) {
-        kwarn("[IVSHMEM] Failed to allocate cap_group slot: got %d, expected %d\n", 
-              slot_id, CAP_GROUP_OBJ_ID);
-        return;
-    }
-    
-    /* Use idle vmspace for kernel thread */
-    idle_vmspace = create_idle_vmspace();
-    if (!idle_vmspace) {
-        kwarn("[IVSHMEM] Failed to create idle vmspace\n");
-        return;
-    }
-    
-    /* 2nd cap is vmspace - allocate vmspace object and add to cap_group */
-    vmspace_obj = (struct vmspace *)obj_alloc(TYPE_VMSPACE, sizeof(*vmspace_obj), __MT_OBJECT__);
-    if (!vmspace_obj) {
-        kwarn("[IVSHMEM] Failed to allocate vmspace_obj\n");
-        return;
-    }
-    *vmspace_obj = *idle_vmspace; /* Copy vmspace content */
-    
-    slot_id = cap_alloc(polling_cap_group, vmspace_obj, 0);
-    if (slot_id != VMSPACE_OBJ_ID) {
-        kwarn("[IVSHMEM] Failed to allocate vmspace slot: got %d, expected %d\n", 
-              slot_id, VMSPACE_OBJ_ID);
-        return;
-    }
-    
-    /* Set cap_group name */
-    polling_name_len = MIN(polling_name_len, MAX_GROUP_NAME_LEN);
-    memcpy(polling_cap_group->cap_group_name, polling_name, polling_name_len);
-    polling_cap_group->cap_group_name[polling_name_len] = '\0';
-    
-    /* Use thread_init to initialize the thread */
-    /* Use TYPE_KERNEL since thread_init is designed for it */
-    extern int thread_init(struct thread *thread, struct cap_group *cap_group,
-                           u64 stack, u64 pc, u32 prio, u32 type, s32 aff);
-    
-    /* Verify cap_group is valid before calling thread_init */
-    if (!polling_cap_group) {
-        kwarn("[IVSHMEM] polling_cap_group is NULL before thread_init\n");
-        return;
-    }
-    
-    ret = thread_init(&polling_thread,
-                      polling_cap_group,
-                      (u64)polling_thread_stack + DEFAULT_STACK_SIZE,  /* stack */
-                      (u64)ivshmem_polling_thread_routine,            /* pc */
-                      254,                                            /* prio */
-                      TYPE_KERNEL,                                    /* type */
-                      NO_AFF);                                        /* affinity */
-    if (ret != 0) {
-        kwarn("[IVSHMEM] Failed to initialize polling thread: %d\n", ret);
-        return;
-    }
-    
-    /* Add thread to scheduler */
-    sched_enqueue(&polling_thread);
-    
-    /* Mark polling thread as started */
-    polling_thread_started = true;
-    
-    kinfo("[IVSHMEM] Started polling thread for machine %d\n", my_id);
-}
