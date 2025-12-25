@@ -13,3 +13,6 @@ void polling_fs_empty(struct polling_shm_region *shm);
 void polling_kernel_flush_tlb(struct polling_shm_region *shm, u64 memcpy_src_pa,
                               u64 memcpy_dst_pa, u64 memcpy_len,
                               u64 memcpy_fault_va, u64 memcpy_vmspace);
+
+void debug_print_shm_region(struct polling_shm_region * shm);
+void debug_print_shm_msg(struct shm_msg *msg);

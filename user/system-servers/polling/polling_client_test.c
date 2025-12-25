@@ -71,8 +71,6 @@ int main(int argc, char *argv[])
     }
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
 
-    extern void debug_print_shm_region(struct polling_shm_region * shm);
-    debug_print_shm_region(shm);
     int fd = polling_fs_open(shm, "test.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         printf("Failed to open file\n");

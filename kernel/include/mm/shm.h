@@ -6,7 +6,11 @@
 #include <mm/mm.h>
 #include <posix/sys/types.h>
 
+#define REUSE_REQ_RESP_BUFFER false
 #define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
+#define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
+#define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
+#define FS_REQ_PATH_BUF_LEN 256
 
 enum polling_shm_msg_state {
     MSG_FREE = 0,
@@ -25,6 +29,27 @@ enum polling_request_type {
     POLLING_KERNEL_REQ_FLUSH_TLB,
 };
 
+struct polling_fs_req_open {
+    char path[FS_REQ_PATH_BUF_LEN];
+    int flags;
+    int mode;
+};
+
+struct polling_fs_req_read {
+    int fd;
+    size_t count;
+};
+
+struct polling_fs_req_write {
+    int fd;
+    char buf[POLLING_FS_WRITE_BUF_SIZE];
+    size_t count;
+};
+
+struct polling_fs_req_close {
+    int fd;
+};
+
 struct polling_req_empty {};
 
 struct polling_kernel_req_flush_tlb {
@@ -38,9 +63,30 @@ struct polling_kernel_req_flush_tlb {
 struct polling_request {
     enum polling_request_type type;
     union {
+        struct polling_fs_req_open open;
+        struct polling_fs_req_read read;
+        struct polling_fs_req_write write;
+        struct polling_fs_req_close close;
         struct polling_req_empty empty;
         struct polling_kernel_req_flush_tlb flush_tlb;
     } __attribute__((aligned(8)));
+};
+
+struct polling_fs_resp_open {
+    int fd;
+};
+
+struct polling_fs_resp_read {
+    ssize_t count;
+    char buf[POLLING_FS_READ_BUF_SIZE];
+};
+
+struct polling_fs_resp_write {
+    ssize_t count;
+};
+
+struct polling_fs_resp_close {
+    int ret;
 };
 
 struct polling_resp_empty {};
@@ -53,26 +99,41 @@ struct polling_kernel_resp_flush_tlb {
 
 struct polling_response {
     union {
+        struct polling_fs_resp_open open;
+        struct polling_fs_resp_read read;
+        struct polling_fs_resp_write write;
+        struct polling_fs_resp_close close;
         struct polling_resp_empty empty;
         struct polling_kernel_resp_flush_tlb flush_tlb;
     } __attribute__((aligned(8)));
 };
 
+#if REUSE_REQ_RESP_BUFFER == true
 struct shm_msg {
-    s32 state;
+    int state;
     union {
         struct polling_request req;
         struct polling_response resp;
     } __attribute__((aligned(8)));
 };
 
+#else
+
+struct shm_msg {
+    int state;
+    struct polling_request req;
+    struct polling_response resp;
+};
+
+#endif
+
 // calculate the maximum number of messages based on the shm size
 #define MAX_MSG_COUNT (POLLING_SHM_SIZE / sizeof(struct shm_msg))
 
 struct polling_shm_region {
     struct shm_msg msgs[MAX_MSG_COUNT];
-    s32 write_index; // next write position
-    s32 read_index; // next read position
+    int write_index; // next write position
+    int read_index; // next read position
 };
 
 void shm_init(void);

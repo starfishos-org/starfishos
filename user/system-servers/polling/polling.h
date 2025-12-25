@@ -12,8 +12,8 @@
 #include <stdint.h>
 #include <fs_wrapper_defs.h>
 
+#define REUSE_REQ_RESP_BUFFER false
 #define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
-
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 
@@ -113,6 +113,7 @@ struct polling_response {
     } __attribute__((aligned(8)));
 };
 
+#if REUSE_REQ_RESP_BUFFER == true
 struct shm_msg {
     _Atomic int state;
     union {
@@ -120,6 +121,16 @@ struct shm_msg {
         struct polling_response resp;
     } __attribute__((aligned(8)));
 };
+
+#else
+
+struct shm_msg {
+    _Atomic int state;
+    struct polling_request req;
+    struct polling_response resp;
+};
+
+#endif
 
 // calculate the maximum number of messages based on the shm size
 #define MAX_MSG_COUNT (POLLING_SHM_SIZE / sizeof(struct shm_msg))

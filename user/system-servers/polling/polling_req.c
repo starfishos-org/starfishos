@@ -13,6 +13,16 @@ void debug_print_shm_region(struct polling_shm_region *shm)
     }
 }
 
+void debug_print_shm_msg(struct shm_msg *msg)
+{
+    for (int i = 0; i < MAX_MSG_COUNT; i++) {
+        int state =
+                atomic_load_explicit(&msg->state, memory_order_acquire);
+        int type = msg->req.type;
+        printf("shm_msg[%d]: state = %d, type = %d\n", i, state, type);
+    }
+}
+
 struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
 {
     int w = atomic_load_explicit(&shm->write_index, memory_order_relaxed);
@@ -22,9 +32,7 @@ struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
         return NULL;
     }
 
-    int idx = atomic_fetch_add_explicit(
-            &shm->write_index, 1, memory_order_relaxed);
-    struct shm_msg *msg = &shm->msgs[idx % MAX_MSG_COUNT];
+    struct shm_msg *msg = &shm->msgs[w % MAX_MSG_COUNT];
 
     int expected = MSG_FREE;
     if (!atomic_compare_exchange_strong_explicit(&msg->state,
@@ -35,7 +43,17 @@ struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
         return NULL;
     }
 
-    return msg;
+    int expected_w = w;
+    if (atomic_compare_exchange_strong_explicit(&shm->write_index,
+                                                 &expected_w,
+                                                 w + 1,
+                                                 memory_order_release,
+                                                 memory_order_relaxed)) {
+        return msg;
+    } else {
+        atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
+        return NULL;
+    }
 }
 
 struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)

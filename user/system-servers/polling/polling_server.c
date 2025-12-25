@@ -43,9 +43,6 @@ void *polling_reader_thread(void *arg)
             handle_polling_request(msg);
 #endif
 
-            atomic_store_explicit(
-                    &msg->state, MSG_RESP_READY, memory_order_release);
-
             r++;
             atomic_store_explicit(&shm->read_index, r, memory_order_relaxed);
         }
