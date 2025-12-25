@@ -60,3 +60,31 @@ static inline s64 atomic_exchange_64(void *ptr, s64 x)
 
     return x;
 }
+
+static inline s32 atomic_load_32(s32 *ptr)
+{
+    s32 val;
+
+    __asm__ __volatile__("movl %1, %0" : "=r"(val) : "m"(*ptr) : "memory");
+
+    return val;
+}
+
+static inline s64 atomic_load_64(s64 *ptr)
+{
+    s64 val;
+
+    __asm__ __volatile__("movq %1, %0" : "=r"(val) : "m"(*ptr) : "memory");
+
+    return val;
+}
+
+static inline void atomic_store_32(s32 *ptr, s32 val)
+{
+    __asm__ __volatile__("movl %1, %0" : "=m"(*ptr) : "r"(val) : "memory");
+}
+
+static inline void atomic_store_64(s64 *ptr, s64 val)
+{
+    __asm__ __volatile__("movq %1, %0" : "=m"(*ptr) : "r"(val) : "memory");
+}

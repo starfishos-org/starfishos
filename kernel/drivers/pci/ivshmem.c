@@ -20,10 +20,26 @@
 #include <dsm/dsm-single.h>
 #include <irq/irq.h>
 #include <irq/timer.h>
+#include <arch/mm/tlb.h>
+#include <common/lock.h>
+#include <sched/context.h>
+#include <sched/sched.h>
+#include <object/thread.h>
+#include <object/cap_group.h>
+#include <common/util.h>
+#include <mm/shm.h>
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE (4096)
 #endif
+
+#ifndef DEFAULT_STACK_SIZE
+#define DEFAULT_STACK_SIZE (8 << 20)  /* 8MB stack */
+#endif
+
+/* Forward declaration */
+extern void arch_idle_ctx_init(struct thread_ctx *idle_ctx, u64 stack, void (*func)(void));
+extern struct vmspace *create_idle_vmspace(void);
 
 struct kvm_ivshmem_device {
     /* BAR 2: Shared memory */
@@ -95,6 +111,9 @@ struct kvm_ivshmem_device *doorbell_dev;
 #define MAX_IVSHMEM_DEV 4
 u8 kvm_ivshmem_dev_num = 0;
 struct kvm_ivshmem_device kvm_ivshmem_dev_list[MAX_IVSHMEM_DEV];
+
+// Message processing mode: 0 = MSI, 1 = Polling (user-space)
+static enum ivshmem_msg_mode ivshmem_msg_mode = IVSHMEM_MSG_MODE_POLLING;
 
 void ivshmem_setup_mem(u64 *start, u64 *size)
 {
@@ -686,25 +705,211 @@ void ivshmem_register_peer_id(void)
  * 
  * This function is called when an MSI-X interrupt is received.
  * It processes incoming MSI messages and sends replies.
+ * Only processes messages if MSI mode is enabled.
  */
 void ivshmem_msix_handler(void)
 {
-    // kinfo("[IVSHMEM] ===== MSI-X interrupt received on machine %d =====\n", CUR_MACHINE_ID);
+    kinfo("[IVSHMEM] ===== MSI-X interrupt received on machine %d (mode=%d) =====\n", 
+          CUR_MACHINE_ID, ivshmem_msg_mode);
     
-    /* Process MSI messages */
-    ivshmem_process_msi_messages();
+    /* Only process MSI messages if MSI mode is enabled */
+    /* In polling mode, messages are handled by user-space polling server */
+    if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_MSI) {
+        /* Process MSI messages */
+        ivshmem_process_msi_messages();
+    } else {
+        kinfo("[IVSHMEM] MSI-X interrupt ignored (polling mode enabled)\n");
+    }
     
-    // kinfo("[IVSHMEM] ===== MSI-X interrupt handling completed =====\n");
+    kinfo("[IVSHMEM] ===== MSI-X interrupt handling completed =====\n");
     
     /* Acknowledge interrupt (if needed) */
     /* For MSI-X, the interrupt is automatically acknowledged by the hardware */
 }
 
 /**
+ * ivshmem_handle_tlb_flush_msg - Handle TLB flush message
+ * 
+ * @param my_id: Current machine ID
+ * @param sender_id: ID of the machine that sent the message
+ * @return: 0 on success, -1 on failure
+ */
+static int ivshmem_handle_tlb_flush_msg(mid_t my_id, mid_t sender_id)
+{
+    /* Read message parameters with lock protection */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    /* Note: We read the parameters but don't use them for now */
+    /* In the future, we might use them for more precise TLB flushing */
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    /* Perform TLB flush on all CPUs of this machine */
+    /* For cross-machine TLB flush, we flush all TLBs to ensure consistency */
+    flush_tlb_all();
+    
+    /* Send reply back to sender's slot (with lock protection) */
+    lock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    dsm_meta->msi_test_msg[sender_id].reply_received = 1;
+    dsm_meta->msi_test_msg[sender_id].reply_from = my_id;
+    unlock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    
+    /* Clear the message in our slot to avoid processing it again */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 1; /* Mark as processed */
+    dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF; /* Clear msg_from */
+    dsm_meta->msi_test_msg[my_id].msg_type = 0; /* Clear msg_type */
+    dsm_meta->msi_test_msg[my_id].tlb_start_va = 0;
+    dsm_meta->msi_test_msg[my_id].tlb_len = 0;
+    dsm_meta->msi_test_msg[my_id].tlb_vmspace = 0;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    return 0;
+}
+
+/**
+ * ivshmem_handle_memcpy_and_flush_tlb_msg - Handle memcpy and flush TLB message
+ * 
+ * This function performs memcpy from src_pa to dst_pa, then flushes all TLBs.
+ * The memcpy is performed on the remote machine to avoid accessing another machine's
+ * physical memory directly, which could cause nested page faults.
+ * 
+ * @param my_id: Current machine ID
+ * @param sender_id: ID of the machine that sent the message
+ * @return: 0 on success, -1 on failure
+ */
+static int ivshmem_handle_memcpy_and_flush_tlb_msg(mid_t my_id, mid_t sender_id)
+{
+    /* Read message parameters with lock protection */
+    kinfo("[IVSHMEM] handle memcpy and flush TLB message, my_id: %d, sender_id: %d\n", my_id, sender_id);
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    paddr_t src_pa = (paddr_t)dsm_meta->msi_test_msg[my_id].memcpy_src_pa;
+    paddr_t dst_pa = (paddr_t)dsm_meta->msi_test_msg[my_id].memcpy_dst_pa;
+    size_t len = (size_t)dsm_meta->msi_test_msg[my_id].memcpy_len;
+    vaddr_t fault_va = (vaddr_t)dsm_meta->msi_test_msg[my_id].memcpy_fault_va;
+    struct vmspace *vmspace = (struct vmspace *)dsm_meta->msi_test_msg[my_id].memcpy_vmspace;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    /* Perform memcpy: copy from src_pa to dst_pa */
+    /* Note: Both src_pa and dst_pa are physical addresses on this machine */
+    void *src_va = (void *)phys_to_virt(src_pa);
+    void *dst_va = (void *)phys_to_virt(dst_pa);
+    memcpy(dst_va, src_va, len);
+    
+    /* Perform TLB flush on all CPUs of this machine */
+    /* For cross-machine TLB flush, we flush all TLBs to ensure consistency */
+    // flush_tlb_all();
+    flush_tlb_local_and_remote(vmspace, fault_va, len);
+    
+    /* Send reply back to sender's slot (with lock protection) */
+    lock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    dsm_meta->msi_test_msg[sender_id].reply_received = 1;
+    dsm_meta->msi_test_msg[sender_id].reply_from = my_id;
+    unlock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    
+    /* Clear the message in our slot to avoid processing it again */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 1; /* Mark as processed */
+    dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF; /* Clear msg_from */
+    dsm_meta->msi_test_msg[my_id].msg_type = 0; /* Clear msg_type */
+    dsm_meta->msi_test_msg[my_id].memcpy_src_pa = 0;
+    dsm_meta->msi_test_msg[my_id].memcpy_dst_pa = 0;
+    dsm_meta->msi_test_msg[my_id].memcpy_len = 0;
+    dsm_meta->msi_test_msg[my_id].memcpy_fault_va = 0;
+    dsm_meta->msi_test_msg[my_id].memcpy_vmspace = 0;
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    return 0;
+}
+
+/**
+ * ivshmem_handle_test_msg - Handle test message
+ * 
+ * @param my_id: Current machine ID
+ * @param sender_id: ID of the machine that sent the message
+ * @return: 0 on success, -1 on failure
+ */
+static int ivshmem_handle_test_msg(mid_t my_id, mid_t sender_id)
+{
+    // kinfo("[IVSHMEM] Machine %d received MSI message from machine %d (msg_from=%u, msg_type=%u, slot=%d)\n", 
+    //       my_id, sender_id, dsm_meta->msi_test_msg[my_id].msg_from, 
+    //       dsm_meta->msi_test_msg[my_id].msg_type, my_id);
+
+    /* Send reply back to sender's slot (with lock protection) */
+    lock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    dsm_meta->msi_test_msg[sender_id].reply_received = 1;
+    dsm_meta->msi_test_msg[sender_id].reply_from = my_id;
+    unlock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+
+    // kinfo("[IVSHMEM] Machine %d sent reply to machine %d (placed in slot %d, reply_from=%u)\n", 
+    //       my_id, sender_id, sender_id, dsm_meta->msi_test_msg[sender_id].reply_from);
+    
+    /* Clear the message in our slot to avoid processing it again */
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    dsm_meta->msi_test_msg[my_id].reply_received = 1; /* Mark as processed */
+    dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF; /* Clear msg_from */
+    dsm_meta->msi_test_msg[my_id].msg_type = 0; /* Clear msg_type */
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    
+    return 0;
+}
+
+/**
+ * ivshmem_poll_messages_for_target - Poll and process messages for a specific target machine
+ * 
+ * This function checks for messages sent to a specific target machine and processes them.
+ * This is useful when the sender is waiting for a reply and wants to help process
+ * messages on the target machine (e.g., when MSI interrupts are disabled or delayed).
+ * 
+ * @param target_mid: Target machine ID to check for messages
+ * @return: 1 if a message was processed, 0 otherwise
+ */
+int ivshmem_poll_messages_for_target(mid_t target_mid)
+{
+    mid_t my_id = CUR_MACHINE_ID;
+    int i;
+    int processed = 0;
+
+    if (!dsm_meta || my_id >= CLUSTER_MACHINE_NUM || target_mid >= CLUSTER_MACHINE_NUM)
+        return 0;
+
+    /* Check if there's a message for the target machine from any sender */
+    for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        if (i == target_mid)
+            continue;
+
+        /* Check the target machine's slot for messages */
+        lock(&dsm_meta->msi_test_msg[target_mid].msg_lock);
+        u32 msg_from = dsm_meta->msi_test_msg[target_mid].msg_from;
+        u32 msg_type = dsm_meta->msi_test_msg[target_mid].msg_type;
+        u32 reply_received = dsm_meta->msi_test_msg[target_mid].reply_received;
+        unlock(&dsm_meta->msi_test_msg[target_mid].msg_lock);
+        
+        /* Check if there's a message for the target machine from machine i */
+        if (msg_from == i && reply_received == 0) {
+            kinfo("[IVSHMEM] Machine %d helping process message for target machine %d: msg_from=%u, msg_type=%u, from machine %d\n", 
+                  my_id, target_mid, msg_from, msg_type, i);
+            
+            /* We can't directly process the message for another machine, but we can
+             * trigger processing by simulating what would happen if the target machine
+             * called ivshmem_poll_messages(). However, this requires the target machine
+             * to actually process the message itself.
+             * 
+             * Instead, we just return that we found a message, and the caller can
+             * wait for the target machine to process it.
+             */
+            processed = 1;
+            break;
+        }
+    }
+    
+    return processed;
+}
+
+/**
  * ivshmem_process_msi_messages - Process received MSI messages and send replies
  * 
  * This function checks for incoming MSI messages in shared memory and
- * sends replies. It should be called periodically or from an interrupt handler.
+ * dispatches them to appropriate handlers based on message type.
+ * It should be called periodically or from an interrupt handler.
  */
 void ivshmem_process_msi_messages(void)
 {
@@ -719,43 +924,51 @@ void ivshmem_process_msi_messages(void)
         if (i == my_id)
             continue;
 
-        __sync_synchronize();
-        
-        /* Check if there's a message for us in our slot */
+        /* Check if there's a message for us in our slot (with lock protection) */
         /* Message should be placed in target machine's slot by sender */
         /* Note: We check our own slot (msi_test_msg[my_id]) for incoming messages */
+        lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         u32 msg_from = dsm_meta->msi_test_msg[my_id].msg_from;
         u32 msg_type = dsm_meta->msi_test_msg[my_id].msg_type;
         u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
-        __sync_synchronize();
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         
         /* Check if there's a message for us from machine i */
-        if (msg_from == i &&
-            msg_type == 1 &&
-            reply_received == 0) {
+        if (msg_from == i && reply_received == 0) {
+            kinfo("[IVSHMEM] Machine %d processing message: msg_from=%u, msg_type=%u, from machine %d\n", 
+                  my_id, msg_from, msg_type, i);
+            int handled = 0;
             
-            // kinfo("[IVSHMEM] Machine %d received MSI message from machine %d (msg_from=%u, msg_type=%u, slot=%d)\n", 
-            //       my_id, i, msg_from, msg_type, my_id);
-
-            /* Send reply back to sender's slot */
-            /* Reply goes to sender's slot (msi_test_msg[i]) */
-            __sync_synchronize();
-            dsm_meta->msi_test_msg[i].reply_received = 1;
-            dsm_meta->msi_test_msg[i].reply_from = my_id;
-            __sync_synchronize();
-
-            // kinfo("[IVSHMEM] Machine %d sent reply to machine %d (placed in slot %d, reply_from=%u)\n", 
-            //       my_id, i, i, dsm_meta->msi_test_msg[i].reply_from);
+            /* Dispatch message to appropriate handler based on message type */
+            switch (msg_type) {
+            case MSI_MSG_TYPE_TLB_FLUSH:
+                handled = ivshmem_handle_tlb_flush_msg(my_id, i);
+                break;
+                
+            case MSI_MSG_TYPE_TEST:
+                handled = ivshmem_handle_test_msg(my_id, i);
+                break;
+                
+            case MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB:
+                handled = ivshmem_handle_memcpy_and_flush_tlb_msg(my_id, i);
+                break;
+                
+            default:
+                kwarn("[IVSHMEM] Unknown message type %u from machine %d\n", msg_type, i);
+                /* Clear invalid message */
+                lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+                dsm_meta->msi_test_msg[my_id].reply_received = 1;
+                dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF;
+                dsm_meta->msi_test_msg[my_id].msg_type = 0;
+                unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+                handled = -1;
+                break;
+            }
             
-            /* Clear the message in our slot to avoid processing it again */
-            __sync_synchronize();
-            dsm_meta->msi_test_msg[my_id].reply_received = 1; /* Mark as processed */
-            dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF; /* Clear msg_from */
-            dsm_meta->msi_test_msg[my_id].msg_type = 0; /* Clear msg_type */
-            __sync_synchronize();
-            
-            /* Only process one message at a time */
-            break;
+            if (handled == 0) {
+                /* Message processed successfully, only process one message at a time */
+                break;
+            }
         }
     }
 }
@@ -863,12 +1076,17 @@ int ivshmem_test_msi_communication(void)
 
     // kinfo("[IVSHMEM] Starting MSI communication test from machine %d\n", my_id);
 
-    /* Initialize message slots */
+    /* Initialize message slots (with lock protection) */
     for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        lock(&dsm_meta->msi_test_msg[i].msg_lock);
         dsm_meta->msi_test_msg[i].msg_from = 0xFFFFFFFF;
         dsm_meta->msi_test_msg[i].msg_type = 0;
         dsm_meta->msi_test_msg[i].reply_received = 0;
         dsm_meta->msi_test_msg[i].reply_from = 0xFFFFFFFF;
+        dsm_meta->msi_test_msg[i].tlb_start_va = 0;
+        dsm_meta->msi_test_msg[i].tlb_len = 0;
+        dsm_meta->msi_test_msg[i].tlb_vmspace = 0;
+        unlock(&dsm_meta->msi_test_msg[i].msg_lock);
     }
     
     /* Wait a bit for all machines to register their peer_id mappings */
@@ -894,21 +1112,20 @@ int ivshmem_test_msi_communication(void)
         /* When we send to machine i, we write to slot i (target's slot) */
         /* When machine i replies, it writes to slot my_id (our slot) */
         /* So we need to clear our slot before sending, and check our slot for reply */
-        __sync_synchronize();
+        lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         dsm_meta->msi_test_msg[my_id].reply_received = 0;
         dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
-        __sync_synchronize();
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         
+        lock(&dsm_meta->msi_test_msg[i].msg_lock);
         dsm_meta->msi_test_msg[i].msg_from = my_id;
-        dsm_meta->msi_test_msg[i].msg_type = 1; /* Test message type */
+        dsm_meta->msi_test_msg[i].msg_type = MSI_MSG_TYPE_TEST;
         dsm_meta->msi_test_msg[i].reply_received = 0;
         dsm_meta->msi_test_msg[i].reply_from = 0xFFFFFFFF;
+        unlock(&dsm_meta->msi_test_msg[i].msg_lock);
         
         // kinfo("[IVSHMEM] Prepared message for machine %d: msg_from=%u, msg_type=%u\n",
         //       i, dsm_meta->msi_test_msg[i].msg_from, dsm_meta->msi_test_msg[i].msg_type);
-        
-        /* Memory barrier to ensure message is visible */
-        __sync_synchronize();
 
         /* Record send time before sending MSI */
         send_times[i] = plat_get_mono_time();
@@ -925,7 +1142,7 @@ int ivshmem_test_msi_communication(void)
     }
 
     /* Wait for replies from all machines */
-    /* Note: We rely on MSI-X interrupts to process messages, not polling */
+    /* We rely on MSI-X interrupts to process messages */
     // kinfo("[IVSHMEM] Waiting for replies (relying on MSI-X interrupts)...\n");
     
     /* Give some time for MSI-X interrupts to be delivered and processed */
@@ -940,14 +1157,16 @@ int ivshmem_test_msi_communication(void)
         
         /* Wait for reply - messages are processed by interrupt handler */
         while (timeout_count < MAX_TIMEOUT) {
-            __sync_synchronize();
-            
-            /* Check if reply received */
+            /* Check if reply received (with lock protection) */
             /* When we send a message to machine i, we place it in slot i (target's slot) */
             /* When machine i replies, it places the reply in slot my_id (our slot) */
             /* So we check our own slot (msi_test_msg[my_id]) for the reply */
-            if (dsm_meta->msi_test_msg[my_id].reply_received == 1 &&
-                dsm_meta->msi_test_msg[my_id].reply_from == i) {
+            lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+            u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
+            u32 reply_from = dsm_meta->msi_test_msg[my_id].reply_from;
+            unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+            
+            if (reply_received == 1 && reply_from == i) {
                 u64 reply_time = plat_get_mono_time();
                 u64 latency_ns = reply_time - send_times[i];
                 // kinfo("[IVSHMEM] Received reply from machine %d (reply_from=%u, reply_received=%u)\n", 
@@ -991,3 +1210,27 @@ int ivshmem_test_msi_communication(void)
 
     return (fail_count == 0) ? 0 : -EINVAL;
 }
+
+/**
+ * ivshmem_set_msg_mode - Set message processing mode
+ * 
+ * @param mode: IVSHMEM_MSG_MODE_MSI (0) for MSI interrupts, 
+ *              IVSHMEM_MSG_MODE_POLLING (1) for user-space polling server
+ */
+void ivshmem_set_msg_mode(enum ivshmem_msg_mode mode)
+{
+    ivshmem_msg_mode = mode;
+    kinfo("[IVSHMEM] Message processing mode set to: %s\n", 
+          mode == IVSHMEM_MSG_MODE_MSI ? "MSI" : "Polling (user-space)");
+}
+
+/**
+ * ivshmem_get_msg_mode - Get current message processing mode
+ * 
+ * @return: Current message processing mode
+ */
+enum ivshmem_msg_mode ivshmem_get_msg_mode(void)
+{
+    return ivshmem_msg_mode;
+}
+

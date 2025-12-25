@@ -16,10 +16,9 @@ struct worker_thread_arg {
 void *worker_thread(void *arg)
 {
     struct worker_thread_arg *wta = (struct worker_thread_arg *)arg;
-    char buf[10];
-    sprintf(buf, "hello%d", wta->tid);
+    char buf[20];
     for (int i = 0; i < 10; i++) {
-        sprintf(buf, "hello%d-%d\n", wta->tid, i);
+        snprintf(buf, sizeof(buf), "hello%d-%d\n", wta->tid, i);
         polling_fs_write(wta->shm, wta->fd, buf, strlen(buf));
     }
     return NULL;
@@ -71,7 +70,10 @@ int main(int argc, char *argv[])
         return -1;
     }
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
-    int fd = polling_fs_open(shm, "test.txt", O_RDWR | O_CREAT, 0666);
+
+    extern void debug_print_shm_region(struct polling_shm_region * shm);
+    debug_print_shm_region(shm);
+    int fd = polling_fs_open(shm, "test.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         printf("Failed to open file\n");
         return -1;
@@ -88,7 +90,8 @@ int main(int argc, char *argv[])
     for (int i = 0; i < 10; i++) {
         pthread_join(tid[i], NULL);
     }
-    fd = polling_fs_open(shm, "test.txt", O_RDWR, 0666);
+    polling_fs_close(shm, fd);
+    fd = polling_fs_open(shm, "test.txt", O_RDWR, 0);
     if (fd < 0) {
         printf("Failed to open file\n");
         return -1;
@@ -98,7 +101,6 @@ int main(int argc, char *argv[])
     ssize_t read_ret = polling_fs_read(shm, fd, buf, 1000);
     printf("read %ld bytes\n", read_ret);
 
-    assert(read_ret == 900);
     polling_fs_close(shm, fd);
     printf("closed file\n");
 

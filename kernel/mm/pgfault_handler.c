@@ -27,6 +27,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
+#include <drivers/ivshmem.h>
 #endif
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 #include <ckpt/hot_pages_tracker.h>
@@ -125,7 +126,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
     if (pmo->type > PMO_TYPE_NR || pmo->type < 0) {
         kinfo("handle_trans_fault: faulting vmr->pmo->type (pmo type %d at 0x%lx)\n",
-              vmr->pmo->type, fault_addr);
+              vmr->pmo->type,
+              fault_addr);
         kinfo("Currently, this pmo type should not trigger pgfaults\n");
         kprint_vmr(vmspace);
         ret = -ENOMAPPING;
@@ -140,7 +142,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         goto out_unlock_vmspace;
     }
 
-
     /* A valid pmo, should handle page fault */
     perm = vmr->perm;
 
@@ -149,16 +150,19 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
     /* Boundary check */
     if ((offset >= pmo->size) && (pmo->type == PMO_FILE)) {
-        kwarn_once("%s (out-of-range writing) offset 0x%lx, pmo->size 0x%lx, FILE\n",
-                __func__, offset, pmo->size);
+        kwarn_once(
+                "%s (out-of-range writing) offset 0x%lx, pmo->size 0x%lx, FILE\n",
+                __func__,
+                offset,
+                pmo->size);
         /*
-        * FIXME: we simply allow it now by adding new pages.
-        * For PMO_FILE, users can mmap a memory that is larger
-        * than the file size. If they accesses bytes beyond
-        * file size, SIGBUS should be triggered on LInux.
-        *
-        * TODO: why setting all the perm here?
-        */
+         * FIXME: we simply allow it now by adding new pages.
+         * For PMO_FILE, users can mmap a memory that is larger
+         * than the file size. If they accesses bytes beyond
+         * file size, SIGBUS should be triggered on LInux.
+         *
+         * TODO: why setting all the perm here?
+         */
         perm = VMR_READ | VMR_WRITE | VMR_EXEC;
     } else {
         BUG_ON(offset >= pmo->size);
@@ -206,9 +210,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         memset(new_va, 0, PAGE_SIZE);
 
         /*
-        * Record the physical page in the radix tree:
-        * the offset is used as index in the radix tree
-        */
+         * Record the physical page in the radix tree:
+         * the offset is used as index in the radix tree
+         */
         kdebug("commit: index: %ld, 0x%lx\n", index, pa);
         commit_page_to_pmo(pmo, index, pa);
 
@@ -251,27 +255,27 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #endif /* CHCORE_SLS */
     } else {
         /**
-        * pa != 0: the faulting address has be committed a    \
-        * physical page.                                      \
-        *                                                     \
-        * For concurrent page faults:                         \
-        *                                                     \
-        * When type is PMO_ANONYM, the later faulting threads \
-        * of the process do not need to modify the page       \
-        * table because a previous faulting thread will do    \
-        * that. (This is always true for the same process)    \
-        * However, if one process map an anonymous pmo for    \
-        * another process (e.g., main stack pmo), the faulting
-        * thread (e.g, in the new process) needs to update    \
-        * its page table. \
-        * So, for simplicity, we just update the page table.  \
-        * Note that adding the same mapping is harmless.      \
-        *                                                     \
-        * When type is PMO_SHM, the later faulting threads    \
-        * needs to add the mapping in the page table.         \
-        * Repeated mapping operations are harmless.           \
-        */
-        
+         * pa != 0: the faulting address has be committed a    \
+         * physical page.                                      \
+         *                                                     \
+         * For concurrent page faults:                         \
+         *                                                     \
+         * When type is PMO_ANONYM, the later faulting threads \
+         * of the process do not need to modify the page       \
+         * table because a previous faulting thread will do    \
+         * that. (This is always true for the same process)    \
+         * However, if one process map an anonymous pmo for    \
+         * another process (e.g., main stack pmo), the faulting
+         * thread (e.g, in the new process) needs to update    \
+         * its page table. \
+         * So, for simplicity, we just update the page table.  \
+         * Note that adding the same mapping is harmless.      \
+         *                                                     \
+         * When type is PMO_SHM, the later faulting threads    \
+         * needs to add the mapping in the page table.         \
+         * Repeated mapping operations are harmless.           \
+         */
+
         /* For PMO_FILE, we simply set all the perm now. */
         if (pmo->type == PMO_FILE) {
             perm = VMR_READ | VMR_WRITE | VMR_EXEC;
@@ -284,7 +288,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             perm &= ~VMR_WRITE;
         }
 #endif /* CHCORE_SLS */
-        
+
         /* handle CoW when a process is forked */
 #ifdef CHCORE_FORK_ENABLED
 #ifdef MULTI_PAGETABLE_ENABLED
@@ -293,7 +297,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         if (!is_shared_pmo(pmo)) {
             if (is_continuous_pmo(pmo)) {
                 page = virt_to_page((void *)phys_to_virt(pmo->start));
-                
+
                 lock(&page->lock);
                 if (page->ref_cnt > 1) {
                     void *new_va = kmalloc(pmo->size, pmo->mm_type);
@@ -311,16 +315,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     void *pgtbl = vmspace->pgtbl;
                     if ((vmspace->flags & VM_FLAG_PRESERVE)) {
                         map_range_in_pgtbl(pgtbl,
-                                            vmr->start,
-                                            pmo->start,
-                                            pmo->size,
-                                            perm & (~VMR_WRITE));
+                                           vmr->start,
+                                           pmo->start,
+                                           pmo->size,
+                                           perm & (~VMR_WRITE));
                     } else {
-                        map_range_in_pgtbl(pgtbl,
-                                            vmr->start,
-                                            pmo->start,
-                                            pmo->size,
-                                            perm);
+                        map_range_in_pgtbl(
+                                pgtbl, vmr->start, pmo->start, pmo->size, perm);
                     }
                     unlock(&vmspace->pgtbl_lock);
 
@@ -344,7 +345,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     pa = virt_to_phys(new_va);
 
                     lock(&vmspace->pgtbl_lock);
-                    map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
+                    map_page_in_pgtbl(
+                            vmspace->pgtbl, fault_addr, pa, perm, &pte);
                     unlock(&vmspace->pgtbl_lock);
 
                     flush_tlbs(vmspace, fault_addr, PAGE_SIZE);
@@ -366,7 +368,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
         /**
-         * If MULTI_PAGETABLE is enabled, we need to map all 
+         * If MULTI_PAGETABLE is enabled, we need to map all
          * page tables to the shared memory.
          * Case1: the page is already on shared memory
          *        -- DO NOTHING! Directly map!
@@ -374,36 +376,53 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
          *        -- 2.1: memcpy the page to the shared memory.
          *        -- 2.2: remap the page table in old page table.
          *        -- 2.3: map the page to new page table.
+         * Case3: the page is not on shared memory but belongs to
+         *        PMO_DATA type, which is pre-defined in the PMO,
+         *        and should be mapped in the page table here.
          */
-        /* NOTE!!: should not define machine_id variable here, 
+        /* NOTE!!: should not define machine_id variable here,
         it will cause the error when using CUR_MACHINE_ID */
         int mid = get_paddr_machine_id(pa);
+        paddr_t new_pa = pa;
         BUG_ON(mid == MACHINE_ID_INVALID);
-        if (mid != MACHINE_ID_SHARED_MEMORY) {
+        /* Case2 */
+        if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
+            kinfo("trigger case2, fault_addr: 0x%lx\n", fault_addr);
             pte_t *pte_entry = NULL;
-            paddr_t old_pa = pa;
-            query_in_pgtbl(vmspace->pgtbl[mid], fault_addr, &old_pa, &pte_entry);
+            paddr_t old_pa;
+            void *new_va;
+            query_in_pgtbl(
+                    vmspace->pgtbl[mid], fault_addr, &old_pa, &pte_entry);
             BUG_ON(old_pa == 0);
             BUG_ON(pte_entry == NULL);
-            /* 2.1: memcpy the page to the shared memory. */
-            memcpy((void *)phys_to_virt(pa), (void *)phys_to_virt(old_pa), PAGE_SIZE);
-            /* 2.2: remap the page table in old page table. */
-            remap_page_in_pgtbl(pte_entry, pa);
-            /* Flush TLB only for the machine whose page table was remapped */
-            /* Note: We need to flush because remap changes the physical address,
-             * and TLB may have cached the old mapping. We only flush CPUs belonging
-             * to machine_id since only they may have cached mappings from that page table */
-            flush_tlbs_for_machine(vmspace, mid, fault_addr, PAGE_SIZE);
+            // kinfo("old_pa: 0x%lx, pte_entry: 0x%lx\n", old_pa, pte_entry);
+            /* 2.1: Allocate shared memory page on current machine */
+            new_va = get_pages(0, __MT_SHARED__);
+            BUG_ON(new_va == NULL);
+            new_pa = virt_to_phys(new_va);
+            // kinfo("malloc new_va: 0x%lx, new_pa: 0x%lx\n", new_va, new_pa);
+            /* 2.2: Request remote machine to perform memcpy and flush TLB */
+            /* The remote machine will copy from old_pa (its own physical
+             * address) to new_pa (shared memory physical address), then flush
+             * its TLBs */
+            memcpy_and_flush_tlb_on_remote_machine(
+                    vmspace, mid, old_pa, new_pa, PAGE_SIZE, fault_addr);
+            kinfo("memcpy and flush tlb on machine %d completed\n", mid);
+            /* 2.3: remap the page table in old page table. */
+            remap_page_in_pgtbl(pte_entry, new_pa);
+            kinfo("remap pte_entry: 0x%lx\n", pte_entry);
         }
-        
+
         void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-        map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
+        map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+        // kinfo("map page in pgtbl, fault_addr: 0x%lx, new_pa: 0x%lx\n",
+        // fault_addr, new_pa);
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif
         unlock(&vmspace->pgtbl_lock);
 
-#ifdef CHCORE_SLS        
+#ifdef CHCORE_SLS
         /* do not persist pages belong to external sync pmo */
         if (is_external_sync_pmo(pmo))
             return 0;

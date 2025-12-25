@@ -17,7 +17,8 @@ int usys_create_pmo(u64 size, u64 type, s32 flags);
 int usys_map_pmo(u64 cap_group_cap, u64 pmo_cap, u64 addr, u64 perm);
 int usys_revoke_cap(u64 obj_cap);
 int usys_create_thread(u64 thread_args_p);
-int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid, bool is_cross_machine);
+int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid,
+                          bool is_cross_machine);
 int usys_register_server(u64 ipc_handler, u32 reigster_cb_cap, u64 destructor);
 u32 usys_register_client(u32 server_cap, u64 vm_config_ptr);
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
@@ -48,8 +49,10 @@ void usys_perf_null(void);
 void usys_top(void);
 
 int usys_user_fault_register(int notific_cap, vaddr_t msg_buffer);
-int usys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va, bool copy);
-int usys_map_pmo_with_length(int pmo_cap, vaddr_t addr, u64 perm, size_t length);
+int usys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
+                        bool copy);
+int usys_map_pmo_with_length(int pmo_cap, vaddr_t addr, u64 perm,
+                             size_t length);
 
 int usys_irq_register(int irq);
 int usys_irq_wait(int irq_cap, bool is_block);
@@ -64,9 +67,12 @@ u64 usys_map_with_pmo(u64 pmo_cap, u64 perm);
 int usys_unmap_with_addr(u64 addr);
 
 int usys_cache_flush(u64 start, u64 size, int op_type);
+int usys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
+                              u64 vmspace);
 u64 usys_get_current_tick(void);
 
-u64 usys_virt_dispatch(u64 syscall_no, u64 param1, u64 param2, u64 param3, u64 param4, u64 param5);
+u64 usys_virt_dispatch(u64 syscall_no, u64 param1, u64 param2, u64 param3,
+                       u64 param4, u64 param5);
 
 /* TreeSLS */
 int usys_whole_ckpt(char *ckpt_name, u64 name_len);

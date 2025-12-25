@@ -4,6 +4,7 @@
 #include <mm/shm.h>
 #include <object/memory.h>
 #include <dsm/dsm-single.h>
+#include <common/lock.h>
 
 extern int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr, mem_t mm_type, mem_t object_mem_type);
@@ -14,27 +15,34 @@ void shm_init(void)
     if (CUR_MACHINE_ID != 0) {
         return;
     }
-    for (int i = 0; i < MAX_SHM_NUM; i++) {
-        void *shm_data = (void *)kmalloc(SHM_DATA_SIZE, __MT_SHARED__);
-        if (shm_data == NULL) {
-            printk("Failed to allocate shm data for shm id: %d\n", i);
-            return;
-        }
+    /* Allocate shared memory for each machine */
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM && i < MAX_SHM_NUM; i++) {
         struct pmobject *new_pmo =
                 obj_alloc(TYPE_PMO, sizeof(struct pmobject), __MT_SHARED__);
+        /* PMO_DATA will allocate memory internally, so we pass 0 for paddr */
         int ret = pmo_init(new_pmo,
-                           PMO_SHM,
-                           SHM_DATA_SIZE,
-                           (paddr_t)shm_data,
+                           PMO_DATA,
+                           POLLING_SHM_SIZE,
+                           0,
                            __MT_SHARED__,
                            __MT_SHARED__);
         if (ret < 0) {
-            printk("Failed to init shm pmo\n");
+            printk("Failed to init shm pmo for machine %d\n", i);
             obj_free(new_pmo);
-            return;
+            continue;
         }
+        /* Get the virtual address of the allocated memory */
+        void *shm_data = (void *)phys_to_virt(new_pmo->start);
         dsm_meta->shm_data[i].data = shm_data;
         dsm_meta->shm_data[i].pmo = new_pmo;
+
+        /* Initialize polling shm region for this machine */
+        struct polling_shm_region *shm = (struct polling_shm_region *)shm_data;
+        memset(shm, 0, sizeof(struct polling_shm_region));
+
+        kinfo("[SHM] Initialized polling shm region for machine %d at %p\n",
+              i,
+              shm);
     }
 }
 
@@ -44,10 +52,9 @@ int sys_mmap_shm(u32 shm_id, void *addr)
         kwarn("Invalid shm id: %d\n", shm_id);
         return -EINVAL;
     }
-    u64 size = SHM_DATA_SIZE;
+    u64 size = POLLING_SHM_SIZE;
     int ret = 0;
-    struct shm_data_t *shm_data = &dsm_meta->shm_data[shm_id];
-    struct pmobject *pmo = shm_data->pmo;
+    struct pmobject *pmo = dsm_meta->shm_data[shm_id].pmo;
     struct vmspace *vmspace =
             obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
     if (vmspace == NULL) {
@@ -63,4 +70,51 @@ int sys_mmap_shm(u32 shm_id, void *addr)
     }
 
     return 0;
+}
+
+struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
+{
+    s32 w = atomic_load_32(&shm->write_index);
+    s32 r = atomic_load_32(&shm->read_index);
+
+    if ((unsigned int)(w - r) >= MAX_MSG_COUNT - 1) {
+        return NULL;
+    }
+
+    s32 idx = atomic_fetch_add_32(&shm->write_index, 1);
+    struct shm_msg *msg = &shm->msgs[idx % MAX_MSG_COUNT];
+
+    if (compare_and_swap_32(&msg->state, MSG_FREE, MSG_REQ_WRITING)
+        != MSG_FREE) {
+        return NULL;
+    }
+
+    return msg;
+}
+
+struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
+{
+    while (1) {
+        struct shm_msg *msg = mpsc_alloc_msg_retry(shm);
+        if (msg != NULL) {
+            return msg;
+        }
+    }
+}
+
+void polling_publish_request(struct shm_msg *msg, struct polling_request *req)
+{
+    memcpy(&msg->req, req, sizeof(struct polling_request));
+    atomic_store_32(&msg->state, MSG_REQ_READY);
+}
+
+void polling_wait_for_response(struct shm_msg *msg)
+{
+    while (atomic_load_32(&msg->state) != MSG_RESP_READY) {
+    }
+}
+
+void polling_free_msg(struct shm_msg *msg)
+{
+    atomic_store_32(&msg->state, MSG_FREE);
 }

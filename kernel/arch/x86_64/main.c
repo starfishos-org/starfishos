@@ -19,6 +19,7 @@
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
 #include <mm/shm.h>
+#include <drivers/ivshmem.h>
 
 /* Global big kernel lock */
 struct lock big_kernel_lock;
@@ -64,33 +65,45 @@ void main(u64 mbmagic, paddr_t mbaddr)
     mm_init((void *)get_mb2_mmap(), false);
     kdebug("[ChCore] mm init finished\n");
 
+    /* Initialize fw_cfg first to get machine_id before PCI setup */
+    fw_cfg_init();
+    kdebug("[ChCore] fw_cfg init finished\n");
+
     /* Configure drivers info */
     pci_setup_devices();
     kdebug("[ChCore] pci setup finished\n");
 
-    fw_cfg_init();
-    kdebug("[ChCore] fw_cfg init finished\n");
-
     ext_mm_init();
     kdebug("[ChCore] external mm init finished\n");
 
-    extern void pci_hostfs_list(void);
-    pci_hostfs_list();
-    
+    pci_hostfs_list(NULL);
+    kdebug("[ChCore] pci hostfs list finished\n");
+
     /* Register peer_id mapping after dsm_meta is initialized */
     extern void ivshmem_register_peer_id(void);
-    // extern int ivshmem_test_basic(void);
-    extern int ivshmem_test_msi_communication(void);
-    
     kinfo("[ChCore] Registering IVSHMEM peer_id...\n");
     ivshmem_register_peer_id();
-    
-    // kinfo("[ChCore] Running IVSHMEM basic test...\n");
-    // ivshmem_test_basic();
-    
-    kinfo("[ChCore] Running IVSHMEM MSI communication test...\n");
-    ivshmem_test_msi_communication();
-    kdebug("[ChCore] MSI communication test finished\n");
+
+    /* Configure message processing mode (default: Polling) */
+    /* Default to Polling mode - can be changed to IVSHMEM_MSG_MODE_MSI if
+     * needed */
+    ivshmem_set_msg_mode(IVSHMEM_MSG_MODE_POLLING);
+    // ivshmem_set_msg_mode(IVSHMEM_MSG_MODE_MSI);
+
+    /* In polling mode, messages are processed by user-space polling server */
+    /* In MSI mode, messages are processed via MSI-X interrupts */
+    if (ivshmem_get_msg_mode() == IVSHMEM_MSG_MODE_POLLING) {
+        kinfo("[ChCore] Using polling mode - user-space polling server will handle messages\n");
+    } else {
+        kinfo("[ChCore] Using MSI mode for IVSHMEM message processing\n");
+
+        /* Temporarily disable MSI test to avoid memory allocation issues */
+        /* TODO: Re-enable after fixing MSI interrupt handling */
+        kinfo("[ChCore] Running IVSHMEM MSI communication test...\n");
+        extern int ivshmem_test_msi_communication(void);
+        ivshmem_test_msi_communication();
+        kdebug("[ChCore] MSI communication test finished\n");
+    }
 
     /* Configure CPU features: setting per_core registers */
     arch_cpu_init();
@@ -142,7 +155,8 @@ void main(u64 mbmagic, paddr_t mbaddr)
 
     /* Create the first user thread */
     create_root_thread();
-    kinfo("[ChCore] create initial thread done, machine id: %d\n", CUR_MACHINE_ID);
+    kinfo("[ChCore] create initial thread done, machine id: %d\n",
+          CUR_MACHINE_ID);
 
 #ifdef RESTORE_ENABLED
 skip_create_root_thread:

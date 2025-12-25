@@ -45,10 +45,10 @@ extern char CHCORE_PUD_CODE_Mapping[];
 // currently, kernel page table can not map address above KBASE
 #define MAX_KERNEL_PG_PADDR (~KBASE)
 
-#define FIRST_PUD_MAPPING_IDX_START     (0)
-#define FIRST_PUD_MAPPING_IDX_END       (511)
-#define SECOND_PUD_MAPPING_IDX_START    (512)
-#define SECOND_PUD_MAPPING_IDX_END      (1021)
+#define FIRST_PUD_MAPPING_IDX_START  (0)
+#define FIRST_PUD_MAPPING_IDX_END    (511)
+#define SECOND_PUD_MAPPING_IDX_START (512)
+#define SECOND_PUD_MAPPING_IDX_END   (1021)
 // 1022 and 1023 are reserved for kernel code
 
 extern void flush_boot_tlb(void);
@@ -60,12 +60,12 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
     bool need_map_second_pud = false;
     u64 idx = 0, _idx_start, _idx_end;
 
-    // kinfo("fill kernel page table range: %lx - %lx\n", idx_start, idx_end);
+    // kinfo(" table range: %lx - %lx\n", idx_start, idx_end);
 
     if (idx_start <= (int)(FIRST_PUD_MAPPING_IDX_END)) {
         need_map_first_pud = true;
     }
-    
+
     if (idx_end >= (int)(SECOND_PUD_MAPPING_IDX_START)) {
         need_map_second_pud = true;
     }
@@ -76,8 +76,10 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
         _idx_end = MIN(idx_end, FIRST_PUD_MAPPING_IDX_END);
 
         for (idx = _idx_start; idx <= _idx_end; idx++) {
-            *(direct_mapping + idx) = (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
-            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping, idx);
+            *(direct_mapping + idx) =
+                    (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping,
+            // idx);
         }
     }
 
@@ -87,13 +89,15 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
         _idx_end = MIN(idx_end, SECOND_PUD_MAPPING_IDX_END);
 
         for (idx = _idx_start; idx <= _idx_end; idx++) {
-            *(direct_mapping + idx - SECOND_PUD_MAPPING_IDX_START) 
-                = (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
-            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping, idx);
+            *(direct_mapping + idx - SECOND_PUD_MAPPING_IDX_START) =
+                    (idx << 30) + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+            // kinfo("set direct mapping (%p) to idx %d\n", direct_mapping,
+            // idx);
         }
     }
 
-    // kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end * SIZE_1G);
+    // kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end *
+    // SIZE_1G);
 }
 
 /**
@@ -106,8 +110,8 @@ void fill_kernel_page_table_range(u64 mem_start, u64 mem_size)
     u64 idx_start, idx_end;
 
     idx_start = mem_start / SIZE_1G;
-    idx_end = ((mem_start + mem_size) / SIZE_1G) + 
-        ((mem_start + mem_size) % SIZE_1G ? 1 : 0);
+    idx_end = ((mem_start + mem_size) / SIZE_1G)
+              + ((mem_start + mem_size) % SIZE_1G ? 1 : 0);
 
     __fill_kernel_page_table_range(idx_start, idx_end);
 
@@ -147,7 +151,8 @@ static void refill_kernel_page_table(u64 mem_end)
      */
 
     /* We map the available physical memory here. 0~1G has been mapped. */
-    __fill_kernel_page_table_range(1, ((mem_end / SIZE_1G) + (mem_end % SIZE_1G ? 1 : 0)));
+    __fill_kernel_page_table_range(
+            1, ((mem_end / SIZE_1G) + (mem_end % SIZE_1G ? 1 : 0)));
 
     /* Flush TLB: SMP is not enabled for now. */
     flush_boot_tlb();

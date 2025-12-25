@@ -39,7 +39,7 @@
 
 /* cache operations */
 #define CACHE_CLEAN         1
-#define	CACHE_INVALIDATE    2
+#define CACHE_INVALIDATE    2
 #define CACHE_CLEAN_AND_INV 3
 #define SYNC_IDCACHE        4
 
@@ -50,25 +50,27 @@
 #define VM_FORBID (0)
 
 /* PMO types */
-#define PMO_ANONYM            0 /* lazy allocation */
-#define PMO_DATA              1 /* immediate allocation */
-#define PMO_FILE              2 /* file backed */
-#define PMO_SHM               3 /* shared memory */
-#define PMO_USER_PAGER        4 /* support user pager */
-#define PMO_DEVICE            5 /* memory mapped device registers */
-#define PMO_DATA_NOCACHE      6 /* non-cacheable immediate allocation */
-#define PMO_FORBID            7 /* Forbidden area: avoid overflow */
+#define PMO_ANONYM       0 /* lazy allocation */
+#define PMO_DATA         1 /* immediate allocation */
+#define PMO_FILE         2 /* file backed */
+#define PMO_SHM          3 /* shared memory */
+#define PMO_USER_PAGER   4 /* support user pager */
+#define PMO_DEVICE       5 /* memory mapped device registers */
+#define PMO_DATA_NOCACHE 6 /* non-cacheable immediate allocation */
+#define PMO_FORBID       7 /* Forbidden area: avoid overflow */
 
 // Following type are actually mapped to previous types
-#define PMO_RING_BUFFER       8 /* pages that need to sync with external, PMO_DATA */
-#define PMO_RING_BUFFER_RADIX 9 /* same as PMO_RING_BUFFER; for test, PMO_ANONYM */
+#define PMO_RING_BUFFER 8 /* pages that need to sync with external, PMO_DATA \
+                           */
+#define PMO_RING_BUFFER_RADIX \
+    9 /* same as PMO_RING_BUFFER; for test, PMO_ANONYM */
 // More types for partioned process
-#define PMO_CODE              10 /* code, PMO_DATA */
-#define PMO_STACK             11 /* stack, PMO_ANONYM */
-#define PMO_HEAP              12 /* heap, PMO_ANONYM */
+#define PMO_CODE  10 /* code, PMO_DATA */
+#define PMO_STACK 11 /* stack, PMO_ANONYM */
+#define PMO_HEAP  12 /* heap, PMO_ANONYM */
 // #define PMO_IPC_BUFFER        13 /* ipc buffer, PMO_SHM */
-#define PMO_CROSS_SHM         14 /* shared memory accross machine, PMO_SHM */
-#define PMO_TYPE_NR           15
+#define PMO_CROSS_SHM 14 /* shared memory accross machine, PMO_SHM */
+#define PMO_TYPE_NR   15
 
 #define MALLOC_TYPE_PRIVATE (1)
 #define MALLOC_TYPE_SHARED  (2)
@@ -111,9 +113,9 @@
 #define CHCORE_SYS_unmap_pmo         13
 #define CHCORE_SYS_write_pmo         14
 #define CHCORE_SYS_read_pmo          15
-#define CHCORE_SYS_map_with_pmo    16
-#define CHCORE_SYS_unmap_with_addr 17
-#define CHCORE_SYS_revoke_cap	   18
+#define CHCORE_SYS_map_with_pmo      16
+#define CHCORE_SYS_unmap_with_addr   17
+#define CHCORE_SYS_revoke_cap        18
 /* - batch */
 #define CHCORE_SYS_create_pmos 20
 #define CHCORE_SYS_map_pmos    21
@@ -126,7 +128,7 @@
 #define CHCORE_SYS_cap_copy_from 61
 #define CHCORE_SYS_transfer_caps 62
 /* Fork */
-#define CHCORE_SYS_clone_cap_group  70
+#define CHCORE_SYS_clone_cap_group 70
 
 /* Multitask */
 /* - create & exit */
@@ -195,8 +197,8 @@
 #define CHCORE_SYS_perf_end   231
 #define CHCORE_SYS_perf_null  232
 
-#define CHCORE_SYS_get_poll_remote 233
-#define CHCORE_SYS_set_poll_remote 234
+#define CHCORE_SYS_get_poll_remote                   233
+#define CHCORE_SYS_set_poll_remote                   234
 #define CHCORE_SYS_set_excepted_connected_client_num 235
 #define CHCORE_SYS_set_dyn_args                      236
 
@@ -207,39 +209,40 @@
 #define CHCORE_SYS_virt_dispatch 240
 
 /* Checkpoint */
-#define CHCORE_SYS_whole_ckpt           241
-#define CHCORE_SYS_whole_restore        242
-#define CHCORE_SYS_shutdown             243
-#define CHCORE_SYS_whole_ckpt_for_test  244
+#define CHCORE_SYS_whole_ckpt                241
+#define CHCORE_SYS_whole_restore             242
+#define CHCORE_SYS_shutdown                  243
+#define CHCORE_SYS_whole_ckpt_for_test       244
 #define CHCORE_SYS_register_external_ringbuf 245
 
 /* IPI */
-#define CHCORE_SYS_ipi_stop_all         246
-#define CHCORE_SYS_ipi_start_all        247
-#define CHCORE_SYS_ipi_test_kernel      248
+#define CHCORE_SYS_ipi_stop_all    246
+#define CHCORE_SYS_ipi_start_all   247
+#define CHCORE_SYS_ipi_test_kernel 248
 
 /* track pf */
-#define CHCORE_SYS_track_pf_begin       249
-#define CHCORE_SYS_track_pf_end         250
+#define CHCORE_SYS_track_pf_begin 249
+#define CHCORE_SYS_track_pf_end   250
 
 #define CHCORE_SYS_cfork_prepare 251
 #define CHCORE_SYS_cfork_ckpt    252
 #define CHCORE_SYS_cfork_restore 253
 
-#define CHCORE_SYS_ckpt_process  254
+#define CHCORE_SYS_ckpt_process    254
 #define CHCORE_SYS_restore_process 255
 
 /* Machine ID */
-#define CHCORE_SYS_get_machine_id       256
+#define CHCORE_SYS_get_machine_id 256
 
 /* File System */
-#define CHCORE_SYS_register_fs_client   257
-#define CHCORE_SYS_register_fs_server   258
+#define CHCORE_SYS_register_fs_client 257
+#define CHCORE_SYS_register_fs_server 258
 
 #ifdef IPC_PERF_ENABLED
-#define CHCORE_SYS_ipc_perf_start       259
-#define CHCORE_SYS_ipc_perf_end         260
+#define CHCORE_SYS_ipc_perf_start 259
+#define CHCORE_SYS_ipc_perf_end   260
 #endif
 
 /* Shared Memory */
-#define CHCORE_SYS_mmap_shm 261
+#define CHCORE_SYS_mmap_shm             261
+#define CHCORE_SYS_memcpy_and_flush_tlb 262

@@ -9,7 +9,7 @@ void dsm_add_machine()
     BUG_ON(!dsm_meta);
 
     CUR_MACHINE_ID = FW_MACHINE_ID;
-    
+
     /* Initialize machine_to_peer_id array if this is the first machine */
     if (CUR_MACHINE_ID == 0) {
         for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
@@ -45,7 +45,7 @@ void dsm_add_machine()
 #ifdef DSM_LINEAR_MM_LAYOUT
     /* dram */
     // u64 lmem_old_start,
-    u64 lmem_new_start, lmem_size = SIZE_8G;
+    u64 lmem_new_start, lmem_size = SIZE_16G;
 
     if (init) {
         lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);

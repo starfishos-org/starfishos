@@ -7,23 +7,26 @@
 
 #define USE_THREAD_POOL 0 // 0: single thread, 1: thread pool (buggy)
 
+int my_id = -1;
+
 void init_polling_shm_region(struct polling_shm_region *shm)
 {
     atomic_init(&shm->write_index, 0);
     atomic_init(&shm->read_index, 0);
     for (int i = 0; i < MAX_MSG_COUNT; i++) {
         atomic_init(&shm->msgs[i].state, MSG_FREE);
+        memset(&shm->msgs[i], 0, sizeof(struct shm_msg));
     }
 }
 
 void *polling_reader_thread(void *arg)
 {
-    #if USE_THREAD_POOL == 1
+#if USE_THREAD_POOL == 1
     thread_pool_t pool;
     thread_pool_init(&pool);
-    #endif
+#endif
     struct polling_shm_region *shm = arg;
-    uint32_t r = atomic_load(&shm->read_index);
+    int r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
 
     while (1) {
         struct shm_msg *msg = &shm->msgs[r % MAX_MSG_COUNT];
@@ -34,11 +37,11 @@ void *polling_reader_thread(void *arg)
                                                     MSG_RESP_WRITING,
                                                     memory_order_acquire,
                                                     memory_order_relaxed)) {
-            #if USE_THREAD_POOL == 1
+#if USE_THREAD_POOL == 1
             thread_pool_add_task(&pool, msg);
-            #elif USE_THREAD_POOL == 0
-            handle_polling_fs_request(msg);
-            #endif
+#elif USE_THREAD_POOL == 0
+            handle_polling_request(msg);
+#endif
 
             atomic_store_explicit(
                     &msg->state, MSG_RESP_READY, memory_order_release);
@@ -72,8 +75,9 @@ void create_polling_thread(u32 shm_id, pthread_t *tid)
 int main(int argc, char *argv[])
 {
     pthread_t tid;
-    int shm_id = usys_get_machine_id();
-    create_polling_thread(shm_id, &tid);
+    my_id = usys_get_machine_id();
+    assert(my_id >= 0);
+    create_polling_thread(my_id, &tid);
     pthread_join(tid, NULL);
     printf("Polling thread exited\n");
     return 0;

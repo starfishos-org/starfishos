@@ -96,6 +96,16 @@ typedef struct {
 } dsm_machine_local_metadata_t;
 
 /**
+ * MSI message types for inter-machine communication
+ */
+enum msi_msg_type {
+    MSI_MSG_TYPE_TLB_FLUSH = 0,  /* TLB flush request */
+    MSI_MSG_TYPE_TEST = 1,        /* Test message */
+    MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB = 2,  /* Memcpy and flush TLB request */
+    MSI_MSG_TYPE_MAX
+};
+
+/**
  * dsm metadata
  *
  * The main structure of dsm metadata.
@@ -152,14 +162,26 @@ typedef struct {
     struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
 
     /**
-     * MSI test message area (for boot-time testing)
+     * MSI message area for inter-machine communication
      * Each machine has a message slot and reply slot
      */
     struct {
+        struct lock msg_lock;       /* Lock protecting this message slot */
         volatile u32 msg_from;      /* Source machine ID */
-        volatile u32 msg_type;      /* Message type */
+        volatile u32 msg_type;      /* Message type (see MSI_MSG_TYPE_*) */
         volatile u32 reply_received; /* Reply received flag */
         volatile u32 reply_from;    /* Reply from machine ID */
+        /* Message-specific data (union-like usage based on msg_type) */
+        /* For MSI_MSG_TYPE_TLB_FLUSH: */
+        volatile u64 tlb_start_va;  /* TLB flush start address */
+        volatile u64 tlb_len;       /* TLB flush length */
+        volatile u64 tlb_vmspace;   /* TLB flush vmspace pointer */
+        /* For MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB: */
+        volatile u64 memcpy_src_pa;  /* Source physical address for memcpy */
+        volatile u64 memcpy_dst_pa;  /* Destination physical address for memcpy */
+        volatile u64 memcpy_len;     /* Length for memcpy */
+        volatile u64 memcpy_fault_va; /* Fault virtual address (for TLB flush) */
+        volatile u64 memcpy_vmspace;  /* vmspace pointer (for TLB flush) */
     } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
     
     /**

@@ -9,6 +9,7 @@
 #include <sys/ipc.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include <fs_wrapper_defs.h>
 
 #define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
@@ -24,12 +25,13 @@ enum polling_shm_msg_state {
     MSG_RESP_READY,
 };
 
-enum polling_fs_request_type {
+enum polling_request_type {
     POLLING_FS_REQ_OPEN,
     POLLING_FS_REQ_READ,
     POLLING_FS_REQ_WRITE,
     POLLING_FS_REQ_CLOSE,
-    POLLING_FS_REQ_EMPTY,
+    POLLING_REQ_EMPTY,
+    POLLING_KERNEL_REQ_FLUSH_TLB,
 };
 
 struct polling_fs_req_open {
@@ -53,16 +55,25 @@ struct polling_fs_req_close {
     int fd;
 };
 
-struct polling_fs_req_empty {};
+struct polling_req_empty {};
 
-struct polling_fs_request {
-    enum polling_fs_request_type type;
+struct polling_kernel_req_flush_tlb {
+    u64 memcpy_src_pa;
+    u64 memcpy_dst_pa;
+    u64 memcpy_len;
+    u64 memcpy_fault_va;
+    u64 memcpy_vmspace;
+};
+
+struct polling_request {
+    enum polling_request_type type;
     union {
         struct polling_fs_req_open open;
         struct polling_fs_req_read read;
         struct polling_fs_req_write write;
         struct polling_fs_req_close close;
-        struct polling_fs_req_empty empty;
+        struct polling_req_empty empty;
+        struct polling_kernel_req_flush_tlb flush_tlb;
     } __attribute__((aligned(8)));
 };
 
@@ -83,23 +94,30 @@ struct polling_fs_resp_close {
     int ret;
 };
 
-struct polling_fs_resp_empty {};
+struct polling_resp_empty {};
 
-struct polling_fs_response {
+struct polling_kernel_resp_flush_tlb {
+    u32 reply_received; /* Reply received flag: 0=not received, 1=received */
+    u32 reply_from; /* Reply from machine ID */
+    s32 reply_result; /* Reply result: 0=success, negative=error */
+};
+
+struct polling_response {
     union {
         struct polling_fs_resp_open open;
         struct polling_fs_resp_read read;
         struct polling_fs_resp_write write;
         struct polling_fs_resp_close close;
-        struct polling_fs_resp_empty empty;
+        struct polling_resp_empty empty;
+        struct polling_kernel_resp_flush_tlb flush_tlb;
     } __attribute__((aligned(8)));
 };
 
 struct shm_msg {
     _Atomic int state;
     union {
-        struct polling_fs_request fs_req;
-        struct polling_fs_response fs_resp;
+        struct polling_request req;
+        struct polling_response resp;
     } __attribute__((aligned(8)));
 };
 

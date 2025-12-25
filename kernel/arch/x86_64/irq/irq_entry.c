@@ -327,6 +327,13 @@ void trap_c(arch_exec_ctx_t *ec)
                 plat_handle_timer_irq(TICK_MS * 1000 * tick_per_us);
                 return;
             }
+            /* For MSI-X interrupts, always handle them even in kernel mode */
+            /* This allows interrupts to break into kernel execution */
+            if (trapno == IRQ_MSIX_IVSHMEM) {
+                /* MSI-X interrupts should be handled immediately */
+                handle_irq(trapno);
+                return;
+            }
         }
     }
 
@@ -366,12 +373,9 @@ void trap_c(arch_exec_ctx_t *ec)
 
     /* Just for kernel tracing and debugging */
     if ((trapno != IRQ_TIMER) && (trapno != T_PF) && (trapno != IRQ_IPI_TLB)
-        && (trapno != IRQ_IPI_RESCHED) 
-        && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
-        && (trapno != IRQ_IPI_STOP_RESCHED)
-        && (trapno != IRQ_IPI_RESET_SCHED) 
-        && (trapno != IRQ_MSIX_IVSHMEM)
-        && (trapno != T_NM)) {
+        && (trapno != IRQ_IPI_RESCHED) && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
+        && (trapno != IRQ_IPI_STOP_RESCHED) && (trapno != IRQ_IPI_RESET_SCHED)
+        && (trapno != IRQ_MSIX_IVSHMEM) && (trapno != T_NM)) {
         kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
               ec->reg[RIP],
               errorcode,
@@ -388,15 +392,15 @@ void trap_c(arch_exec_ctx_t *ec)
         BUG_ON(1);
     }
 
-    #ifdef IPC_PERF_TRAP
-        extern volatile bool ipc_perf_enabled;
-        u64 begin = 0, end = 0; 
-        (void)begin;
-        (void)end;
-        if (ipc_perf_enabled) {
-            begin = plat_get_mono_time();
-        }
-    #endif
+#ifdef IPC_PERF_TRAP
+    extern volatile bool ipc_perf_enabled;
+    u64 begin = 0, end = 0;
+    (void)begin;
+    (void)end;
+    if (ipc_perf_enabled) {
+        begin = plat_get_mono_time();
+    }
+#endif
 
     switch (trapno) {
     case T_DE:
@@ -426,9 +430,9 @@ void trap_c(arch_exec_ctx_t *ec)
         kdebug("Device (ChCore considers FPU only) Not Available:\n");
 #if FPU_SAVING_MODE == LAZY_FPU_MODE
         change_fpu_owner(current_thread);
-        #ifdef IPC_PERF_TRAP
-            goto perf_end;
-        #endif
+#ifdef IPC_PERF_TRAP
+        goto perf_end;
+#endif
         return;
 #else
         break;
@@ -478,9 +482,9 @@ void trap_c(arch_exec_ctx_t *ec)
         break;
     default:
         handle_irq(trapno);
-        #ifdef IPC_PERF_TRAP
-            goto perf_end;
-        #endif
+#ifdef IPC_PERF_TRAP
+        goto perf_end;
+#endif
         return;
     }
 
@@ -491,16 +495,16 @@ void trap_c(arch_exec_ctx_t *ec)
      * Rescheduling only happens after IRQ_TIMER or IRQ_IPI_RESCHED.
      */
 
-    #ifdef IPC_PERF_TRAP
-    perf_end:
-        if (ipc_perf_enabled) {
-            end = plat_get_mono_time();
-            extern volatile u64 ipc_perf_sum_count;
-            extern volatile u64 ipc_perf_sum_time;
-            ipc_perf_sum_count += 1;
-            ipc_perf_sum_time += end - begin;
-        }
-    #endif
+#ifdef IPC_PERF_TRAP
+perf_end:
+    if (ipc_perf_enabled) {
+        end = plat_get_mono_time();
+        extern volatile u64 ipc_perf_sum_count;
+        extern volatile u64 ipc_perf_sum_time;
+        ipc_perf_sum_count += 1;
+        ipc_perf_sum_time += end - begin;
+    }
+#endif
 
     return;
 }

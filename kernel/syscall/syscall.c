@@ -42,9 +42,10 @@
 #if HOOKING_SYSCALL == ON
 void hook_syscall(long n)
 {
-        if ((n != SYS_putc) && (n != SYS_getc) && (n != SYS_yield)
-            && (n != SYS_handle_brk) && (n != SYS_clock_gettime) && (n != SYS_wait) && (n != SYS_ipc_call) && (n != SYS_ipc_return))
-                kinfo("[SYSCALL TRACING] hook_syscall num: %ld\n", n);
+    if ((n != SYS_putc) && (n != SYS_getc) && (n != SYS_yield)
+        && (n != SYS_handle_brk) && (n != SYS_clock_gettime) && (n != SYS_wait)
+        && (n != SYS_ipc_call) && (n != SYS_ipc_return))
+        kinfo("[SYSCALL TRACING] hook_syscall num: %ld\n", n);
 }
 #endif
 
@@ -275,6 +276,27 @@ mid_t sys_get_machine_id(void)
     return CUR_MACHINE_ID;
 }
 
+int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
+                             u64 vmspace_ptr)
+{
+    /* Convert physical addresses to kernel virtual addresses */
+    void *src_va = (void *)phys_to_virt((paddr_t)src_pa);
+    void *dst_va = (void *)phys_to_virt((paddr_t)dst_pa);
+    struct vmspace *vmspace = (struct vmspace *)vmspace_ptr;
+
+    if (!src_va || !dst_va || !vmspace) {
+        return -EINVAL;
+    }
+
+    /* Perform memcpy: copy from src_pa to dst_pa */
+    memcpy(dst_va, src_va, (size_t)len);
+
+    /* Flush TLB for the affected virtual address range */
+    flush_tlbs(vmspace, (vaddr_t)fault_va, (size_t)len);
+
+    return 0;
+}
+
 #ifdef IPC_PERF_ENABLED
 
 #define IPC_PERF_TIME_SIZE 10240
@@ -439,7 +461,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_virt_dispatch] = sys_virt_dispatch,
 #endif /* CHCORE_KERNEL_VIRT */
 
-// #ifdef CHCORE_SLS
+        // #ifdef CHCORE_SLS
         [SYS_get_poll_remote] = sys_get_poll_remote,
         [SYS_set_poll_remote] = sys_set_poll_remote,
         [SYS_set_excepted_connected_client_num] =
@@ -485,4 +507,5 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_ipc_perf_end] = sys_ipc_perf_end,
 #endif
         [SYS_mmap_shm] = sys_mmap_shm,
+        [SYS_memcpy_and_flush_tlb] = sys_memcpy_and_flush_tlb,
 };

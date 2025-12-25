@@ -98,7 +98,7 @@
 #define SYS_get_poll_remote                   233
 #define SYS_set_poll_remote                   234
 #define SYS_set_excepted_connected_client_num 235
-#define SYS_set_dyn_args 236
+#define SYS_set_dyn_args                      236
 // #endif
 
 /* PCIe BUS */
@@ -112,10 +112,10 @@
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 /* Checkpoint */
-#define SYS_whole_ckpt                241
-#define SYS_whole_restore             242
-#define SYS_shutdown                  243
-#define SYS_whole_ckpt_for_test       244
+#define SYS_whole_ckpt          241
+#define SYS_whole_restore       242
+#define SYS_shutdown            243
+#define SYS_whole_ckpt_for_test 244
 
 /* IPI */
 #define SYS_ipi_stop_all    246
@@ -134,7 +134,7 @@
 #define SYS_cfork_ckpt    252
 #define SYS_cfork_restore 253
 
-#define SYS_ckpt_process  254
+#define SYS_ckpt_process    254
 #define SYS_restore_process 255
 #endif
 
@@ -147,8 +147,9 @@
 
 #ifdef IPC_PERF_ENABLED
 #define SYS_ipc_perf_start 259
-#define SYS_ipc_perf_end 260
+#define SYS_ipc_perf_end   260
 #endif
 
 /* Shared Memory */
-#define SYS_mmap_shm 261
+#define SYS_mmap_shm             261
+#define SYS_memcpy_and_flush_tlb 262

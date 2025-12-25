@@ -11,5 +11,6 @@ void arch_syscall_init(void)
     wrmsr(MSR_STAR, star);
     /* setup syscall entry point */
     wrmsr(MSR_LSTAR, (u64)&sys_entry);
+    /* Clear TF (Trap Flag) and IF (Interrupt Flag) */
     wrmsr(MSR_SFMASK, EFLAGS_TF | EFLAGS_IF);
 }
