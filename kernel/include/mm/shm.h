@@ -17,6 +17,10 @@ enum polling_shm_msg_state {
 };
 
 enum polling_request_type {
+    POLLING_FS_REQ_OPEN,
+    POLLING_FS_REQ_READ,
+    POLLING_FS_REQ_WRITE,
+    POLLING_FS_REQ_CLOSE,
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
 };
