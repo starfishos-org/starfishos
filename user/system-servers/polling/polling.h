@@ -1,6 +1,7 @@
 #pragma once
 
-#include <limits.h>
+#include "polling_config.h"
+
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -11,11 +12,6 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <fs_wrapper_defs.h>
-
-#define REUSE_REQ_RESP_BUFFER false
-#define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
-#define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
-#define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 
 enum polling_shm_msg_state {
     MSG_FREE = 0,
@@ -32,6 +28,7 @@ enum polling_request_type {
     POLLING_FS_REQ_CLOSE,
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
+    POLLING_PRINT_DEBUG_INFO,
 };
 
 struct polling_fs_req_open {
@@ -65,6 +62,8 @@ struct polling_kernel_req_flush_tlb {
     u64 memcpy_vmspace;
 };
 
+struct polling_req_print_debug_info {};
+
 struct polling_request {
     enum polling_request_type type;
     union {
@@ -74,6 +73,7 @@ struct polling_request {
         struct polling_fs_req_close close;
         struct polling_req_empty empty;
         struct polling_kernel_req_flush_tlb flush_tlb;
+        struct polling_req_print_debug_info print_debug_info;
     } __attribute__((aligned(8)));
 };
 
@@ -102,6 +102,8 @@ struct polling_kernel_resp_flush_tlb {
     s32 reply_result; /* Reply result: 0=success, negative=error */
 };
 
+struct polling_resp_print_debug_info {};
+
 struct polling_response {
     union {
         struct polling_fs_resp_open open;
@@ -110,6 +112,7 @@ struct polling_response {
         struct polling_fs_resp_close close;
         struct polling_resp_empty empty;
         struct polling_kernel_resp_flush_tlb flush_tlb;
+        struct polling_resp_print_debug_info print_debug_info;
     } __attribute__((aligned(8)));
 };
 
@@ -119,7 +122,7 @@ struct shm_msg {
     union {
         struct polling_request req;
         struct polling_response resp;
-    } __attribute__((aligned(8)));
+    } __attribute__((aligned(64)));
 };
 
 #else

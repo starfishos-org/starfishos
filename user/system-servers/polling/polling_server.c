@@ -1,11 +1,11 @@
 #include "polling_server.h"
 #include "polling_resp.h"
 #include "polling_tp.h"
+#include "polling_config.h"
 
 #include <chcore/syscall.h>
 #include <chcore/memory.h>
-
-#define USE_THREAD_POOL 0 // 0: single thread, 1: thread pool (buggy)
+#include <stdatomic.h>
 
 int my_id = -1;
 
@@ -21,7 +21,7 @@ void init_polling_shm_region(struct polling_shm_region *shm)
 
 void *polling_reader_thread(void *arg)
 {
-#if USE_THREAD_POOL == 1
+#if USE_THREAD_POOL == true
     thread_pool_t pool;
     thread_pool_init(&pool);
 #endif
@@ -37,10 +37,14 @@ void *polling_reader_thread(void *arg)
                                                     MSG_RESP_WRITING,
                                                     memory_order_acquire,
                                                     memory_order_relaxed)) {
-#if USE_THREAD_POOL == 1
+#if USE_THREAD_POOL == true
             thread_pool_add_task(&pool, msg);
-#elif USE_THREAD_POOL == 0
+#elif USE_THREAD_POOL == false
+            atomic_store_explicit(
+                    &msg->state, MSG_RESP_WRITING, memory_order_relaxed);
             handle_polling_request(msg);
+            atomic_store_explicit(
+                    &msg->state, MSG_RESP_READY, memory_order_release);
 #endif
 
             r++;

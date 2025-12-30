@@ -57,9 +57,11 @@ void *polling_worker_thread(void *arg)
         pool->head++;
         pthread_mutex_unlock(&pool->lock);
 
-        atomic_store(&msg->state, MSG_RESP_WRITING);
+        atomic_store_explicit(
+                &msg->state, MSG_RESP_WRITING, memory_order_relaxed);
         handle_polling_request(msg);
-        atomic_store(&msg->state, MSG_RESP_READY);
+        atomic_store_explicit(
+                &msg->state, MSG_RESP_READY, memory_order_release);
     }
 
     return NULL;
