@@ -46,6 +46,7 @@
 
 #define PGFAULT_POLICY ONDEMAND
 
+#ifdef MULTI_PAGETABLE_ENABLED
 /* Wait until migration completes */
 static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fault_addr)
 {
@@ -79,6 +80,7 @@ static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fa
         read_unlock(&vmspace->vmspace_lock);
     }
 }
+#endif
 
 #ifdef MULTI_PAGETABLE_ENABLED
 /* Check if a virtual address is currently being migrated */
@@ -532,6 +534,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         BUG_ON(mid == MACHINE_ID_INVALID);
         /* Case2 */
         if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
+            kdebug("cpu %d entering case2 branch, fault_addr: 0x%lx, mid: %d\n", smp_get_cpu_id(), fault_addr, mid);
             
             /* Check if this VA is already being migrated by another thread */
             unlock(&vmspace->pgtbl_lock);

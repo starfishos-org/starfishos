@@ -394,6 +394,12 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
                 || thread == current_thread) {
                 return thread;
             }
+            /* Thread is in ready queue but kernel_stack_state is KS_LOCKED.
+             * This may indicate a scheduling issue where thread was migrated
+             * while still running on another CPU. */
+            kinfo("[SCHED_DEBUG] cpu %d skipping thread %p (name=%s): kernel_stack_state=%d (expected KS_FREE=0)\n",
+                  smp_get_cpu_id(), thread, thread->cap_group ? thread->cap_group->cap_group_name : "unknown",
+                  thread->thread_ctx->kernel_stack_state);
             break;
         case TE_EXITING:
             __rr_sched_dequeue(thread);

@@ -209,14 +209,14 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
     // kinfo("get_opaque: cap_group: %p, slot_id: %d, slot: %p\n", cap_group, slot_id, slot);
     if (slot->isvalid == false) {
         kdebug("paddr of slot's page is %p, slot_table: %p\n", ROUND_DOWN(virt_to_phys(slot), PAGE_SIZE), slot_table);
+#ifdef MULTI_PAGETABLE_ENABLED
         extern void check_pgtbl_consistency(struct vmspace *vmspace);
-        {
-            struct vmspace *vmspace = obj_get(cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
-            if (vmspace) {
-                check_pgtbl_consistency(vmspace);
-                obj_put(vmspace);
-            }
+        struct vmspace *vmspace = obj_get(cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+        if (vmspace) {
+            check_pgtbl_consistency(vmspace);
+            obj_put(vmspace);
         }
+#endif
         BUG("slot is invalid");
     }
 

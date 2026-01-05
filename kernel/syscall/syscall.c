@@ -309,8 +309,12 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     /* Step 1: Temporarily invalidate PTE (with lock protection) */
     read_lock(&vmspace->vmspace_lock);
     lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
     query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID), 
                 (vaddr_t)fault_va, NULL, &pte);
+#else
+    query_in_pgtbl(vmspace->pgtbl, (vaddr_t)fault_va, NULL, &pte);
+#endif
     if (!pte) {
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
