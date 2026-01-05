@@ -72,6 +72,9 @@ void dsm_add_machine()
     extern void dram_mm_init();
     dram_mm_init();
 
+    extern void fill_kernel_page_table_range(u64 mem_start, u64 mem_size);
+    fill_kernel_page_table_range(lmem_new_start, lmem_size);
+
     dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_start = lmem_new_start;
     dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_size = lmem_size;
 

@@ -404,6 +404,11 @@ int usys_get_machine_id()
 	return (int)chcore_syscall0(CHCORE_SYS_get_machine_id);
 }
 
+u32 usys_get_machine_cpu_count(void)
+{
+	return (u32)chcore_syscall0(CHCORE_SYS_get_machine_cpu_count);
+}
+
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
 {
 	return chcore_syscall2(CHCORE_SYS_register_fs_client, target_machine_id, shm_config_ptr);

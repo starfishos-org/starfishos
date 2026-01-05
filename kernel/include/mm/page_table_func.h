@@ -11,3 +11,8 @@ int set_pte_flags(pte_t *entry, vmr_prop_t flags, int kind);
 int set_pte_write_flag(pte_t *entry, bool flag);
 int is_pte_dirty(pte_t *entry);
 void clear_pte_dirty(pte_t *entry);
+void set_migration_entry(pte_t *pte);
+int is_migration_entry(pte_t *pte);
+#ifdef MULTI_PAGETABLE_ENABLED
+int check_pgtbl_consistency(struct vmspace *vmspace);
+#endif

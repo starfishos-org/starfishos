@@ -2,6 +2,9 @@
 #include <object/thread.h>
 #include <mm/vmspace.h>
 #include <arch/mm/page_table.h>
+#ifdef MULTI_PAGETABLE_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 // int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr);
 
@@ -117,8 +120,13 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
         kinfo("thread 0x%lx, current_thread->machine_id: %d\n", current_thread, current_thread->machine_id);
         print_thread(current_thread);
 
+#ifdef MULTI_PAGETABLE_ENABLED 
+        void *pgtbl = get_vmspace_pgtbl(current_thread->vmspace,    CUR_MACHINE_ID);
+#else
+        void *pgtbl = current_thread->vmspace->pgtbl;
+#endif /* MULTI_PAGETABLE_ENABLED */
         query_in_pgtbl(
-                current_thread->vmspace->pgtbl, fault_addr, &pte_pa, &pte);
+                pgtbl, fault_addr, &pte_pa, &pte);
         if (pte) {
             kinfo("Fault pte value: 0x%lx\n", *pte);
         }

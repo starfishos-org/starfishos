@@ -1,6 +1,7 @@
 #include <mm/mm.h>
 #include <mm/vmspace.h>
 #include <mm/kmalloc.h>
+#include <mm/buddy.h>
 #include <common/kprint.h>
 #include <common/macro.h>
 #include <common/types.h>
@@ -113,6 +114,23 @@ int is_pte_dirty(pte_t *entry)
     return (entry->pteval & PAGE_DIRTY);
 }
 
+#define MIGRATION_ENTRY (0xcaffee)
+
+void set_migration_entry(pte_t *pte)
+{
+    pte->pte_4K.present = 0;
+    pte->pte_4K.pfn = MIGRATION_ENTRY;
+}
+
+/* Check if PTE is a migration entry (present=0, pfn=0) */
+int is_migration_entry(pte_t *pte)
+{
+    if (!pte)
+        return 0;
+    return (!pte->pte_4K.present && pte->pte_4K.pfn == MIGRATION_ENTRY);
+}
+
+
 #define NORMAL_PTP (0)
 #define BLOCK_PTP  (1) /* huge page */
 
@@ -164,7 +182,7 @@ int get_next_ptp(ptp_t *cur_ptp, u32 level, vaddr_t va, ptp_t **next_ptp,
         }
     }
     /* if not present */
-    if (!(entry->pteval & PAGE_PRESENT)) {
+    if (!(entry->pteval & PAGE_PRESENT) && !is_migration_entry(entry)) {
         if (alloc == false) {
             return -ENOMAPPING;
         } else {
@@ -917,3 +935,145 @@ pte_t get_and_clear_pte(pte_t *pte)
     ret_val.pteval = pte_val;
     return ret_val;
 }
+
+#ifdef MULTI_PAGETABLE_ENABLED
+/*
+ * Check consistency between multiple page tables for all virtual addresses in vmspace.
+ * Rules:
+ * 1. If mapped to CXL shared memory, all page tables must map to the same physical address
+ * 2. If mapped to DRAM, other page tables must not map this page (or map to different address)
+ * 
+ * Returns 0 on success, negative error code on failure.
+ */
+int check_pgtbl_consistency(struct vmspace *vmspace)
+{
+    struct vmregion *vmr;
+    vaddr_t va;
+    paddr_t pa_array[CLUSTER_MAX_MACHINE_NUM];
+    int machine_id_array[CLUSTER_MAX_MACHINE_NUM];
+    int present_count;
+    int cxl_count;
+    int dram_count;
+    int i, j;
+    int ret = 0;
+    
+    if (!vmspace) {
+        return -EINVAL;
+    }
+    
+    /* Iterate through all vmregions */
+    read_lock(&vmspace->vmspace_lock);
+    for_each_in_list(vmr, struct vmregion, list_node, &vmspace->vmr_list) {
+        /* Check each page in this vmregion */
+        for (va = vmr->start; va < vmr->start + vmr->size; va += PAGE_SIZE) {
+            present_count = 0;
+            cxl_count = 0;
+            dram_count = 0;
+            
+            /* Query all page tables for this va */
+            for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+                if (!pgtbl) {
+                    pa_array[i] = 0;
+                    machine_id_array[i] = MACHINE_ID_INVALID;
+                    continue;
+                }
+                
+                paddr_t pa = 0;
+                pte_t *pte = NULL;
+                int query_ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
+                
+                if (query_ret == 0 && pte && (pte->pteval & PAGE_PRESENT)) {
+                    pa_array[i] = pa;
+                    present_count++;
+                    
+                    /* Check if this is CXL shared memory or DRAM */
+                    int mid = get_paddr_machine_id(pa);
+                    machine_id_array[i] = mid;
+                    
+                    if (mid == MACHINE_ID_SHARED_MEMORY) {
+                        cxl_count++;
+                    } else if (mid >= 0 && mid < CLUSTER_MACHINE_NUM) {
+                        dram_count++;
+                    }
+                } else {
+                    pa_array[i] = 0;
+                    machine_id_array[i] = MACHINE_ID_INVALID;
+                }
+            }
+            
+            /* If no page is mapped, skip */
+            if (present_count == 0) {
+                continue;
+            }
+            
+            /* Now we have recorded all mappings: pa_array[i] and machine_id_array[i] for each machine i */
+            /* Check consistency rules systematically */
+            
+            /* Rule 1: If any machine maps to CXL, all machines must map to the same CXL physical address */
+            if (cxl_count > 0) {
+                paddr_t expected_cxl_pa = 0;
+                bool cxl_pa_found = false;
+                
+                /* First, find the expected CXL physical address from the first CXL mapping */
+                for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                    if (machine_id_array[i] == MACHINE_ID_SHARED_MEMORY) {
+                        if (!cxl_pa_found) {
+                            expected_cxl_pa = pa_array[i];
+                            cxl_pa_found = true;
+                        }
+                        break;
+                    }
+                }
+                
+                /* Check all machines: if they have mappings, verify consistency */
+                for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                    if (machine_id_array[i] == MACHINE_ID_INVALID) {
+                        /* Machine i has no mapping, that's OK */
+                        continue;
+                    }
+                    
+                    if (machine_id_array[i] == MACHINE_ID_SHARED_MEMORY) {
+                        /* Machine i maps to CXL: must map to the same CXL pa */
+                        if (pa_array[i] != expected_cxl_pa) {
+                            kinfo("[PGTBL_CONSISTENCY] CXL mapping inconsistency: "
+                                  "machine %d maps va 0x%lx to CXL pa %p, "
+                                  "but expected CXL pa %p\n",
+                                  i, va, pa_array[i], expected_cxl_pa);
+                            ret = -EINVAL;
+                            goto out;
+                        }
+                    } else {
+                        /* Machine i maps to DRAM, but CXL mapping exists - violation! */
+                        kinfo("[PGTBL_CONSISTENCY] Mixed mapping violation: "
+                              "machine %d maps va 0x%lx to DRAM (pa %p, mid %d), "
+                              "but other machines map to CXL (pa %p)\n",
+                              i, va, pa_array[i], machine_id_array[i], expected_cxl_pa);
+                        ret = -EINVAL;
+                        goto out;
+                    }
+                }
+            } else if (dram_count > 0) {
+                /* Rule 2: If mapped to DRAM, no two machines should map to the same physical address */
+                /* Check all pairs of machines for conflicts */
+                for (i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                    if (machine_id_array[i] >= 0 && machine_id_array[i] < CLUSTER_MACHINE_NUM) {
+                        for (j = i + 1; j < CLUSTER_MACHINE_NUM; j++) {
+                            if (pa_array[j] != 0) {
+                                kinfo("[PGTBL_CONSISTENCY] DRAM mapping conflict: "
+                                      "machine %d and machine %d both map va 0x%lx to the same pa %p\n",
+                                      i, j, va, pa_array[i]);
+                                ret = -EINVAL;
+                                goto out;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+out:
+    read_unlock(&vmspace->vmspace_lock);
+    return ret;
+}
+#endif

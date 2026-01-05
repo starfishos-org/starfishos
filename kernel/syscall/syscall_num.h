@@ -140,6 +140,7 @@
 
 /* Machine ID */
 #define SYS_get_machine_id 256
+#define SYS_get_machine_cpu_count 263
 
 /* File System */
 #define SYS_register_fs_client 257

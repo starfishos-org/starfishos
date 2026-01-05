@@ -20,7 +20,8 @@ int rwlock_init(struct rwlock *rwlock)
 void read_lock(struct rwlock *rwlock)
 {
     while (atomic_fetch_add_32((s32 *)&rwlock->lock, 1) & 0x80000000) {
-        while (rwlock->lock & 0x80000000)
+        /* Use atomic load to ensure we see the latest value from CXL shared memory */
+        while (atomic_load_32((s32 *)&rwlock->lock) & 0x80000000)
             CPU_PAUSE();
     }
     COMPILER_BARRIER();
@@ -61,5 +62,8 @@ int write_try_lock(struct rwlock *rwlock)
 void write_unlock(struct rwlock *rwlock)
 {
     COMPILER_BARRIER();
-    rwlock->lock = 0;
+    /* Use atomic store to ensure visibility across machines in CXL shared memory */
+    atomic_store_32((s32 *)&rwlock->lock, 0);
+    /* Memory barrier to ensure the unlock is visible to other machines */
+    mb();
 }

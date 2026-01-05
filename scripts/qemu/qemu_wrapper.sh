@@ -39,4 +39,8 @@ if [[ "$qemu" == *"qemu-system-aarch64"* ]]; then
 	fi
 fi
 
-numactl -N $vm_id -m $vm_id $qemu $qemu_options
+# Use --preferred instead of -m to allow fallback to other nodes if needed
+# This prevents OOM killer from killing qemu when the preferred node runs out of memory
+# -N: bind to CPUs on node $vm_id
+# --preferred: prefer node $vm_id but allow allocation from other nodes if needed
+numactl -N $vm_id --preferred=$vm_id $qemu $qemu_options

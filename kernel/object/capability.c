@@ -132,7 +132,11 @@ int cap_alloc(struct cap_group *cap_group, void *obj, u64 rights)
         goto out_unlock_table;
     }
 
+#ifdef MULTI_PAGETABLE_ENABLED
+    slot = kmalloc(sizeof(*slot), __MT_SHARED__);
+#else
     slot = kmalloc(sizeof(*slot), __MT_OBJECT__);
+#endif
     if (!slot) {
         r = -ENOMEM;
         goto out_free_slot_id;
@@ -325,7 +329,11 @@ int cap_copy(struct cap_group *src_cap_group, struct cap_group *dest_cap_group,
         goto out_unlock;
     }
 
-    dest_slot = kmalloc(sizeof(*dest_slot), __MT_DEFAULT__);
+#ifdef MULTI_PAGETABLE_ENABLED
+    dest_slot = kmalloc(sizeof(*dest_slot), __MT_SHARED__);
+#else
+    dest_slot = kmalloc(sizeof(*dest_slot), __MT_OBJECT__);
+#endif
     if (!dest_slot) {
         r = -ENOMEM;
         goto out_free_slot_id;

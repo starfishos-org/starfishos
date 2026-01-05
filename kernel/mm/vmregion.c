@@ -819,6 +819,12 @@ int vmspace_init(struct vmspace *vmspace)
     rwlock_init(&vmspace->vmspace_lock);
     lock_init(&vmspace->pgtbl_lock);
 
+#ifdef MULTI_PAGETABLE_ENABLED
+    /* Initialize migrating VA tracking */
+    lock_init(&vmspace->migrating_va_lock);
+    init_list_head(&vmspace->migrating_va_list);
+#endif
+
     /* The vmspace does not run on any CPU for now */
     reset_history_cpus(vmspace);
 

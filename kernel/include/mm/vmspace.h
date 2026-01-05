@@ -83,6 +83,14 @@ struct vmregion {
 #define VM_FLAG_PRESERVE \
     1 /* pages in the vmspace are referenced by some checkpoints */
 
+#ifdef MULTI_PAGETABLE_ENABLED
+/* Entry for tracking virtual addresses being migrated */
+struct migrating_va_entry {
+    struct list_head list_node;
+    vaddr_t va;
+};
+#endif
+
 struct vmspace {
     /* List head of vmregion (vmr_list) */
     struct list_head vmr_list;
@@ -102,6 +110,13 @@ struct vmspace {
     struct rwlock vmspace_lock;
     /* The lock for manipulating the page table */
     struct lock pgtbl_lock;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+    /* Lock for protecting migrating_va_list */
+    struct lock migrating_va_lock;
+    /* List of virtual addresses currently being migrated */
+    struct list_head migrating_va_list;
+#endif
 
 /*
  * For TLB flushing:

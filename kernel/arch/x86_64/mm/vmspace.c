@@ -123,13 +123,13 @@ struct vmspace *create_idle_vmspace(void)
 }
 
 /* Get page table for a specific machine id */
-void *get_vmspace_pgtbl(struct vmspace *vmspace, mid_t machine_id)
+void *get_vmspace_pgtbl(struct vmspace *vmspace, mid_t mid)
 {
 #ifdef MULTI_PAGETABLE_ENABLED
-    if (machine_id >= 0 && machine_id < CLUSTER_MACHINE_NUM) {
-        return vmspace->pgtbl[machine_id];
+    if (mid >= 0 && mid < CLUSTER_MACHINE_NUM) {
+        return vmspace->pgtbl[mid];
     }
-    BUG("Failed to get page table for machine %d\n", machine_id);
+    BUG("Failed to get page table for machine %d\n", mid);
 #else
     return vmspace->pgtbl;
 #endif

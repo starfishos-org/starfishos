@@ -137,6 +137,17 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
     pool->pool_phys_page_num = page_num;
     pool->type = type;
 
+    kinfo("[BUDDY_INIT] pool: %p, type: %d, pool_start_addr: 0x%lx, pool_mem_size: 0x%lx, page_num: %lu"
+#ifdef DSM_ENABLED
+          ", machine_id: %d"
+#endif
+          "\n",
+          pool, type, pool->pool_start_addr, pool->pool_mem_size, page_num
+#ifdef DSM_ENABLED
+          , CUR_MACHINE_ID
+#endif
+    );
+
     /* Init the free lists */
     for (order = 0; order < BUDDY_MAX_ORDER; ++order) {
         pool->free_lists[order].nr_free = 0;
@@ -286,6 +297,7 @@ void *page_to_virt(struct page *page)
     /* page_idx * BUDDY_PAGE_SIZE + start_addr */
     addr = (page - pool->page_metadata) * BUDDY_PAGE_SIZE
            + pool->pool_start_addr;
+    BUG_ON(addr > pool->pool_start_addr + pool->pool_mem_size);
     return (void *)addr;
 }
 

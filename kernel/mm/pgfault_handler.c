@@ -22,6 +22,7 @@
 #include <arch/sync.h>
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
+#include <arch/mm/tlb.h>
 #include <mm/page_table_func.h>
 #include <object/recycle.h>
 #ifdef DSM_ENABLED
@@ -44,6 +45,136 @@
 #define PREFAULT 1
 
 #define PGFAULT_POLICY ONDEMAND
+
+/* Wait until migration completes */
+static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fault_addr)
+{
+    /* Release locks before waiting to avoid deadlock with TLB flush IPI handlers */
+    unlock(&vmspace->pgtbl_lock);
+    read_unlock(&vmspace->vmspace_lock);
+
+    extern void handle_ipi(void);
+    while (1) {
+        CPU_PAUSE();
+        handle_ipi();
+
+        /* Re-acquire locks to check PTE */
+        read_lock(&vmspace->vmspace_lock);
+        lock(&vmspace->pgtbl_lock);
+        
+        /* Re-query PTE as it may have changed */
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        paddr_t pa_check;
+        pte_t *pte_check = NULL;
+        query_in_pgtbl(pgtbl, fault_addr, &pa_check, &pte_check);
+        
+        /* Check if migration is complete (PTE is present and not a migration entry) */
+        if (pte_check && pte_check->pte_4K.present && !is_migration_entry(pte_check)) {
+            /* Migration complete, locks are still held */
+            return;
+        }
+        
+        /* Migration not complete yet, release locks and continue waiting */
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+    }
+}
+
+#ifdef MULTI_PAGETABLE_ENABLED
+/* Check if a virtual address is currently being migrated */
+static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va)
+{
+    struct migrating_va_entry *entry;
+    bool found = false;
+    
+    lock(&vmspace->migrating_va_lock);
+    for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
+        if (entry->va == va) {
+            found = true;
+            break;
+        }
+    }
+    unlock(&vmspace->migrating_va_lock);
+    
+    return found;
+}
+
+/* Add a virtual address to the migrating list */
+static void add_migrating_va(struct vmspace *vmspace, vaddr_t va)
+{
+    struct migrating_va_entry *entry;
+    
+    /* Check if already in the list */
+    lock(&vmspace->migrating_va_lock);
+    for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
+        if (entry->va == va) {
+            unlock(&vmspace->migrating_va_lock);
+            return; /* Already in the list */
+        }
+    }
+    
+    /* Allocate and add new entry */
+    entry = kmalloc(sizeof(*entry), __MT_OBJECT__);
+    if (entry) {
+        entry->va = va;
+        init_list_head(&entry->list_node);
+        list_append(&entry->list_node, &vmspace->migrating_va_list);
+    }
+    unlock(&vmspace->migrating_va_lock);
+}
+
+/* Remove a virtual address from the migrating list */
+void remove_migrating_va(struct vmspace *vmspace, vaddr_t va)
+{
+    struct migrating_va_entry *entry, *tmp;
+    
+    lock(&vmspace->migrating_va_lock);
+    for_each_in_list_safe(entry, tmp, list_node, &vmspace->migrating_va_list) {
+        if (entry->va == va) {
+            list_del(&entry->list_node);
+            kfree(entry);
+            break;
+        }
+    }
+    unlock(&vmspace->migrating_va_lock);
+}
+
+/* Wait until migration completes for a specific VA and PTE is mapped */
+static void wait_for_migration_complete(struct vmspace *vmspace, vaddr_t va, paddr_t *out_pa)
+{
+    void *pgtbl;
+    paddr_t pa;
+    pte_t *pte;
+    int ret;
+    
+    /* First wait for the migrating entry to be removed */
+    while (is_va_migrating(vmspace, va)) {
+        CPU_PAUSE();
+    }
+    
+    /* Then wait for PTE to be properly mapped */
+    while (1) {
+        read_lock(&vmspace->vmspace_lock);
+        lock(&vmspace->pgtbl_lock);
+        pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
+        
+        if (ret == 0 && pte && pte->pte_4K.present && !is_migration_entry(pte)) {
+            /* PTE is properly mapped, migration is complete */
+            if (out_pa) {
+                *out_pa = pa;
+            }
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            return;
+        }
+        
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+        CPU_PAUSE();
+    }
+}
+#endif
 
 #if PGFAULT_POLICY == ONDEMAND
 
@@ -196,7 +327,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
          * a private page for the new mapping. Only when another
          * machine also want to access this page, the page will
          * be shared. */
-        void *new_va = get_pages(0, __MT_PRIVATE__);
+        void *new_va = get_pages(0, pmo->mm_type);
         /* Otherwise, allocate according to the pmo's mm_type */
 #else
         void *new_va = get_pages(0, pmo->mm_type);
@@ -367,6 +498,20 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         pte_t *pte = NULL;
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        /* First handle the migration entry case */
+        query_in_pgtbl(pgtbl, fault_addr, &pa, &pte);
+        if (pte && is_migration_entry(pte)) {
+            kdebug("cpu %d found migration entry, fault_addr 0x%lx, waiting...\n", smp_get_cpu_id(), fault_addr);
+            /* Wait until migration completes */
+            /* Note: migration_entry_wait will release and re-acquire locks internally */
+            migration_entry_wait(pte, vmspace, fault_addr);
+            /* Page is already mapped after migration, no need to handle fault */
+            /* Locks are still held by migration_entry_wait */
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            return 0;
+        }
         /**
          * If MULTI_PAGETABLE is enabled, we need to map all
          * page tables to the shared memory.
@@ -387,36 +532,41 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         BUG_ON(mid == MACHINE_ID_INVALID);
         /* Case2 */
         if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
-            kinfo("trigger case2, fault_addr: 0x%lx\n", fault_addr);
-            pte_t *pte_entry = NULL;
-            paddr_t old_pa;
-            void *new_va;
-            query_in_pgtbl(
-                    vmspace->pgtbl[mid], fault_addr, &old_pa, &pte_entry);
-            BUG_ON(old_pa == 0);
-            BUG_ON(pte_entry == NULL);
-            // kinfo("old_pa: 0x%lx, pte_entry: 0x%lx\n", old_pa, pte_entry);
-            /* 2.1: Allocate shared memory page on current machine */
-            new_va = get_pages(0, __MT_SHARED__);
-            BUG_ON(new_va == NULL);
-            new_pa = virt_to_phys(new_va);
-            // kinfo("malloc new_va: 0x%lx, new_pa: 0x%lx\n", new_va, new_pa);
-            /* 2.2: Request remote machine to perform memcpy and flush TLB */
-            /* The remote machine will copy from old_pa (its own physical
-             * address) to new_pa (shared memory physical address), then flush
-             * its TLBs */
-            memcpy_and_flush_tlb_on_remote_machine(
-                    vmspace, mid, old_pa, new_pa, PAGE_SIZE, fault_addr);
-            kinfo("memcpy and flush tlb on machine %d completed\n", mid);
-            /* 2.3: remap the page table in old page table. */
-            remap_page_in_pgtbl(pte_entry, new_pa);
-            kinfo("remap pte_entry: 0x%lx\n", pte_entry);
+            
+            /* Check if this VA is already being migrated by another thread */
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            
+            
+            if (is_va_migrating(vmspace, fault_addr)) {
+                /* Wait for the migration to complete and PTE to be mapped */
+                kdebug("cpu %d va 0x%lx is already being migrated, waiting...\n", smp_get_cpu_id(), fault_addr);
+                wait_for_migration_complete(vmspace, fault_addr, &new_pa);
+                kdebug("cpu %d wait for migration completed, fault_addr: 0x%lx, mapped_pa=%p\n", smp_get_cpu_id(), fault_addr, new_pa);
+                return 0;
+            } else {
+                /* Add to migrating list and perform migration */
+                add_migrating_va(vmspace, fault_addr);
+                
+                kinfo("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", smp_get_cpu_id(), fault_addr, mid);
+                /* Send message to machine to migrate pages */
+                new_pa = migrate_pages_to_shm(mid, vmspace, pa, PAGE_SIZE, fault_addr);
+                
+                /* Remove from migrating list */
+                remove_migrating_va(vmspace, fault_addr);
+                
+                /* Re-acquire locks */
+                lock(&vmspace->pgtbl_lock);
+                read_lock(&vmspace->vmspace_lock);
+                kinfo("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
+                
+                /* Check if the migration is successful */
+                /* Verify migration: check all page tables and content consistency */
+            }
         }
 
-        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
-        // kinfo("map page in pgtbl, fault_addr: 0x%lx, new_pa: 0x%lx\n",
-        // fault_addr, new_pa);
+        
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif

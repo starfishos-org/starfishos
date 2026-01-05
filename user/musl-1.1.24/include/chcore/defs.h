@@ -233,6 +233,7 @@
 
 /* Machine ID */
 #define CHCORE_SYS_get_machine_id 256
+#define CHCORE_SYS_get_machine_cpu_count 263
 
 /* File System */
 #define CHCORE_SYS_register_fs_client 257

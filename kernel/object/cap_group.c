@@ -85,8 +85,11 @@ int slot_table_free(struct slot_table *slot_table)
 int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge, bool is_cross_machine)
 {
     struct slot_table *slot_table = &cap_group->slot_table;
+#ifdef MULTI_PAGETABLE_ENABLED
+    mem_t mem_type = __MT_SHARED__;
+#else
     mem_t mem_type = is_cross_machine ? __MT_SHARED__ : __MT_OBJECT__;
-
+#endif
     BUG_ON(slot_table_init(slot_table, size, true, mem_type));
     init_list_head(&cap_group->thread_list);
     lock_init(&cap_group->threads_lock);
@@ -203,7 +206,19 @@ void *get_opaque(struct cap_group *cap_group, int slot_id, bool type_valid,
     }
 
     slot = get_slot(cap_group, slot_id);
-    BUG_ON(slot->isvalid == false);
+    // kinfo("get_opaque: cap_group: %p, slot_id: %d, slot: %p\n", cap_group, slot_id, slot);
+    if (slot->isvalid == false) {
+        kdebug("paddr of slot's page is %p, slot_table: %p\n", ROUND_DOWN(virt_to_phys(slot), PAGE_SIZE), slot_table);
+        extern void check_pgtbl_consistency(struct vmspace *vmspace);
+        {
+            struct vmspace *vmspace = obj_get(cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+            if (vmspace) {
+                check_pgtbl_consistency(vmspace);
+                obj_put(vmspace);
+            }
+        }
+        BUG("slot is invalid");
+    }
 
 #ifndef DSM_ENABLED
     object = slot->object;
@@ -259,7 +274,11 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid, 
     struct cap_group *new_cap_group;
     struct vmspace *vmspace;
     int cap, r;
+#ifdef MULTI_PAGETABLE_ENABLED
+    mem_t mem_type = __MT_SHARED__;
+#else
     mem_t mem_type = is_cross_machine ? __MT_SHARED__ : __MT_OBJECT__;
+#endif
 
     if ((current_cap_group->badge != ROOT_CAP_GROUP_BADGE)
         && (current_cap_group->badge != FSM_BADGE)

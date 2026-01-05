@@ -22,6 +22,10 @@
 #include <drivers/pci.h>
 #include <ipc/futex.h>
 #include <mm/shm.h>
+#include <mm/page_table_func.h>
+#ifdef MULTI_PAGETABLE_ENABLED
+#include <mm/vmspace.h>
+#endif
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -276,6 +280,11 @@ mid_t sys_get_machine_id(void)
     return CUR_MACHINE_ID;
 }
 
+u32 sys_get_machine_cpu_count(void)
+{
+    return PLAT_CPU_NUM;
+}
+
 int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
                              u64 vmspace_ptr)
 {
@@ -283,16 +292,75 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     void *src_va = (void *)phys_to_virt((paddr_t)src_pa);
     void *dst_va = (void *)phys_to_virt((paddr_t)dst_pa);
     struct vmspace *vmspace = (struct vmspace *)vmspace_ptr;
+    pte_t *pte = NULL;
 
     if (!src_va || !dst_va || !vmspace) {
+        kwarn("[SYS] Invalid parameters: src_va=%p, dst_va=%p, vmspace=%p\n",
+              src_va, dst_va, vmspace);
         return -EINVAL;
     }
 
-    /* Perform memcpy: copy from src_pa to dst_pa */
-    memcpy(dst_va, src_va, (size_t)len);
+    /* Validate len parameter */
+    if (len % PAGE_SIZE) {
+        kwarn("[SYS] Invalid len: len=%lu\n", len);
+        return -EINVAL;
+    }
 
-    /* Flush TLB for the affected virtual address range */
-    flush_tlbs(vmspace, (vaddr_t)fault_va, (size_t)len);
+    /* Step 1: Temporarily invalidate PTE (with lock protection) */
+    read_lock(&vmspace->vmspace_lock);
+    lock(&vmspace->pgtbl_lock);
+    query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID), 
+                (vaddr_t)fault_va, NULL, &pte);
+    if (!pte) {
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+        kwarn("[SYS] query_in_pgtbl failed: pte is NULL for fault_va=0x%lx\n", fault_va);
+        return -EINVAL;
+    }
+    /* Clear the present bit to invalidate the PTE */
+    set_migration_entry(pte);
+    unlock(&vmspace->pgtbl_lock);
+    read_unlock(&vmspace->vmspace_lock);
+
+    /* Step 2: Flush TLB to ensure all CPUs see the NULL mapping */
+    extern void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va, size_t len);
+    flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+
+    /* Step 3: Copy the page (now safe because mapping is NULL) */
+    memcpy(dst_va, src_va, (size_t)len);
+    kdebug("cpu %d memcpy paddr(%p) to paddr(%p)\n", smp_get_cpu_id(), src_pa, dst_pa);
+
+    // struct page *page = virt_to_page(src_va);
+    // kinfo("page: %p, page->pool: %p (type: %d), page->order: %d\n", page, page->pool, page->pool->type, page->order);
+    // free_pages(src_va);
+
+    /* Step 4: Remap to dst_pa (must re-acquire lock and re-query pte) */
+    read_lock(&vmspace->vmspace_lock);
+    lock(&vmspace->pgtbl_lock);
+    /* After get_and_clear_pte, PTE is cleared (present=0), so we need to set both pfn and present */
+    BUG_ON(!is_migration_entry(pte));
+    remap_page_in_pgtbl(pte, dst_pa);  /* Set pfn to dst_pa */
+    pte->pte_4K.present = 1;  /* Set present bit to make PTE valid again */
+    kdebug("cpu %d remap page(paddr=%p), fault_va=0x%lx\n", smp_get_cpu_id(), dst_pa, fault_va);
+    unlock(&vmspace->pgtbl_lock);
+
+    /* Update PMO structure */
+    struct vmregion *vmr = find_vmr_for_va(vmspace, (vaddr_t)fault_va);
+    if (vmr && vmr->pmo) {
+        struct pmobject *pmo = vmr->pmo;
+        u64 index = ((vaddr_t)fault_va - vmr->start) / PAGE_SIZE;
+        
+        /* Only update PMO if it's a radix PMO */
+        if (is_radix_pmo(pmo)) {
+            commit_page_to_pmo(pmo, index, dst_pa);
+        }
+    }
+    read_unlock(&vmspace->vmspace_lock);
+
+    /* Step 5: Flush TLB again to ensure all CPUs see the new mapping  */
+    flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+
+    kdebug("memcpy and flush tlb done\n");
 
     return 0;
 }
@@ -500,6 +568,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_shutdown] = sys_shutdown,
 
         [SYS_get_machine_id] = sys_get_machine_id,
+        [SYS_get_machine_cpu_count] = sys_get_machine_cpu_count,
         [SYS_register_fs_client] = sys_register_fs_client,
         [SYS_register_fs_server] = sys_register_fs_server,
 #ifdef IPC_PERF_ENABLED

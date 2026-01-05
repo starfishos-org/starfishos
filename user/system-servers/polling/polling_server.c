@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include "polling_server.h"
 #include "polling_resp.h"
 #include "polling_tp.h"
 
 #include <chcore/syscall.h>
 #include <chcore/memory.h>
+#include <sched.h>
 
 #define USE_THREAD_POOL 0 // 0: single thread, 1: thread pool (buggy)
 
@@ -21,6 +23,18 @@ void init_polling_shm_region(struct polling_shm_region *shm)
 
 void *polling_reader_thread(void *arg)
 {
+    /* Bind this thread to the last CPU */
+    int last_cpu = usys_get_machine_cpu_count() - 1;
+    cpu_set_t cpu_set;
+    CPU_ZERO(&cpu_set);
+    CPU_SET(last_cpu, &cpu_set);
+    if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0) {
+        printf("Failed to set polling thread affinity to CPU %d\n", last_cpu);
+    } else {
+        printf("Polling thread bound to CPU %d\n", last_cpu);
+    }
+    sched_yield(); /* Yield to ensure affinity takes effect */
+
 #if USE_THREAD_POOL == 1
     thread_pool_t pool;
     thread_pool_init(&pool);

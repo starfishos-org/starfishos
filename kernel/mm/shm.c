@@ -5,6 +5,7 @@
 #include <object/memory.h>
 #include <dsm/dsm-single.h>
 #include <common/lock.h>
+#include <arch/sync.h>
 
 extern int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr, mem_t mm_type, mem_t object_mem_type);
@@ -110,7 +111,12 @@ void polling_publish_request(struct shm_msg *msg, struct polling_request *req)
 
 void polling_wait_for_response(struct shm_msg *msg)
 {
+    extern void handle_ipi(void);
     while (atomic_load_32(&msg->state) != MSG_RESP_READY) {
+        /* Handle IPI while waiting to avoid deadlock */
+        /* Similar to wait_finish_ipi_tx and migration_entry_wait */
+        handle_ipi();
+        CPU_PAUSE();
     }
 }
 

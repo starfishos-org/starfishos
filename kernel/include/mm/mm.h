@@ -32,4 +32,6 @@ void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace,
                                             mid_t machine_id, paddr_t src_pa,
                                             paddr_t dst_pa, size_t len,
                                             vaddr_t fault_va);
+paddr_t migrate_pages_to_shm(mid_t target_mid, struct vmspace *vmspace,
+                              paddr_t src_pa, size_t len, vaddr_t fault_va);
 #endif

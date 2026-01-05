@@ -39,7 +39,8 @@ void handle_ipi_on_tlb_shootdown(void)
      * we should clear the history_cpu records because
      * the vmspace will continue to run after this IPI.
      */
-    if (((u64)(current_thread->vmspace) != vmspace) && (vmspace != 0))
+    if (!current_thread || !current_thread->vmspace || 
+        (((u64)(current_thread->vmspace) != vmspace) && (vmspace != 0)))
         clear_history_cpu((struct vmspace *)vmspace, cpuid);
 }
 
