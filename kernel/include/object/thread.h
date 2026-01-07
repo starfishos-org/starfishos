@@ -99,6 +99,9 @@ struct thread {
 
     /* Shadow caller thread */
     struct thread *shadow_caller_thread;
+
+    /* CPU ID of the ready queue this thread is enqueued in */
+    u32 queue_cpuid;
 };
 
 static inline void display_sched_history(struct thread *target) {

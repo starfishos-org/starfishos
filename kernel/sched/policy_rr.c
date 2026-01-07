@@ -66,6 +66,9 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
         // print_thread(thread);
     }
 
+    /* Record which CPU queue this thread is enqueued in */
+    thread->queue_cpuid = cpuid;
+
     list_append(&(thread->ready_queue_node),
                 &(rr_ready_queue_meta[cpuid].queue_head));
     rr_ready_queue_meta[cpuid].queue_len++;
@@ -138,6 +141,7 @@ int __rr_sched_dequeue_shared(struct thread *thread, u32 cpuid)
               thread,
               thread->thread_ctx);
     list_del(&(thread->shared_queue_node));
+    BUG_ON(queue->queue_len == 0);
     queue->queue_len--;
     // unlock(&(queue->queue_lock));
     return 0;
@@ -242,6 +246,12 @@ int rr_sched_migrate_from_shared_queue()
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
         thread->machine_id = CUR_MACHINE_ID;
+        
+        /* CRITICAL: Reset kernel_stack_state when migrating thread to local machine.
+         * The thread was running on another machine, but now it's migrated to
+         * the current machine. The kernel_stack_state from the old machine is
+         * no longer valid, so we can safely reset it to KS_FREE. */
+        thread->thread_ctx->kernel_stack_state = KS_FREE;
 
         // copy thread_ctx to local thread_ctx (for paper) measure copy ctx to local
         // struct thread_ctx *local_thread_ctx_on_dram = kzalloc(sizeof(struct thread_ctx), __MT_SHARED__);
@@ -439,6 +449,8 @@ int rr_sched_enqueue(struct thread *thread)
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
+    u32 cpuid;
+    
     if (unlikely(thread->thread_ctx->state == TS_RUNNING ||
                 thread->thread_ctx->state == TS_WAITING ||
                 thread->thread_ctx->state == TS_WAITING_IPC)) {
@@ -449,9 +461,20 @@ int __rr_sched_dequeue(struct thread *thread)
               thread->thread_ctx->thread_exit_state);
         return -EINVAL;
     }
+    
+    /* Use the recorded queue_cpuid to ensure consistency */
+    cpuid = thread->queue_cpuid;
+    /* If queue_cpuid is NO_AFF, thread is already dequeued */
+    if (cpuid == NO_AFF) {
+        return 0; /* Already dequeued, return success */
+    }
+    
     list_del(&(thread->ready_queue_node));
     init_empty_node(&thread->ready_queue_node);
-    rr_ready_queue_meta[thread->thread_ctx->cpuid].queue_len--;
+    rr_ready_queue_meta[cpuid].queue_len--;
+    
+    /* Clear queue_cpuid after dequeue */
+    thread->queue_cpuid = NO_AFF; /* Mark as invalid */
     return 0;
 }
 
@@ -468,7 +491,12 @@ int rr_sched_dequeue(struct thread *thread)
     u32 cpuid = 0;
     int ret = 0;
 
-    cpuid = thread->thread_ctx->cpuid;
+    /* Use queue_cpuid to get the correct lock */
+    cpuid = thread->queue_cpuid;
+    /* If queue_cpuid is NO_AFF, thread is already dequeued */
+    if (cpuid == NO_AFF) {
+        return 0; /* Already dequeued, return success */
+    }
     lock(&(rr_ready_queue_meta[cpuid].queue_lock));
     ret = __rr_sched_dequeue(thread);
     thread->thread_ctx->state = TS_INTER;

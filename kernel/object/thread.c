@@ -89,6 +89,7 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
     memset(thread->sched_history.cpu_history, 0, sizeof(thread->sched_history.cpu_history));
     thread->sched_history.history_count = 0;
     thread->sched_history.history_index = 0;
+    thread->queue_cpuid = NO_AFF; /* Invalid CPU ID */
 
     return 0;
 }
@@ -579,6 +580,10 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         if (!is_local_cpu(aff) && aff != thread->thread_ctx->affinity) {
             thread->thread_ctx->affinity = aff;
             thread->thread_ctx->thread_exit_state = TE_MIGRATING;
+            /* CRITICAL: Reset kernel_stack_state when setting thread to migrate.
+             * The thread will be migrated to another machine, so the current
+             * kernel_stack_state is no longer valid. */
+            thread->thread_ctx->kernel_stack_state = KS_FREE;
         }
 
         // print_thread(current_thread);
