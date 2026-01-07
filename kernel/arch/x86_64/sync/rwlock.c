@@ -21,8 +21,12 @@ void read_lock(struct rwlock *rwlock)
 {
     while (atomic_fetch_add_32((s32 *)&rwlock->lock, 1) & 0x80000000) {
         /* Use atomic load to ensure we see the latest value from CXL shared memory */
-        while (atomic_load_32((s32 *)&rwlock->lock) & 0x80000000)
+        while (atomic_load_32((s32 *)&rwlock->lock) & 0x80000000) {
             CPU_PAUSE();
+            /* Handle IPI while waiting to avoid deadlock */
+            extern void handle_ipi(void);
+            handle_ipi();
+        }
     }
     COMPILER_BARRIER();
 }
@@ -44,8 +48,12 @@ void read_unlock(struct rwlock *rwlock)
 
 void write_lock(struct rwlock *rwlock)
 {
-    while (compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0)
+    while (compare_and_swap_32((s32 *)&rwlock->lock, 0, 0x80000000) != 0) {
         CPU_PAUSE();
+        /* Handle IPI while waiting to avoid deadlock */
+        extern void handle_ipi(void);
+        handle_ipi();
+    }
     COMPILER_BARRIER();
 }
 
