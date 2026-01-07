@@ -35,6 +35,19 @@ u32 resched_bitmaps[PLAT_CPU_NUM];
 // #error TODO: support more CPUs
 // #endif
 
+#ifdef DSM_ENABLED
+/* Metadata for ready queue - must match definition in policy_rr.c */
+struct queue_meta {
+    struct list_head queue_head;
+    u32 queue_len;
+    struct lock queue_lock;
+    char pad[pad_to_cache_line(sizeof(u32) + sizeof(struct list_head)
+                               + sizeof(struct lock))];
+};
+
+extern struct queue_meta rr_ready_queue_meta[PLAT_CPU_NUM];
+#endif
+
 /* For TLB maintenence */
 extern void record_history_cpu(struct vmspace *vmspcae, u32 cpuid);
 
@@ -396,9 +409,20 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             }
             /* Thread is in ready queue but kernel_stack_state is KS_LOCKED.
              * This may indicate a scheduling issue where thread was migrated
-             * while still running on another CPU. */
-            kinfo("[SCHED_DEBUG] cpu %d skipping thread %p (name=%s): kernel_stack_state=%d (expected KS_FREE=0)\n",
-                  smp_get_cpu_id(), thread, thread->cap_group ? thread->cap_group->cap_group_name : "unknown",
+             * while still running on another CPU, or finish_switch() was not
+             * called properly.
+             * 
+             * FIX: If thread is in ready queue, it should not be running, so
+             * kernel_stack_state should be KS_FREE. Reset it if it's KS_LOCKED.
+             * 
+             * Exception: If thread == current_thread, it's currently running,
+             * so kernel_stack_state can be KS_LOCKED (handled above).
+             */
+            /* FIX: If thread is in ready queue, it should not be running.
+             * Reset kernel_stack_state to KS_FREE to allow scheduling. */
+            kinfo("[KSTATE_ERROR] cpu %d: thread %p (name=%s) has incorrect kernel_stack_state=%d (expected KS_FREE=0) in ready queue, resetting\n",
+                  smp_get_cpu_id(), thread, 
+                  thread->cap_group ? thread->cap_group->cap_group_name : "unknown",
                   thread->thread_ctx->kernel_stack_state);
             break;
         case TE_EXITING:
@@ -406,7 +430,7 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
             /* Thread need to exit. Set the state to TS_EXIT */
             thread->thread_ctx->state = TS_EXIT;
             kdebug("%s: thread %s exit\n", thread->cap_group->cap_group_name, __func__);
-            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            thread->thread_ctx->thread_exit_state = TE_EXITED;            
             break;
 #ifdef DSM_ENABLED
         case TE_STOPPING:

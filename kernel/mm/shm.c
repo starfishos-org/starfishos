@@ -79,6 +79,7 @@ struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
     s32 r = atomic_load_32(&shm->read_index);
 
     if ((unsigned int)(w - r) >= MAX_MSG_COUNT - 1) {
+        kdebug("[SEND MSG] machine %d: no free msg\n", CUR_MACHINE_ID);
         return NULL;
     }
 
@@ -87,8 +88,12 @@ struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
 
     if (compare_and_swap_32(&msg->state, MSG_FREE, MSG_REQ_WRITING)
         != MSG_FREE) {
+            kdebug("[SEND MSG] machine %d: msg %d already in use\n", CUR_MACHINE_ID, idx % MAX_MSG_COUNT);
         return NULL;
     }
+
+    kdebug("[SEND MSG] machine %d: send msg, msg_id=%d, state=%d\n",
+        CUR_MACHINE_ID, idx % MAX_MSG_COUNT, MSG_REQ_WRITING);
 
     return msg;
 }

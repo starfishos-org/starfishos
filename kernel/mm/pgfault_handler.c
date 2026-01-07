@@ -551,7 +551,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Add to migrating list and perform migration */
                 add_migrating_va(vmspace, fault_addr);
                 
-                kinfo("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", smp_get_cpu_id(), fault_addr, mid);
+                kdebug("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", smp_get_cpu_id(), fault_addr, mid);
                 /* Send message to machine to migrate pages */
                 new_pa = migrate_pages_to_shm(mid, vmspace, pa, PAGE_SIZE, fault_addr);
                 
@@ -561,7 +561,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Re-acquire locks */
                 lock(&vmspace->pgtbl_lock);
                 read_lock(&vmspace->vmspace_lock);
-                kinfo("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
+                kdebug("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
                 
                 /* Check if the migration is successful */
                 /* Verify migration: check all page tables and content consistency */
@@ -571,6 +571,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
         
 #else
+        int mid = get_paddr_machine_id(pa);
+        BUG_ON(mid != CUR_MACHINE_ID && mid != MACHINE_ID_SHARED_MEMORY);
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif
         unlock(&vmspace->pgtbl_lock);

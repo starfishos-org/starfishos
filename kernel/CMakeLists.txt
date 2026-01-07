@@ -105,7 +105,7 @@ if(CHCORE_SSI)
   include(dsm_config.cmake)
   # enable DSM configuration
   target_compile_definitions(${kernel_target} PRIVATE DSM_ENABLED)
-  # target_compile_definitions(${kernel_target} PRIVATE MULTI_PAGETABLE_ENABLED)
+  target_compile_definitions(${kernel_target} PRIVATE MULTI_PAGETABLE_ENABLED)
   target_compile_definitions(${kernel_target} PRIVATE USE_CXL_MEM)
   # target_compile_definitions(${kernel_target} PRIVATE DSM_CLEAR_FIRST)
   target_compile_definitions(${kernel_target} PRIVATE DSM_LINEAR_MM_LAYOUT)
