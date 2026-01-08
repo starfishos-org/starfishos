@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define MAX_THREADS 4
+#define MAX_THREADS 10
 #define MAX_QUEUE   1024
 
 struct shm_msg;

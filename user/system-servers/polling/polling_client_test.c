@@ -1,4 +1,6 @@
 #include "polling_req.h"
+#include "polling_utils.h"
+#include "polling_config.h"
 
 #include <chcore/memory.h>
 #include <chcore/syscall.h>
@@ -13,20 +15,45 @@ struct worker_thread_arg {
     int tid;
 };
 
-void *worker_thread(void *arg)
-{
-    struct worker_thread_arg *wta = (struct worker_thread_arg *)arg;
-    char buf[20];
-    for (int i = 0; i < 10; i++) {
-        snprintf(buf, sizeof(buf), "hello%d-%d\n", wta->tid, i);
-        polling_fs_write(wta->shm, wta->fd, buf, strlen(buf));
-    }
-    return NULL;
-}
+#define WRITE_SIZE 1000
+#define file_path  "test.txt"
 
 static inline long diff_ns(struct timespec a, struct timespec b)
 {
     return (b.tv_sec - a.tv_sec) * 1000000000L + (b.tv_nsec - a.tv_nsec);
+}
+
+void *worker_thread(void *arg)
+{
+    struct worker_thread_arg *wta = (struct worker_thread_arg *)arg;
+    char buf[WRITE_SIZE];
+    struct timespec start, end;
+    long diff_times[1000];
+    for (int i = 0; i < 1000; i++) {
+        int fd = polling_fs_open(wta->shm, file_path, O_RDWR, 0);
+
+#if PERF_READ == true
+        clock_gettime(CLOCK_MONOTONIC, &start);
+#endif
+        ssize_t read_ret = polling_fs_read(wta->shm, fd, buf, WRITE_SIZE);
+#if PERF_READ == true
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        diff_times[i] = diff_ns(start, end);
+#endif
+        if (read_ret != WRITE_SIZE) {
+            printf("read %ld bytes, expected %d\n", read_ret, WRITE_SIZE);
+        }
+        polling_fs_close(wta->shm, fd);
+    }
+#if PERF_READ == true
+    sort_long(diff_times, 1000);
+    printf("p50: %ld, p75: %ld, p90: %ld, p99: %ld\n",
+           diff_times[(int)(1000 * 0.50)],
+           diff_times[(int)(1000 * 0.75)],
+           diff_times[(int)(1000 * 0.90)],
+           diff_times[(int)(1000 * 0.99)]);
+#endif
+    return NULL;
 }
 
 struct args {
@@ -71,45 +98,34 @@ int main(int argc, char *argv[])
     }
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
 
-    int fd = polling_fs_open(shm, "test.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+    int fd = polling_fs_open(shm, file_path, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         printf("Failed to open file\n");
         return -1;
     }
-    printf("fd: %d\n", fd);
-    pthread_t tid[10];
-    struct worker_thread_arg wta[10];
-    for (int i = 0; i < 10; i++) {
+    char buf[WRITE_SIZE];
+    for (int i = 0; i < WRITE_SIZE; i++) {
+        buf[i] = (char)(('a' + (char)(i % 26)));
+    }
+    ssize_t write_ret = polling_fs_write(shm, fd, buf, WRITE_SIZE);
+    if (write_ret != WRITE_SIZE) {
+        printf("write %ld bytes, expected %d\n", write_ret, WRITE_SIZE);
+    }
+    polling_fs_close(shm, fd);
+    sleep(1);
+    const int num_threads = 10;
+    pthread_t tid[num_threads];
+    struct worker_thread_arg wta[num_threads];
+    for (int i = 0; i < num_threads; i++) {
         wta[i].shm = shm;
         wta[i].fd = fd;
         wta[i].tid = i;
         pthread_create(&tid[i], NULL, worker_thread, (void *)&wta[i]);
     }
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < num_threads; i++) {
         pthread_join(tid[i], NULL);
     }
-    polling_fs_close(shm, fd);
-    fd = polling_fs_open(shm, "test.txt", O_RDWR, 0);
-    if (fd < 0) {
-        printf("Failed to open file\n");
-        return -1;
-    }
-    printf("fd: %d\n", fd);
-    char buf[1000];
-    ssize_t read_ret = polling_fs_read(shm, fd, buf, 1000);
-    printf("read %ld bytes\n", read_ret);
-
-    polling_fs_close(shm, fd);
-    printf("closed file\n");
-
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for (int i = 0; i < 1000; i++) {
-        polling_fs_empty(shm);
-    }
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    printf("polling_fs_empty 1k times cost: %ld ns average: %ld ns\n",
-           diff_ns(start, end),
-           diff_ns(start, end) / 1000);
+    polling_print_debug_info(shm);
+    debug_print_mpsc_alloc_msg_retry_time();
     return 0;
 }
