@@ -6,6 +6,7 @@
 #include <mm/nvm.h>
 #include <mm/numa.h>
 #include <drivers/cxl.h>
+#include <drivers/ivshmem.h>
 #include <arch/mmu.h>
 #include <arch/drivers/multiboot2.h>
 
@@ -15,6 +16,8 @@
 
 extern paddr_t physmem_map[N_PHYS_MEM_POOLS][2];
 extern int physmem_map_num;
+extern paddr_t temp_mem_start;
+extern u64 temp_mem_size;
 
 #ifdef USE_NVM
 extern struct nvm_region nvm_region_head[8];
@@ -98,6 +101,70 @@ static void __fill_kernel_page_table_range(int idx_start, int idx_end)
 
     // kinfo("map range: 0x%lx - 0x%lx\n", idx_start * SIZE_1G, idx_end *
     // SIZE_1G);
+}
+
+/**
+ * __fill_kernel_page_table_range_custom -- fill the kernel page table range with custom mapping
+ * @paddr: physical address to map
+ * @vaddr: virtual address to map to
+ * @size: size of the memory to be mapped
+ */
+static void __fill_kernel_page_table_range_custom(u64 paddr, u64 vaddr, u64 size)
+{
+    u64 *direct_mapping;
+    u64 end_vaddr = vaddr + size;
+    u64 current_vaddr = vaddr;
+    u64 current_paddr = paddr;
+
+    kinfo("[MM] Custom mapping paddr 0x%lx-0x%lx to vaddr 0x%lx-0x%lx\n",
+          paddr, paddr + size, vaddr, end_vaddr);
+
+    while (current_vaddr < end_vaddr) {
+        u64 pud_idx;
+        u64 pud_offset;
+
+        // Determine which PUD table to use based on virtual address
+        if (current_vaddr < (512UL * SIZE_1G)) {
+            // First PUD (0-512GB)
+            pud_idx = current_vaddr / SIZE_1G;
+            direct_mapping = (u64 *)CHCORE_PUD_Direct_Mapping;
+            pud_offset = pud_idx;
+        } else {
+            // Second PUD (512GB-1TB)
+            pud_idx = current_vaddr / SIZE_1G;
+            direct_mapping = (u64 *)CHCORE_PUD_CODE_Mapping;
+            pud_offset = pud_idx - SECOND_PUD_MAPPING_IDX_START;
+        }
+
+        // Map one 1GB page at a time
+        u64 paddr_for_entry = current_paddr & ~(SIZE_1G - 1); // Align to 1GB boundary
+
+        *(direct_mapping + pud_offset) = paddr_for_entry + PRESENT + WRITABLE + HUGE_1G + GLOBAL + NX;
+
+        kdebug("[MM] Custom mapped PUD entry %d (offset %d): vaddr 0x%lx -> paddr 0x%lx\n",
+               pud_idx, pud_offset, current_vaddr, paddr_for_entry);
+
+        current_vaddr += SIZE_1G;
+        current_paddr += SIZE_1G;
+    }
+}
+
+/**
+ * fill_kernel_page_table_range_custom -- fill the kernel page table range with custom mapping
+ * @paddr: physical address to map
+ * @vaddr: virtual address to map to
+ * @size: size of the memory to be mapped
+ */
+void fill_kernel_page_table_range_custom(u64 paddr, u64 vaddr, u64 size)
+{
+    BUG_ON(paddr == 0 || vaddr == 0 || size == 0);
+    BUG_ON(!IS_ALIGNED(vaddr, SIZE_1G)); // Virtual address must be 1GB aligned
+    BUG_ON(!IS_ALIGNED(size, SIZE_1G));  // Size must be 1GB aligned
+
+    __fill_kernel_page_table_range_custom(paddr, vaddr, size);
+
+    /* Flush TLB: SMP is not enabled for now. */
+    flush_boot_tlb();
 }
 
 /**
@@ -251,7 +318,7 @@ void parse_mem_map(void *info)
      */
     for (temp = tag->entries; (u64)temp < (u64)tag + tag->size;
          temp = (multiboot_memory_map_t *)((u64)temp + tag->entry_size)) {
-        kinfo("start_addr = 0x%lx, end_addr = 0x%lx, type = 0x%x\n",
+        kdebug("start_addr = 0x%lx, end_addr = 0x%lx, type = 0x%x\n",
               temp->addr,
               temp->addr + temp->len,
               temp->type);
@@ -277,31 +344,22 @@ void parse_mem_map(void *info)
      */
     BUG_ON(mmap == NULL);
     BUG_ON(mmap->type != MULTIBOOT_MEMORY_AVAILABLE);
-    physmem_map_num = 1;
 
     /* remove kernel image part [0, img_end) */
     p_end = (u64)((void *)img_end - KCODE);
     if (mmap->addr < p_end)
-        physmem_map[0][0] = p_end;
+        temp_mem_start = p_end;
     else
-        physmem_map[0][0] = mmap->addr;
+        temp_mem_start = mmap->addr;
 
-    physmem_map[0][1] = mmap->addr + mmap->len;
-
-#if 0
-        for (int idx = 0; idx < dsm_visible_memdev_num; idx++) {
-                p_end = dsm_visible_memdevs[idx].start
-                        + dsm_visible_memdevs[idx].size;
-                if (p_end > max_paddr)
-                        max_paddr = p_end;
-        }
-        kdebug("max paddr=0x%llx\n", max_paddr);
-#endif
+    temp_mem_size = (mmap->addr + mmap->len) - temp_mem_start;
+    
     refill_kernel_page_table(max_paddr);
 
-    kinfo("Use dram memory: 0x%lx - 0x%lx\n",
-          physmem_map[0][0],
-          physmem_map[0][1]);
+    kinfo("Use temp memory: 0x%lx - 0x%lx (size: 0x%lx)\n",
+          temp_mem_start,
+          temp_mem_start + temp_mem_size,
+          temp_mem_size);
 }
 
 #ifdef DSM_SHM_DEVICE_CXL_NUMA
@@ -311,17 +369,21 @@ void parse_numa_mem_map()
     u64 max_paddr;
 
     dram_numa_mode_setup_mem(&cxl_start, &cxl_size);
-    physmem_map[0][0] = cxl_start;
-    physmem_map[0][1] = cxl_start + cxl_size;
-    max_paddr = physmem_map[0][1];
+    dram_mem_start = cxl_start;
+    dram_mem_size = cxl_size;
+    max_paddr = dram_mem_start + dram_mem_size;
 
+    /* Keep physmem_map for backward compatibility */
+    physmem_map[0][0] = dram_mem_start;
+    physmem_map[0][1] = dram_mem_start + dram_mem_size;
     physmem_map_num = 1;
 
     refill_kernel_page_table(max_paddr);
 
-    kinfo("Use NUMA NODE: 0x%lx - 0x%lx\n",
-          physmem_map[0][0],
-          physmem_map[0][1]);
+    kinfo("Use NUMA NODE: 0x%lx - 0x%lx (size: 0x%lx)\n",
+          dram_mem_start,
+          dram_mem_start + dram_mem_size,
+          dram_mem_size);
 }
 #endif
 
@@ -424,7 +486,7 @@ void parse_cxlmem_map()
     u64 dev_start = 0, dev_size = 0;
     cxlmem_map_num = 0;
 
-/* simulate dev use ivshmem or real cxl device */
+/* simulate dev use ivshmem or real cxl device for shared memory */
 #if defined(DSM_SHM_DEVICE_IVSHMEM) || defined(DSM_SHM_DEVICE_IVSHMEM_NUMA)
     extern void ivshmem_setup_mem(u64 * start, u64 * end);
     ivshmem_setup_mem(&dev_start, &dev_size);
@@ -440,7 +502,8 @@ void parse_cxlmem_map()
 
     /* init dsm metadata */
     dsm_init_meta(phys_to_virt(dev_start));
-    dsm_init_mm(dev_start, dev_size, physmem_map[0][0]);
+    /* Use first CXL device's start address for DSM init */
+    dsm_init_mm(dev_start, dev_size, dev_start);
     dsm_add_machine();
 
     kinfo("[SHM] Use 0x%lx - 0x%lx\n",

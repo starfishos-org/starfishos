@@ -54,3 +54,4 @@ third_party/
 .cache
 chcore-ckpt-logs
 ivshmem_server.log
+logs/

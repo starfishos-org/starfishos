@@ -121,7 +121,7 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
         print_thread(current_thread);
 
 #ifdef MULTI_PAGETABLE_ENABLED 
-        void *pgtbl = get_vmspace_pgtbl(current_thread->vmspace,    CUR_MACHINE_ID);
+        void *pgtbl = get_vmspace_pgtbl(current_thread->vmspace, CUR_MACHINE_ID);
 #else
         void *pgtbl = current_thread->vmspace->pgtbl;
 #endif /* MULTI_PAGETABLE_ENABLED */

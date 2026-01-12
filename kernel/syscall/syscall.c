@@ -382,7 +382,7 @@ extern u64 ipc_perf_time_p8[IPC_PERF_TIME_SIZE];
 
 void sys_ipc_perf_start(void)
 {
-    printk("\033[31mipc_perf_start\033[0m\n");
+    printk(ANSI_COLOR_RED "ipc_perf_start" ANSI_COLOR_RESET "\n");
     ipc_perf_enabled = true;
     ipc_perf_count_p2 = 0;
     ipc_perf_count_p3 = 0;
@@ -396,7 +396,7 @@ void sys_ipc_perf_start(void)
 
 void sys_ipc_perf_end(void)
 {
-    printk("\033[31mipc_perf_end\033[0m\n");
+    printk(ANSI_COLOR_RED "ipc_perf_end" ANSI_COLOR_RESET "\n");
     ipc_perf_enabled = false;
     printk("printing p2 count: %lu\n", ipc_perf_count_p2);
     for (int i = 0; i < ipc_perf_count_p2; i++) {

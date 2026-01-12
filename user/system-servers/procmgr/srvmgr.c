@@ -89,9 +89,7 @@ static struct proc_node *do_launch_process(int input_argc, char **input_argv,
         debug("fsm ipc_struct conn_cap=%ld server_type=%d\n",
               fsm_ipc_struct->conn_cap,
               fsm_ipc_struct->server_id);
-        // #ifdef DEBUG
-        printf("[procmgr] Launching %s... (is_cross_machine: %d)\n", name, is_cross_machine);
-        // #endif
+        info(ANSI_COLOR_MAGENTA "[PROCMGR] Launching %s... (is_cross_machine: %d)" ANSI_COLOR_RESET "\n", name, is_cross_machine);
 
         /* Init caps */
         caps[0] = __procmgr_server_cap;

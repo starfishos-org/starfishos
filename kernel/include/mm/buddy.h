@@ -8,6 +8,10 @@
 extern paddr_t physmem_map[][2];
 extern int physmem_map_num;
 
+/* DRAM memory range (replacing physmem_map[0]) */
+extern paddr_t dram_mem_start;
+extern u64 dram_mem_size;
+
 extern paddr_t nvmmem_map[][2];
 extern int nvmmem_map_num;
 

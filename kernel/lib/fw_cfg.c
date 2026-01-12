@@ -101,10 +101,10 @@ void fw_cfg_init(void) {
         if (FW_MACHINE_ID < 0) {
             BUG("[FW_CFG] machine_id is negative\n");
         }
-        printk("[FW_CFG] machine_id: %d\n", FW_MACHINE_ID);
+        kdebug("[FW_CFG] machine_id: %d\n", FW_MACHINE_ID);
         CUR_MACHINE_ID = FW_MACHINE_ID;
     } else {
-        printk("[FW_CFG] machine_id not found!\n");
+        kinfo("[FW_CFG] machine_id not found!\n");
         return;
     }
 }

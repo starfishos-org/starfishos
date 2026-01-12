@@ -41,7 +41,7 @@ void shm_init(void)
         struct polling_shm_region *shm = (struct polling_shm_region *)shm_data;
         memset(shm, 0, sizeof(struct polling_shm_region));
 
-        kinfo("[SHM] Initialized polling shm region for machine %d at %p\n",
+        kdebug("[SHM] Initialized polling shm region for machine %d at %p\n",
               i,
               shm);
     }

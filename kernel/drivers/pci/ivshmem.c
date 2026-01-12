@@ -41,28 +41,6 @@
 extern void arch_idle_ctx_init(struct thread_ctx *idle_ctx, u64 stack, void (*func)(void));
 extern struct vmspace *create_idle_vmspace(void);
 
-struct kvm_ivshmem_device {
-    /* BAR 2: Shared memory */
-    u64 iopa;              /* Physical address of BAR 2 (shared memory) */
-    u64 iova;              /* Virtual address of BAR 2 */
-    u64 iosize;            /* Size of BAR 2 */
-
-    /* BAR 0: MMIO registers */
-    u64 regs_iopa;         /* Physical address of BAR 0 (registers) */
-    u64 regs_iova;         /* Virtual address of BAR 0 */
-    u64 regs_iosize;       /* Size of BAR 0 */
-
-    struct pci_dev *dev;
-    u8 msix_cap;           /* MSI-X capability offset */
-    u16 msix_table_size;   /* Number of MSI-X vectors */
-    void *msix_table_base; /* Base address of MSI-X table */
-    void *msix_pba_base;   /* Base address of Pending Bit Array */
-    u32 *doorbell_regs;    /* Doorbell registers in BAR 0 */
-    u32 peer_id;           /* IVPosition (peer ID assigned by ivshmem-server) */
-
-    bool enabled;
-} __attribute__((packed, aligned(16)));
-
 struct ivshmem_header_common {
     char magic[8];
 } __attribute__((packed, aligned(PAGE_SIZE)));
@@ -107,10 +85,15 @@ struct kvm_ivshmem_device *cxl_shm_dev;
 // doorbell device (for MSI notification)
 struct kvm_ivshmem_device *doorbell_dev;
 
+// Array for 8 CXL devices (numa0.0 to numa3.1) - stores physical address and size
+#define MAX_IVSHMEM_DEV 8
+u64 dram_devices_map[MAX_IVSHMEM_DEV][2];
+
 // ivshmem device lists
-#define MAX_IVSHMEM_DEV 4
+// Support: 8 CXL devices + 1 shared memory + 1 doorbell + 1 hostfs = 11 devices
+#define MAX_IVSHMEM_DEV_LIST 12
 u8 kvm_ivshmem_dev_num = 0;
-struct kvm_ivshmem_device kvm_ivshmem_dev_list[MAX_IVSHMEM_DEV];
+struct kvm_ivshmem_device kvm_ivshmem_dev_list[MAX_IVSHMEM_DEV_LIST];
 
 // Message processing mode: 0 = MSI, 1 = Polling (user-space)
 static enum ivshmem_msg_mode ivshmem_msg_mode = IVSHMEM_MSG_MODE_POLLING;
@@ -158,9 +141,9 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     u8 bir;
     u64 bar_addr;
 
-    pci_info("[IVSHMEM] Initializing MSI-X for device %04x:%04x\n", 
+    pci_debug("[IVSHMEM] Initializing MSI-X for device %04x:%04x\n", 
              pdev->vendor, pdev->device);
-    pci_info("[IVSHMEM] BAR0: iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
+    pci_debug("[IVSHMEM] BAR0: iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
              dev->regs_iopa, dev->regs_iova, dev->regs_iosize);
 
     /* Find MSI-X capability */
@@ -168,7 +151,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     u8 cap_ptr = 0;
     u16 status = 0;
     pci_read_config_word(pdev, PCI_STATUS, &status);
-    pci_info("[IVSHMEM] PCI Status: 0x%04x (Capabilities List: %s)\n", 
+    pci_debug("[IVSHMEM] PCI Status: 0x%04x (Capabilities List: %s)\n", 
              status, (status & PCI_STATUS_CAP_LIST) ? "Yes" : "No");
     
     if (!(status & PCI_STATUS_CAP_LIST)) {
@@ -177,7 +160,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     }
     
     pci_read_config_byte(pdev, PCI_CAPABILITY_LIST, &cap_ptr);
-    pci_info("[IVSHMEM] PCI capability list pointer: 0x%02x\n", cap_ptr);
+    pci_debug("[IVSHMEM] PCI capability list pointer: 0x%02x\n", cap_ptr);
     
     /* Debug: Walk through all capabilities */
     u8 pos = cap_ptr;
@@ -187,9 +170,9 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
         u8 next_ptr = 0;
         pci_read_config_byte(pdev, pos + PCI_CAP_LIST_ID, &cap_id);
         pci_read_config_byte(pdev, pos + PCI_CAP_LIST_NEXT, &next_ptr);
-        pci_info("[IVSHMEM] Capability at 0x%02x: ID=0x%02x, Next=0x%02x\n", pos, cap_id, next_ptr);
+        pci_debug("[IVSHMEM] Capability at 0x%02x: ID=0x%02x, Next=0x%02x\n", pos, cap_id, next_ptr);
         if (cap_id == PCI_CAP_ID_MSIX) {
-            pci_info("[IVSHMEM] Found MSI-X capability at 0x%02x!\n", pos);
+            pci_debug("[IVSHMEM] Found MSI-X capability at 0x%02x!\n", pos);
         }
         pos = next_ptr;
         cap_count++;
@@ -217,7 +200,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     
     if (found_msix_pos) {
         dev->msix_cap = found_msix_pos;
-        pci_info("[IVSHMEM] Using MSI-X capability at 0x%02x (found during scan)\n", dev->msix_cap);
+        pci_debug("[IVSHMEM] Using MSI-X capability at 0x%02x (found during scan)\n", dev->msix_cap);
     } else {
         dev->msix_cap = pci_find_capability(pdev, PCI_CAP_ID_MSIX);
         if (!dev->msix_cap) {
@@ -228,7 +211,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
         }
     }
     
-    pci_info("[IVSHMEM] Found MSI-X capability at offset 0x%x\n", dev->msix_cap);
+    pci_debug("[IVSHMEM] Found MSI-X capability at offset 0x%x\n", dev->msix_cap);
 
     /* Read MSI-X capability */
     pci_read_config_word(pdev, dev->msix_cap + PCI_MSIX_FLAGS, &msix_flags);
@@ -280,8 +263,8 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
                  CUR_MACHINE_ID, dev->peer_id);
     }
     
-    pci_info("[IVSHMEM] Doorbell registers set at %p (BAR0 base + 0x04)\n", dev->doorbell_regs);
-    pci_info("[IVSHMEM] Using machine_id as peer_id: machine_id=%d -> peer_id=%u\n", 
+    pci_debug("[IVSHMEM] Doorbell registers set at %p (BAR0 base + 0x04)\n", dev->doorbell_regs);
+    pci_debug("[IVSHMEM] Using machine_id as peer_id: machine_id=%d -> peer_id=%u\n", 
              CUR_MACHINE_ID, dev->peer_id);
     
     /* Register peer_id mapping in shared memory */
@@ -296,7 +279,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
                  dsm_meta, CUR_MACHINE_ID);
     }
 
-    pci_info("[IVSHMEM] MSI-X initialized: table_size=%d, table_base=%p, pba_base=%p, doorbell=%p\n",
+    pci_debug("[IVSHMEM] MSI-X initialized: table_size=%d, table_base=%p, pba_base=%p, doorbell=%p\n",
              dev->msix_table_size, dev->msix_table_base, dev->msix_pba_base, dev->doorbell_regs);
 
     /* Configure MSI-X table entries and register interrupt handler */
@@ -332,13 +315,9 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
         u32 vector_ctrl = 0; /* Not masked */
         
         /* Write MSI-X table entry with memory barriers */
-        __sync_synchronize();
         msix_entry[PCI_MSIX_ENTRY_LOWER_ADDR / 4] = msg_addr_low;
-        __sync_synchronize();
         msix_entry[PCI_MSIX_ENTRY_UPPER_ADDR / 4] = msg_addr_high;
-        __sync_synchronize();
         msix_entry[PCI_MSIX_ENTRY_DATA / 4] = msg_data;
-        __sync_synchronize();
         msix_entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] = vector_ctrl;
         __sync_synchronize();
         
@@ -348,19 +327,19 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
         u32 read_data = msix_entry[PCI_MSIX_ENTRY_DATA / 4];
         u32 read_ctrl = msix_entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4];
         
-        pci_info("[IVSHMEM] Configured MSI-X vector 0: IRQ=%d\n", IRQ_MSIX_IVSHMEM);
-        pci_info("[IVSHMEM]   Address: 0x%08x%08x (expected 0x%08x%08x)\n",
+        pci_debug("[IVSHMEM] Configured MSI-X vector 0: IRQ=%d\n", IRQ_MSIX_IVSHMEM);
+        pci_debug("[IVSHMEM]   Address: 0x%08x%08x (expected 0x%08x%08x)\n",
                  read_addr_high, read_addr_low, msg_addr_high, msg_addr_low);
-        pci_info("[IVSHMEM]   Data: 0x%08x (expected 0x%08x)\n", read_data, msg_data);
-        pci_info("[IVSHMEM]   Control: 0x%08x (expected 0x%08x)\n", read_ctrl, vector_ctrl);
-        pci_info("[IVSHMEM]   Table base: %p, Entry offset: 0x%x\n",
+        pci_debug("[IVSHMEM]   Data: 0x%08x (expected 0x%08x)\n", read_data, msg_data);
+        pci_debug("[IVSHMEM]   Control: 0x%08x (expected 0x%08x)\n", read_ctrl, vector_ctrl);
+        pci_debug("[IVSHMEM]   Table base: %p, Entry offset: 0x%x\n",
                  dev->msix_table_base, 0 * PCI_MSIX_ENTRY_SIZE);
         
-        if (read_addr_low != msg_addr_low || read_data != msg_data) {
+        if (read_addr_low != msg_addr_low || read_data != msg_data || read_ctrl != vector_ctrl || read_addr_high != msg_addr_high) {
             pci_info("[IVSHMEM] WARNING: MSI-X table entry verification failed!\n");
         }
         
-        pci_info("[IVSHMEM] MSI-X interrupt handler registered (IRQ %d)\n", 
+        pci_debug("[IVSHMEM] MSI-X interrupt handler registered (IRQ %d)\n", 
                  IRQ_MSIX_IVSHMEM);
     }
 
@@ -388,12 +367,12 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
     dev->msix_pba_base = NULL;
     dev->doorbell_regs = NULL;
 
-    pci_info("[IVSHMEM] [%d] BAR2 (shared mem): iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
+    pci_debug("[IVSHMEM] [%d] BAR2 (shared mem): iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
              kvm_ivshmem_dev_num,
              dev->iopa,
              dev->iova,
              dev->iosize);
-    pci_info("[IVSHMEM] [%d] BAR0 (registers): iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
+             pci_debug("[IVSHMEM] [%d] BAR0 (registers): iopa=0x%llx, iova=0x%llx, iosize=0x%llx\n",
              kvm_ivshmem_dev_num,
              dev->regs_iopa,
              dev->regs_iova,
@@ -425,6 +404,22 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
         } else if (strncmp(header->magic, "cxlmem", 6) == 0) {
             cxl_shm_dev = dev;
             pci_info("[IVSHMEM] [%d] magic \"match cxlmem\" (shared memory device)\n", kvm_ivshmem_dev_num);
+        } else if (strncmp(header->magic, "numa", 4) == 0) {
+            /* Parse numaX.Y format: numa0.0, numa1.0, ..., numa3.1 */
+            int numa_node, numa_dev;
+            int idx = -1;
+            if (sscanf(header->magic, "numa%d.%d", &numa_node, &numa_dev) == 2) {
+                /* Calculate index: numa0.0=0, numa1.0=1, ..., numa0.1=4, ..., numa3.1=7 */
+                BUG_ON(numa_node < 0 || numa_node > 3 || numa_dev < 0 || numa_dev > 1);
+                idx = numa_node * 2 + numa_dev;
+                dram_devices_map[idx][0] = dev->iopa + sizeof(struct ivshmem_header_common);
+                dram_devices_map[idx][1] = dev->iosize - sizeof(struct ivshmem_header_common);
+                pci_info("[IVSHMEM] [%d] magic \"%s\" -> DRAM device %d (numa%d.%d)\n", 
+                        idx, header->magic, idx, numa_node, numa_dev);
+            } else {
+                pci_info("[IVSHMEM] [%d] magic \"%s\" -> invalid numa format\n", 
+                        kvm_ivshmem_dev_num, header->magic);
+            }
         } else if (dev->regs_iova && dev->regs_iosize > 0) {
             /* Device has both BAR 0 and BAR 2, but unknown magic - might be doorbell */
             doorbell_dev = dev;
@@ -1220,7 +1215,7 @@ int ivshmem_test_msi_communication(void)
 void ivshmem_set_msg_mode(enum ivshmem_msg_mode mode)
 {
     ivshmem_msg_mode = mode;
-    kinfo("[IVSHMEM] Message processing mode set to: %s\n", 
+    kinfo(ANSI_COLOR_MAGENTA "[IVSHMEM] Message processing mode: %s" ANSI_COLOR_RESET "\n", 
           mode == IVSHMEM_MSG_MODE_MSI ? "MSI" : "Polling (user-space)");
 }
 

@@ -8,7 +8,7 @@
 #define PAGE_SIZE BUDDY_PAGE_SIZE
 #endif
 
-#define N_PHYS_MEM_POOLS 1
+#define N_PHYS_MEM_POOLS 8
 
 /* Execute once during kernel init. */
 void mm_init(void *physmem_info, int clear_nvm);

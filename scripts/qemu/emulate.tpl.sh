@@ -16,7 +16,7 @@ nvm_backend_file="/tmp/nvm-file-$USER"
 ivshmem_dev="/dev/shm/ivshmem-$USER"
 conn_size=16G
 ivshmem_conn_dev="/dev/shm/ivshmem-conn-$USER"
-dram_size=32G # 20GB shared memory
+dram_size=1G # 1G for temp allocator
 cxl_size=32G # 32GB shared memory
 plat_cpu_name=12
 # ivshmem_dev="/dev/dax0.0,align=2M"
@@ -40,6 +40,30 @@ echo $port >$basedir/gdb-port-$vm_id
 
 cxl_backend_file="/tmp/cxltest0.raw"
 
-$basedir/../scripts/qemu/qemu_wrapper.sh  $vm_id \
-	@qemu@ -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log
+# Create 8 CXL device file paths
+numa_devs=(
+	"/dev/shm/numa0.0-$USER"
+	"/dev/shm/numa1.0-$USER"
+	"/dev/shm/numa2.0-$USER"
+	"/dev/shm/numa3.0-$USER"
+	"/dev/shm/numa0.1-$USER"
+	"/dev/shm/numa1.1-$USER"
+	"/dev/shm/numa2.1-$USER"
+	"/dev/shm/numa3.1-$USER"
+)
+
+# Build QEMU command with 8 CXL devices
+qemu_cmd="@qemu@ -gdb tcp::$port"
+
+# Add 8 CXL devices as ivshmem-plain devices (not NUMA nodes)
+for i in {0..7}; do
+	dev_path=${numa_devs[$i]}
+	qemu_cmd="$qemu_cmd -object memory-backend-file,size=16G,share=on,mem-path=$dev_path,id=cxl$i"
+	qemu_cmd="$qemu_cmd -device ivshmem-plain,memdev=cxl$i"
+done
+
+# Add remaining QEMU options (includes ivshmem configuration)
+qemu_cmd="$qemu_cmd @qemu_options@"
+
+$basedir/../scripts/qemu/qemu_wrapper.sh $vm_id $qemu_cmd | tee exec_log$vm_id.log
 # @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log

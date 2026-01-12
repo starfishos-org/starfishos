@@ -44,9 +44,10 @@
 #include "fork.h"
 #include <chcore-internal/fs_debug.h>
 #include <chcore/memory.h>
+#include <chcore/ansi_color.h>
 
-#define debug(fmt, ...) printf("[DEBUG] " fmt, ##__VA_ARGS__)
-#define warn(fmt, ...) printf("[WARN] " fmt, ##__VA_ARGS__)
+#define debug(fmt, ...) printf(ANSI_COLOR_CYAN "[DEBUG] " ANSI_COLOR_RESET fmt, ##__VA_ARGS__)
+#define warn(fmt, ...) printf(ANSI_COLOR_YELLOW "[WARN] " ANSI_COLOR_RESET fmt, ##__VA_ARGS__)
 #define warn_once(fmt, ...) do {  \
 	static int __warned = 0;  \
 	if (__warned) break;      \
@@ -728,11 +729,11 @@ long __syscall4(long n, long a, long b, long c, long d)
 		return chcore_syscall6(CHCORE_SYS_futex, a, b, c, d, 0, 0);
 	}
 	case SYS_rt_sigprocmask: {
-		warn_once("SYS_rt_sigprocmask is not implemented.\n");
+		// warn_once("SYS_rt_sigprocmask is not implemented.\n");
 		return 0;
 	}
 	case SYS_rt_sigaction: {
-		warn_once("SYS_rt_sigaction is not implemented.\n");
+		// warn_once("SYS_rt_sigaction is not implemented.\n");
 		return 0;
 	}
 	case SYS_openat: {

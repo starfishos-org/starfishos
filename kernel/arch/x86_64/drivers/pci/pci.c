@@ -79,7 +79,7 @@ static void arch_pci_mmcfg_probe_devices(struct pci_mmcfg_region *region)
                 dev->bus = bus;
                 list_add(&dev->bus_list, &bus->devices);
 
-                pci_info("[%04x:%02x:%02x.%x] find device [%04x:%04x]\n",
+                pci_debug("[%04x:%02x:%02x.%x] find device [%04x:%04x]\n",
                          bus->domain,
                          bus_n,
                          devfn >> 3,

@@ -9,7 +9,7 @@
     struct acpi_table_##table *t =                                   \
             (struct acpi_table_##table *)find_table_by_sig(sig);     \
     if (!t) {                                                        \
-        kinfo("[ACPI] [%s] table not found\n", sig);                 \
+        kdebug("[ACPI] [%s] table not found\n", sig);                 \
     } else {                                                         \
         parse_##table((struct acpi_table_##table *)phys_to_virt(t)); \
     }
@@ -20,7 +20,7 @@
         struct acpi_table_##table *t =                                   \
                 (struct acpi_table_##table *)find_table_by_sig(sig);     \
         if (!t) {                                                        \
-            kinfo("[ACPI] [%s] table not found\n", sig);                 \
+            kdebug("[ACPI] [%s] table not found\n", sig);                 \
         } else {                                                         \
             parse_##table((struct acpi_table_##table *)phys_to_virt(t)); \
         }                                                                \

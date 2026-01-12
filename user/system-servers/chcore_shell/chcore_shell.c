@@ -36,6 +36,7 @@
 #include <chcore/syscall.h>
 #include <chcore/ipc.h>
 #include <chcore/bug.h>
+#include <chcore/ansi_color.h>
 #include <chcore/proc.h>
 #include <chcore/launcher.h>
 #include <chcore/memory.h>
@@ -560,14 +561,16 @@ void printf_welcome(void)
 {
 	printf("\n");
 	/* Wait (10ms) the console log to output completely. */
-	usleep(10000);
+	usleep(1000);
+	printf("%s", ANSI_COLOR_BOLD, ANSI_COLOR_GREEN);
 	printf(" ______     __  __     ______     __  __     ______     __         __        \n");
 	printf("/\\  ___\\   /\\ \\_\\ \\   /\\  ___\\   /\\ \\_\\ \\   /\\  ___\\   /\\ \\       /\\ \\       \n");
 	printf("\\ \\ \\____  \\ \\  __ \\  \\ \\___  \\  \\ \\  __ \\  \\ \\  __\\   \\ \\ \\____  \\ \\ \\____  \n");
 	printf(" \\ \\_____\\  \\ \\_\\ \\_\\  \\/\\_____\\  \\ \\_\\ \\_\\  \\ \\_____\\  \\ \\_____\\  \\ \\_____\\ \n");
 	printf("  \\/_____/   \\/_/\\/_/   \\/_____/   \\/_/\\/_/   \\/_____/   \\/_____/   \\/_____/ \n");
+	printf("%s", ANSI_COLOR_RESET);
 	printf("\n");
-	printf("\nWelcome to ChCore shell!");
+	printf("%s%sWelcome to ChCore shell!%s\n", ANSI_COLOR_BOLD, ANSI_COLOR_GREEN, ANSI_COLOR_RESET);
 	fflush(stdout);
 }
 

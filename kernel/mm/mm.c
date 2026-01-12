@@ -14,6 +14,10 @@ extern void parse_mem_map(void *);
 paddr_t physmem_map[N_PHYS_MEM_POOLS][2];
 int physmem_map_num;
 
+/* DRAM memory range (replacing physmem_map[0]) */
+paddr_t dram_mem_start;
+u64 dram_mem_size;
+
 #ifdef DSM_LINEAR_MM_LAYOUT
 /* A temparol memory pool for local info */
 paddr_t temp_physmem_map[2];
@@ -21,6 +25,10 @@ int temp_physmem_map_num;
 
 struct phys_mem_pool *global_temp_mem;
 struct phys_mem_pool static_global_temp_mem;
+
+/* Temp memory for global_temp_mem initialization (1G) */
+paddr_t temp_mem_start;
+u64 temp_mem_size;
 #endif
 
 #ifdef USE_NVM
@@ -126,7 +134,7 @@ void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool, page_type_t type,
     unsigned long npages1 = 0;
     paddr_t free_page_start = 0;
 
-    kinfo("mem pool type %d, free_mem_start: 0x%lx, free_mem_end: 0x%lx\n",
+    kdebug("mem pool type %d, free_mem_start: 0x%lx, free_mem_end: 0x%lx\n",
           type,
           free_mem_start,
           free_mem_end);
@@ -185,8 +193,6 @@ void dram_mm_init()
 
 void mm_init(void *physmem_info, int clear_nvm)
 {
-    paddr_t free_mem_start = 0, free_mem_end = 0;
-
     /* Step-0: for system shutdown, we pass info=NULL */
     if (!physmem_info)
         goto skip_parse_info;
@@ -210,21 +216,23 @@ skip_parse_info:
     /* Init dram pool */
     global_temp_mem = &static_global_temp_mem;
 
-    /* init the buddy allocator */
-    free_mem_start = physmem_map[0][0];
-    physmem_map[0][0] += SIZE_1G;
-    free_mem_end = physmem_map[0][0];
+    /* Use temp_mem_start and temp_mem_size (1G) for temp allocator */
+    extern paddr_t temp_mem_start;
+    extern u64 temp_mem_size;
+    
+    kinfo(ANSI_COLOR_MAGENTA "[TEMP MEMORY] Initializing temp allocator: 0x%lx - 0x%lx (size: 0x%lx)" ANSI_COLOR_RESET "\n",
+        temp_mem_start, temp_mem_start + temp_mem_size, temp_mem_size);
 
     /* use global memory pool */
     /* Hybrid DRAM and NVM memory pool */
     init_buddy_for_one_mem_pool(
-            global_temp_mem, DRAM_PAGE, free_mem_start, free_mem_end);
+            global_temp_mem, DRAM_PAGE, temp_mem_start, temp_mem_start + temp_mem_size);
 
     init_temp_slab();
     return;
 #endif
 
-    dram_mm_init();
+    // dram_mm_init();
 
 #ifdef USE_NVM /* use NVM as main memory */
 #ifdef CHCORE_SLS
@@ -273,7 +281,7 @@ void ext_mm_init()
 
     /* memory model has been inited */
     if (DSM_STATE >= DSM_CONFIG_STATE_MM_INITED) {
-        kinfo("[DSM] cxl mem pool has been inited\n");
+        kinfo(ANSI_COLOR_MAGENTA "[CXL MEMORY] cxl mem pool has been inited" ANSI_COLOR_RESET "\n");
         goto skip_init;
     }
 

@@ -1,14 +1,12 @@
 #include <dsm/dsm-single.h>
-#include <lib/fw_cfg.h>
+#include <common/macro.h>
+#include <common/size.h>
 
-/* Define machine_id here (declared as extern in dsm-single.h) */
-mid_t machine_id = -1;
+int machine_id = -1;
 
 void dsm_add_machine()
 {
     BUG_ON(!dsm_meta);
-
-    CUR_MACHINE_ID = FW_MACHINE_ID;
 
     /* Initialize machine_to_peer_id array if this is the first machine */
     if (CUR_MACHINE_ID == 0) {
@@ -42,33 +40,28 @@ void dsm_add_machine()
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_low = CPU_RANGE_LOW;
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_high = CPU_RANGE_HIGH;
 
-#ifdef DSM_LINEAR_MM_LAYOUT
-    /* dram */
-    // u64 lmem_old_start,
-    u64 lmem_new_start, lmem_size = SIZE_8G;
+    u64 lmem_new_start, lmem_size;
 
-    if (init) {
-        lmem_new_start = atomic_fetch_add_64(&(dsm_meta->max_paddr), lmem_size);
-    } else {
-        lmem_new_start = dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_start;
-    }
+    extern u64 dram_devices_map[][2];
+    lmem_new_start = dram_devices_map[CUR_MACHINE_ID][0];
+    lmem_size = dram_devices_map[CUR_MACHINE_ID][1];
 
-    kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
+    kinfo("[DSM] machine %d local memory range: %llx-%llx (size: %llx)\n",
           CUR_MACHINE_ID,
           lmem_new_start,
-          lmem_new_start + lmem_size);
-
-    /* local memory range exceed shm range */
-    BUG_ON(dsm_meta->max_paddr > dsm_meta->shm_paddr);
-
-    physmem_map[0][0] = lmem_new_start;
-    physmem_map[0][1] = lmem_new_start + lmem_size;
-
-    // remap_memory(lmem_old_start, lmem_new_start, lmem_size);
+          lmem_new_start + lmem_size,
+          lmem_size);
 
     extern void flush_tlb_all();
     flush_tlb_all();
 
+    physmem_map[0][0] = lmem_new_start;
+    physmem_map[0][1] = lmem_new_start + lmem_size;
+    physmem_map_num = 1;
+    kinfo(ANSI_COLOR_MAGENTA "[DRAM MEMORY] machine %d local memory range: %llx-%llx" ANSI_COLOR_RESET "\n",
+          CUR_MACHINE_ID,
+          lmem_new_start,
+          lmem_new_start + lmem_size);
     extern void dram_mm_init();
     dram_mm_init();
 
@@ -78,22 +71,13 @@ void dsm_add_machine()
     dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_start = lmem_new_start;
     dsm_meta->local_meta[CUR_MACHINE_ID].local_mem_size = lmem_size;
 
-    // kinfo("[DSM] machine %d local memory range: %llx-%llx (old:
-    // %llx-%llx)\n",
-    //       CUR_MACHINE_ID,
-    //       lmem_new_start,
-    //       lmem_new_start + lmem_size,
-    //       lmem_old_start,
-    //       lmem_old_start + lmem_size);
-    // kinfo("[DSM] machine %d local memory range: %llx-%llx\n",
-    //       CUR_MACHINE_ID,
-    //       lmem_new_start,
-    //       lmem_new_start + lmem_size);
-#endif
-    kinfo("\033[31m"
-          "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
-          "\033[0m",
+    kdebug("[DSM] machine %d local memory range: %llx-%llx\n",
           CUR_MACHINE_ID,
-          CPU_RANGE_LOW,
-          CPU_RANGE_HIGH);
+          lmem_new_start,
+          lmem_new_start + lmem_size);
+
+    kinfo(ANSI_COLOR_GREEN ANSI_COLOR_BOLD
+          "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
+          ANSI_COLOR_RESET,
+          CUR_MACHINE_ID, CPU_RANGE_LOW, CPU_RANGE_HIGH);
 }
