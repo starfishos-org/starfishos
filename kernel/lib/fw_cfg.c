@@ -4,6 +4,7 @@
 #include <lib/printk.h>
 #include <common/util.h>
 #include <lib/fw_cfg.h>
+#include <dsm/dsm-single.h>
 
 #define FW_CFG_PORT_SELECT 0x510
 #define FW_CFG_PORT_DATA   0x511
@@ -101,6 +102,7 @@ void fw_cfg_init(void) {
             BUG("[FW_CFG] machine_id is negative\n");
         }
         printk("[FW_CFG] machine_id: %d\n", FW_MACHINE_ID);
+        CUR_MACHINE_ID = FW_MACHINE_ID;
     } else {
         printk("[FW_CFG] machine_id not found!\n");
         return;
