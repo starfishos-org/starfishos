@@ -9,33 +9,14 @@
 #include <mm/mm.h>
 #include <mm/buddy.h>
 #include <mm/rmap.h>
+#include <mm/page_table_func.h>
 #include <arch/mmu.h>
 #include <object/thread.h>
+#include <object/object.h>
+#include <object/cap_group.h>
 #include <perf/measure.h>
 #include <ckpt/hot_pages_tracker.h>
 /* Local functions */
-
-#if 0
-static inline struct virtual_vmregion *alloc_virt_vmregion(struct vmregion *vmr)
-{
-	struct virtual_vmregion *virt_vmr;
-
-	virt_vmr = kmalloc(sizeof(*virt_vmr), __MT_OBJECT__);
-	lock_init(&(virt_vmr->lock));
-	virt_vmr->vmr = vmr;
-
-	return virt_vmr;
-}
-
-static void remove_vmr_from_virt_vmregion(struct vmregion *vmr) 
-{
-        struct virtual_vmregion *virt_vmr = vmr->virtual_vmr;
-        lock(&virt_vmr->lock);
-        BUG_ON(virt_vmr->vmr != vmr);
-        virt_vmr->vmr = NULL;
-        unlock(&virt_vmr->lock);
-}
-#endif
 
 const char* pmo_type_str[PMO_TYPE_NR] = {
     [0 ... PMO_TYPE_NR - 1] = 0,
@@ -839,10 +820,274 @@ int vmspace_init(struct vmspace *vmspace)
 }
 
 #ifndef FBINFER
+
+/* Helper function to compare two mappings */
+static bool mappings_equal(bool is_cxl1, int *machine_ids1, int machine_count1,
+                           bool is_cxl2, int *machine_ids2, int machine_count2)
+{
+    if (is_cxl1 != is_cxl2)
+        return false;
+    if (machine_count1 != machine_count2)
+        return false;
+    
+    /* Sort and compare machine IDs */
+    int sorted1[CLUSTER_MAX_MACHINE_NUM];
+    int sorted2[CLUSTER_MAX_MACHINE_NUM];
+    for (int i = 0; i < machine_count1; i++) {
+        sorted1[i] = machine_ids1[i];
+        sorted2[i] = machine_ids2[i];
+    }
+    
+    /* Simple bubble sort */
+    for (int i = 0; i < machine_count1 - 1; i++) {
+        for (int j = 0; j < machine_count1 - 1 - i; j++) {
+            if (sorted1[j] > sorted1[j + 1]) {
+                int tmp = sorted1[j];
+                sorted1[j] = sorted1[j + 1];
+                sorted1[j + 1] = tmp;
+            }
+            if (sorted2[j] > sorted2[j + 1]) {
+                int tmp = sorted2[j];
+                sorted2[j] = sorted2[j + 1];
+                sorted2[j + 1] = tmp;
+            }
+        }
+    }
+    
+    for (int i = 0; i < machine_count1; i++) {
+        if (sorted1[i] != sorted2[i])
+            return false;
+    }
+    return true;
+}
+
+/* Helper function to print a segment */
+static void print_segment(vaddr_t start_va, vaddr_t end_va, bool is_cxl, 
+                          int *machine_ids, int machine_count)
+{
+    /* Use printk directly to avoid multiple [INFO] prefixes */
+    if (start_va == end_va) {
+        /* Single page */
+        printk("[INFO] [VMSPACE STATS]   0x%llx -> ", start_va);
+    } else {
+        /* Range */
+        printk("[INFO] [VMSPACE STATS]   0x%llx-0x%llx -> ", start_va, end_va);
+    }
+    
+    if (is_cxl) {
+        printk("CXL");
+        if (machine_count > 0) {
+            printk(" + machines: [");
+            for (int i = 0; i < machine_count; i++) {
+                printk("%d", machine_ids[i]);
+                if (i < machine_count - 1)
+                    printk(", ");
+            }
+            printk("]");
+        }
+    } else if (machine_count > 0) {
+        printk("machines: [");
+        for (int i = 0; i < machine_count; i++) {
+            printk("%d", machine_ids[i]);
+            if (i < machine_count - 1)
+                printk(", ");
+        }
+        printk("]");
+    }
+    printk("\n");
+}
+
+void print_vmspace_stats(struct vmspace *vmspace)
+{
+    /* Statistics before recycling: print VA mapping locations and count pages */
+    struct vmregion *vmr;
+    vaddr_t va;
+    u64 shared_pages_count = 0;
+    u64 local_pages_count[CLUSTER_MAX_MACHINE_NUM] = {0};
+    const char *cap_group_name = "unknown";
+    
+    /* Try to get cap_group name from vmspace's owner cap_group */
+    struct object *object = obj2object(vmspace);
+    struct object_slot *slot_iter = NULL;
+    
+    lock(&object->copies_lock);
+    if (!list_empty(&object->copies_head)) {
+        slot_iter = list_entry(object->copies_head.next, struct object_slot, copies);
+        if (slot_iter && slot_iter->cap_group && 
+            slot_iter->cap_group->cap_group_name) {
+            cap_group_name = slot_iter->cap_group->cap_group_name;
+        }
+    }
+    unlock(&object->copies_lock);
+    
+    kinfo("[VMSPACE STATS] ==========================================\n");
+    kinfo("[VMSPACE STATS] Process: %s\n", cap_group_name);
+    kinfo("[VMSPACE STATS] Virtual Address Space Mapping:\n");
+    kinfo("[VMSPACE STATS] Format: VA -> [machines with mapping]\n");
+    kinfo("[VMSPACE STATS] ------------------------------------------\n");
+    
+    /* Iterate through all vmregions */
+    read_lock(&vmspace->vmspace_lock);
+    
+    /* Variables to track continuous segments */
+    vaddr_t seg_start_va = 0;
+    vaddr_t seg_end_va = 0;  /* Track the last mapped VA in current segment */
+    bool seg_has_cxl = false;
+    int seg_machine_ids[CLUSTER_MAX_MACHINE_NUM];
+    int seg_machine_count = 0;
+    bool seg_started = false;
+    vaddr_t last_mapped_va = 0;  /* Track the last VA that had a mapping */
+    
+    /* Iterate VMRs in VA order using rb_tree */
+    struct rb_node *node;
+    rb_for_each(&vmspace->vmr_tree, node) {
+        vmr = rb_entry(node, struct vmregion, tree_node);
+        kinfo("[VMSPACE STATS] VMR: VA=0x%llx-0x%llx, size=0x%llx, perm=%s, pmo_type=%d\n",
+              vmr->start, vmr->start + vmr->size, vmr->size,
+              get_vmr_prop_str(vmr->perm), vmr->pmo ? vmr->pmo->type : -1);
+        
+        /* Check each page in this vmregion */
+        for (va = vmr->start; va < vmr->start + vmr->size; va += PAGE_SIZE) {
+            bool has_mapping = false;
+            bool is_cxl = false;
+            int machine_ids[CLUSTER_MAX_MACHINE_NUM];
+            int machine_count = 0;
+            
+            /* Query all page tables for this va */
+            for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+                if (!pgtbl)
+                    continue;
+                
+                paddr_t pa = 0;
+                pte_t *pte = NULL;
+                int query_ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
+                
+                if (query_ret == 0 && pte && (pte->pteval & PAGE_PRESENT)) {
+                    has_mapping = true;
+                    
+                    /* Check if this is CXL shared memory or local DRAM */
+                    int mid = get_paddr_machine_id(pa);
+                    
+                    if (mid == MACHINE_ID_SHARED_MEMORY) {
+                        is_cxl = true;
+                        shared_pages_count++;
+                    } else if (mid >= 0 && mid < CLUSTER_MACHINE_NUM) {
+                        machine_ids[machine_count++] = mid;
+                        local_pages_count[mid]++;
+                    }
+                }
+            }
+            
+            /* Process mapping information - only consider pages with actual mappings */
+            if (has_mapping) {
+                /* Check if this page is consecutive to the last mapped page */
+                bool is_consecutive = (seg_started && va == last_mapped_va + PAGE_SIZE);
+                
+                if (!seg_started) {
+                    /* Start a new segment */
+                    seg_start_va = va;
+                    seg_end_va = va;
+                    seg_has_cxl = is_cxl;
+                    seg_machine_count = machine_count;
+                    for (int i = 0; i < machine_count; i++) {
+                        seg_machine_ids[i] = machine_ids[i];
+                    }
+                    seg_started = true;
+                    last_mapped_va = va;
+                } else if (is_consecutive) {
+                    /* Check if this page has the same mapping as the current segment */
+                    if (mappings_equal(seg_has_cxl, seg_machine_ids, seg_machine_count,
+                                       is_cxl, machine_ids, machine_count)) {
+                        /* Same mapping and consecutive, continue the segment */
+                        seg_end_va = va;
+                        last_mapped_va = va;
+                    } else {
+                        /* Different mapping, print the previous segment and start a new one */
+                        print_segment(seg_start_va, seg_end_va, seg_has_cxl,
+                                     seg_machine_ids, seg_machine_count);
+                        
+                        seg_start_va = va;
+                        seg_end_va = va;
+                        seg_has_cxl = is_cxl;
+                        seg_machine_count = machine_count;
+                        for (int i = 0; i < machine_count; i++) {
+                            seg_machine_ids[i] = machine_ids[i];
+                        }
+                        last_mapped_va = va;
+                    }
+                } else {
+                    /* Not consecutive (gap detected), print previous segment and start new one */
+                    print_segment(seg_start_va, seg_end_va, seg_has_cxl,
+                                 seg_machine_ids, seg_machine_count);
+                    
+                    seg_start_va = va;
+                    seg_end_va = va;
+                    seg_has_cxl = is_cxl;
+                    seg_machine_count = machine_count;
+                    for (int i = 0; i < machine_count; i++) {
+                        seg_machine_ids[i] = machine_ids[i];
+                    }
+                    last_mapped_va = va;
+                }
+            }
+            /* If no mapping, do nothing - skip this VA entirely */
+        }
+    }
+    
+    /* Print the last segment if exists */
+    if (seg_started) {
+        print_segment(seg_start_va, seg_end_va, seg_has_cxl,
+                     seg_machine_ids, seg_machine_count);
+    }
+    read_unlock(&vmspace->vmspace_lock);
+    
+    /* Print summary statistics */
+    kinfo("[VMSPACE STATS] ------------------------------------------\n");
+    kinfo("[VMSPACE STATS] Summary Statistics:\n");
+    kinfo("[VMSPACE STATS]   CXL (shared memory): %llu pages\n", shared_pages_count);
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        if (local_pages_count[i] > 0) {
+            kinfo("[VMSPACE STATS]   Machine %d: %llu pages\n", i, local_pages_count[i]);
+        }
+    }
+    kinfo("[VMSPACE STATS] ==========================================\n");
+}
+
+/* System call to print vmspace statistics for current thread's vmspace */
+int sys_print_vmspace_stats(void)
+{
+#ifndef PRINT_VMSPACE_STATS
+    return 0;
+#else
+    struct vmspace *vmspace;
+    
+    if (!current_thread) {
+        kwarn("sys_print_vmspace_stats: current_thread is NULL\n");
+        return -EINVAL;
+    }
+    
+    vmspace = get_current_vmspace();
+    if (!vmspace) {
+        kwarn("sys_print_vmspace_stats: failed to get vmspace\n");
+        return -EINVAL;
+    }
+    
+    print_vmspace_stats(vmspace);
+    obj_put(vmspace);
+        
+    return 0;
+#endif
+}
+
 void vmspace_deinit(void *ptr)
 {
     struct vmspace *vmspace;
     vmspace = (struct vmspace *)ptr;
+
+#ifdef PRINT_VMSPACE_STATS
+    print_vmspace_stats(vmspace);
+#endif
 
 #ifdef RMAP_ENABLED
     struct vmregion *vmr;

@@ -23,9 +23,7 @@
 #include <ipc/futex.h>
 #include <mm/shm.h>
 #include <mm/page_table_func.h>
-#ifdef MULTI_PAGETABLE_ENABLED
 #include <mm/vmspace.h>
-#endif
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -427,6 +425,7 @@ void sys_ipi_test_kernel(int cpuid);
 
 extern void sys_set_dyn_args(u64 hotness, u64 access_interval);
 extern int sys_register_external_ringbuf(u64 buffer);
+extern int sys_print_vmspace_stats(void);
 
 const void *syscall_table[NR_SYSCALL] = {
         [0 ... NR_SYSCALL - 1] = sys_null_placeholder,
@@ -581,4 +580,5 @@ const void *syscall_table[NR_SYSCALL] = {
 #endif
         [SYS_mmap_shm] = sys_mmap_shm,
         [SYS_memcpy_and_flush_tlb] = sys_memcpy_and_flush_tlb,
+        [SYS_print_vmspace_stats] = sys_print_vmspace_stats,
 };

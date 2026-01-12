@@ -203,6 +203,7 @@ int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr);
 
 struct vmspace *get_current_vmspace();
 int vmspace_init(struct vmspace *vmspace);
+void print_vmspace_stats(struct vmspace *vmspace);
 
 struct cap_group;
 int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,

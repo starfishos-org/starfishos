@@ -33,6 +33,7 @@ kernel_ready() {
   echo "Kernel $1 is ready"
 }
 
+make start-ivshmem-server
 make clean-dsm-meta
 welcome_str="Welcome to ChCore shell!"
 

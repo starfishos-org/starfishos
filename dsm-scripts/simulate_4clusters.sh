@@ -7,6 +7,7 @@ if [ "$1" == "build" ]; then
 	./chbuild build
 fi
 
+make start-ivshmem-server
 make clean-dsm
 
 session_name=$USER-qemu
