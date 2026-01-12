@@ -435,3 +435,8 @@ int usys_mmap_shm(u32 shm_id, void *addr)
 {
 	return chcore_syscall2(CHCORE_SYS_mmap_shm, shm_id, (u64)addr);
 }
+
+int usys_print_vmspace_stats(void)
+{
+	return chcore_syscall0(CHCORE_SYS_print_vmspace_stats);
+}
