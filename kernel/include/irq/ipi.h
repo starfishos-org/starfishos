@@ -27,8 +27,11 @@ void handle_ipi(void);
 void arch_handle_ipi(u32 ipi_vector);
 
 /* For global stop */
+void wait_ipi_finish_mask(u32 current_cpu, u8 *cpu_mask, u32 expected_cnt);
 void wait_finish_in_kernel(u32 target_cpu);
 void wait_all_in_kernel(u32 except_cpu);
+void wait_all_ipi_finish(u32 except_cpu);
+void unlock_ipi_tx(u32 target_cpu);
 void mark_in_kernel_ipi_tx(u32 target_cpu);
 void mark_finish_ipi_tx(u32 target_cpu);
 

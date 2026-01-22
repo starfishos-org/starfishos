@@ -122,6 +122,7 @@ void flush_tlb_all(void)
  * Based on IPI_tx interfaces, ChCore uses the following TLB shootdown
  * protocol between different CPU cores.
  */
+#if 0
 static void flush_remote_tlb_with_ipi(u32 target_cpu, vaddr_t start_va,
                                       u64 page_cnt, u64 pcid, u64 vmspace)
 {
@@ -144,6 +145,7 @@ static void flush_remote_tlb_with_ipi(u32 target_cpu, vaddr_t start_va,
     /* IPI_tx: step-4 */
     wait_finish_ipi_tx(target_cpu);
 }
+#endif
 
 /* Currently, ChCore uses a simple policy for choosing how to flush TLB */
 // TODO: refer to Linux on how to flush TLB (for better performance)
@@ -178,6 +180,8 @@ void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va,
     u64 pcid;
     u32 cpuid;
     u32 i;
+    u32 target_count = 0;
+    u8 cpu_mask[PLAT_CPU_NUM] = {0};
 
     if (unlikely(len < PAGE_SIZE))
         kwarn("func: %s. len (%p) < PAGE_SIZE\n", __func__, len);
@@ -195,25 +199,94 @@ void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va,
 #endif
 
     cpuid = smp_get_cpu_id();
-    /* Flush local TLBs */
-    // if (vmspace->history_cpus[cpuid] == 1) {
-        flush_local_tlb_opt(start_va, page_cnt, pcid);
-        // kinfo("flush local tlb on cpu %d\n", cpuid);
-    // }
 
-    /* Flush remote TLBs */
-    // TODO: it may be, sometimes, effective to interrupt all other CPU at the
-    // same time.
+    /* Flush remote TLBs in parallel */
+    /* Step 1.0: Prepare and send IPIs to all target CPUs without waiting */
     for (i = 0; i < PLAT_CPU_NUM; ++i) {
-        // if ((i != cpuid) && (vmspace->history_cpus[i] == 1)) {
-        if (i != cpuid) {
-            flush_remote_tlb_with_ipi(
-                    i, start_va, page_cnt, pcid, (u64)vmspace);
-            // kinfo("flush remote tlb on cpu %d\n", i);
+        if ((i != cpuid) && (vmspace->history_cpus[i] == 1)) {
+            /* IPI_tx: step-1 */
+            prepare_ipi_tx(i);
+            /* IPI_tx: step-2 */
+            set_ipi_tx_arg(i, 0, start_va);
+            set_ipi_tx_arg(i, 1, page_cnt);
+            set_ipi_tx_arg(i, 2, pcid);
+            set_ipi_tx_arg(i, 3, (u64)vmspace);
+            /* IPI_tx: step-3 */
+            start_ipi_tx(i, IPI_TLB_SHOOTDOWN);
+            cpu_mask[i] = 1;
+            target_count++;
         }
     }
 
-    // kinfo("flush tlb done\n");
+    /* Step 1.1: If necessary, flush local TLBs */
+    if (vmspace->history_cpus[cpuid] == 1) {
+        flush_local_tlb_opt(start_va, page_cnt, pcid);
+    }
+
+    /* Step 2: Wait for all IPIs to finish and unlock */
+    if (target_count > 0) {
+        wait_ipi_finish_mask(cpuid, cpu_mask, target_count);
+    }
+}
+
+
+/*
+ * This function is responsible for flushing the TLBs (with the
+ * corresponding VA range provided) on all CPUs (but not only the necessary ones)
+ */
+ void flush_tlbs_on_all_cpus(struct vmspace *vmspace, vaddr_t start_va,
+    size_t len)
+{
+    /* page_cnt, i.e., TLB_entry_cnt */
+    u64 page_cnt;
+    u64 pcid;
+    u32 cpuid;
+    u32 i;
+    u32 target_count = 0;
+    u8 cpu_mask[PLAT_CPU_NUM] = {0};
+
+    if (unlikely(len < PAGE_SIZE))
+        kwarn("func: %s. len (%p) < PAGE_SIZE\n", __func__, len);
+
+    if (len == 0)
+        return;
+
+    len = ROUND_UP(len, PAGE_SIZE);
+    page_cnt = len / PAGE_SIZE;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+    pcid = get_pcid(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID));
+#else
+    pcid = get_pcid(vmspace->pgtbl);
+#endif
+
+    cpuid = smp_get_cpu_id();
+
+    /* Flush remote TLBs in parallel */
+    /* Step 1.0: Prepare and send IPIs to all target CPUs without waiting */
+    for (i = 0; i < PLAT_CPU_NUM; ++i) {
+        if (i != cpuid) {
+            /* IPI_tx: step-1 */
+            prepare_ipi_tx(i);
+            /* IPI_tx: step-2 */
+            set_ipi_tx_arg(i, 0, start_va);
+            set_ipi_tx_arg(i, 1, page_cnt);
+            set_ipi_tx_arg(i, 2, pcid);
+            set_ipi_tx_arg(i, 3, (u64)vmspace);
+            /* IPI_tx: step-3 */
+            start_ipi_tx(i, IPI_TLB_SHOOTDOWN);
+            cpu_mask[i] = 1;
+            target_count++;
+        }
+    }
+
+    /* Step 1.1: If necessary, flush local TLBs */
+    flush_local_tlb_opt(start_va, page_cnt, pcid);
+
+    /* Step 2: Wait for all IPIs to finish and unlock */
+    if (target_count > 0) {
+        wait_ipi_finish_mask(cpuid, cpu_mask, target_count);
+    }
 }
 
 /*
@@ -231,17 +304,34 @@ static void flush_tlb_by_pcid_global(struct vmspace *vmspace)
     u64 pcid = vmspace->pcid;
     u32 cpuid;
     u32 i;
+    u32 target_count = 0;
+    u8 cpu_mask[PLAT_CPU_NUM] = {0};
 
     /* Flush local TLBs */
     flush_local_tlb_opt(dummy_va, page_cnt, pcid);
 
     cpuid = smp_get_cpu_id();
-    /* Flush remote TLBs */
+    /* Flush remote TLBs in parallel */
+    /* Step 1: Prepare and send IPIs to all target CPUs without waiting */
     for (i = 0; i < PLAT_CPU_NUM; ++i) {
         if ((i != cpuid) && (vmspace->history_cpus[i] == 1)) {
-            flush_remote_tlb_with_ipi(
-                    i, dummy_va, page_cnt, pcid, dummy_vmspace);
+            /* IPI_tx: step-1 */
+            prepare_ipi_tx(i);
+            /* IPI_tx: step-2 */
+            set_ipi_tx_arg(i, 0, dummy_va);
+            set_ipi_tx_arg(i, 1, page_cnt);
+            set_ipi_tx_arg(i, 2, pcid);
+            set_ipi_tx_arg(i, 3, dummy_vmspace);
+            /* IPI_tx: step-3 */
+            start_ipi_tx(i, IPI_TLB_SHOOTDOWN);
+            cpu_mask[i] = 1;
+            target_count++;
         }
+    }
+
+    /* Step 2: Wait for all IPIs to finish and unlock */
+    if (target_count > 0) {
+        wait_ipi_finish_mask(cpuid, cpu_mask, target_count);
     }
 }
 

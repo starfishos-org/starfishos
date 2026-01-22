@@ -34,10 +34,12 @@ void init_ipi_data(void)
     for (i = 0; i < PLAT_CPU_NUM; ++i) {
         lock_init(&ipi_data[i].lock);
         ipi_data[i].finish = 1;
+        ipi_data[i].vector = 0;  /* Initialize vector to 0 (invalid) */
     }
 
     lock_init(&special_cpu_ipi_data.lock);
     special_cpu_ipi_data.finish = 1;
+    special_cpu_ipi_data.vector = 0;
 }
 
 /*
@@ -65,6 +67,7 @@ void prepare_ipi_tx(u32 target_cpu)
      *        waiting for CPU 1 to finish an IPI tx.
      */
     while (try_lock(&data_target->lock)) {
+        /* Handle pending IPI first */
         if (!data_self->finish) {
             handle_ipi();
         }
@@ -158,7 +161,9 @@ void handle_ipi(void)
         return;
     }
 
-    arch_handle_ipi(data->vector);
+    if (data->vector != 0) {
+        arch_handle_ipi(data->vector);
+    }
 
     data->finish = 1;
 }
@@ -264,6 +269,80 @@ void wait_all_in_kernel(u32 except_cpu)
         /* All CPU is ready */
         if (cnt == PLAT_CPU_NUM - 1)
             break;
+    }
+}
+
+/* Wait for all IPI transactions to finish (checking finish flag) */
+void wait_all_ipi_finish(u32 except_cpu)
+{
+    u32 i;
+    u32 cnt;
+    struct ipi_data *data_self;
+
+    data_self = &(ipi_data[smp_get_cpu_id()]);
+
+    while (1) {
+        /* How many CPU finished? */
+        cnt = 0;
+        for (i = 0; i < PLAT_CPU_NUM; ++i) {
+            if (i == except_cpu)
+                continue;
+            /* already get lock in prepare_ipi_tx */
+            if (ipi_data[i].finish == 1)
+                cnt++;
+        }
+
+        /* All CPU finished */
+        if (cnt == PLAT_CPU_NUM - 1)
+            break;
+
+        /* Avoid deadlock by handling local IPI while waiting */
+        if (!data_self->finish) {
+            handle_ipi();
+        }
+    }
+}
+
+/* Unlock IPI transaction lock for a specific CPU */
+void unlock_ipi_tx(u32 target_cpu)
+{
+    unlock(&(ipi_data[target_cpu].lock));
+}
+
+/* Wait for specific CPUs to finish IPI transactions */
+void wait_ipi_finish_mask(u32 current_cpu, u8 *cpu_mask, u32 expected_cnt)
+{
+    u32 i;
+    u32 cnt;
+    struct ipi_data *data_self;
+    
+    data_self = &(ipi_data[current_cpu]);
+
+    cnt = expected_cnt;
+    BUG_ON(cpu_mask[current_cpu] != 0);
+
+    while (cnt > 0) {
+        /* How many CPUs finished? */
+        for (i = 0; i < PLAT_CPU_NUM; ++i) {
+            if (cpu_mask[i] == 0) {
+                continue;
+            }
+            // loop through all the CPUs in the mask (that is not finished)
+            // check if cpu i finished
+            if (ipi_data[i].finish == 1) {
+                // unset the cpu in the mask
+                cpu_mask[i] = 0;
+                // decrement the unfinished count
+                cnt--;
+                // unlock the ipi_data lock of cpu i to allow this CPU to proceed
+                unlock(&(ipi_data[i].lock));
+            }
+        }
+
+        /* Avoid deadlock by handling local IPI while waiting */
+        if (!data_self->finish) {
+            handle_ipi();
+        }
     }
 }
 

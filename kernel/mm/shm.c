@@ -83,17 +83,28 @@ struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
         return NULL;
     }
 
-    s32 idx = atomic_fetch_add_32(&shm->write_index, 1);
-    struct shm_msg *msg = &shm->msgs[idx % MAX_MSG_COUNT];
+    /* First, try to acquire the message slot by CAS */
+    struct shm_msg *msg = &shm->msgs[w % MAX_MSG_COUNT];
 
     if (compare_and_swap_32(&msg->state, MSG_FREE, MSG_REQ_WRITING)
         != MSG_FREE) {
-            kdebug("[SEND MSG] machine %d: msg %d already in use\n", CUR_MACHINE_ID, idx % MAX_MSG_COUNT);
+        kdebug("[SEND MSG] machine %d: msg %d already in use\n", CUR_MACHINE_ID, w % MAX_MSG_COUNT);
+        return NULL;
+    }
+
+    /* If CAS succeeded, atomically increment write_index */
+    /* Use CAS to ensure atomicity: only one thread can successfully update write_index */
+    s32 expected_w = w;
+    if (compare_and_swap_32(&shm->write_index, expected_w, w + 1) != expected_w) {
+        /* Another thread already incremented write_index, rollback message state */
+        atomic_store_32(&msg->state, MSG_FREE);
+        kdebug("[SEND MSG] machine %d: write_index CAS failed, rolled back msg %d\n", 
+               CUR_MACHINE_ID, w % MAX_MSG_COUNT);
         return NULL;
     }
 
     kdebug("[SEND MSG] machine %d: send msg, msg_id=%d, state=%d\n",
-        CUR_MACHINE_ID, idx % MAX_MSG_COUNT, MSG_REQ_WRITING);
+        CUR_MACHINE_ID, w % MAX_MSG_COUNT, MSG_REQ_WRITING);
 
     return msg;
 }
@@ -105,6 +116,9 @@ struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
         if (msg != NULL) {
             return msg;
         }
+        /* Handle IPI while waiting to avoid deadlock */
+        extern void handle_ipi(void);
+        handle_ipi();
     }
 }
 

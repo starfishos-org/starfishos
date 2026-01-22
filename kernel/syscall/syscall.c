@@ -325,8 +325,8 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     read_unlock(&vmspace->vmspace_lock);
 
     /* Step 2: Flush TLB to ensure all CPUs see the NULL mapping */
-    extern void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va, size_t len);
-    flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+    extern void flush_tlbs_on_all_cpus(struct vmspace *vmspace, vaddr_t start_va, size_t len);
+    flush_tlbs_on_all_cpus(vmspace, (vaddr_t)fault_va, (size_t)len);
 
     /* Step 3: Copy the page (now safe because mapping is NULL) */
     memcpy(dst_va, src_va, (size_t)len);
@@ -360,7 +360,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     read_unlock(&vmspace->vmspace_lock);
 
     /* Step 5: Flush TLB again to ensure all CPUs see the new mapping  */
-    flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+    // flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
 
     kdebug("memcpy and flush tlb done\n");
 
