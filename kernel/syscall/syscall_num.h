@@ -154,6 +154,7 @@
 /* Shared Memory */
 #define SYS_mmap_shm             261
 #define SYS_memcpy_and_flush_tlb 262
+#define SYS_memcpy_and_flush_tlb_batch 265
 
 /* Debug - VMSPACE Stats */
 #define SYS_print_vmspace_stats  264

@@ -2,14 +2,71 @@
 
 void memcpy(void *dst, const void *src, size_t size)
 {
-    char *d;
-    char *s;
-    u64 i;
+    char *d = (char *)dst;
+    const char *s = (const char *)src;
+    size_t i;
 
-    d = (char *)dst;
-    s = (char *)src;
-    for (i = 0; i < size; ++i)
-        d[i] = s[i];
+    /* Optimize for large copies (>= 64 bytes): use 64-byte blocks */
+    if (size >= 64) {
+        size_t n64 = size / 64;
+        u64 *d64 = (u64 *)d;
+        const u64 *s64 = (const u64 *)s;
+        
+        /* Copy 64 bytes at a time (8 x 64-bit registers) */
+        for (i = 0; i < n64; i++) {
+            /* Unroll loop: copy 8 x 8 bytes = 64 bytes */
+            d64[i * 8 + 0] = s64[i * 8 + 0];
+            d64[i * 8 + 1] = s64[i * 8 + 1];
+            d64[i * 8 + 2] = s64[i * 8 + 2];
+            d64[i * 8 + 3] = s64[i * 8 + 3];
+            d64[i * 8 + 4] = s64[i * 8 + 4];
+            d64[i * 8 + 5] = s64[i * 8 + 5];
+            d64[i * 8 + 6] = s64[i * 8 + 6];
+            d64[i * 8 + 7] = s64[i * 8 + 7];
+        }
+        
+        /* Handle remaining bytes */
+        size_t remain = size % 64;
+        if (remain > 0) {
+            char *d_tail = d + n64 * 64;
+            const char *s_tail = s + n64 * 64;
+            /* Use 64-bit for remaining if >= 8 bytes */
+            size_t remain64 = remain / 8;
+            u64 *d_tail64 = (u64 *)d_tail;
+            const u64 *s_tail64 = (const u64 *)s_tail;
+            for (i = 0; i < remain64; i++) {
+                d_tail64[i] = s_tail64[i];
+            }
+            /* Handle final bytes (< 8) */
+            size_t final_bytes = remain % 8;
+            if (final_bytes > 0) {
+                char *d_final = d_tail + remain64 * 8;
+                const char *s_final = s_tail + remain64 * 8;
+                for (i = 0; i < final_bytes; i++) {
+                    d_final[i] = s_final[i];
+                }
+            }
+        }
+    } else {
+        /* Small copies: use 64-bit when possible */
+        size_t n64 = size / 8;
+        u64 *d64 = (u64 *)d;
+        const u64 *s64 = (const u64 *)s;
+        
+        for (i = 0; i < n64; i++) {
+            d64[i] = s64[i];
+        }
+        
+        /* Handle remaining bytes */
+        size_t remain = size % 8;
+        if (remain > 0) {
+            char *d_tail = d + n64 * 8;
+            const char *s_tail = s + n64 * 8;
+            for (i = 0; i < remain; i++) {
+                d_tail[i] = s_tail[i];
+            }
+        }
+    }
 }
 
 void memset(void *dst, const char ch, size_t size)

@@ -213,6 +213,7 @@ void handle_irq(int irqno)
         return;
 
     case IRQ_IPI_TLB:
+    case IRQ_IPI_TLB_BATCH:
     case IRQ_IPI_RESCHED:
     case IRQ_IPI_WAIT_IN_KERNEL:
         // kinfo("CPU %d: receive IPI on TLB.\n", smp_get_cpu_id());
@@ -373,7 +374,8 @@ void trap_c(arch_exec_ctx_t *ec)
 
     /* Just for kernel tracing and debugging */
     if ((trapno != IRQ_TIMER) && (trapno != T_PF) && (trapno != IRQ_IPI_TLB)
-        && (trapno != IRQ_IPI_RESCHED) && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
+        && (trapno != IRQ_IPI_TLB_BATCH) && (trapno != IRQ_IPI_RESCHED)
+        && (trapno != IRQ_IPI_WAIT_IN_KERNEL)
         && (trapno != IRQ_IPI_STOP_RESCHED) && (trapno != IRQ_IPI_RESET_SCHED)
         && (trapno != IRQ_MSIX_IVSHMEM) && (trapno != T_NM)) {
         kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",

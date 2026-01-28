@@ -24,6 +24,7 @@
 #include <mm/shm.h>
 #include <mm/page_table_func.h>
 #include <mm/vmspace.h>
+#include <arch/mm/page_table.h>
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -40,6 +41,10 @@
 #endif
 
 #include "syscall_num.h"
+
+/* Enable TLB flush latency breakdown logging */
+/* Define TLB_FLUSH_LATENCY_DEBUG to enable detailed latency statistics */
+// #define TLB_FLUSH_LATENCY_DEBUG
 
 #if HOOKING_SYSCALL == ON
 void hook_syscall(long n)
@@ -286,7 +291,22 @@ u32 sys_get_machine_cpu_count(void)
 int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
                              u64 vmspace_ptr)
 {
-    /* Convert physical addresses to kernel virtual addresses */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    /* Performance measurement variables */
+    u64 t_start, t_end, t_total;
+    u64 t_stage0_start, t_stage0_end, t_stage0;
+    u64 t_stage1_start, t_stage1_end, t_stage1;
+    u64 t_stage2_start, t_stage2_end, t_stage2;
+    u64 t_stage3_start, t_stage3_end, t_stage3;
+    u64 t_stage4_start, t_stage4_end, t_stage4;
+
+    t_start = plat_get_mono_time();
+#endif
+
+    /* Stage 0: Parameter validation and conversion */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage0_start = plat_get_mono_time();
+#endif
     void *src_va = (void *)phys_to_virt((paddr_t)src_pa);
     void *dst_va = (void *)phys_to_virt((paddr_t)dst_pa);
     struct vmspace *vmspace = (struct vmspace *)vmspace_ptr;
@@ -303,8 +323,18 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         kwarn("[SYS] Invalid len: len=%lu\n", len);
         return -EINVAL;
     }
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage0_end = plat_get_mono_time();
+    t_stage0 = t_stage0_end - t_stage0_start;
+#endif
 
-    /* Step 1: Temporarily invalidate PTE (with lock protection) */
+    // kinfo("[MSG] machine %d handle memcpy and flush tlb, src_pa=0x%lx, dst_pa=0x%lx, len=%lu, fault_va=0x%lx, vmspace_ptr=0x%lx\n", 
+        //   CUR_MACHINE_ID, src_pa, dst_pa, len, fault_va, vmspace_ptr);
+
+    /* Stage 1: Temporarily invalidate PTE (with lock protection) */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage1_start = plat_get_mono_time();
+#endif
     read_lock(&vmspace->vmspace_lock);
     lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
@@ -323,20 +353,43 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     set_migration_entry(pte);
     unlock(&vmspace->pgtbl_lock);
     read_unlock(&vmspace->vmspace_lock);
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage1_end = plat_get_mono_time();
+    t_stage1 = t_stage1_end - t_stage1_start;
+#endif
 
-    /* Step 2: Flush TLB to ensure all CPUs see the NULL mapping */
+    /* Stage 2: Flush TLB to ensure all CPUs see the NULL mapping */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage2_start = plat_get_mono_time();
+#endif
     extern void flush_tlbs_on_all_cpus(struct vmspace *vmspace, vaddr_t start_va, size_t len);
     flush_tlbs_on_all_cpus(vmspace, (vaddr_t)fault_va, (size_t)len);
+    // extern void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va, size_t len);
+    // flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage2_end = plat_get_mono_time();
+    t_stage2 = t_stage2_end - t_stage2_start;
+#endif
 
-    /* Step 3: Copy the page (now safe because mapping is NULL) */
+    /* Stage 3: Copy the page (now safe because mapping is NULL) */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage3_start = plat_get_mono_time();
+#endif
     memcpy(dst_va, src_va, (size_t)len);
     kdebug("cpu %d memcpy paddr(%p) to paddr(%p)\n", smp_get_cpu_id(), src_pa, dst_pa);
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage3_end = plat_get_mono_time();
+    t_stage3 = t_stage3_end - t_stage3_start;
+#endif
 
     // struct page *page = virt_to_page(src_va);
     // kinfo("page: %p, page->pool: %p (type: %d), page->order: %d\n", page, page->pool, page->pool->type, page->order);
     // free_pages(src_va);
 
-    /* Step 4: Remap to dst_pa (must re-acquire lock and re-query pte) */
+    /* Stage 4: Remap to dst_pa (must re-acquire lock and re-query pte) */
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage4_start = plat_get_mono_time();
+#endif
     read_lock(&vmspace->vmspace_lock);
     lock(&vmspace->pgtbl_lock);
     /* After get_and_clear_pte, PTE is cleared (present=0), so we need to set both pfn and present */
@@ -358,13 +411,243 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         }
     }
     read_unlock(&vmspace->vmspace_lock);
+#ifdef TLB_FLUSH_LATENCY_DEBUG
+    t_stage4_end = plat_get_mono_time();
+    t_stage4 = t_stage4_end - t_stage4_start;
 
-    /* Step 5: Flush TLB again to ensure all CPUs see the new mapping  */
-    // flush_tlb_local_and_remote(vmspace, (vaddr_t)fault_va, (size_t)len);
+    /* Calculate total time and print latency breakdown */
+    t_end = plat_get_mono_time();
+    t_total = t_end - t_start;
+
+    /* Print latency breakdown */
+    kinfo("[TLB_FLUSH_LATENCY] cpu=%d, total=%llu ns (100.00%%)\n", 
+          smp_get_cpu_id(), t_total);
+    
+    /* Calculate percentages using integer arithmetic (avoid floating point) */
+    if (t_total > 0) {
+        u64 pct0 = (t_stage0 * 10000) / t_total;
+        u64 pct1 = (t_stage1 * 10000) / t_total;
+        u64 pct2 = (t_stage2 * 10000) / t_total;
+        u64 pct3 = (t_stage3 * 10000) / t_total;
+        u64 pct4 = (t_stage4 * 10000) / t_total;
+        
+        kinfo("  Stage 0 (param validation): %llu ns (%llu.%02llu%%)\n", 
+              t_stage0, pct0 / 100, pct0 % 100);
+        kinfo("  Stage 1 (invalidate PTE): %llu ns (%llu.%02llu%%)\n", 
+              t_stage1, pct1 / 100, pct1 % 100);
+        kinfo("  Stage 2 (flush TLB): %llu ns (%llu.%02llu%%)\n", 
+              t_stage2, pct2 / 100, pct2 % 100);
+        kinfo("  Stage 3 (memcpy): %llu ns (%llu.%02llu%%)\n", 
+              t_stage3, pct3 / 100, pct3 % 100);
+        kinfo("  Stage 4 (remap & update PMO): %llu ns (%llu.%02llu%%)\n", 
+              t_stage4, pct4 / 100, pct4 % 100);
+    } else {
+        kinfo("  Stage 0 (param validation): %llu ns (0.00%%)\n", t_stage0);
+        kinfo("  Stage 1 (invalidate PTE): %llu ns (0.00%%)\n", t_stage1);
+        kinfo("  Stage 2 (flush TLB): %llu ns (0.00%%)\n", t_stage2);
+        kinfo("  Stage 3 (memcpy): %llu ns (0.00%%)\n", t_stage3);
+        kinfo("  Stage 4 (remap & update PMO): %llu ns (0.00%%)\n", t_stage4);
+    }
+#endif
 
     kdebug("memcpy and flush tlb done\n");
 
     return 0;
+}
+
+/* Structure for batch memcpy and flush TLB operations */
+struct memcpy_flush_tlb_op {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 len;
+    u64 fault_va;
+    u64 vmspace_ptr;
+};
+
+/* Structure for batch TLB flush operations */
+struct tlb_flush_batch_op {
+    u64 fault_va;
+    u64 len;
+    u64 pcid;
+    u64 vmspace_ptr;
+};
+
+/* Helper structure to track vmspace flush ranges */
+struct vmspace_flush_range {
+    struct vmspace *vmspace;
+    vaddr_t min_va;
+    vaddr_t max_va;
+    size_t total_len;
+};
+
+int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
+{
+    struct memcpy_flush_tlb_op *kernel_ops;
+    int i, ret = 0;
+    size_t ops_size;
+    
+    /* Validate parameters */
+    if (ops_count == 0 || ops_count > 1024) {
+        kwarn("[SYS] Invalid ops_count: %lu (must be 1-1024)\n", ops_count);
+        return -EINVAL;
+    }
+    
+    ops_size = sizeof(struct memcpy_flush_tlb_op) * ops_count;
+    kernel_ops = kmalloc(ops_size, __MT_DEFAULT__);
+    if (!kernel_ops) {
+        kwarn("[SYS] Failed to allocate memory for batch operations\n");
+        return -ENOMEM;
+    }
+    
+    /* Copy operations from user space */
+    if (copy_from_user((char *)kernel_ops, (char *)ops_buf, ops_size)) {
+        kfree(kernel_ops);
+        kwarn("[SYS] Failed to copy operations from user space\n");
+        return -EFAULT;
+    }
+    
+    /* Validate all operations first */
+    for (i = 0; i < ops_count; i++) {
+        struct memcpy_flush_tlb_op *op = &kernel_ops[i];
+        void *src_va = (void *)phys_to_virt((paddr_t)op->src_pa);
+        void *dst_va = (void *)phys_to_virt((paddr_t)op->dst_pa);
+        struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
+        
+        if (!src_va || !dst_va || !vmspace) {
+            kwarn("[SYS] Invalid operation %d: src_va=%p, dst_va=%p, vmspace=%p\n",
+                  i, src_va, dst_va, vmspace);
+            ret = -EINVAL;
+            goto out;
+        }
+        
+        if (op->len % PAGE_SIZE) {
+            kwarn("[SYS] Invalid operation %d: len=%lu (must be page-aligned)\n",
+                  i, op->len);
+            ret = -EINVAL;
+            goto out;
+        }
+    }
+    
+    /* Phase 1: Invalidate all PTEs */
+    for (i = 0; i < ops_count; i++) {
+        struct memcpy_flush_tlb_op *op = &kernel_ops[i];
+        struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
+        pte_t *pte = NULL;
+        
+        read_lock(&vmspace->vmspace_lock);
+        lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID),
+                       (vaddr_t)op->fault_va, NULL, &pte);
+#else
+        query_in_pgtbl(vmspace->pgtbl, (vaddr_t)op->fault_va, NULL, &pte);
+#endif
+        if (!pte) {
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            kwarn("[SYS] query_in_pgtbl failed for operation %d: fault_va=0x%lx\n",
+                  i, op->fault_va);
+            ret = -EINVAL;
+            goto out;
+        }
+        set_migration_entry(pte);
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+    }
+    
+    /* Phase 2: Flush TLB using batch IPI for all operations */
+    /* Prepare batch TLB flush operations */
+    extern void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count);
+    struct tlb_flush_batch_op *tlb_ops;
+    tlb_ops = kmalloc(sizeof(struct tlb_flush_batch_op) * ops_count, __MT_DEFAULT__);
+    if (!tlb_ops) {
+        kwarn("[SYS] Failed to allocate memory for batch TLB flush operations\n");
+        ret = -ENOMEM;
+        goto out;
+    }
+    
+    /* Fill batch TLB flush operations */
+    for (i = 0; i < ops_count; i++) {
+        struct memcpy_flush_tlb_op *op = &kernel_ops[i];
+        struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
+        u64 pcid;
+        
+#ifdef MULTI_PAGETABLE_ENABLED
+        pcid = get_pcid(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID));
+#else
+        pcid = get_pcid(vmspace->pgtbl);
+#endif
+        
+        tlb_ops[i].fault_va = op->fault_va;
+        tlb_ops[i].len = op->len;
+        tlb_ops[i].pcid = pcid;
+        tlb_ops[i].vmspace_ptr = op->vmspace_ptr;
+    }
+    
+    /* Send batch TLB flush IPI to all CPUs */
+    flush_tlbs_batch_on_all_cpus(tlb_ops, ops_count);
+    
+    kfree(tlb_ops);
+    
+    /* Phase 3: Perform all memcpy operations */
+    for (i = 0; i < ops_count; i++) {
+        struct memcpy_flush_tlb_op *op = &kernel_ops[i];
+        void *src_va = (void *)phys_to_virt((paddr_t)op->src_pa);
+        void *dst_va = (void *)phys_to_virt((paddr_t)op->dst_pa);
+        
+        memcpy(dst_va, src_va, (size_t)op->len);
+        kdebug("cpu %d batch memcpy[%d] paddr(%p) to paddr(%p), len=%lu\n",
+               smp_get_cpu_id(), i, op->src_pa, op->dst_pa, op->len);
+    }
+    
+    /* Phase 4: Remap all PTEs */
+    for (i = 0; i < ops_count; i++) {
+        struct memcpy_flush_tlb_op *op = &kernel_ops[i];
+        struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
+        pte_t *pte = NULL;
+        
+        read_lock(&vmspace->vmspace_lock);
+        lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID),
+                       (vaddr_t)op->fault_va, NULL, &pte);
+#else
+        query_in_pgtbl(vmspace->pgtbl, (vaddr_t)op->fault_va, NULL, &pte);
+#endif
+        if (!pte) {
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            kwarn("[SYS] query_in_pgtbl failed for remap operation %d\n", i);
+            ret = -EINVAL;
+            goto out;
+        }
+        
+        BUG_ON(!is_migration_entry(pte));
+        remap_page_in_pgtbl(pte, op->dst_pa);
+        pte->pte_4K.present = 1;
+        kdebug("cpu %d batch remap[%d] page(paddr=%p), fault_va=0x%lx\n",
+               smp_get_cpu_id(), i, op->dst_pa, op->fault_va);
+        
+        /* Update PMO structure */
+        struct vmregion *vmr = find_vmr_for_va(vmspace, (vaddr_t)op->fault_va);
+        if (vmr && vmr->pmo) {
+            struct pmobject *pmo = vmr->pmo;
+            u64 index = ((vaddr_t)op->fault_va - vmr->start) / PAGE_SIZE;
+            
+            if (is_radix_pmo(pmo)) {
+                commit_page_to_pmo(pmo, index, op->dst_pa);
+            }
+        }
+        
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+    }
+    
+    kdebug("batch memcpy and flush tlb done: %lu operations\n", ops_count);
+    
+out:
+    kfree(kernel_ops);
+    return ret;
 }
 
 #ifdef IPC_PERF_ENABLED
@@ -580,5 +863,6 @@ const void *syscall_table[NR_SYSCALL] = {
 #endif
         [SYS_mmap_shm] = sys_mmap_shm,
         [SYS_memcpy_and_flush_tlb] = sys_memcpy_and_flush_tlb,
+        [SYS_memcpy_and_flush_tlb_batch] = sys_memcpy_and_flush_tlb_batch,
         [SYS_print_vmspace_stats] = sys_print_vmspace_stats,
 };

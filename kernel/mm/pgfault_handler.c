@@ -20,6 +20,8 @@
 #include <object/user_fault.h>
 #include <sched/context.h>
 #include <arch/sync.h>
+#include <arch/time.h>
+#include <irq/timer.h>
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
 #include <arch/mm/tlb.h>
@@ -46,7 +48,174 @@
 
 #define PGFAULT_POLICY ONDEMAND
 
+/* Enable page fault statistics and debug logging */
+/* Define PGFAULT_STATS_DEBUG to enable detailed statistics printing */
+#define PGFAULT_STATS_DEBUG
+
 #ifdef MULTI_PAGETABLE_ENABLED
+#ifdef PGFAULT_STATS_DEBUG
+#define PGFAULT_STATS_RECENT_COUNT 1000  /* Store last 1000 samples */
+
+/* Circular buffer for recent samples */
+struct pgfault_case_recent_stats {
+    u64 cycles_buffer[PGFAULT_STATS_RECENT_COUNT];
+    u64 write_index;  /* Current write position */
+    u64 count;        /* Actual number of samples (max PGFAULT_STATS_RECENT_COUNT) */
+};
+
+/* Statistics for page fault handling cases */
+struct pgfault_case_stats {
+    struct pgfault_case_recent_stats case_migration_entry;
+    struct pgfault_case_recent_stats case2_wait;
+    struct pgfault_case_recent_stats case2_migrate;
+    struct pgfault_case_recent_stats case1_direct_map;
+};
+
+static struct pgfault_case_stats pgfault_stats = {0};
+
+/* Add a sample to circular buffer */
+static void add_sample(struct pgfault_case_recent_stats *stats, u64 cycles)
+{
+    stats->cycles_buffer[stats->write_index] = cycles;
+    stats->write_index = (stats->write_index + 1) % PGFAULT_STATS_RECENT_COUNT;
+    if (stats->count < PGFAULT_STATS_RECENT_COUNT)
+        stats->count++;
+}
+
+/* Calculate average, max, min from recent samples */
+static void calc_recent_stats(struct pgfault_case_recent_stats *stats, 
+                              u64 *avg, u64 *max, u64 *min)
+{
+    if (stats->count == 0) {
+        *avg = *max = *min = 0;
+        return;
+    }
+    
+    u64 sum = 0;
+    *max = 0;
+    *min = ~0ULL;  /* Maximum u64 value */
+    
+    for (u64 i = 0; i < stats->count; i++) {
+        u64 cycles = stats->cycles_buffer[i];
+        sum += cycles;
+        if (cycles > *max) *max = cycles;
+        if (cycles < *min) *min = cycles;
+    }
+    
+    *avg = sum / stats->count;
+}
+
+/* Forward declaration */
+void print_pgfault_stats(void);
+
+/* Timer for periodic statistics printing */
+#define PGFAULT_STATS_PRINT_INTERVAL_MS 5000  /* Print every 5 seconds */
+static u64 pgfault_stats_last_print_time = 0;
+static bool pgfault_stats_timer_enabled = true;
+static struct lock pgfault_stats_print_lock;
+static bool pgfault_stats_lock_initialized = false;
+#endif /* PGFAULT_STATS_DEBUG */
+
+#ifdef PGFAULT_STATS_DEBUG
+/* Check and print statistics periodically */
+static void check_and_print_pgfault_stats(void)
+{
+    if (!pgfault_stats_timer_enabled)
+        return;
+    
+    /* Initialize lock on first use */
+    if (!pgfault_stats_lock_initialized) {
+        lock_init(&pgfault_stats_print_lock);
+        pgfault_stats_lock_initialized = true;
+    }
+    
+    u64 current_time_ns = plat_get_mono_time();
+    u64 interval_ns = PGFAULT_STATS_PRINT_INTERVAL_MS * 1000000ULL; /* Convert ms to ns */
+    
+    /* Use try_lock to avoid blocking page fault handling */
+    if (try_lock(&pgfault_stats_print_lock) == 0) {
+        if (current_time_ns - pgfault_stats_last_print_time >= interval_ns) {
+            pgfault_stats_last_print_time = current_time_ns;
+            print_pgfault_stats();
+        }
+        unlock(&pgfault_stats_print_lock);
+    }
+}
+#endif /* PGFAULT_STATS_DEBUG */
+
+void print_pgfault_stats(void)
+{
+#ifdef PGFAULT_STATS_DEBUG
+    extern u64 cur_freq;
+    /* cur_freq is in Hz (cycles per second), convert to cycles per nanosecond */
+    u64 freq_ns = 0;
+    if (cur_freq > 0) {
+        freq_ns = cur_freq / 1000000000ULL; /* cycles per nanosecond */
+        if (freq_ns == 0) freq_ns = 1; /* avoid division by zero */
+    } else {
+        /* Fallback: assume 2.4 GHz if cur_freq is not initialized */
+        freq_ns = 2400; /* 2.4 GHz = 2.4 cycles per nanosecond */
+    }
+    
+    printk("=== Page Fault Case Statistics (Recent %d samples) ===\n", 
+           PGFAULT_STATS_RECENT_COUNT);
+    printk("CPU Frequency: %llu Hz (assuming %llu cycles/ns for conversion)\n", 
+           cur_freq, freq_ns);
+    
+    u64 avg_cycles, max_cycles, min_cycles;
+    
+    if (pgfault_stats.case_migration_entry.count > 0) {
+        calc_recent_stats(&pgfault_stats.case_migration_entry, 
+                         &avg_cycles, &max_cycles, &min_cycles);
+        u64 avg_ns = avg_cycles / freq_ns;
+        u64 max_ns = max_cycles / freq_ns;
+        u64 min_ns = min_cycles / freq_ns;
+        printk("Case: Migration Entry Wait\n");
+        printk("  Recent Samples: %llu\n", pgfault_stats.case_migration_entry.count);
+        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
+               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+    }
+    
+    if (pgfault_stats.case2_wait.count > 0) {
+        calc_recent_stats(&pgfault_stats.case2_wait, 
+                         &avg_cycles, &max_cycles, &min_cycles);
+        u64 avg_ns = avg_cycles / freq_ns;
+        u64 max_ns = max_cycles / freq_ns;
+        u64 min_ns = min_cycles / freq_ns;
+        printk("Case2: Wait for Migration (already migrating)\n");
+        printk("  Recent Samples: %llu\n", pgfault_stats.case2_wait.count);
+        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
+               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+    }
+    
+    if (pgfault_stats.case2_migrate.count > 0) {
+        calc_recent_stats(&pgfault_stats.case2_migrate, 
+                         &avg_cycles, &max_cycles, &min_cycles);
+        u64 avg_ns = avg_cycles / freq_ns;
+        u64 max_ns = max_cycles / freq_ns;
+        u64 min_ns = min_cycles / freq_ns;
+        printk("Case2: Trigger Migration\n");
+        printk("  Recent Samples: %llu\n", pgfault_stats.case2_migrate.count);
+        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
+               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+    }
+    
+    if (pgfault_stats.case1_direct_map.count > 0) {
+        calc_recent_stats(&pgfault_stats.case1_direct_map, 
+                         &avg_cycles, &max_cycles, &min_cycles);
+        u64 avg_ns = avg_cycles / freq_ns;
+        u64 max_ns = max_cycles / freq_ns;
+        u64 min_ns = min_cycles / freq_ns;
+        printk("Case1: Direct Map (shared memory or local)\n");
+        printk("  Recent Samples: %llu\n", pgfault_stats.case1_direct_map.count);
+        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
+               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+    }
+    
+    printk("===================================\n");
+#endif
+}
+
 /* Wait until migration completes */
 static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fault_addr)
 {
@@ -84,14 +253,18 @@ static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fa
 
 #ifdef MULTI_PAGETABLE_ENABLED
 /* Check if a virtual address is currently being migrated */
-static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va)
+static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va, mid_t *sender_machine_id)
 {
     struct migrating_va_entry *entry;
     bool found = false;
     
     lock(&vmspace->migrating_va_lock);
     for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
+        // printk(ANSI_COLOR_RED "[MIGRATION] find migrating va: 0x%lx\n" ANSI_COLOR_RESET, entry->va);
         if (entry->va == va) {
+            if (sender_machine_id) {    
+                *sender_machine_id = entry->sender_machine_id;
+            }
             found = true;
             break;
         }
@@ -101,28 +274,39 @@ static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va)
     return found;
 }
 
-/* Add a virtual address to the migrating list */
-static void add_migrating_va(struct vmspace *vmspace, vaddr_t va)
+/* Check if a VA is migrating and add it if not (atomic operation) */
+/* Returns true if VA was already migrating, false if successfully added */
+static bool check_and_add_migrating_va(struct vmspace *vmspace, vaddr_t va, mid_t *sender_machine_id)
 {
     struct migrating_va_entry *entry;
+    bool found = false;
     
-    /* Check if already in the list */
     lock(&vmspace->migrating_va_lock);
+    /* First check if already in the list */
     for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
         if (entry->va == va) {
-            unlock(&vmspace->migrating_va_lock);
-            return; /* Already in the list */
+            if (sender_machine_id) {
+                *sender_machine_id = entry->sender_machine_id;
+            }
+            found = true;
+            break;
         }
     }
     
-    /* Allocate and add new entry */
-    entry = kmalloc(sizeof(*entry), __MT_OBJECT__);
-    if (entry) {
-        entry->va = va;
-        init_list_head(&entry->list_node);
-        list_append(&entry->list_node, &vmspace->migrating_va_list);
+    /* If not found, add it to the list */
+    if (!found) {
+        entry = kmalloc(sizeof(*entry), __MT_SHARED__);
+        if (entry) {
+            entry->va = va;
+            entry->sender_machine_id = CUR_MACHINE_ID;
+            init_list_head(&entry->list_node);
+            list_add(&entry->list_node, &vmspace->migrating_va_list);
+            // kinfo(ANSI_COLOR_RED "[MIGRATION] add migrating va 0x%lx to migrating list\n" ANSI_COLOR_RESET, va);
+        }
     }
     unlock(&vmspace->migrating_va_lock);
+    
+    return found;
 }
 
 /* Remove a virtual address from the migrating list */
@@ -135,6 +319,7 @@ void remove_migrating_va(struct vmspace *vmspace, vaddr_t va)
         if (entry->va == va) {
             list_del(&entry->list_node);
             kfree(entry);
+            // kinfo(ANSI_COLOR_RED "[MIGRATION] remove migrating va 0x%lx from migrating list\n" ANSI_COLOR_RESET, va);
             break;
         }
     }
@@ -142,7 +327,7 @@ void remove_migrating_va(struct vmspace *vmspace, vaddr_t va)
 }
 
 /* Wait until migration completes for a specific VA and PTE is mapped */
-static void wait_for_migration_complete(struct vmspace *vmspace, vaddr_t va, paddr_t *out_pa)
+static void wait_for_migration_complete(struct vmspace *vmspace, vaddr_t va, paddr_t *out_pa, mid_t sender_machine_id)
 {
     void *pgtbl;
     paddr_t pa;
@@ -150,18 +335,19 @@ static void wait_for_migration_complete(struct vmspace *vmspace, vaddr_t va, pad
     int ret;
     
     /* First wait for the migrating entry to be removed */
-    while (is_va_migrating(vmspace, va)) {
+    while (is_va_migrating(vmspace, va, NULL)) {
         CPU_PAUSE();
     }
-    
-    /* Then wait for PTE to be properly mapped */
+
+    /* Then wait for the PTE to be mapped on the sender machine */
     while (1) {
         read_lock(&vmspace->vmspace_lock);
         lock(&vmspace->pgtbl_lock);
-        pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        pgtbl = get_vmspace_pgtbl(vmspace, sender_machine_id);
         ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
         
-        if (ret == 0 && pte && pte->pte_4K.present && !is_migration_entry(pte)) {
+        if (ret == 0 && pte && pte->pte_4K.present 
+            && !is_migration_entry(pte)) {
             /* PTE is properly mapped, migration is complete */
             if (out_pa) {
                 *out_pa = pa;
@@ -222,6 +408,12 @@ int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags,
 int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                        int write)
 {
+#ifdef MULTI_PAGETABLE_ENABLED
+#ifdef PGFAULT_STATS_DEBUG
+    /* Check and print statistics periodically */
+    check_and_print_pgfault_stats();
+#endif
+#endif
 #ifdef REPORT_RUNTIME
     DECLTMR;
     start();
@@ -252,6 +444,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
     vmr = find_vmr_for_va(vmspace, fault_addr);
     if (vmr == NULL) {
         kinfo("handle_trans_fault: no vmr found for va 0x%lx!\n", fault_addr);
+        read_unlock(&vmspace->vmspace_lock);
         return -ENOMAPPING;
     }
 
@@ -504,10 +697,21 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         /* First handle the migration entry case */
         query_in_pgtbl(pgtbl, fault_addr, &pa, &pte);
         if (pte && is_migration_entry(pte)) {
-            kdebug("cpu %d found migration entry, fault_addr 0x%lx, waiting...\n", smp_get_cpu_id(), fault_addr);
+#ifdef PGFAULT_STATS_DEBUG
+            u64 start_cycles = get_cycles();
+            kdebug("cpu %d found migration entry, fault_addr 0x%lx, waiting...\n", 
+                smp_get_cpu_id(), fault_addr);
+#endif
             /* Wait until migration completes */
             /* Note: migration_entry_wait will release and re-acquire locks internally */
             migration_entry_wait(pte, vmspace, fault_addr);
+#ifdef PGFAULT_STATS_DEBUG
+            u64 end_cycles = get_cycles();
+            u64 cycles = end_cycles - start_cycles;
+            /* Update statistics */
+            add_sample(&pgfault_stats.case_migration_entry, cycles);
+#endif
+            
             /* Page is already mapped after migration, no need to handle fault */
             /* Locks are still held by migration_entry_wait */
             unlock(&vmspace->pgtbl_lock);
@@ -533,42 +737,118 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         paddr_t new_pa = pa;
         BUG_ON(mid == MACHINE_ID_INVALID);
         /* Case2 */
+#ifdef PGFAULT_STATS_DEBUG
+        u64 case2_start_cycles = 0;
+#endif
         if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
-            kdebug("cpu %d entering case2 branch, fault_addr: 0x%lx, mid: %d\n", smp_get_cpu_id(), fault_addr, mid);
-            
+#ifdef PGFAULT_STATS_DEBUG
+            case2_start_cycles = get_cycles();
+            kdebug("cpu %d entering case2 branch, fault_addr: 0x%lx, mid: %d\n", 
+                smp_get_cpu_id(), fault_addr, mid);
+#endif
             /* Check if this VA is already being migrated by another thread */
+            /* Release locks before checking/adding to avoid deadlock */
             unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             
-            
-            if (is_va_migrating(vmspace, fault_addr)) {
+            /* Atomically check and add: if already migrating, 
+             * returns true with sender_machine_id.
+             * If not migrating, adds it to the list and returns false.
+            */
+            mid_t sender_mid = MACHINE_ID_INVALID;
+            if (check_and_add_migrating_va(vmspace, fault_addr, &sender_mid)) {
+                /* The sender machine ID should not be invalid */
+                BUG_ON(sender_mid == MACHINE_ID_INVALID);
+
+                /* VA was already being migrated by another thread */
                 /* Wait for the migration to complete and PTE to be mapped */
-                kdebug("cpu %d va 0x%lx is already being migrated, waiting...\n", smp_get_cpu_id(), fault_addr);
-                wait_for_migration_complete(vmspace, fault_addr, &new_pa);
-                kdebug("cpu %d wait for migration completed, fault_addr: 0x%lx, mapped_pa=%p\n", smp_get_cpu_id(), fault_addr, new_pa);
+#ifdef PGFAULT_STATS_DEBUG
+                kdebug("cpu %d va 0x%lx is already being migrated, waiting...\n", 
+                    smp_get_cpu_id(), fault_addr);
+#endif
+
+                wait_for_migration_complete(vmspace, fault_addr, &new_pa, sender_mid);
+
+                /* If the sender machine is not the current machine,
+                 * we need to map the page to the page table directly.
+                 * Re-acquire locks before modifying page table.
+                 */
+                if (sender_mid != CUR_MACHINE_ID) {
+                    /* Re-acquire locks */
+                    read_lock(&vmspace->vmspace_lock);
+                    lock(&vmspace->pgtbl_lock);
+
+                    /* Get the page table of the current machine */
+                    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+
+                    /* Map the page to the page table */
+                    BUG_ON(get_paddr_machine_id(new_pa) != MACHINE_ID_SHARED_MEMORY);
+                    map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+
+                    /* Unlock the page table and vmspace lock */
+                    unlock(&vmspace->pgtbl_lock);
+                    read_unlock(&vmspace->vmspace_lock);
+                }
+                
+                /* Update statistics for Case2 Wait */
+#ifdef PGFAULT_STATS_DEBUG
+                u64 case2_end_cycles = get_cycles();
+                u64 case2_cycles = case2_end_cycles - case2_start_cycles;
+                add_sample(&pgfault_stats.case2_wait, case2_cycles);
+#endif
+                
                 return 0;
             } else {
-                /* Add to migrating list and perform migration */
-                add_migrating_va(vmspace, fault_addr);
+                /* Successfully added to migrating list, now perform migration */
+#ifdef PGFAULT_STATS_DEBUG
+                kdebug("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", 
+                    smp_get_cpu_id(), fault_addr, mid);
+#endif
                 
-                kdebug("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", smp_get_cpu_id(), fault_addr, mid);
-                /* Send message to machine to migrate pages */
+                /* Send message to the sender machine to migrate pages */
                 new_pa = migrate_pages_to_shm(mid, vmspace, pa, PAGE_SIZE, fault_addr);
                 
+                /* Re-acquire locks */
+                read_lock(&vmspace->vmspace_lock);
+                lock(&vmspace->pgtbl_lock);
+
+                /* Get the page table of the current machine */
+                pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+
+                /* Map the page to the page table */
+                map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+
+                /* Unlock the page table and vmspace lock */
+                unlock(&vmspace->pgtbl_lock);
+                read_unlock(&vmspace->vmspace_lock);
+
                 /* Remove from migrating list */
                 remove_migrating_va(vmspace, fault_addr);
-                
-                /* Re-acquire locks */
-                lock(&vmspace->pgtbl_lock);
-                read_lock(&vmspace->vmspace_lock);
+
+                /* Update statistics for Case2 Migrate */
+#ifdef PGFAULT_STATS_DEBUG
+                u64 case2_end_cycles = get_cycles();
+                u64 case2_cycles = case2_end_cycles - case2_start_cycles;
+                add_sample(&pgfault_stats.case2_migrate, case2_cycles);
+
                 kdebug("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
+#endif
                 
-                /* Check if the migration is successful */
-                /* Verify migration: check all page tables and content consistency */
+                return 0;
             }
         }
 
+        /* Case1: Direct map (shared memory or local) */
+#ifdef PGFAULT_STATS_DEBUG
+        u64 case1_start_cycles = get_cycles();
+#endif
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+#ifdef PGFAULT_STATS_DEBUG
+        u64 case1_end_cycles = get_cycles();
+        u64 case1_cycles = case1_end_cycles - case1_start_cycles;
+        /* Update statistics for Case1 */
+        add_sample(&pgfault_stats.case1_direct_map, case1_cycles);
+#endif
         
 #else
         int mid = get_paddr_machine_id(pa);

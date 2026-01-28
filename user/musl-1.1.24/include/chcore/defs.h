@@ -247,6 +247,7 @@
 /* Shared Memory */
 #define CHCORE_SYS_mmap_shm             261
 #define CHCORE_SYS_memcpy_and_flush_tlb 262
+#define CHCORE_SYS_memcpy_and_flush_tlb_batch 265
 
 /* Virtual Memory */
 #define CHCORE_SYS_print_vmspace_stats  264

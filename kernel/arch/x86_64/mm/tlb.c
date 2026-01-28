@@ -230,6 +230,64 @@ void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va,
 }
 
 
+/* Structure for batch TLB flush operations */
+struct tlb_flush_batch_op {
+    u64 fault_va;
+    u64 len;
+    u64 pcid;
+    u64 vmspace_ptr;
+};
+
+/*
+ * Flush TLBs for batch operations on all CPUs using batch IPI.
+ * This function prepares a batch TLB flush operation list and sends
+ * a single IPI to each target CPU with the operations buffer pointer.
+ */
+void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count)
+{
+    u32 cpuid;
+    u32 i;
+    u32 target_count = 0;
+    u8 cpu_mask[PLAT_CPU_NUM] = {0};
+
+    if (ops_count == 0 || ops_count > 1024) {
+        kwarn("func: %s. Invalid ops_count: %lu\n", __func__, ops_count);
+        return;
+    }
+
+    cpuid = smp_get_cpu_id();
+
+    /* Flush remote TLBs in parallel */
+    /* Step 1.0: Prepare and send batch IPIs to all target CPUs without waiting */
+    for (i = 0; i < PLAT_CPU_NUM; ++i) {
+        if (i != cpuid) {
+            /* IPI_tx: step-1 */
+            prepare_ipi_tx(i);
+            /* IPI_tx: step-2 */
+            /* arg0: ops buffer pointer (kernel address) */
+            set_ipi_tx_arg(i, 0, (u64)ops);
+            /* arg1: ops_count */
+            set_ipi_tx_arg(i, 1, ops_count);
+            /* IPI_tx: step-3 */
+            start_ipi_tx(i, IPI_TLB_SHOOTDOWN_BATCH);
+            cpu_mask[i] = 1;
+            target_count++;
+        }
+    }
+
+    /* Step 1.1: Flush local TLBs */
+    for (i = 0; i < ops_count; i++) {
+        struct tlb_flush_batch_op *op = &ops[i];
+        u64 page_cnt = op->len / PAGE_SIZE;
+        flush_local_tlb_opt((vaddr_t)op->fault_va, page_cnt, op->pcid);
+    }
+
+    /* Step 2: Wait for all IPIs to finish and unlock */
+    if (target_count > 0) {
+        wait_ipi_finish_mask(cpuid, cpu_mask, target_count);
+    }
+}
+
 /*
  * This function is responsible for flushing the TLBs (with the
  * corresponding VA range provided) on all CPUs (but not only the necessary ones)

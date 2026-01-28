@@ -62,6 +62,16 @@ struct polling_kernel_req_flush_tlb {
     u64 memcpy_vmspace;
 };
 
+/* Structure for batch memcpy and flush TLB operations */
+/* Must match kernel/syscall/syscall.c:struct memcpy_flush_tlb_op */
+struct memcpy_flush_tlb_op {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 len;
+    u64 fault_va;
+    u64 vmspace_ptr;
+};
+
 struct polling_req_print_debug_info {};
 
 struct polling_request {

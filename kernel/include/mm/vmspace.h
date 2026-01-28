@@ -88,6 +88,7 @@ struct vmregion {
 struct migrating_va_entry {
     struct list_head list_node;
     vaddr_t va;
+    mid_t sender_machine_id; // the machine id that sends the migration request
 };
 #endif
 

@@ -281,6 +281,11 @@ int usys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va, u64
 	return chcore_syscall5(CHCORE_SYS_memcpy_and_flush_tlb, src_pa, dst_pa, len, fault_va, vmspace);
 }
 
+int usys_memcpy_and_flush_tlb_batch(void *ops_buf, u64 ops_count)
+{
+	return chcore_syscall2(CHCORE_SYS_memcpy_and_flush_tlb_batch, (u64)ops_buf, ops_count);
+}
+
 u64 usys_get_current_tick(void)
 {
 	return chcore_syscall0(CHCORE_SYS_get_current_tick);
