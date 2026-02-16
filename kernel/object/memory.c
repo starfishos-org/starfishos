@@ -58,12 +58,12 @@ static int __pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
         // kinfo("new_va: %lx\n", (u64)new_va);
         pmo->start = (paddr_t)virt_to_phys(new_va);
 
-#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
+// #if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
         lock_init(&(pmo->dram_cache.lock));
         /* init first page's PMO info */
         struct page *page = virt_to_page(new_va);
         init_page_info(page, pmo, 0);
-#endif
+// #endif
         break;
     }
     case PMO_FILE: {
@@ -819,15 +819,22 @@ fail1:
 void commit_dram_cached_page(struct pmobject *pmo, u64 index, paddr_t pa)
 {
     if (is_continuous_pmo(pmo)) {
+        BUG_ON(index >= DIV_ROUND_UP(pmo->size, PAGE_SIZE));
         /* alloc dram cached array is NULL */
         lock(&(pmo->dram_cache.lock));
         if (!pmo->dram_cache.array) {
-            pmo->dram_cache.array = temp_kmalloc(
-                    DIV_ROUND_UP(pmo->size, PAGE_SIZE) * sizeof(u64));
+            pmo->dram_cache.array = kmalloc(
+                DIV_ROUND_UP(pmo->size, PAGE_SIZE) * sizeof(u64),
+                __MT_OBJECT__);
+            if (!pmo->dram_cache.array) {
+                unlock(&(pmo->dram_cache.lock));
+                BUG("Failed to allocate dram_cache.array for pmo=%p\n", pmo);
+            }
+            memset(pmo->dram_cache.array, 0, 
+                   DIV_ROUND_UP(pmo->size, PAGE_SIZE) * sizeof(u64));
         }
-        unlock(&(pmo->dram_cache.lock));
-        BUG_ON(index >= DIV_ROUND_UP(pmo->size, PAGE_SIZE));
         pmo->dram_cache.array[index] = pa;
+        unlock(&(pmo->dram_cache.lock));
     } else if (is_radix_pmo(pmo)) {
         BUG_ON(radix_add(pmo->radix, index, (void *)pa));
     } else {
@@ -843,18 +850,27 @@ void clear_dram_cached_page(struct pmobject *pmo, u64 index)
 {
     BUG_ON(!is_continuous_pmo(pmo));
     BUG_ON(index >= DIV_ROUND_UP(pmo->size, PAGE_SIZE));
+    lock(&(pmo->dram_cache.lock));
     BUG_ON(!pmo->dram_cache.array);
     if (pmo->dram_cache.array[index] == 0)
         BUG("pmo=%p, index=%d\n is not cached in pmo\n", pmo, index);
+    printk("[DRAM_CACHE] clear_dram_cached_page: pmo=%p, type=%d, index=%lu, pa=0x%lx\n",
+           pmo, pmo->type, index, pmo->dram_cache.array[index]);
     pmo->dram_cache.array[index] = 0;
+    unlock(&(pmo->dram_cache.lock));
 }
 
 void clear_dram_cache(struct pmobject *pmo)
 {
     BUG_ON(!is_continuous_pmo(pmo));
-    BUG_ON(!pmo->dram_cache.array);
-    kfree(pmo->dram_cache.array);
-    pmo->dram_cache.array = NULL;
+    lock(&(pmo->dram_cache.lock));
+    if (pmo->dram_cache.array) {
+        printk("[DRAM_CACHE] clear_dram_cache: pmo=%p, type=%d, freeing array\n",
+               pmo, pmo->type);
+        kfree(pmo->dram_cache.array);
+        pmo->dram_cache.array = NULL;
+    }
+    unlock(&(pmo->dram_cache.lock));
 }
 
 /* Record the physical page allocated to a pmo */
@@ -883,15 +899,21 @@ paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index)
         }
         pa = (paddr_t)radix_get(pmo->radix, index);
     } else if (is_continuous_pmo(pmo)) {
-#if defined(CHCORE_SLS) && defined(HYBRID_MEM)
-        if (pmo->dram_cache.array)
+        /* Check dram_cache.array with lock protection */
+        lock(&(pmo->dram_cache.lock));
+        if (pmo->dram_cache.array) {
             pa = pmo->dram_cache.array[index];
+            /* Only print when we actually got a page from cache */
+            if (pa != 0) {
+                // printk("[DRAM_CACHE] get_page_from_pmo: pmo=%p, type=%d, index=%lu, from_cache=1, pa=0x%lx\n",
+                    //    pmo, pmo->type, index, pa);
+            }
+        }
+        unlock(&(pmo->dram_cache.lock));
         /* pa is not dram cached */
-        if (pa == 0)
+        if (pa == 0) {
             pa = pmo->start + index * PAGE_SIZE;
-#else
-        pa = pmo->start + index * PAGE_SIZE;
-#endif
+        }
     } else {
         BUG("Not supported type\n");
     }

@@ -11,8 +11,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define USE_THREAD_POOL 0 // 0: single thread, 1: thread pool (buggy)
 #define MAX_BATCH_OPS 1024 // Maximum batch operations (syscall limit)
+
+/* Structure to pass arguments to polling thread */
+struct polling_thread_arg {
+    struct polling_shm_region *shm;
+    int thread_id;
+};
 
 int my_id = -1;
 
@@ -28,37 +33,97 @@ void init_polling_shm_region(struct polling_shm_region *shm)
 
 void *polling_reader_thread(void *arg)
 {
-    /* Bind this thread to the last CPU */
-    int last_cpu = usys_get_machine_cpu_count() - 1;
+    struct polling_thread_arg *thread_arg = (struct polling_thread_arg *)arg;
+    struct polling_shm_region *shm = thread_arg->shm;
+    int thread_id = thread_arg->thread_id;
+    
+    /* Bind thread to a specific CPU from the configured list */
+    /* Bind from the last CPU backwards */
+    int target_cpu;
+#if USE_THREAD_POOL == true
+    /* Multiple threads: bind to CPUs from POLLING_CPU_LIST, starting from the last CPU */
+    static const int polling_cpus[] = POLLING_CPU_LIST;
+    int cpu_index = POLLING_CPU_COUNT - 1 - (thread_id % POLLING_CPU_COUNT);
+    target_cpu = polling_cpus[cpu_index];
+#else
+    /* Single thread: use last CPU from the list */
+    static const int polling_cpus[] = POLLING_CPU_LIST;
+    target_cpu = polling_cpus[POLLING_CPU_COUNT - 1];
+#endif
+    
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
-    CPU_SET(last_cpu, &cpu_set);
+    CPU_SET(target_cpu, &cpu_set);
     if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0) {
-        printf("Failed to set polling thread affinity to CPU %d\n", last_cpu);
+        printf("Failed to set polling thread %d affinity to CPU %d\n", thread_id, target_cpu);
     } else {
-        printf("Polling thread bound to CPU %d\n", last_cpu);
+        printf("Polling thread %d bound to CPU %d\n", thread_id, target_cpu);
     }
     sched_yield(); /* Yield to ensure affinity takes effect */
 
-#if USE_THREAD_POOL == true
-    thread_pool_t pool;
-    thread_pool_init(&pool);
-#endif
-    struct polling_shm_region *shm = arg;
-    int r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
-
     while (1) {
-        struct shm_msg *msg = &shm->msgs[r % MAX_MSG_COUNT];
-
+        int r;
+        struct shm_msg *msg;
+        
+#if USE_THREAD_POOL == true
+        /* Multi-threaded mode: try to get next message from queue */
+        /* Each thread tries to claim the next available message */
+        r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
+        int w = atomic_load_explicit(&shm->write_index, memory_order_acquire);
+        
+        /* Check if queue is empty */
+        if (r >= w) {
+            /* No messages available, yield and retry */
+            sched_yield();
+            continue;
+        }
+        
+        msg = &shm->msgs[r % MAX_MSG_COUNT];
+        
+        /* Check if message is ready */
+        int msg_state = atomic_load_explicit(&msg->state, memory_order_acquire);
+        if (msg_state != MSG_REQ_READY) {
+            /* Message not ready, yield and retry */
+            sched_yield();
+            continue;
+        }
+        
+        /* Try to claim the message */
+        int expected = MSG_REQ_READY;
+        if (!atomic_compare_exchange_strong_explicit(&msg->state,
+                                                     &expected,
+                                                     MSG_RESP_WRITING,
+                                                     memory_order_acquire,
+                                                     memory_order_relaxed)) {
+            /* Another thread got it first, yield and retry */
+            sched_yield();
+            continue;
+        }
+        
+        /* Successfully claimed message, now update read_index */
+        /* Use CAS to ensure only one thread updates it */
+        int expected_r = r;
+        if (!atomic_compare_exchange_strong_explicit(&shm->read_index,
+                                                     &expected_r,
+                                                     r + 1,
+                                                     memory_order_relaxed,
+                                                     memory_order_relaxed)) {
+            /* Another thread already updated read_index, but we got the message */
+            /* This is fine, we can still process it */
+        }
+#else
+        /* Single-threaded mode: use current read index */
+        r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
+        msg = &shm->msgs[r % MAX_MSG_COUNT];
+        
         int expected = MSG_REQ_READY;
         if (atomic_compare_exchange_strong_explicit(&msg->state,
                                                     &expected,
                                                     MSG_RESP_WRITING,
                                                     memory_order_acquire,
                                                     memory_order_relaxed)) {
-#if USE_THREAD_POOL == true
-            thread_pool_add_task(&pool, msg);
-#elif USE_THREAD_POOL == false
+#endif
+#if USE_THREAD_POOL == false
             /* Check if this is a flush_tlb request - if so, batch process */
             if (msg->req.type == POLLING_KERNEL_REQ_FLUSH_TLB) {
                 /* Collect all flush_tlb requests from queue */
@@ -141,15 +206,22 @@ void *polling_reader_thread(void *arg)
                 r++;
                 atomic_store_explicit(&shm->read_index, r, memory_order_relaxed);
             }
+#else /* USE_THREAD_POOL == true */
+            /* Process request directly (multi-threaded mode) */
+            handle_polling_request(msg);
+            atomic_store_explicit(
+                    &msg->state, MSG_RESP_READY, memory_order_release);
 #endif
+#if USE_THREAD_POOL == false
         } else {
             /* No message ready, yield to avoid busy waiting */
             sched_yield();
         }
+#endif
     }
 }
 
-void create_polling_thread(u32 shm_id, pthread_t *tid)
+void create_polling_threads(u32 shm_id, pthread_t *tids, int num_threads)
 {
     int ret;
     void *shm_addr;
@@ -162,20 +234,67 @@ void create_polling_thread(u32 shm_id, pthread_t *tid)
     printf("Polling Service Server: mmap shm by id %d\n", shm_id);
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
     init_polling_shm_region(shm);
-    ret = pthread_create(tid, NULL, polling_reader_thread, shm);
-    if (ret != 0) {
-        printf("Failed to create polling thread\n");
+    
+    /* Allocate thread arguments */
+    struct polling_thread_arg *thread_args = 
+        (struct polling_thread_arg *)malloc(sizeof(struct polling_thread_arg) * num_threads);
+    if (!thread_args) {
+        printf("Failed to allocate memory for thread arguments\n");
         return;
     }
+    
+    /* Create multiple polling threads */
+    for (int i = 0; i < num_threads; i++) {
+        thread_args[i].shm = shm;
+        thread_args[i].thread_id = i;
+        ret = pthread_create(&tids[i], NULL, polling_reader_thread, &thread_args[i]);
+        if (ret != 0) {
+            printf("Failed to create polling thread %d\n", i);
+            free(thread_args);
+            return;
+        }
+    }
+    
+    /* Note: thread_args will be freed when threads exit (or we could track and free later) */
+    /* For simplicity, we keep it allocated for the lifetime of the threads */
 }
 
 int main(int argc, char *argv[])
 {
-    pthread_t tid;
     my_id = usys_get_machine_id();
     assert(my_id >= 0);
-    create_polling_thread(my_id, &tid);
+    
+#if USE_THREAD_POOL == true
+    /* Create multiple polling threads */
+    int num_threads = NUM_POLLING_THREADS;
+    
+    if (num_threads <= 0) {
+        printf("NUM_POLLING_THREADS is %d, no polling threads will be created\n", num_threads);
+        return 0;
+    }
+    
+    pthread_t *tids = (pthread_t *)malloc(sizeof(pthread_t) * num_threads);
+    if (!tids) {
+        printf("Failed to allocate memory for thread IDs\n");
+        return -1;
+    }
+    
+    printf("Creating %d polling threads\n", num_threads);
+    create_polling_threads(my_id, tids, num_threads);
+    
+    /* Wait for all threads */
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(tids[i], NULL);
+    }
+    
+    free(tids);
+    printf("All polling threads exited\n");
+#else
+    /* Single polling thread */
+    pthread_t tid;
+    create_polling_threads(my_id, &tid, 1);
     pthread_join(tid, NULL);
     printf("Polling thread exited\n");
+#endif
     return 0;
 }

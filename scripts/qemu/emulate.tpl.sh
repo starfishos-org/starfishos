@@ -17,7 +17,8 @@ ivshmem_dev="/dev/shm/ivshmem-$USER"
 conn_size=16G
 ivshmem_conn_dev="/dev/shm/ivshmem-conn-$USER"
 dram_size=1G # 1G for temp allocator
-cxl_size=32G # 32GB shared memory
+numa_size=8G # 8G for dram allocator
+cxl_size=16G # 32GB shared memory
 plat_cpu_name=12
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
@@ -58,7 +59,7 @@ qemu_cmd="@qemu@ -gdb tcp::$port"
 # Add 8 CXL devices as ivshmem-plain devices (not NUMA nodes)
 for i in {0..7}; do
 	dev_path=${numa_devs[$i]}
-	qemu_cmd="$qemu_cmd -object memory-backend-file,size=16G,share=on,mem-path=$dev_path,id=cxl$i"
+	qemu_cmd="$qemu_cmd -object memory-backend-file,size=$numa_size,share=on,mem-path=$dev_path,id=cxl$i"
 	qemu_cmd="$qemu_cmd -device ivshmem-plain,memdev=cxl$i"
 done
 

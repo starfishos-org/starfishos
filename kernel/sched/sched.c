@@ -420,10 +420,10 @@ struct thread *find_runnable_thread(struct list_head *thread_list)
              */
             /* FIX: If thread is in ready queue, it should not be running.
              * Reset kernel_stack_state to KS_FREE to allow scheduling. */
-            kinfo("[KSTATE_ERROR] cpu %d: thread %p (name=%s) has incorrect kernel_stack_state=%d (expected KS_FREE=0) in ready queue, resetting\n",
-                  smp_get_cpu_id(), thread, 
-                  thread->cap_group ? thread->cap_group->cap_group_name : "unknown",
-                  thread->thread_ctx->kernel_stack_state);
+            // kinfo("[KSTATE_ERROR] cpu %d: thread %p (name=%s) has incorrect kernel_stack_state=%d (expected KS_FREE=0) in ready queue, resetting\n",
+                //   smp_get_cpu_id(), thread, 
+                //   thread->cap_group ? thread->cap_group->cap_group_name : "unknown",
+                //   thread->thread_ctx->kernel_stack_state);
             break;
         case TE_EXITING:
             __rr_sched_dequeue(thread);

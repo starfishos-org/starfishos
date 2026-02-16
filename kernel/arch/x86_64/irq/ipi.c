@@ -44,9 +44,10 @@ void handle_ipi_on_tlb_shootdown(void)
      * we should clear the history_cpu records because
      * the vmspace will continue to run after this IPI.
      */
-    if (!current_thread || !current_thread->vmspace || 
-        (((u64)(current_thread->vmspace) != vmspace) && (vmspace != 0)))
-        clear_history_cpu((struct vmspace *)vmspace, cpuid);
+    UNUSED(vmspace); UNUSED(cpuid);
+    // if (!current_thread || !current_thread->vmspace || 
+    //     (((u64)(current_thread->vmspace) != vmspace) && (vmspace != 0)))
+    //     clear_history_cpu((struct vmspace *)vmspace, cpuid);
 }
 
 extern void handle_wait_in_kernel(u32 cpuid);
@@ -64,13 +65,11 @@ struct tlb_flush_batch_op {
 /* Handle batch TLB flush IPI */
 void handle_ipi_on_tlb_shootdown_batch(void)
 {
-    int cpuid;
+    // int cpuid;
     u64 ops_buf_ptr;
     u64 ops_count;
     struct tlb_flush_batch_op *ops;
     int i;
-
-    cpuid = smp_get_cpu_id();
 
     /* Get arguments: ops_buf pointer and ops_count */
     ops_buf_ptr = get_ipi_tx_arg(0);
@@ -88,14 +87,6 @@ void handle_ipi_on_tlb_shootdown_batch(void)
     for (i = 0; i < ops_count; i++) {
         struct tlb_flush_batch_op *op = &ops[i];
         flush_local_tlb_opt((vaddr_t)op->fault_va, op->len / PAGE_SIZE, op->pcid);
-
-        /* Clear history_cpu if needed */
-        if (op->vmspace_ptr != 0) {
-            struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
-            if (!current_thread || !current_thread->vmspace || 
-                ((u64)(current_thread->vmspace) != op->vmspace_ptr))
-                clear_history_cpu(vmspace, cpuid);
-        }
     }
 }
 

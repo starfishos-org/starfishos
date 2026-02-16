@@ -249,7 +249,7 @@ static inline u64 compound_head_offset(struct page *page, struct page *head)
 #endif
 
 /* TreeSlS */
-#if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
+// #if defined(CHCORE_SLS) && defined(RMAP_ENABLED)
 static inline void init_page_info(struct page *page, struct pmobject *pmo,
                                   u64 index)
 {
@@ -257,4 +257,4 @@ static inline void init_page_info(struct page *page, struct pmobject *pmo,
     page->pmo = pmo;
     page->page_pair = 0;
 }
-#endif
+// #endif
