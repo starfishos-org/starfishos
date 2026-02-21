@@ -446,6 +446,47 @@ int rr_sched_enqueue(struct thread *thread)
     return ret;
 }
 
+#ifdef DSM_ENABLED
+/**
+ * Enqueue thread to its affinity queue. If affinity is on another machine,
+ * enqueue to that machine's shared queue (so the thread is woken on the
+ * correct machine). Used by notification/timer wake-up when the woken thread
+ * belongs to a remote machine.
+ */
+int rr_sched_enqueue_to_affinity(struct thread *thread)
+{
+    s32 aff;
+    u32 gcpuid;
+
+    BUG_ON(!thread || !thread->thread_ctx);
+    if (thread->thread_ctx->type == TYPE_IDLE)
+        return 0;
+    if (thread->thread_ctx->thread_exit_state == TE_EXITING) {
+        thread->thread_ctx->thread_exit_state = TE_EXITED;
+        return 0;
+    }
+    if (thread->thread_ctx->thread_exit_state == TE_STOPPING) {
+        thread->thread_ctx->thread_exit_state = TE_STOPPED;
+        return 0;
+    }
+
+    aff = get_cpubind(thread);
+    if (aff == NO_AFF || is_local_cpu(aff)) {
+        /* Local or no affinity: use normal enqueue (will choose CPU if NO_AFF) */
+        return rr_sched_enqueue(thread);
+    }
+
+    gcpuid = (u32)aff;
+    lock(&(rr_shared_queue[gcpuid].queue_lock));
+    thread->thread_ctx->state = TS_READY;
+    list_append(&(thread->shared_queue_node),
+                &(rr_shared_queue[gcpuid].queue_head));
+    rr_shared_queue[gcpuid].queue_len++;
+    unlock(&(rr_shared_queue[gcpuid].queue_lock));
+    return 0;
+}
+#endif
+
 /* dequeue w/o lock */
 int __rr_sched_dequeue(struct thread *thread)
 {
@@ -649,15 +690,15 @@ int rr_sched(void)
         case TS_RUNNING:
             /* A thread without SC should not be TS_RUNNING. */
             BUG_ON(!old->thread_ctx->sc);
-            if (old->machine_id != CUR_MACHINE_ID) {
-                dsm_debug("[%s:%d] thread %s (cpuid=%d, affinity=%d) is not on current machine\n",
-                            __FILE__,
-                            __LINE__,
-                            old->cap_group->cap_group_name,
-                            old->thread_ctx->cpuid,
-                            old->thread_ctx->affinity);
-                return 0;
-            }
+            // if (old->machine_id != CUR_MACHINE_ID) {
+                // kwarn_once("[%s] thread %s (%p, cpuid=%d, affinity=%d) is not on current machine\n",
+                //             __func__,
+                //             old->cap_group->cap_group_name,
+                //             old,
+                //             old->thread_ctx->cpuid,
+                //             old->thread_ctx->affinity);
+                // return 0;
+            // }
             if (old->thread_ctx->sc->budget != 0) {
                 switch_to_thread(old);
                 return 0; /* no schedule needed */

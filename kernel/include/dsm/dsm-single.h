@@ -12,7 +12,7 @@
 #include <machine.h>
 #include <uapi/types.h>
 
-// #define DSM_DEBUG
+#define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 

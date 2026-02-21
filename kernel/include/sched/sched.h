@@ -196,6 +196,12 @@ void sys_perf_null(void);
 
 int rr_sched_migrate_to_remote(struct thread *thread);
 
+#ifdef DSM_ENABLED
+/* Enqueue thread to its affinity queue; if affinity is remote, enqueue to
+ * that machine's shared queue. Used by notification/timer wake. */
+int rr_sched_enqueue_to_affinity(struct thread *thread);
+#endif
+
 struct xsave_area {
     /* legacy region */
     u8 legacy_region_0[24];

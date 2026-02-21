@@ -101,7 +101,11 @@ static void notific_timer_cb(struct thread *thread)
 
     arch_set_thread_return(thread, -ETIMEDOUT);
     thread->thread_ctx->state = TS_TO_SCHED;
+#ifdef DSM_ENABLED
+    BUG_ON(rr_sched_enqueue_to_affinity(thread));
+#else
     BUG_ON(sched_enqueue(thread));
+#endif
 
     unlock(&notifc->notifc_lock);
 }
@@ -373,8 +377,13 @@ int signal_notific(struct notification *notifc)
         } else if (target->thread_ctx->thread_exit_state == TE_STOPPING) {
             target->thread_ctx->thread_exit_state = TE_STOPPED;
         } else {
-            // TODO(yjs): sched error reason
+#ifdef DSM_ENABLED
+            /* If target's affinity is on another machine, enqueue to its
+             * shared queue so it is woken on the correct machine. */
+            BUG_ON(rr_sched_enqueue_to_affinity(target));
+#else
             BUG_ON(sched_enqueue(target));
+#endif
         }
 
         unlock(&target->sleep_state.queue_lock);
