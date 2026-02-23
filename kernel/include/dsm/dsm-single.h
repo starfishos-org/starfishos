@@ -12,7 +12,7 @@
 #include <machine.h>
 #include <uapi/types.h>
 
-#define DSM_DEBUG
+// #define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
 
@@ -22,6 +22,14 @@
 #define dsm_debug(fmt, ...) printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
 #else
 #define dsm_debug(fmt, ...)
+#endif
+
+// #define MULTI_PT_DEBUG
+
+#ifdef MULTI_PT_DEBUG
+#define multipt_debug(fmt, ...) printk("[MULTI_PT] " fmt, ##__VA_ARGS__)
+#else
+#define multipt_debug(fmt, ...)
 #endif
 
 #define pingpong_info(thread, fmt, ...)                                      \

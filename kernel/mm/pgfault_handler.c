@@ -692,16 +692,46 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         /* Add mapping in the page table */
         pte_t *pte = NULL;
         lock(&vmspace->pgtbl_lock);
+
+        /**
+         * If MULTI_PAGETABLE is enabled, we need to map all
+         * page tables to the shared memory.
+         * Case1: the page is already on shared memory
+         *        -- DO NOTHING! Directly map!
+         * Case2: the page is not on shared memory
+         *   Case2.1: the page is already being migrated by other thread,
+         *            indicated by that the pte is a migration entry
+         *            then wait until this page finish migration
+         *   Case2.2: another thread tigger a page fault on this page,
+         *            and uses `check_and_add_migrating_va` to mark
+         *            this page as being migrated by this thread
+         *   Case2.3: the page is not being migrated by other thread,
+         *            then send message to the sender machine to migrate pages
+         *        -- 2.1: memcpy the page to the shared memory.
+         *        -- 2.2: remap the page table in old page table.
+         *        -- 2.3: map the page to new page table.
+         * Case3: the page is not on shared memory but belongs to
+         *        PMO_DATA type, which is pre-defined in the PMO,
+         *        and should be mapped in the page table here.
+         */
 #ifdef MULTI_PAGETABLE_ENABLED
         void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-        /* First handle the migration entry case */
         query_in_pgtbl(pgtbl, fault_addr, &pa, &pte);
+        /**
+        * Case2.1: page is already during migration by other thread, 
+        * then wait until this page finish migration
+        *
+        * e.g.，machine 0 - thread 0 migrate this page
+        * => page table is changed to migration entry, then flush tlb
+        * machine 0 - thread 1 also tigger a page fault, and wait here
+        */
         if (pte && is_migration_entry(pte)) {
 #ifdef PGFAULT_STATS_DEBUG
             u64 start_cycles = get_cycles();
-            kdebug("cpu %d found migration entry, fault_addr 0x%lx, waiting...\n", 
-                smp_get_cpu_id(), fault_addr);
 #endif
+            // multipt_debug("[case2.1 migration wait]"
+            //     "cpu %d found migration entry, fault_addr 0x%lx, waiting...\n", 
+            //     smp_get_cpu_id(), fault_addr);
             /* Wait until migration completes */
             /* Note: migration_entry_wait will release and re-acquire locks internally */
             migration_entry_wait(pte, vmspace, fault_addr);
@@ -711,40 +741,23 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             /* Update statistics */
             add_sample(&pgfault_stats.case_migration_entry, cycles);
 #endif
-            
             /* Page is already mapped after migration, no need to handle fault */
             /* Locks are still held by migration_entry_wait */
             unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             return 0;
         }
-        /**
-         * If MULTI_PAGETABLE is enabled, we need to map all
-         * page tables to the shared memory.
-         * Case1: the page is already on shared memory
-         *        -- DO NOTHING! Directly map!
-         * Case2: the page is not on shared memory
-         *        -- 2.1: memcpy the page to the shared memory.
-         *        -- 2.2: remap the page table in old page table.
-         *        -- 2.3: map the page to new page table.
-         * Case3: the page is not on shared memory but belongs to
-         *        PMO_DATA type, which is pre-defined in the PMO,
-         *        and should be mapped in the page table here.
-         */
         /* NOTE!!: should not define machine_id variable here,
         it will cause the error when using CUR_MACHINE_ID */
         int mid = get_paddr_machine_id(pa);
         paddr_t new_pa = pa;
         BUG_ON(mid == MACHINE_ID_INVALID);
-        /* Case2 */
 #ifdef PGFAULT_STATS_DEBUG
         u64 case2_start_cycles = 0;
 #endif
         if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
 #ifdef PGFAULT_STATS_DEBUG
             case2_start_cycles = get_cycles();
-            kdebug("cpu %d entering case2 branch, fault_addr: 0x%lx, mid: %d\n", 
-                smp_get_cpu_id(), fault_addr, mid);
 #endif
             /* Check if this VA is already being migrated by another thread */
             /* Release locks before checking/adding to avoid deadlock */
@@ -757,15 +770,18 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             */
             mid_t sender_mid = MACHINE_ID_INVALID;
             if (check_and_add_migrating_va(vmspace, fault_addr, &sender_mid)) {
+                /**
+                 * Case2.2: page is already being migrated by other thread,
+                 * then wait until this page finish migration
+                 */
                 /* The sender machine ID should not be invalid */
                 BUG_ON(sender_mid == MACHINE_ID_INVALID);
 
                 /* VA was already being migrated by another thread */
                 /* Wait for the migration to complete and PTE to be mapped */
-#ifdef PGFAULT_STATS_DEBUG
-                kdebug("cpu %d va 0x%lx is already being migrated, waiting...\n", 
-                    smp_get_cpu_id(), fault_addr);
-#endif
+                // multipt_debug("[case2.2 migration wait]"
+                //     "va 0x%lx is already being migrated by sender machine (%d), waiting...\n", 
+                //     fault_addr, sender_mid);
 
                 wait_for_migration_complete(vmspace, fault_addr, &new_pa, sender_mid);
 
@@ -774,6 +790,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                  * Re-acquire locks before modifying page table.
                  */
                 if (sender_mid != CUR_MACHINE_ID) {
+                    // multipt_debug("[case2.2 migration wait]"
+                    //     "remap page(va=%p, pa=%p) since sender machine (%d) != current machine (%d)\n", 
+                    //     fault_addr, new_pa, sender_mid, CUR_MACHINE_ID);
                     /* Re-acquire locks */
                     read_lock(&vmspace->vmspace_lock);
                     lock(&vmspace->pgtbl_lock);
@@ -788,6 +807,10 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     /* Unlock the page table and vmspace lock */
                     unlock(&vmspace->pgtbl_lock);
                     read_unlock(&vmspace->vmspace_lock);
+                } else {
+                    // multipt_debug("[case2.2 migration wait]"
+                    //     "DO NOTHING since sender machine (%d) == current machine (%d)\n", 
+                    //     sender_mid, CUR_MACHINE_ID);
                 }
                 
                 /* Update statistics for Case2 Wait */
@@ -799,11 +822,48 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 
                 return 0;
             } else {
-                /* Successfully added to migrating list, now perform migration */
-#ifdef PGFAULT_STATS_DEBUG
-                kdebug("cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", 
+                /**
+                 * Case2.3: the page is not being migrated by other thread,
+                 * then send message to the sender machine to migrate pages
+                 * Successfully added to migrating list, now perform migration
+                 *
+                 * Re-check: Another machine may have completed migration and
+                 * removed from list before we ran check_and_add. Re-acquire
+                 * locks and verify the data-source machine's page table.
+                 * If the page is already in shared memory, just map it.
+                 */
+                multipt_debug("[case2.3 migration trigger]"
+                    "cpu %d trigger case2, fault_addr: 0x%lx, machine_id: %d\n", 
                     smp_get_cpu_id(), fault_addr, mid);
+
+                /* Re-check: page might already be migrated by another machine */
+                read_lock(&vmspace->vmspace_lock);
+                lock(&vmspace->pgtbl_lock);
+                void *src_pgtbl = get_vmspace_pgtbl(vmspace, mid);
+                paddr_t recheck_pa = 0;
+                pte_t *recheck_pte = NULL;
+                int recheck_ret = query_in_pgtbl(src_pgtbl, fault_addr, &recheck_pa, &recheck_pte);
+                if (recheck_ret == 0 && recheck_pte && recheck_pte->pte_4K.present
+                    && !is_migration_entry(recheck_pte)
+                    && get_paddr_machine_id(recheck_pa) == MACHINE_ID_SHARED_MEMORY) {
+                    /* Page already migrated by another machine, just map it */
+                    new_pa = recheck_pa;
+                    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+                    map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                    unlock(&vmspace->pgtbl_lock);
+                    read_unlock(&vmspace->vmspace_lock);
+                    remove_migrating_va(vmspace, fault_addr);
+#ifdef PGFAULT_STATS_DEBUG
+                    u64 case2_end_cycles = get_cycles();
+                    u64 case2_cycles = case2_end_cycles - case2_start_cycles;
+                    add_sample(&pgfault_stats.case2_migrate, case2_cycles);
 #endif
+                    multipt_debug("[case2.3 skipped] va 0x%lx already migrated by another machine, just map\n",
+                        fault_addr);
+                    return 0;
+                }
+                unlock(&vmspace->pgtbl_lock);
+                read_unlock(&vmspace->vmspace_lock);
                 
                 /* Send message to the sender machine to migrate pages */
                 new_pa = migrate_pages_to_shm(mid, vmspace, pa, PAGE_SIZE, fault_addr);
@@ -830,9 +890,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 u64 case2_end_cycles = get_cycles();
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
                 add_sample(&pgfault_stats.case2_migrate, case2_cycles);
-
-                kdebug("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
 #endif
+                // multipt_debug("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
                 
                 return 0;
             }

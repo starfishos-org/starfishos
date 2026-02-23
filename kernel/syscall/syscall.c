@@ -328,8 +328,8 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     t_stage0 = t_stage0_end - t_stage0_start;
 #endif
 
-    // kinfo("[MSG] machine %d handle memcpy and flush tlb, src_pa=0x%lx, dst_pa=0x%lx, len=%lu, fault_va=0x%lx, vmspace_ptr=0x%lx\n", 
-        //   CUR_MACHINE_ID, src_pa, dst_pa, len, fault_va, vmspace_ptr);
+    // multipt_debug("machine %d handle memcpy and flush tlb, src_pa=0x%lx, dst_pa=0x%lx, len=%lu, fault_va=0x%lx, vmspace_ptr=0x%lx\n", 
+    //       CUR_MACHINE_ID, src_pa, dst_pa, len, fault_va, vmspace_ptr);
 
     /* Stage 1: Temporarily invalidate PTE (with lock protection) */
 #ifdef TLB_FLUSH_LATENCY_DEBUG
@@ -376,7 +376,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     t_stage3_start = plat_get_mono_time();
 #endif
     memcpy(dst_va, src_va, (size_t)len);
-    kdebug("cpu %d memcpy paddr(%p) to paddr(%p)\n", smp_get_cpu_id(), src_pa, dst_pa);
+    // multipt_debug("cpu %d memcpy paddr(%p) to paddr(%p)\n", smp_get_cpu_id(), src_pa, dst_pa);
 #ifdef TLB_FLUSH_LATENCY_DEBUG
     t_stage3_end = plat_get_mono_time();
     t_stage3 = t_stage3_end - t_stage3_start;
@@ -396,7 +396,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     BUG_ON(!is_migration_entry(pte));
     remap_page_in_pgtbl(pte, dst_pa);  /* Set pfn to dst_pa */
     pte->pte_4K.present = 1;  /* Set present bit to make PTE valid again */
-    kdebug("cpu %d remap page(paddr=%p), fault_va=0x%lx\n", smp_get_cpu_id(), dst_pa, fault_va);
+    // multipt_debug("cpu %d remap page(paddr=%p), fault_va=0x%lx\n", smp_get_cpu_id(), dst_pa, fault_va);
     unlock(&vmspace->pgtbl_lock);
 
     /* Update PMO structure */
@@ -450,7 +450,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     }
 #endif
 
-    kdebug("memcpy and flush tlb done\n");
+    // multipt_debug("memcpy and flush tlb done\n");
 
     return 0;
 }
