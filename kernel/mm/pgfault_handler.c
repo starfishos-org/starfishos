@@ -63,15 +63,19 @@ struct pgfault_case_recent_stats {
     u64 count;        /* Actual number of samples (max PGFAULT_STATS_RECENT_COUNT) */
 };
 
-/* Statistics for page fault handling cases */
+/* Statistics for page fault handling cases (only case 2.1, 2.2, 2.3) */
 struct pgfault_case_stats {
-    struct pgfault_case_recent_stats case_migration_entry;
-    struct pgfault_case_recent_stats case2_wait;
-    struct pgfault_case_recent_stats case2_migrate;
-    struct pgfault_case_recent_stats case1_direct_map;
+    struct pgfault_case_recent_stats case_migration_entry; /* case 2.1 */
+    struct pgfault_case_recent_stats case2_wait;           /* case 2.2 */
+    struct pgfault_case_recent_stats case2_migrate;         /* case 2.3 */
 };
 
 static struct pgfault_case_stats pgfault_stats = {0};
+/* Total count of case 2.1 + 2.2 + 2.3; print when reaches 1000 */
+#define PGFAULT_CASE2_PRINT_THRESHOLD 1000
+static u64 pgfault_case2_total_count = 0;
+static struct lock pgfault_case2_stats_lock;
+static bool pgfault_case2_stats_lock_initialized = false;
 
 /* Add a sample to circular buffer */
 static void add_sample(struct pgfault_case_recent_stats *stats, u64 cycles)
@@ -108,110 +112,105 @@ static void calc_recent_stats(struct pgfault_case_recent_stats *stats,
 /* Forward declaration */
 void print_pgfault_stats(void);
 
-/* Timer for periodic statistics printing */
-#define PGFAULT_STATS_PRINT_INTERVAL_MS 5000  /* Print every 5 seconds */
-static u64 pgfault_stats_last_print_time = 0;
-static bool pgfault_stats_timer_enabled = true;
-static struct lock pgfault_stats_print_lock;
-static bool pgfault_stats_lock_initialized = false;
+static void reset_case2_stats(void);
+static void maybe_print_and_reset_case2_stats(void);
+
+/* Add sample for case 2.1/2.2/2.3; when total reaches 1000, print stats and reset */
+static void add_sample_case2(struct pgfault_case_recent_stats *stats, u64 cycles)
+{
+    add_sample(stats, cycles);
+    if (atomic_fetch_add_64(&pgfault_case2_total_count, 1) + 1 >= PGFAULT_CASE2_PRINT_THRESHOLD)
+        maybe_print_and_reset_case2_stats();
+}
 #endif /* PGFAULT_STATS_DEBUG */
 
 #ifdef PGFAULT_STATS_DEBUG
-/* Check and print statistics periodically */
-static void check_and_print_pgfault_stats(void)
+static void reset_case2_stats(void)
 {
-    if (!pgfault_stats_timer_enabled)
+    pgfault_stats.case_migration_entry.write_index = 0;
+    pgfault_stats.case_migration_entry.count = 0;
+    pgfault_stats.case2_wait.write_index = 0;
+    pgfault_stats.case2_wait.count = 0;
+    pgfault_stats.case2_migrate.write_index = 0;
+    pgfault_stats.case2_migrate.count = 0;
+    pgfault_case2_total_count = 0;
+}
+
+static void maybe_print_and_reset_case2_stats(void)
+{
+    if (!pgfault_case2_stats_lock_initialized) {
+        lock_init(&pgfault_case2_stats_lock);
+        pgfault_case2_stats_lock_initialized = true;
+    }
+    if (try_lock(&pgfault_case2_stats_lock) != 0)
         return;
-    
-    /* Initialize lock on first use */
-    if (!pgfault_stats_lock_initialized) {
-        lock_init(&pgfault_stats_print_lock);
-        pgfault_stats_lock_initialized = true;
+    if (pgfault_case2_total_count >= PGFAULT_CASE2_PRINT_THRESHOLD) {
+        print_pgfault_stats();
+        reset_case2_stats();
     }
-    
-    u64 current_time_ns = plat_get_mono_time();
-    u64 interval_ns = PGFAULT_STATS_PRINT_INTERVAL_MS * 1000000ULL; /* Convert ms to ns */
-    
-    /* Use try_lock to avoid blocking page fault handling */
-    if (try_lock(&pgfault_stats_print_lock) == 0) {
-        if (current_time_ns - pgfault_stats_last_print_time >= interval_ns) {
-            pgfault_stats_last_print_time = current_time_ns;
-            print_pgfault_stats();
-        }
-        unlock(&pgfault_stats_print_lock);
-    }
+    unlock(&pgfault_case2_stats_lock);
 }
 #endif /* PGFAULT_STATS_DEBUG */
+
+#ifdef PGFAULT_STATS_DEBUG
+/* Print latency in microseconds (ns / 1000) */
+static void print_latency_us(u64 avg_ns, u64 max_ns, u64 min_ns, u64 avg_cycles)
+{
+    printk("  latency: avg %llu us (avg %llu cycles), max %llu us, min %llu us\n",
+           avg_ns / 1000ULL, avg_cycles, max_ns / 1000ULL, min_ns / 1000ULL);
+}
+#endif
 
 void print_pgfault_stats(void)
 {
 #ifdef PGFAULT_STATS_DEBUG
     extern u64 cur_freq;
-    /* cur_freq is in Hz (cycles per second), convert to cycles per nanosecond */
     u64 freq_ns = 0;
     if (cur_freq > 0) {
-        freq_ns = cur_freq / 1000000000ULL; /* cycles per nanosecond */
-        if (freq_ns == 0) freq_ns = 1; /* avoid division by zero */
+        freq_ns = cur_freq / 1000000000ULL;
+        if (freq_ns == 0) freq_ns = 1;
     } else {
-        /* Fallback: assume 2.4 GHz if cur_freq is not initialized */
-        freq_ns = 2400; /* 2.4 GHz = 2.4 cycles per nanosecond */
+        freq_ns = 2400;
     }
-    
-    printk("=== Page Fault Case Statistics (Recent %d samples) ===\n", 
-           PGFAULT_STATS_RECENT_COUNT);
-    printk("CPU Frequency: %llu Hz (assuming %llu cycles/ns for conversion)\n", 
-           cur_freq, freq_ns);
-    
+
+    printk("=== Page Fault Case 2.1/2.2/2.3 Statistics (total %d reached) ===\n",
+           PGFAULT_CASE2_PRINT_THRESHOLD);
+    printk("CPU Frequency: %llu Hz (%llu cycles/ns)\n", cur_freq, freq_ns);
+
     u64 avg_cycles, max_cycles, min_cycles;
-    
+
+    /* Case 2.1: migration entry wait */
+    printk("Case 2.1 (migration entry wait): count=%llu\n",
+           pgfault_stats.case_migration_entry.count);
     if (pgfault_stats.case_migration_entry.count > 0) {
-        calc_recent_stats(&pgfault_stats.case_migration_entry, 
+        calc_recent_stats(&pgfault_stats.case_migration_entry,
                          &avg_cycles, &max_cycles, &min_cycles);
         u64 avg_ns = avg_cycles / freq_ns;
         u64 max_ns = max_cycles / freq_ns;
         u64 min_ns = min_cycles / freq_ns;
-        printk("Case: Migration Entry Wait\n");
-        printk("  Recent Samples: %llu\n", pgfault_stats.case_migration_entry.count);
-        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
-               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+        print_latency_us(avg_ns, max_ns, min_ns, avg_cycles);
     }
-    
+
+    /* Case 2.2: wait for migration */
+    printk("Case 2.2 (wait for migration): count=%llu\n", pgfault_stats.case2_wait.count);
     if (pgfault_stats.case2_wait.count > 0) {
-        calc_recent_stats(&pgfault_stats.case2_wait, 
-                         &avg_cycles, &max_cycles, &min_cycles);
+        calc_recent_stats(&pgfault_stats.case2_wait, &avg_cycles, &max_cycles, &min_cycles);
         u64 avg_ns = avg_cycles / freq_ns;
         u64 max_ns = max_cycles / freq_ns;
         u64 min_ns = min_cycles / freq_ns;
-        printk("Case2: Wait for Migration (already migrating)\n");
-        printk("  Recent Samples: %llu\n", pgfault_stats.case2_wait.count);
-        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
-               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+        print_latency_us(avg_ns, max_ns, min_ns, avg_cycles);
     }
-    
+
+    /* Case 2.3: trigger migration */
+    printk("Case 2.3 (trigger migration): count=%llu\n", pgfault_stats.case2_migrate.count);
     if (pgfault_stats.case2_migrate.count > 0) {
-        calc_recent_stats(&pgfault_stats.case2_migrate, 
-                         &avg_cycles, &max_cycles, &min_cycles);
+        calc_recent_stats(&pgfault_stats.case2_migrate, &avg_cycles, &max_cycles, &min_cycles);
         u64 avg_ns = avg_cycles / freq_ns;
         u64 max_ns = max_cycles / freq_ns;
         u64 min_ns = min_cycles / freq_ns;
-        printk("Case2: Trigger Migration\n");
-        printk("  Recent Samples: %llu\n", pgfault_stats.case2_migrate.count);
-        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
-               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
+        print_latency_us(avg_ns, max_ns, min_ns, avg_cycles);
     }
-    
-    if (pgfault_stats.case1_direct_map.count > 0) {
-        calc_recent_stats(&pgfault_stats.case1_direct_map, 
-                         &avg_cycles, &max_cycles, &min_cycles);
-        u64 avg_ns = avg_cycles / freq_ns;
-        u64 max_ns = max_cycles / freq_ns;
-        u64 min_ns = min_cycles / freq_ns;
-        printk("Case1: Direct Map (shared memory or local)\n");
-        printk("  Recent Samples: %llu\n", pgfault_stats.case1_direct_map.count);
-        printk("  Avg: %llu cycles (%llu ns), Max: %llu cycles (%llu ns), Min: %llu cycles (%llu ns)\n", 
-               avg_cycles, avg_ns, max_cycles, max_ns, min_cycles, min_ns);
-    }
-    
+
     printk("===================================\n");
 #endif
 }
@@ -408,12 +407,6 @@ int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags,
 int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                        int write)
 {
-#ifdef MULTI_PAGETABLE_ENABLED
-#ifdef PGFAULT_STATS_DEBUG
-    /* Check and print statistics periodically */
-    check_and_print_pgfault_stats();
-#endif
-#endif
 #ifdef REPORT_RUNTIME
     DECLTMR;
     start();
@@ -738,8 +731,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #ifdef PGFAULT_STATS_DEBUG
             u64 end_cycles = get_cycles();
             u64 cycles = end_cycles - start_cycles;
-            /* Update statistics */
-            add_sample(&pgfault_stats.case_migration_entry, cycles);
+            add_sample_case2(&pgfault_stats.case_migration_entry, cycles);
 #endif
             /* Page is already mapped after migration, no need to handle fault */
             /* Locks are still held by migration_entry_wait */
@@ -813,13 +805,11 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     //     sender_mid, CUR_MACHINE_ID);
                 }
                 
-                /* Update statistics for Case2 Wait */
 #ifdef PGFAULT_STATS_DEBUG
                 u64 case2_end_cycles = get_cycles();
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
-                add_sample(&pgfault_stats.case2_wait, case2_cycles);
+                add_sample_case2(&pgfault_stats.case2_wait, case2_cycles);
 #endif
-                
                 return 0;
             } else {
                 /**
@@ -856,7 +846,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #ifdef PGFAULT_STATS_DEBUG
                     u64 case2_end_cycles = get_cycles();
                     u64 case2_cycles = case2_end_cycles - case2_start_cycles;
-                    add_sample(&pgfault_stats.case2_migrate, case2_cycles);
+                    add_sample_case2(&pgfault_stats.case2_migrate, case2_cycles);
 #endif
                     multipt_debug("[case2.3 skipped] va 0x%lx already migrated by another machine, just map\n",
                         fault_addr);
@@ -885,30 +875,17 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Remove from migrating list */
                 remove_migrating_va(vmspace, fault_addr);
 
-                /* Update statistics for Case2 Migrate */
 #ifdef PGFAULT_STATS_DEBUG
                 u64 case2_end_cycles = get_cycles();
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
-                add_sample(&pgfault_stats.case2_migrate, case2_cycles);
+                add_sample_case2(&pgfault_stats.case2_migrate, case2_cycles);
 #endif
-                // multipt_debug("cpu %d migrate pages on machine %d completed\n", smp_get_cpu_id(), mid);
-                
                 return 0;
             }
         }
 
-        /* Case1: Direct map (shared memory or local) */
-#ifdef PGFAULT_STATS_DEBUG
-        u64 case1_start_cycles = get_cycles();
-#endif
+        /* Case1: Direct map (shared memory or local) - no stats */
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
-#ifdef PGFAULT_STATS_DEBUG
-        u64 case1_end_cycles = get_cycles();
-        u64 case1_cycles = case1_end_cycles - case1_start_cycles;
-        /* Update statistics for Case1 */
-        add_sample(&pgfault_stats.case1_direct_map, case1_cycles);
-#endif
-        
 #else
         int mid = get_paddr_machine_id(pa);
         BUG_ON(mid != CUR_MACHINE_ID && mid != MACHINE_ID_SHARED_MEMORY);

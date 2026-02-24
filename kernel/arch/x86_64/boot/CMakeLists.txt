@@ -49,6 +49,8 @@ if(CHCORE_SSI)
       -m \$dram_size \
       -object memory-backend-file,size=\$cxl_size,share=on,mem-path=\$ivshmem_dev,id=hostmem \
       -device ivshmem-plain,memdev=hostmem \
+      -object memory-backend-file,size=\$hostfs_size,share=on,mem-path=\$ivshmem_hostfs_dev,id=hostfsmem \
+      -device ivshmem-plain,memdev=hostfsmem \
       -chardev socket,path=/tmp/ivshmem-doorbell-\$USER,id=doorbell_chardev \
       -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
       -cpu host \

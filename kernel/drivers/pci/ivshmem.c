@@ -398,6 +398,13 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
         /* Device has BAR 2, check magic header */
         struct ivshmem_header_common *header = 
             (struct ivshmem_header_common *)dev->iova;
+        /* Always print BAR2 magic to debug hostfs: need one device with magic "hostfs" */
+        // pci_info("[IVSHMEM] [%d] BAR2 magic: %.8s (hex: %02x %02x %02x %02x %02x %02x %02x %02x)\n",
+        //          kvm_ivshmem_dev_num,
+        //          header->magic,
+        //          (u8)header->magic[0], (u8)header->magic[1], (u8)header->magic[2],
+        //          (u8)header->magic[3], (u8)header->magic[4], (u8)header->magic[5],
+        //          (u8)header->magic[6], (u8)header->magic[7]);
         if (strncmp(header->magic, "hostfs", 6) == 0) {
             pci_info("[IVSHMEM] [%d] magic \"match hostfs\"\n", kvm_ivshmem_dev_num);
             hostfs_dev = dev;
@@ -429,6 +436,9 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
             if (ret != 0) {
                 pci_info("[IVSHMEM] [%d] MSI-X initialization failed: %d\n", kvm_ivshmem_dev_num, ret);
             }
+        } else {
+            pci_info("[IVSHMEM] [%d] BAR2 unknown magic (not hostfs/cxlmem/numa/doorbell), hostfs not set\n",
+                     kvm_ivshmem_dev_num);
         }
     }
 
@@ -456,7 +466,9 @@ void ivshmem_setup_devices()
 
 static struct hostfs_dev_header *parse_pci_hostfs_req_info() {
     if (hostfs_dev == NULL) {
-        pci_ioctl_debug("hostfs_dev is not initialized\n");
+        pci_info("hostfs_dev is not initialized (no ivshmem device had magic \"hostfs\")\n");
+        pci_info("  -> check: QEMU has -object mem-path=ivshmem-conn-$USER and -device ivshmem-plain,memdev=hostfsmem\n");
+        pci_info("  -> and run: make prepare-hostfs (or python3 dsm-scripts/prepare_hostfs.py)\n");
         return NULL;
     }
     return (struct hostfs_dev_header *)hostfs_dev->iova;
@@ -465,7 +477,7 @@ static struct hostfs_dev_header *parse_pci_hostfs_req_info() {
 void list_pci_hostfs_req_info() {
     struct hostfs_dev_header *header = parse_pci_hostfs_req_info();
     if (header == NULL) {
-        pci_ioctl_debug("header is not initialized\n");
+        pci_info("hostfs header is not initialized (see BAR2 magic lines above for each device)\n");
         return;
     }
     pci_info("[HOSTFS] /host/: file_num=%llx\n", header->file_num);

@@ -5,6 +5,8 @@ memNumaNode=4
 size=32 # 32GB shared memory
 numa_size=12
 devName="/dev/shm/ivshmem-$USER"
+hostfsDevName="/dev/shm/ivshmem-hostfs-$USER"
+hostfsSize=16
 
 # Create 8 CXL device files (numa0.0 to numa3.1), each 16G
 numa_devs=(
@@ -14,14 +16,15 @@ numa_devs=(
   "/dev/shm/numa3.0-$USER"
   "/dev/shm/numa0.1-$USER"
   "/dev/shm/numa1.1-$USER"
-  "/dev/shm/numa2.1-$USER"
+  "/dev/shm/numa2.1-$USER"  
   "/dev/shm/numa3.1-$USER"
 )
 
 if [ "$mode" = "cxl-new" ]; then
   # Remove old shared memory
   rm -rf $devName
-  echo "Old Shared Memory Removed"
+  rm -rf $hostfsDevName
+  echo "Old Shared Memory and Hostfs Removed"
 
   # Remove old CXL device files
   for dev in "${numa_devs[@]}"; do
@@ -38,6 +41,7 @@ if [ "$mode" = "cxl-new" ]; then
 
   # Create shared memory (ivshmem) for CXL shared memory
   numactl --membind=$memNumaNode dd if=/dev/zero of=$devName bs=1G count=$size
+  dd if=/dev/zero of=$hostfsDevName bs=1G count=$hostfsSize
   echo "New Shared Memory (on NUMA $memNumaNode) Malloced"
 fi
 

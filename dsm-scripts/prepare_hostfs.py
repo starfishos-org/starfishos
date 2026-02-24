@@ -5,7 +5,7 @@ import struct
 # 要复制到共享内存的文件路径
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
-    # '/disk/wfn/graph/data/twitter-2010.bin',
+    '/disk/wfn/graph/data/twitter-2010.bin',
     # '/disk/xt/models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf',
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]
@@ -13,7 +13,7 @@ source_file_list = [
 # 共享内存设备文件路径
 # get current user name
 user_name = os.getenv('USER')
-shm_device_path = f'/dev/shm/ivshmem-conn-{user_name}'
+shm_device_path = f'/dev/shm/ivshmem-hostfs-{user_name}'
 
 if not os.path.exists(shm_device_path):
     print(f"Shared memory device file {shm_device_path} does not exist.")
