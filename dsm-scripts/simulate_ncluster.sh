@@ -17,6 +17,22 @@ if [ $# -ne 4 ]; then
     exit 1
 fi
 
+dsm_ready() {
+  echo "DSM machine $1 is joining..."
+  tmux select-window -t $1
+
+  while true; do
+      tmux capture-pane -pS -1000 | grep -q "DSM] machine $1 "
+      
+      if [ $? -eq 0 ]; then
+          break
+      fi
+      
+      sleep 1
+  done
+  echo "DSM machine $1 joined the cluster"
+}
+
 kernel_ready() {
   echo "Kernel $1 is creating..."
   tmux select-window -t $1
@@ -41,18 +57,14 @@ echo "num_windows: $num_windows"
 echo "program: $program"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
 tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 | tee exec_log.log"
-
-sleep 3
-
+sleep 1
+dsm_ready 0
 kernel_ready 0
 
 for ((i=1; i<$num_windows; i++)); do
     tmux new-window -n $i "./build/simulate.sh $((i % $num_numa))"
     sleep 1
-done
-
-for ((i=1; i<$num_windows; i++)); do
-    kernel_ready $i
+    dsm_ready $i
 done
 
 tmux send -t $session_name:0 "$program" ENTER
