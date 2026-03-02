@@ -360,7 +360,8 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
      * resource.
      */
     if ((pmo->type == PMO_DATA) || (pmo->type == PMO_DATA_NOCACHE)
-        || (pmo->type == PMO_DEVICE) || (pmo->type == PMO_RING_BUFFER))
+        || (pmo->type == PMO_DEVICE) || (pmo->type == PMO_RING_BUFFER)
+        || (pmo->type == PMO_CODE))
         fill_page_table(vmspace, vmr);
 
     if (out_vmregion)

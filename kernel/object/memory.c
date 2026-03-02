@@ -150,7 +150,7 @@ static int __create_pmo(u64 paddr, u64 size, u64 type, mem_t flags,
     struct pmobject *pmo;
     mem_t object_mem_type = __MT_OBJECT__;
 
-    if (cap_group->is_cross_machine) {
+    if (cap_group->is_cross_machine || type == PMO_CODE) {
         flags = __MT_SHARED__;
         object_mem_type = __MT_SHARED__;
     }

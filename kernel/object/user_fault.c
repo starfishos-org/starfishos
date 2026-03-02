@@ -188,6 +188,8 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
     pending_thread = get_current_pending_thread(client_badge, fault_va);
     if (!pending_thread) {
         unlock(&current_pool->lock);
+        kwarn("%s: no pending thread find for va: %p\n", __func__, fault_va);
+        kprint_vmr(current_thread->vmspace);
         return -EINVAL;
     }
     list_del(&pending_thread->node);

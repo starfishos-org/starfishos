@@ -50,7 +50,7 @@
 
 /* Enable page fault statistics and debug logging */
 /* Define PGFAULT_STATS_DEBUG to enable detailed statistics printing */
-#define PGFAULT_STATS_DEBUG
+// #define PGFAULT_STATS_DEBUG
 
 #ifdef MULTI_PAGETABLE_ENABLED
 #ifdef PGFAULT_STATS_DEBUG

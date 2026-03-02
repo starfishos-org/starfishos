@@ -344,10 +344,48 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     query_in_pgtbl(vmspace->pgtbl, (vaddr_t)fault_va, NULL, &pte);
 #endif
     if (!pte) {
+        /*
+         * PTE is NULL: local page table has no mapping of va
+         * (e.g. PMO_DATA with first access on remote machine).
+         * Fallback: memcpy and add mapping like PMO_DATA type,
+         * without migration entry/TLB flush.
+         */
+        struct vmregion *vmr = find_vmr_for_va(vmspace, (vaddr_t)fault_va);
+        if (!vmr || !vmr->pmo) {
+            read_unlock(&vmspace->vmspace_lock);
+            kwarn("[SYS] query_in_pgtbl failed: pte is NULL, no vmr/pmo for fault_va=0x%lx\n",
+                  fault_va);
+            kprint_vmr(vmspace);
+            return -EINVAL;
+        }
+        struct pmobject *pmo = vmr->pmo;
+        u64 index = (ROUND_DOWN((vaddr_t)fault_va, PAGE_SIZE) - vmr->start) / PAGE_SIZE;
+        paddr_t pa = get_page_from_pmo(pmo, index);
+        if (pa == 0) {
+            read_unlock(&vmspace->vmspace_lock);
+            kwarn("[SYS] pte is NULL: get_page_from_pmo returned 0 for fault_va=0x%lx\n",
+                  fault_va);
+            return -EINVAL;
+        }
+        memcpy(dst_va, src_va, (size_t)len);
+        lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+#else
+        void *pgtbl = vmspace->pgtbl;
+#endif
+        int ret = map_page_in_pgtbl(pgtbl, (vaddr_t)fault_va, (paddr_t)dst_pa,
+                                    vmr->perm, &pte);
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
-        kwarn("[SYS] query_in_pgtbl failed: pte is NULL for fault_va=0x%lx\n", fault_va);
-        return -EINVAL;
+        if (ret != 0) {
+            kwarn("[SYS] pte is NULL: map_page_in_pgtbl failed for fault_va=0x%lx\n",
+                  fault_va);
+            return ret;
+        }
+        if (is_radix_pmo(pmo))
+            commit_page_to_pmo(pmo, index, (paddr_t)dst_pa);
+        return 0;
     }
     /* Clear the present bit to invalidate the PTE */
     set_migration_entry(pte);

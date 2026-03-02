@@ -57,6 +57,9 @@ target_compile_definitions(${kernel_target}
 target_compile_definitions(${kernel_target}
                            PRIVATE $<$<CONFIG:Release>:LOG_LEVEL=1>)
 
+# Enable vmspace statistics printing (used by sys_print_vmspace_stats)
+# target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)
+
 # Include directories
 target_include_directories(${kernel_target} PRIVATE include)
 target_include_directories(${kernel_target} PRIVATE include/arch/${CHCORE_ARCH})

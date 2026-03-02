@@ -140,7 +140,7 @@ static int handle_one_fault(u64 fault_badge, vaddr_t fault_va)
 		fault_badge, fault_va, server_page_addr, copy);
 	if (ret < 0) {
 		/* TODO: handle errors */
-		BUG_ON("this call should always be success here\n");
+		BUG_ON("sys_user_fault_map should always be success here\n");
 	}
 
 	return 0;

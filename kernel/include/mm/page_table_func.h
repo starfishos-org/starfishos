@@ -4,6 +4,8 @@
 #include <mm/vmspace.h>
 
 int query_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t *pa, pte_t **entry);
+int map_page_in_pgtbl(void *pgtbl, vaddr_t va, paddr_t pa, vmr_prop_t flags,
+                     pte_t **out_pte);
 int query_in_all_pgtbls(void **pgtbls, size_t pgtbl_cnt, vaddr_t va, paddr_t *pa, pte_t **entry);
 pte_t get_and_clear_pte(pte_t *pte);
 int remap_page_in_pgtbl(pte_t *entry, paddr_t new_pa);
