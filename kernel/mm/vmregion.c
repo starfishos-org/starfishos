@@ -898,6 +898,61 @@ static void print_segment(vaddr_t start_va, vaddr_t end_va, bool is_cxl,
     printk("\n");
 }
 
+/* Print only per-machine page counts (no VA mapping details) */
+void print_vmspace_memory_summary(struct vmspace *vmspace)
+{
+    struct vmregion *vmr;
+    vaddr_t va;
+    u64 shared_pages_count = 0;
+    u64 local_pages_count[CLUSTER_MAX_MACHINE_NUM] = {0};
+    const char *cap_group_name = "unknown";
+
+    struct object *object = obj2object(vmspace);
+    struct object_slot *slot_iter = NULL;
+
+    lock(&object->copies_lock);
+    if (!list_empty(&object->copies_head)) {
+        slot_iter = list_entry(object->copies_head.next, struct object_slot, copies);
+        if (slot_iter && slot_iter->cap_group && slot_iter->cap_group->cap_group_name) {
+            cap_group_name = slot_iter->cap_group->cap_group_name;
+        }
+    }
+    unlock(&object->copies_lock);
+
+    read_lock(&vmspace->vmspace_lock);
+
+    struct rb_node *node;
+    rb_for_each(&vmspace->vmr_tree, node) {
+        vmr = rb_entry(node, struct vmregion, tree_node);
+        for (va = vmr->start; va < vmr->start + vmr->size; va += PAGE_SIZE) {
+            for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+                if (!pgtbl)
+                    continue;
+                paddr_t pa = 0;
+                pte_t *pte = NULL;
+                int query_ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
+                if (query_ret == 0 && pte && (pte->pteval & PAGE_PRESENT)) {
+                    int mid = get_paddr_machine_id(pa);
+                    if (mid == MACHINE_ID_SHARED_MEMORY) {
+                        shared_pages_count++;
+                    } else if (mid >= 0 && mid < CLUSTER_MACHINE_NUM) {
+                        local_pages_count[mid]++;
+                    }
+                }
+            }
+        }
+    }
+
+    read_unlock(&vmspace->vmspace_lock);
+
+    kinfo("[VMSPACE MEMORY] Process: %s\n", cap_group_name);
+    kinfo("[VMSPACE MEMORY] CXL (shared): %llu pages\n", shared_pages_count);
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        kinfo("[VMSPACE MEMORY] Machine %d: %llu pages\n", i, local_pages_count[i]);
+    }
+}
+
 void print_vmspace_stats(struct vmspace *vmspace)
 {
     /* Statistics before recycling: print VA mapping locations and count pages */
@@ -1073,8 +1128,12 @@ int sys_print_vmspace_stats(void)
         kwarn("sys_print_vmspace_stats: failed to get vmspace\n");
         return -EINVAL;
     }
-    
+
+#ifdef PRINT_VMSPACE_STATS_NO_DETAILS
+    print_vmspace_memory_summary(vmspace);
+#else
     print_vmspace_stats(vmspace);
+#endif
     obj_put(vmspace);
         
     return 0;

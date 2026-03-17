@@ -2,6 +2,8 @@ import mmap
 import os
 import struct
 
+base_dir = "/mnt/cxlshm"
+
 # 要复制到共享内存的文件路径
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
@@ -13,7 +15,7 @@ source_file_list = [
 # 共享内存设备文件路径
 # get current user name
 user_name = os.getenv('USER')
-shm_device_path = f'/dev/shm/ivshmem-hostfs-{user_name}'
+shm_device_path = f'{base_dir}/ivshmem-hostfs-{user_name}'
 
 if not os.path.exists(shm_device_path):
     print(f"Shared memory device file {shm_device_path} does not exist.")

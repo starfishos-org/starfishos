@@ -528,17 +528,45 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         /* Clear to 0 for the newly allocated page */
         memset(new_va, 0, PAGE_SIZE);
 
-        /*
-         * Record the physical page in the radix tree:
-         * the offset is used as index in the radix tree
-         */
-        kdebug("commit: index: %ld, 0x%lx\n", index, pa);
-        commit_page_to_pmo(pmo, index, pa);
-
         /* Add mapping in the page table */
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
         void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        /*
+         * Re-check PTE under pgtbl_lock: a concurrent migration
+         * (sys_memcpy_and_flush_tlb) may have set a migration entry
+         * on this VA between our get_page_from_pmo and acquiring the
+         * lock. This happens when the page was mapped via
+         * pgtbl_deep_copy without commit_page_to_pmo.
+         */
+        {
+            pte_t *existing_pte = NULL;
+            query_in_pgtbl(pgtbl, fault_addr, NULL, &existing_pte);
+            if (existing_pte && is_migration_entry(existing_pte)) {
+                free_pages(new_va);
+                migration_entry_wait(existing_pte, vmspace, fault_addr);
+                unlock(&vmspace->pgtbl_lock);
+                read_unlock(&vmspace->vmspace_lock);
+                return 0;
+            }
+            if (existing_pte && existing_pte->pte_4K.present) {
+                free_pages(new_va);
+                unlock(&vmspace->pgtbl_lock);
+                goto out_unlock_vmspace;
+            }
+        }
+#endif
+
+        /*
+         * Record the physical page in the radix tree:
+         * the offset is used as index in the radix tree.
+         * Moved after migration entry check to avoid corrupting
+         * the PMO radix tree during a concurrent migration.
+         */
+        kdebug("commit: index: %ld, 0x%lx\n", index, pa);
+        commit_page_to_pmo(pmo, index, pa);
+
+#ifdef MULTI_PAGETABLE_ENABLED
         map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);

@@ -17,6 +17,12 @@ if [ $# -ne 4 ]; then
     exit 1
 fi
 
+# 开始前先清理上一次的 tmux session
+if tmux has-session -t $session_name 2>/dev/null; then
+    tmux kill-session -t $session_name
+    echo "Killed existing tmux session: $session_name"
+fi
+
 dsm_ready() {
   echo "DSM machine $1 is joining..."
   tmux select-window -t $1
@@ -65,6 +71,10 @@ for ((i=1; i<$num_windows; i++)); do
     tmux new-window -n $i "./build/simulate.sh $((i % $num_numa))"
     sleep 1
     dsm_ready $i
+done
+
+for ((i=0; i<$num_windows; i++)); do
+    kernel_ready $i
 done
 
 tmux send -t $session_name:0 "$program" ENTER

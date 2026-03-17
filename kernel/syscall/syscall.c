@@ -338,11 +338,11 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     read_lock(&vmspace->vmspace_lock);
     lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
-    query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID), 
-                (vaddr_t)fault_va, NULL, &pte);
+    void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
 #else
-    query_in_pgtbl(vmspace->pgtbl, (vaddr_t)fault_va, NULL, &pte);
+    void *pgtbl = vmspace->pgtbl;
 #endif
+    query_in_pgtbl(pgtbl, (vaddr_t)fault_va, NULL, &pte);
     if (!pte) {
         /*
          * PTE is NULL: local page table has no mapping of va
@@ -369,11 +369,6 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         }
         memcpy(dst_va, src_va, (size_t)len);
         lock(&vmspace->pgtbl_lock);
-#ifdef MULTI_PAGETABLE_ENABLED
-        void *pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-#else
-        void *pgtbl = vmspace->pgtbl;
-#endif
         int ret = map_page_in_pgtbl(pgtbl, (vaddr_t)fault_va, (paddr_t)dst_pa,
                                     vmr->perm, &pte);
         unlock(&vmspace->pgtbl_lock);
@@ -430,7 +425,20 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
 #endif
     read_lock(&vmspace->vmspace_lock);
     lock(&vmspace->pgtbl_lock);
-    /* After get_and_clear_pte, PTE is cleared (present=0), so we need to set both pfn and present */
+    /* After set_migration_entry, PTE should be a migration entry (present=0, pfn=MIGRATION_ENTRY). */
+    if (!is_migration_entry(pte)) {
+        /* Re-query the PTE from current page table to debug unexpected state. */
+        pte_t *recheck_pte = NULL;
+        query_in_pgtbl(pgtbl, (vaddr_t)fault_va, NULL, &recheck_pte);
+        kwarn("%s: pte is not migration entry at remap stage: "
+              "vmspace=%p fault_va=0x%lx old_pte=%p old_pteval=0x%lx recheck_pte=%p recheck_pteval=0x%lx\n",
+              __func__, vmspace, fault_va, pte, pte ? pte->pteval : 0UL,
+              recheck_pte, recheck_pte ? recheck_pte->pteval : 0UL);
+        if (!recheck_pte || !is_migration_entry(recheck_pte)) {
+            BUG_ON(1);
+        }
+        pte = recheck_pte;
+    }
     BUG_ON(!is_migration_entry(pte));
     remap_page_in_pgtbl(pte, dst_pa);  /* Set pfn to dst_pa */
     pte->pte_4K.present = 1;  /* Set present bit to make PTE valid again */

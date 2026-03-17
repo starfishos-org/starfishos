@@ -3,19 +3,21 @@ import os
 import re
 
 # 共享内存设备文件路径
+base_dir = "/mnt/cxlshm"
+numa_base_dir = "/dev/shm"
 user_name = os.getenv('USER')
-shm_device_path = f'/dev/shm/ivshmem-{user_name}'
+shm_device_path = f'{base_dir}/ivshmem-{user_name}'
 
-# 8个CXL设备文件路径
+# 8个CXL设备文件路径（numax.x 现在在 /dev/shm）
 cxl_devices = [
-    f'/dev/shm/numa0.0-{user_name}',
-    f'/dev/shm/numa1.0-{user_name}',
-    f'/dev/shm/numa2.0-{user_name}',
-    f'/dev/shm/numa3.0-{user_name}',
-    f'/dev/shm/numa0.1-{user_name}',
-    f'/dev/shm/numa1.1-{user_name}',
-    f'/dev/shm/numa2.1-{user_name}',
-    f'/dev/shm/numa3.1-{user_name}',
+    f'{numa_base_dir}/numa0.0-{user_name}',
+    f'{numa_base_dir}/numa1.0-{user_name}',
+    f'{numa_base_dir}/numa2.0-{user_name}',
+    f'{numa_base_dir}/numa3.0-{user_name}',
+    f'{numa_base_dir}/numa0.1-{user_name}',
+    f'{numa_base_dir}/numa1.1-{user_name}',
+    f'{numa_base_dir}/numa2.1-{user_name}',
+    f'{numa_base_dir}/numa3.1-{user_name}',
 ]
 
 # 16K

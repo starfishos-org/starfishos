@@ -2,6 +2,7 @@
 #include <object/thread.h>
 #include <mm/vmspace.h>
 #include <arch/mm/page_table.h>
+#include <object/recycle.h>
 #ifdef MULTI_PAGETABLE_ENABLED
 #include <dsm/dsm-single.h>
 #endif
@@ -135,7 +136,17 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
 
         kinfo("current_cap_group is %s\n", current_cap_group->cap_group_name);
 
-        // TODO: kill the process
+        /*
+         * For user-mode faults, do not panic the whole kernel.
+         * Instead, terminate the faulting process like a normal segfault.
+         */
+        if (errorcode & FLAG_US) {
+            kinfo("do_page_fault: invalid user access, killing process via sys_exit_group.\n");
+            sys_exit_group(-1);
+            return;
+        }
+
+        /* Kernel-mode faults are still treated as fatal. */
         BUG_ON(1);
     }
 }

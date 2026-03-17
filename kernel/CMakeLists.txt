@@ -59,6 +59,7 @@ target_compile_definitions(${kernel_target}
 
 # Enable vmspace statistics printing (used by sys_print_vmspace_stats)
 # target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)
+# target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)
 
 # Include directories
 target_include_directories(${kernel_target} PRIVATE include)

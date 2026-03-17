@@ -210,7 +210,9 @@ int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,
 
 int sys_create_pmo(u64 size, u64 type, mem_t flags)
 {
-    BUG_ON(size == 0);
+    if (size == 0) {
+        BUG("pmo type: %lu, flags: %d, size: %lu", type, flags, size);
+    }
     return create_pmo(size, type, flags, current_cap_group, NULL);
 }
 

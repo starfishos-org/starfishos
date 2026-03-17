@@ -295,6 +295,82 @@ def find_new_pages(first_pages, second_pages):
     
     return new_pages
 
+def count_cxl_pages(pages):
+    """Count total number of CXL pages from a pages list"""
+    if not pages:
+        return 0
+    
+    PAGE_SIZE = 0x1000
+    total_pages = 0
+    MAX_REASONABLE_RANGE = 0x40000000  # 1GB
+    
+    for page in pages:
+        location = page.get('location')
+        if location != 'CXL':
+            continue
+        
+        if page.get('is_range', False):
+            va_start = page['va']
+            va_end = page.get('end_va', va_start)
+            if va_start > va_end:
+                va_start, va_end = va_end, va_start
+            
+            range_size = va_end - va_start
+            if range_size > MAX_REASONABLE_RANGE:
+                print(f"Warning: Skipping suspiciously large CXL range when counting pages: 0x{va_start:016x}-0x{va_end:016x} (size: {range_size / (1024*1024):.2f} MB)")
+                continue
+            
+            page_count = (va_end - va_start) // PAGE_SIZE + 1
+            if page_count <= 0:
+                print(f"Warning: Invalid CXL page range: 0x{va_start:016x}-0x{va_end:016x}, skipping")
+                continue
+            
+            total_pages += page_count
+        else:
+            total_pages += 1
+    
+    return total_pages
+
+def print_page_distribution_simple(label, pages):
+    """Print a compact page distribution summary for a given pages list"""
+    if not pages:
+        return
+    
+    PAGE_SIZE = 0x1000
+    MAX_REASONABLE_RANGE = 0x40000000  # 1GB
+    location_counts = defaultdict(int)
+    
+    for page in pages:
+        if page.get('is_range', False):
+            va_start = page['va']
+            va_end = page.get('end_va', va_start)
+            if va_start > va_end:
+                va_start, va_end = va_end, va_start
+            
+            range_size = va_end - va_start
+            if range_size > MAX_REASONABLE_RANGE:
+                print(f"Warning: Skipping suspiciously large range in distribution: 0x{va_start:016x}-0x{va_end:016x} (size: {range_size / (1024*1024):.2f} MB)")
+                continue
+            
+            page_count = (va_end - va_start) // PAGE_SIZE + 1
+            if page_count <= 0:
+                print(f"Warning: Invalid page range in distribution: 0x{va_start:016x}-0x{va_end:016x}, skipping")
+                continue
+        else:
+            page_count = 1
+        
+        location = page.get('location')
+        if location:
+            location_counts[location] += page_count
+    
+    if not location_counts:
+        return
+    
+    print(label)
+    for loc in sorted(location_counts.keys()):
+        page_count = location_counts[loc]
+        print(f"  {loc}: {page_count} pages ({format_size(page_count)})")
+
 def parse_log_file(log_file):
     """Parse log file and extract VMSPACE STATS information, comparing two outputs"""
     # Read all lines first
@@ -313,21 +389,49 @@ def parse_log_file(log_file):
             return None, [], []
         # Fall back to original behavior
         process_name, pages, vmrs, _ = parse_single_stats_section(lines, stats_starts[0])
+        # Also report initial CXL page count
+        cxl_pages = count_cxl_pages(pages)
+        print(f"Initial CXL pages: {cxl_pages} ({format_size(cxl_pages)})")
         return process_name, pages, vmrs
     
-    # Parse first and second stats sections
-    print(f"Found {len(stats_starts)} VMSPACE STATS sections. Comparing first and second...")
-    
+    # Parse first stats section，从第一个分隔线开始
+    print(f"Found {len(stats_starts)} VMSPACE STATS sections (raw separators). Parsing first section...")
     first_name, first_pages, first_vmrs, first_end = parse_single_stats_section(lines, stats_starts[0])
-    second_name, second_pages, second_vmrs, second_end = parse_single_stats_section(lines, stats_starts[1])
+
+    # 第二段不要直接用 stats_starts[1]，而是从 first_end 之后寻找真正“下一段”的起点
+    second_start_candidates = [i for i in stats_starts if i > first_end]
+    if not second_start_candidates:
+        # 没有找到真正的第二段，只用第一段结果
+        print("Warning: Could not find a second complete VMSPACE STATS section after the first one.")
+        # 保持与多段逻辑的返回格式一致：返回第一段的 pages / vmrs
+        process_name, pages, vmrs, _ = parse_single_stats_section(lines, stats_starts[0])
+        cxl_pages = count_cxl_pages(pages)
+        print(f"Initial CXL pages: {cxl_pages} ({format_size(cxl_pages)})")
+        return process_name, pages, vmrs
+
+    second_start = second_start_candidates[0]
+    print(f"Parsing second section starting from line {second_start} (after first section ends at line {first_end}).")
+    second_name, second_pages, second_vmrs, second_end = parse_single_stats_section(lines, second_start)
     
     print(f"First stats: {len(first_pages)} page entries")
     print(f"Second stats: {len(second_pages)} page entries")
+    
+    # Print compact page distribution for the beginning and end snapshots
+    print_page_distribution_simple("Page distribution (First stats):", first_pages)
+    print_page_distribution_simple("Page distribution (Second stats):", second_pages)
     
     # Find new pages (pages in second but not in first)
     new_pages = find_new_pages(first_pages, second_pages)
     
     print(f"New pages (second - first): {len(new_pages)} page entries")
+
+    # Also print absolute page counts (unique pages) for first and second snapshots
+    first_total_pages = len(pages_to_set(first_pages))
+    second_total_pages = len(pages_to_set(second_pages))
+    new_total_pages = len(pages_to_set(new_pages))
+    print(f"First stats total pages (unique VAs): {first_total_pages} ({format_size(first_total_pages)})")
+    print(f"Second stats total pages (unique VAs): {second_total_pages} ({format_size(second_total_pages)})")
+    print(f"New pages total (unique VAs): {new_total_pages} ({format_size(new_total_pages)})")
     
     # Use second process name (or first if second is "unknown")
     process_name = second_name if second_name and second_name != "unknown" else first_name
