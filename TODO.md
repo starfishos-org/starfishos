@@ -1,5 +1,12 @@
 # TODO
 
+[ ] 让AI统计一下kernel/user-space总代码修改行数，指出核心的代码量，和只是适配现有内容的代码量
+
+[ ] DBx1000和tigon的CXL usage和总usage
+[ ] tigon实现的分布式也加上
+
+
+
 1. error
 user/system-servers/fs_base/fs_page_fault.c:76
 must run once to fill fmap_area_mappings

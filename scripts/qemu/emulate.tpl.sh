@@ -13,13 +13,54 @@ fi
 basedir=$(dirname "$0")
 # basedir should be /build directory
 nvm_backend_file="/tmp/nvm-file-$USER"
-memdev_dir="/mnt/cxlshm"
+memdev_dir="/dev/shm"
 ivshmem_dev="$memdev_dir/ivshmem-$USER"
 conn_size=16G
 ivshmem_conn_dev="$memdev_dir/ivshmem-conn-$USER"
 hostfs_size=16G
 ivshmem_hostfs_dev="$memdev_dir/ivshmem-hostfs-$USER"
-dram_size=1G # 1G for temp allocator
+tmp_size=${TMP_SIZE:-1G}
+dram_size=${DRAM_SIZE:-32G}
+machine_num=${MACHINE_NUM:-2}
+
+size_to_bytes() {
+	local s="$1"
+	local n unit
+
+	n="${s%[KkMmGg]}"
+	unit="${s#$n}"
+
+	if [[ "$n" == "$s" ]]; then
+		echo "$s"
+		return
+	fi
+
+	case "$unit" in
+		K|k) echo $(( n * 1024 ));;
+		M|m) echo $(( n * 1024 * 1024 ));;
+		G|g) echo $(( n * 1024 * 1024 * 1024 ));;
+		*) echo "0";;
+	esac
+}
+
+# ivshmem-plain BAR size must be a power of two (QEMU pci_register_bar).
+round_up_pow2() {
+	local n=$1
+	local p=1
+
+	[ "${n:-0}" -lt 1 ] && echo 4096 && return
+	while [ "$p" -lt "$n" ]; do
+		p=$((p * 2))
+	done
+	echo "$p"
+}
+
+tmp_size_bytes=$(size_to_bytes "$tmp_size")
+dram_size_bytes=$(size_to_bytes "$dram_size")
+total_mem_size_bytes=$(( tmp_size_bytes + dram_size_bytes ))
+gib=$(( 1024 * 1024 * 1024 ))
+total_mem_size_gib=$(( (total_mem_size_bytes + gib - 1) / gib ))
+total_mem_size_qemu="${total_mem_size_gib}G"
 numa_size=16G # 默认大小，仅在对应文件不存在时兜底
 cxl_size=32G # 默认大小，仅在对应文件不存在时兜底
 plat_cpu_name=12
@@ -42,10 +83,10 @@ port=$(shuf -i 30000-40000 -n 1)
 echo $port >$basedir/gdb-port-$vm_id
 # echo $port >$basedir/gdb-port
 
-cxl_backend_file="/tmp/cxltest0.raw"
+cxl_backend_file="/dev/shm/ivshmem-$USER"
 
-# NUMA 设备文件放在 1G 大页 hugetlbfs 上（/mnt/huge1G），与 dsm-scripts/config_memdev.sh 一致
-numa_memdev_dir="/mnt/huge1G"
+# NUMA 设备文件改放在 /dev/shm，保持与 dsm-scripts/config_memdev.sh 一致
+numa_memdev_dir="/dev/shm"
 # Create 8 CXL device file paths（顺序需与 dsm-scripts/numa_sizes.conf 中 NUMA_SIZES 对应）
 numa_devs=(
 	"$numa_memdev_dir/numa0.0-$USER"
@@ -58,40 +99,96 @@ numa_devs=(
 	"$numa_memdev_dir/numa3.1-$USER"
 )
 
-# Build QEMU command with 8 CXL devices
+# Build QEMU command; optional 8x NUMA ivshmem-plain for guest local DRAM
 qemu_cmd="@qemu@ -gdb tcp::$port"
 
-# Add 8 CXL devices as ivshmem-plain devices (not NUMA nodes)，size 直接读取对应文件实际大小
-for i in {0..7}; do
-	dev_path=${numa_devs[$i]}
-	if [ -f "$dev_path" ]; then
+# 与 CMake kernel USE_DEV_AS_DRAM 一致（@qemu_use_dev_as_dram@）；未 export 时按编译配置默认开启/关闭。
+# 仍可显式设置 USE_DEV_AS_DRAM=0 跳过 NUMA 设备（仅当内核未使用 USE_DEV_AS_DRAM 时才有意义）。
+: "${USE_DEV_AS_DRAM:=@qemu_use_dev_as_dram@}"
+if [ "${USE_DEV_AS_DRAM}" = "1" ]; then
+	for i in {0..7}; do
+		dev_path=${numa_devs[$i]}
+		if [ ! -f "$dev_path" ]; then
+			echo "[FATAL] USE_DEV_AS_DRAM=1 需要 8 个 NUMA backing 文件，缺失: $dev_path" >&2
+			echo "请先运行: dsm-scripts/config_memdev.sh new_numa" >&2
+			exit 1
+		fi
 		per_numa_size_bytes=$(stat -c%s "$dev_path")
-	else
-		# 兜底：文件不存在时使用默认大小（按 G 转成字节）
-		per_numa_size_bytes=$(( ${numa_size%G} * 1024 * 1024 * 1024 ))
-	fi
+		if command -v truncate >/dev/null 2>&1; then
+			np=$(round_up_pow2 "$per_numa_size_bytes")
+			if [ "$np" -ne "$per_numa_size_bytes" ]; then
+				truncate -s "$np" "$dev_path"
+			fi
+			per_numa_size_bytes=$np
+		fi
 
-	qemu_cmd="$qemu_cmd -object memory-backend-ram,size=$per_numa_size_bytes,share=on,mem-path=$dev_path,id=cxl$i"
-	qemu_cmd="$qemu_cmd -device ivshmem-plain,memdev=cxl$i"
-done
+		qemu_cmd="$qemu_cmd -object memory-backend-file,size=$per_numa_size_bytes,share=on,mem-path=$dev_path,id=cxl$i"
+		qemu_cmd="$qemu_cmd -device ivshmem-plain,memdev=cxl$i"
+	done
+fi
 
-# 读取 cxl shared mem 文件和 hostfs 文件的真实大小
+# 读取 cxl shared mem 文件和 hostfs 文件的真实大小（须与 QEMU size= 一致）
 if [ -f "$ivshmem_dev" ]; then
 	cxl_size_bytes=$(stat -c%s "$ivshmem_dev")
+	if [ "${cxl_size_bytes:-0}" -eq 0 ] && command -v truncate >/dev/null 2>&1; then
+		truncate -s "$cxl_size" "$ivshmem_dev"
+		cxl_size_bytes=$(stat -c%s "$ivshmem_dev")
+	fi
+	if [ "${cxl_size_bytes:-0}" -eq 0 ]; then
+		cxl_size_bytes=$(( ${cxl_size%G} * 1024 * 1024 * 1024 ))
+	fi
 else
 	cxl_size_bytes=$(( ${cxl_size%G} * 1024 * 1024 * 1024 ))
 fi
 
 if [ -f "$ivshmem_hostfs_dev" ]; then
 	hostfs_size_bytes=$(stat -c%s "$ivshmem_hostfs_dev")
+	if [ "${hostfs_size_bytes:-0}" -eq 0 ] && command -v truncate >/dev/null 2>&1; then
+		truncate -s "$hostfs_size" "$ivshmem_hostfs_dev"
+		hostfs_size_bytes=$(stat -c%s "$ivshmem_hostfs_dev")
+	fi
+	if [ "${hostfs_size_bytes:-0}" -eq 0 ]; then
+		hostfs_size_bytes=$(( ${hostfs_size%G} * 1024 * 1024 * 1024 ))
+	fi
 else
 	hostfs_size_bytes=$(( ${hostfs_size%G} * 1024 * 1024 * 1024 ))
 fi
 
-# 使用实际文件大小替换 @qemu_options@ 中 cxl/hostfs 的 size 参数
-qemu_options_updated="@qemu_options@"
-qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#-object memory-backend-ram,size=[^,]*,share=on,mem-path=$ivshmem_dev#-object memory-backend-file,size=${cxl_size_bytes},share=on,mem-path=$ivshmem_dev#g")
-qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#-object memory-backend-file,size=[^,]*,share=on,mem-path=$ivshmem_hostfs_dev#-object memory-backend-file,size=${hostfs_size_bytes},share=on,mem-path=$ivshmem_hostfs_dev#g")
+if [ -f "$ivshmem_dev" ] && command -v truncate >/dev/null 2>&1; then
+	np=$(round_up_pow2 "$cxl_size_bytes")
+	if [ "$np" -ne "$cxl_size_bytes" ]; then
+		truncate -s "$np" "$ivshmem_dev"
+	fi
+	cxl_size_bytes=$np
+fi
+
+if [ -f "$ivshmem_hostfs_dev" ] && command -v truncate >/dev/null 2>&1; then
+	np=$(round_up_pow2 "$hostfs_size_bytes")
+	if [ "$np" -ne "$hostfs_size_bytes" ]; then
+		truncate -s "$np" "$ivshmem_hostfs_dev"
+	fi
+	hostfs_size_bytes=$np
+fi
+
+# DSM IVSHMEM（CMake 在 qemu_options 里包含 ivshmem-plain 时置 @qemu_emulate_ivshmem_plain@=1）：
+# 直接用 stat/truncate 对齐后的字节数拼接参数，不再对占位串做 sed。
+if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
+	qemu_options_updated="--enable-kvm -M q35 -name chcore-$vm_id -m $total_mem_size_qemu \
+-object memory-backend-file,size=${cxl_size_bytes},share=on,mem-path=$ivshmem_dev,id=hostmem \
+-device ivshmem-plain,memdev=hostmem \
+-object memory-backend-file,size=${hostfs_size_bytes},share=on,mem-path=$ivshmem_hostfs_dev,id=hostfsmem \
+-device ivshmem-plain,memdev=hostfsmem \
+-chardev socket,path=/tmp/ivshmem-doorbell-$USER,id=doorbell_chardev \
+-device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
+-cpu host -smp $plat_cpu_name -serial mon:stdio -nographic \
+-cdrom $basedir/chcore.iso \
+-fw_cfg name=opt/chcore/bootargs,string=machine_id=$vm_id,,machine_num=$machine_num,,tmp_size=$tmp_size,,dram_size=$dram_size"
+else
+	qemu_options_updated="@qemu_options@"
+	# 非 IVSHMEM 布局仍使用 CMake 生成的 @qemu_options@（SLS/CXL 等）。
+	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#-m [^ ]\\+#-m $total_mem_size_qemu#g")
+	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#\\(name=opt/chcore/bootargs,string=machine_id=$vm_id\\)#\\1,,machine_num=$machine_num,,tmp_size=$tmp_size,,dram_size=$dram_size#g")
+fi
 
 # Add remaining QEMU options (includes ivshmem configuration，已按实际大小修正)
 qemu_cmd="$qemu_cmd $qemu_options_updated"

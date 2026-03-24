@@ -226,7 +226,7 @@ skip_parse_info:
     /* use global memory pool */
     /* Hybrid DRAM and NVM memory pool */
     init_buddy_for_one_mem_pool(
-            global_temp_mem, DRAM_PAGE, temp_mem_start, temp_mem_start + temp_mem_size);
+            global_temp_mem, TEMP_PAGE, temp_mem_start, temp_mem_start + temp_mem_size);
 
     init_temp_slab();
     return;
@@ -292,10 +292,18 @@ void ext_mm_init()
         free_mem_start = cxlmem_map[cxlmem_map_idx][0];
         free_mem_end = cxlmem_map[cxlmem_map_idx][1];
 
+#ifdef DSM_CXL_LF_BUDDY
+        init_buddy_lf(cxlmem_map_idx,
+                      global_cxl_mem[cxlmem_map_idx],
+                      CXL_MEM_PAGE,
+                      free_mem_start,
+                      free_mem_end);
+#else
         init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
                                     CXL_MEM_PAGE,
                                     free_mem_start,
                                     free_mem_end);
+#endif
     }
 
     init_cxl_slab();

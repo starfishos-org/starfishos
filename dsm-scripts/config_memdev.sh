@@ -6,7 +6,7 @@ size=32 # 32GB shared memory
 numa_size=16 # 默认每个 numax.x 的大小（GB），可被 numa_sizes.conf 覆盖
 
 # CXL 相关大块 ivshmem 仍放在 /mnt/cxlshm
-base_dir="/mnt/cxlshm"
+base_dir="/dev/shm"
 devName="$base_dir/ivshmem-$USER"
 hostfsDevName="$base_dir/ivshmem-hostfs-$USER"
 

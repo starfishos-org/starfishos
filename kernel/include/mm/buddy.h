@@ -40,6 +40,7 @@ enum page_type {
     DRAM_CACHED_PAGE,
     NVM_PAGE,
     CXL_MEM_PAGE, /* page allocated from CXL Fixed Memory Window */
+    TEMP_PAGE,    /* page allocated from temporary allocator pool */
     INVALID_PAGE,
 };
 
@@ -173,6 +174,18 @@ extern struct phys_mem_pool *global_temp_mem;
 
 void init_buddy(struct phys_mem_pool *, struct page *start_page,
                 vaddr_t start_addr, unsigned long page_num, page_type_t type);
+
+#ifdef USE_CXL_MEM
+/*
+ * Lock-free buddy for CXL shared pool: tree + CAS state in SHM at
+ * free_mem_start..; picks largest 2^ord pages that fit after struct page[].
+ * cxl_pool_idx must match the index used in ext_mm_init (cxlmem_map_idx).
+ */
+void init_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,
+                 page_type_t type, paddr_t free_mem_start, paddr_t free_mem_end);
+struct page *buddy_lf_get_pages(struct phys_mem_pool *pool, int order);
+void buddy_lf_free_pages(struct phys_mem_pool *pool, struct page *page);
+#endif
 
 struct page *buddy_get_pages(struct phys_mem_pool *, int order);
 void buddy_free_pages(struct phys_mem_pool *, struct page *page);

@@ -183,6 +183,10 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
 
 struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
 {
+#if defined(USE_CXL_MEM) && defined(DSM_CXL_LF_BUDDY)
+    if (pool->type == CXL_MEM_PAGE)
+        return buddy_lf_get_pages(pool, order);
+#endif
     int cur_order;
     struct list_head *free_list;
     struct page *page = NULL;
@@ -242,6 +246,12 @@ extern void destory_track_info(struct page *page);
 
 void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
 {
+#if defined(USE_CXL_MEM) && defined(DSM_CXL_LF_BUDDY)
+    if (pool->type == CXL_MEM_PAGE) {
+        buddy_lf_free_pages(pool, page);
+        return;
+    }
+#endif
     int order, i;
     struct list_head *free_list;
     struct page *p;
@@ -377,6 +387,10 @@ page_type_t get_page_type(struct page *page)
 #ifdef DSM_ENABLED
 int get_paddr_machine_id(paddr_t paddr)
 {
+#if defined DSM_MALLOC_MODE_TEMP || defined DSM_MALLOC_MODE_DRAM
+    // If we default use DRAM and TEMP, all pages are shared memory
+    return MACHINE_ID_SHARED_MEMORY;
+#endif
     /* Check if it's shared memory (CXL) */
     if (IS_SHM_PADDR(paddr))
         return MACHINE_ID_SHARED_MEMORY; /* Shared memory, no specific machine */

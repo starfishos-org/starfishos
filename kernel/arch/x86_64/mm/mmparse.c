@@ -9,6 +9,7 @@
 #include <drivers/ivshmem.h>
 #include <arch/mmu.h>
 #include <arch/drivers/multiboot2.h>
+#include <lib/fw_cfg.h>
 
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
@@ -352,7 +353,12 @@ void parse_mem_map(void *info)
     else
         temp_mem_start = mmap->addr;
 
-    temp_mem_size = (mmap->addr + mmap->len) - temp_mem_start;
+    temp_mem_size = FW_TMP_SIZE_BYTES;
+    if (temp_mem_size == 0)
+        temp_mem_size = SIZE_1G;
+    if (temp_mem_start + temp_mem_size > mmap->addr + mmap->len) {
+        temp_mem_size = (mmap->addr + mmap->len) - temp_mem_start;
+    }
     
     refill_kernel_page_table(max_paddr);
 

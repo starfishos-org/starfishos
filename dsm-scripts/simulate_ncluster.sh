@@ -61,14 +61,15 @@ welcome_str="Welcome to ChCore shell!"
 
 echo "num_windows: $num_windows"
 echo "program: $program"
+echo "MACHINE_NUM: $num_windows"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
-tmux new -d -s $session_name -n 0 "./build/simulate.sh 0 | tee exec_log.log"
+tmux new -d -s $session_name -n 0 "MACHINE_NUM=$num_windows ./build/simulate.sh 0 | tee exec_log.log"
 sleep 1
 dsm_ready 0
 kernel_ready 0
 
 for ((i=1; i<$num_windows; i++)); do
-    tmux new-window -n $i "./build/simulate.sh $((i % $num_numa))"
+    tmux new-window -n $i "MACHINE_NUM=$num_windows ./build/simulate.sh $i"
     sleep 1
     dsm_ready $i
 done

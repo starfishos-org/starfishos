@@ -53,8 +53,8 @@ PROJECT_ROOT="$SCRIPT_DIR/.."
 IVSHMEM_SERVER=""
 
 # Check common locations (including the path from terminal output)
-if [ -f "/disk/wfn/qemu-6.2.0/build/contrib/ivshmem-server/ivshmem-server" ]; then
-    IVSHMEM_SERVER="/disk/wfn/qemu-6.2.0/build/contrib/ivshmem-server/ivshmem-server"
+if [ -f "/home/wfn/qemu-6.2.0/build/contrib/ivshmem-server/ivshmem-server" ]; then
+    IVSHMEM_SERVER="/home/wfn/qemu-6.2.0/build/contrib/ivshmem-server/ivshmem-server"
 elif [ -f "$PROJECT_ROOT/qemu-6.2.0-ivshmem/build/ivshmem-server" ]; then
     IVSHMEM_SERVER="$PROJECT_ROOT/qemu-6.2.0-ivshmem/build/ivshmem-server"
 elif [ -f "$PROJECT_ROOT/qemu-6.2.0-ivshmem/ivshmem-server/ivshmem-server" ]; then

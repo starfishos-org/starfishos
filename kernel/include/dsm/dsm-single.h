@@ -54,6 +54,10 @@
 #ifndef CLUSTER_MAX_MACHINE_NUM
 #define CLUSTER_MAX_MACHINE_NUM (8)
 #endif
+
+#ifndef DSM_FIXED_MACHINE_NUM
+#define DSM_FIXED_MACHINE_NUM (4)
+#endif
 #ifndef CLUSTER_MACHINE_NUM
 #define CLUSTER_MACHINE_NUM     (dsm_meta->cluster_machine_num)
 #endif

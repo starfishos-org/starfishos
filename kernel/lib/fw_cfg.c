@@ -5,6 +5,7 @@
 #include <common/util.h>
 #include <lib/fw_cfg.h>
 #include <dsm/dsm-single.h>
+#include <common/size.h>
 
 #define FW_CFG_PORT_SELECT 0x510
 #define FW_CFG_PORT_DATA   0x511
@@ -14,6 +15,9 @@
 #define BOOT_ARGS_NAME "opt/chcore/bootargs"
 
 int FW_MACHINE_ID = -1;
+unsigned long long FW_TMP_SIZE_BYTES = SIZE_1G;
+unsigned long long FW_DRAM_SIZE_BYTES = 0;
+int FW_MACHINE_NUM = 0;
 
 // fw_cfg directory entry format (big-endian fields)
 struct fw_cfg_file {
@@ -91,17 +95,100 @@ int fw_cfg_read_file(const char *target_name, void *buf, size_t buf_size) {
     return -1; // not found
 }
 
+static unsigned long long parse_size_bytes(const char *s)
+{
+    unsigned long long val = 0;
+    const char *p = s;
 
-// format: machine_id=1
+    if (!p || !(*p))
+        return 0;
+
+    while (*p >= '0' && *p <= '9') {
+        val = val * 10 + (unsigned long long)(*p - '0');
+        p++;
+    }
+
+    if (p == s)
+        return 0;
+
+    if (*p == '\0')
+        return val;
+
+    if ((p[0] == 'G' || p[0] == 'g') && p[1] == '\0')
+        return val * SIZE_1G;
+    if ((p[0] == 'M' || p[0] == 'm') && p[1] == '\0')
+        return val * SIZE_1M;
+    if ((p[0] == 'K' || p[0] == 'k') && p[1] == '\0')
+        return val * SIZE_1K;
+
+    return 0;
+}
+
+static void parse_bootargs_kv(char *buf)
+{
+    char *p = buf;
+
+    while (p && *p) {
+        char *tok = p;
+        char *sep = NULL;
+        char *eq = NULL;
+
+        while (*p) {
+            if ((*p == ',' || *p == ';') && !sep) {
+                sep = p;
+                break;
+            }
+            p++;
+        }
+
+        if (sep) {
+            *sep = '\0';
+            p = sep + 1;
+        } else {
+            p = NULL;
+        }
+
+        for (char *q = tok; *q; q++) {
+            if (*q == '=') {
+                eq = q;
+                break;
+            }
+        }
+        if (!eq)
+            continue;
+
+        *eq = '\0';
+        const char *key = tok;
+        const char *val = eq + 1;
+
+        if (!strcmp(key, "machine_id")) {
+            unsigned long long id = parse_size_bytes(val);
+            FW_MACHINE_ID = (int)id;
+        } else if (!strcmp(key, "tmp_size")) {
+            unsigned long long tmp = parse_size_bytes(val);
+            if (tmp)
+                FW_TMP_SIZE_BYTES = tmp;
+        } else if (!strcmp(key, "dram_size")) {
+            unsigned long long dram = parse_size_bytes(val);
+            if (dram)
+                FW_DRAM_SIZE_BYTES = dram;
+        } else if (!strcmp(key, "machine_num")) {
+            unsigned long long n = parse_size_bytes(val);
+            FW_MACHINE_NUM = (int)n;
+        }
+    }
+}
+
 void fw_cfg_init(void) {
     char buf[256];
     int len = fw_cfg_read_file(BOOT_ARGS_NAME, buf, sizeof(buf));
     if (len > 0) {
-        sscanf(buf, "machine_id=%d", &FW_MACHINE_ID);
+        parse_bootargs_kv(buf);
         if (FW_MACHINE_ID < 0) {
             BUG("[FW_CFG] machine_id is negative\n");
         }
-        kdebug("[FW_CFG] machine_id: %d\n", FW_MACHINE_ID);
+        kdebug("[FW_CFG] machine_id: %d, machine_num=%d, tmp_size=0x%llx, dram_size=0x%llx\n",
+               FW_MACHINE_ID, FW_MACHINE_NUM, FW_TMP_SIZE_BYTES, FW_DRAM_SIZE_BYTES);
         CUR_MACHINE_ID = FW_MACHINE_ID;
     } else {
         kinfo("[FW_CFG] machine_id not found!\n");

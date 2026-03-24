@@ -50,10 +50,25 @@ function(chcore_generate_emulate_sh _qemu _qemu_options)
     string(REGEX REPLACE "[ \t]+" " " qemu_options_trimmed "${qemu_options_trimmed}")
     
     set(qemu_options "${qemu_options_trimmed}")
+    # emulate.tpl.sh inlines ivshmem-plain backends with stat-based byte sizes when set.
+    if(qemu_options_trimmed MATCHES "ivshmem-plain")
+        set(qemu_emulate_ivshmem_plain "1")
+    else()
+        set(qemu_emulate_ivshmem_plain "0")
+    endif()
+    # Match kernel/dsm_config.cmake USE_DEV_AS_DRAM: QEMU must attach 8x numa*.x ivshmem-plain
+    # or the guest sees local DRAM range 0-0 and dram buddy OOMs.
+    if(DEFINED USE_DEV_AS_DRAM AND "${USE_DEV_AS_DRAM}" STREQUAL "ON")
+        set(qemu_use_dev_as_dram "1")
+    else()
+        set(qemu_use_dev_as_dram "0")
+    endif()
     configure_file(${CHCORE_PROJECT_DIR}/scripts/qemu/emulate.tpl.sh emulate.sh
                    @ONLY)
     unset(qemu)
     unset(qemu_options)
+    unset(qemu_emulate_ivshmem_plain)
+    unset(qemu_use_dev_as_dram)
 
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/emulate.sh
             DESTINATION ${CMAKE_INSTALL_PREFIX})

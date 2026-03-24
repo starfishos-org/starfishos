@@ -13,7 +13,8 @@ enum mem_type {
 
 #define IS_VALID_MEM_TYPE(mt) ((mt) > __MT_INVALID__ && (mt) < __MT_MAX_TYPE__)
 
-#if defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM) || defined(DSM_MALLOC_MODE_DRAM)
+#if defined(DSM_MALLOC_MODE_MIXED_DEFAULT_DRAM) || defined(DSM_MALLOC_MODE_DRAM) \
+        || defined(DSM_MALLOC_MODE_TEMP)
 /* default to private */
 #define __MT_DEFAULT__ __MT_PRIVATE__
 #elif defined(DSM_MALLOC_MODE_MIXED_DEFAULT_CXL) || defined(DSM_MALLOC_MODE_CXL)

@@ -66,6 +66,9 @@ void kfree(void *ptr)
         case CXL_MEM_PAGE:
             free_in_cxl_slab(ptr);
             break;
+        case TEMP_PAGE:
+            free_in_temp_slab(ptr);
+            break;
         default:
             BUG("type %d currently not supported\n", page->pool->type);
         }
@@ -123,7 +126,10 @@ void *kzalloc(size_t size)
 void *kmalloc(unsigned long long size, mem_t flags)
 {
     BUG_ON(!IS_VALID_MEM_TYPE(flags));
-#ifdef DSM_MALLOC_MODE_DRAM
+#ifdef DSM_MALLOC_MODE_TEMP
+    UNUSED(flags);
+    return temp_kmalloc(size);
+#elif defined(DSM_MALLOC_MODE_DRAM)
     UNUSED(flags);
     return dram_kmalloc(size);
 #elif defined(DSM_MALLOC_MODE_CXL)
@@ -171,7 +177,10 @@ void *kzalloc(unsigned long long size, mem_t flags)
 void *get_pages(int order, mem_t flags)
 {
     BUG_ON(!IS_VALID_MEM_TYPE(flags));
-#ifdef DSM_MALLOC_MODE_DRAM
+#ifdef DSM_MALLOC_MODE_TEMP
+    UNUSED(flags);
+    return get_temp_pages(order);
+#elif defined(DSM_MALLOC_MODE_DRAM)
     UNUSED(flags);
     return get_dram_pages(order);
 #elif defined(DSM_MALLOC_MODE_CXL)

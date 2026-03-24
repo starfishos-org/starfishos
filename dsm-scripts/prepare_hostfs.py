@@ -1,13 +1,14 @@
+#!/usr/bin/env python3
 import mmap
 import os
 import struct
 
-base_dir = "/mnt/cxlshm"
+base_dir = "/dev/shm"
 
 # 要复制到共享内存的文件路径
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
-    '/disk/wfn/graph/data/twitter-2010.bin',
+    '/home/wfn/twitter-2010/twitter-2010.bin',
     # '/disk/xt/models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf',
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]
@@ -41,13 +42,14 @@ with open(shm_device_path, 'r+b') as shm_fd:
     offset = PAGE_SIZE
     
     for source_file_path in source_file_list:
+        if not os.path.exists(source_file_path):
+            print(f"Warning: source file not found, skipping: {source_file_path}")
+            continue
+
         # 打开源文件以读取
         with open(source_file_path, 'rb') as source_file:
             # 获取文件大小
             file_size = os.path.getsize(source_file_path)
-            
-            # 读取文件内容
-            # file_content = source_file.read()
 
             file_offset = offset
 
@@ -62,7 +64,7 @@ with open(shm_device_path, 'r+b') as shm_fd:
             if file_offset + file_size > shm_file_size:
                 print("file_offset + file_size > shm_file_size")
                 break
-            
+
             # write file content to offset
             shm.seek(file_offset)
             source_file.seek(0)

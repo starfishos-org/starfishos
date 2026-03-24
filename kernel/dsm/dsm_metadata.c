@@ -1,6 +1,7 @@
 #include <dsm/dsm-single.h>
 #include <common/macro.h>
 #include <common/size.h>
+#include <lib/fw_cfg.h>
 
 int machine_id = -1;
 
@@ -42,9 +43,31 @@ void dsm_add_machine()
 
     u64 lmem_new_start, lmem_size;
 
+    lmem_new_start = 0;
+    lmem_size = 0;
+
+#ifdef USE_DEV_AS_DRAM
     extern u64 dram_devices_map[][2];
     lmem_new_start = dram_devices_map[CUR_MACHINE_ID][0];
     lmem_size = dram_devices_map[CUR_MACHINE_ID][1];
+#else
+    extern paddr_t temp_mem_start;
+    extern u64 temp_mem_size;
+
+    u64 dram_size = FW_DRAM_SIZE_BYTES;
+    int machine_num = FW_MACHINE_NUM;
+
+    lmem_new_start = (u64)temp_mem_start + (u64)temp_mem_size;
+    if (dram_size == 0)
+        BUG("[DSM] dram_size not provided in bootargs\n");
+
+    if (machine_num <= 0)
+        machine_num = DSM_FIXED_MACHINE_NUM;
+
+    lmem_size = dram_size / (u64)machine_num;
+    if (lmem_size == 0)
+        BUG("[DSM] dram_size too small for machine_num=%d\n", machine_num);
+#endif
 
     kinfo("[DSM] machine %d local memory range: %llx-%llx (size: %llx)\n",
           CUR_MACHINE_ID,

@@ -62,12 +62,12 @@ void main(u64 mbmagic, paddr_t mbaddr)
     arch_syscall_init();
     kdebug("[ChCore] SYSCALL init finished\n");
 
-    mm_init((void *)get_mb2_mmap(), false);
-    kdebug("[ChCore] mm init finished\n");
-
-    /* Initialize fw_cfg first to get machine_id before PCI setup */
+    /* Init fw_cfg early to get bootargs (machine_id/tmp_size/dram_size) before mm_init */
     fw_cfg_init();
     kdebug("[ChCore] fw_cfg init finished\n");
+
+    mm_init((void *)get_mb2_mmap(), false);
+    kdebug("[ChCore] mm init finished\n");
 
     /* Configure drivers info */
     pci_setup_devices();

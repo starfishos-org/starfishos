@@ -115,6 +115,12 @@ if(CHCORE_SSI)
   target_compile_definitions(${kernel_target} PRIVATE DSM_LINEAR_MM_LAYOUT)
   # use which device to simulate the shm
   target_compile_definitions(${kernel_target} PRIVATE DSM_SHM_DEVICE_${DSM_SHM_DEVICE})
+  if("${USE_DEV_AS_DRAM}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE USE_DEV_AS_DRAM)
+  endif()
+  if("${DSM_CXL_LF_BUDDY}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_LF_BUDDY)
+  endif()
   # DSM memory configurations
   foreach(type MALLOC USER_MALLOC PGTABLE STACK THREADCTX OBJECT PAGE)
     target_compile_definitions(${kernel_target} PRIVATE DSM_${type}_MODE_${DSM_${type}_MODE})
