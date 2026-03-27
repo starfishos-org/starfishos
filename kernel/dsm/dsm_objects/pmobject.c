@@ -96,6 +96,7 @@ int dsm_copy_pmo(struct object *src_obj, struct object *dst_obj)
     dst_pmo->start = src_pmo->start;
     dst_pmo->type = src_pmo->type;
     dst_pmo->mm_type = page_mem_type;
+    dst_pmo->radix_fallback = src_pmo->radix_fallback;
 
     if (src_pmo->type == PMO_FILE) {
         dst_pmo->private = src_pmo->private;

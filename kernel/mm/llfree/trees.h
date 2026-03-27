@@ -29,7 +29,13 @@ bool trees_reserve(trees_t *self, size_t idx, tree_check_fn check, void *args, t
 void trees_unreserve(trees_t *self, size_t idx, treeF_t free, uint8_t tier, llfree_policy_fn policy);
 bool trees_sync_steal(trees_t *self, size_t idx, treeF_t min, treeF_t *out_stolen);
 
+#define TREES_MIN_FREE (LLFREE_TREE_SIZE / 16)
+#define TREES_SEARCH_BEST 3
+
 typedef llfree_result_t (*trees_access_fn)(size_t idx, void *ctx);
 llfree_result_t trees_search(const trees_t *self, size_t start, size_t offset, size_t len,
 			     trees_access_fn cb, void *ctx);
+llfree_result_t trees_search_best(const trees_t *self, uint8_t tier, size_t start, size_t offset,
+				  size_t len, treeF_t min_free, llfree_policy_fn policy,
+				  trees_access_fn cb, void *ctx);
 

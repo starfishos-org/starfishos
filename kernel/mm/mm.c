@@ -322,7 +322,7 @@ void ext_mm_init()
                       CXL_MEM_PAGE,
                       free_mem_start,
                       free_mem_end);
-        printk("finish init buddy lf\n");
+        printk("finish init llfree backend\n");
 #else
         init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
                                     CXL_MEM_PAGE,

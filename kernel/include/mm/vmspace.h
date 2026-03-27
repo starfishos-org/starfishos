@@ -184,6 +184,7 @@ struct pmobject {
     size_t size;
     pmo_type_t type;
     mem_t mm_type;
+    bool radix_fallback;
 
     /*
      * 'private' depends on 'type'.

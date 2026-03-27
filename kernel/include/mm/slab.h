@@ -12,8 +12,8 @@
 /* The size of one slab is 2M. */
 #define SIZE_OF_ONE_SLAB (2 * 1024 * 1024)
 
-/* slab_header resides in the beginning of each slab (i.e., occupies the first
- * slot). */
+/* slab_header resides at the beginning of each slab and may occupy multiple
+ * smallest-object slots depending on sizeof(struct slab_header). */
 struct slab_header {
     /* The list of free slots, which can be converted to struct
      * slab_slot_list. */

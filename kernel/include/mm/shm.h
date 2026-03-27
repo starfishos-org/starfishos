@@ -12,12 +12,18 @@
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 #define FS_REQ_PATH_BUF_LEN 256
 
-enum polling_shm_msg_state {
-    MSG_FREE = 0,
-    MSG_REQ_WRITING,
-    MSG_REQ_READY,
-    MSG_RESP_WRITING,
-    MSG_RESP_READY,
+#define NODE_NULL (-1)
+
+/*
+ * Lock-Free Durable Queue (MPSC) — kernel side mirror of polling.h
+ */
+
+enum polling_msg_status {
+    MSG_STATUS_FREE = 0,
+    MSG_STATUS_INIT,
+    MSG_STATUS_DOING,
+    MSG_STATUS_DONE,
+    MSG_STATUS_CRASH,
 };
 
 enum polling_request_type {
@@ -110,36 +116,40 @@ struct polling_response {
 
 #if REUSE_REQ_RESP_BUFFER == true
 struct shm_msg {
-    int state;
+    int next;   /* index into nodes[], NODE_NULL = -1 */
+    int status; /* enum polling_msg_status */
     union {
         struct polling_request req;
         struct polling_response resp;
     } __attribute__((aligned(8)));
 };
-
 #else
-
 struct shm_msg {
-    int state;
+    int next;   /* index into nodes[], NODE_NULL = -1 */
+    int status; /* enum polling_msg_status */
     struct polling_request req;
     struct polling_response resp;
 };
-
 #endif
 
-// calculate the maximum number of messages based on the shm size
-#define MAX_MSG_COUNT (POLLING_SHM_SIZE / sizeof(struct shm_msg))
+struct durable_queue_meta {
+    int head;       /* index of sentinel node */
+    int tail;       /* index of tail node */
+    int free_head;  /* Treiber stack head for free node pool */
+    int pending_free; /* consumer-only */
+} __attribute__((aligned(64)));
+
+#define MAX_NODE_COUNT \
+    ((POLLING_SHM_SIZE - sizeof(struct durable_queue_meta)) / sizeof(struct shm_msg))
 
 struct polling_shm_region {
-    struct shm_msg msgs[MAX_MSG_COUNT];
-    int write_index; // next write position
-    int read_index; // next read position
+    struct durable_queue_meta meta;
+    struct shm_msg nodes[MAX_NODE_COUNT];
 };
 
 void shm_init(void);
 int sys_mmap_shm(u32 shm_id, void *addr);
-struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm);
 struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm);
-void polling_publish_request(struct shm_msg *msg, struct polling_request *req);
+void polling_enqueue(struct polling_shm_region *shm, struct shm_msg *msg,
+                     struct polling_request *req);
 void polling_wait_for_response(struct shm_msg *msg);
-void polling_free_msg(struct shm_msg *msg);

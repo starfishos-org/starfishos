@@ -22,6 +22,67 @@
 extern int radix_deep_copy_with_hybird_mem(struct radix *src,
                                            struct radix *dst);
 
+#define PMO_RADIX_FALLBACK_THRESHOLD (2UL * 1024 * 1024)
+#define PMO_RADIX_CHUNK_ORDER        9
+
+static void __free_pmo_page(void *addr);
+
+static int pmo_prealloc_radix_chunks(struct pmobject *pmo, mem_t object_mem_type)
+{
+    u64 page_num = DIV_ROUND_UP(pmo->size, PAGE_SIZE);
+    u64 index = 0;
+
+    pmo->radix = new_radix(object_mem_type);
+    if (!pmo->radix)
+        return -ENOMEM;
+    init_radix(pmo->radix);
+
+    while (index < page_num) {
+        u64 remain = page_num - index;
+        int order = PMO_RADIX_CHUNK_ORDER;
+        u64 chunk_pages;
+        vaddr_t chunk_va;
+        u64 i;
+
+        while (order > 0 && ((u64)1u << order) > remain)
+            order--;
+        chunk_pages = (u64)1u << order;
+
+        chunk_va = (vaddr_t)get_pages(order, pmo->mm_type);
+        if (!chunk_va)
+            goto fail;
+
+        for (i = 0; i < chunk_pages; ++i) {
+            paddr_t pa = virt_to_phys((void *)(chunk_va + i * PAGE_SIZE));
+            int rr = radix_add(pmo->radix, index + i, (void *)pa);
+            if (rr) {
+                u64 j;
+                for (j = 0; j < i; ++j)
+                    BUG_ON(radix_del(pmo->radix, index + j) != 0);
+                kfree((void *)chunk_va);
+                goto fail;
+            }
+#if defined(CHCORE_SLS) && defined(HYBRID_MEM)
+            init_page_info(virt_to_page((void *)phys_to_virt(pa)),
+                           pmo,
+                           index + i);
+#endif
+        }
+
+        index += chunk_pages;
+    }
+
+    pmo->radix_fallback = true;
+    pmo->start = 0;
+    return 0;
+
+fail:
+    pmo->radix->value_deleter = __free_pmo_page;
+    radix_free(pmo->radix);
+    pmo->radix = NULL;
+    return -ENOMEM;
+}
+
 /*
  * Initialize an allocated pmobject.
  * @paddr is only used when @type == PMO_DEVICE.
@@ -46,9 +107,13 @@ static int __pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
     switch (type) {
     case PMO_DATA:
     case PMO_DATA_NOCACHE:
-    case PMO_RING_BUFFER:
     case PMO_CODE:
     {
+        if (len > PMO_RADIX_FALLBACK_THRESHOLD) {
+            ret = pmo_prealloc_radix_chunks(pmo, object_mem_type);
+            break;
+        }
+
         /*
          * For PMO_DATA, the user will use it soon (we expect).
          * So, we directly allocate the physical memory.
@@ -64,6 +129,14 @@ static int __pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
         struct page *page = virt_to_page(new_va);
         init_page_info(page, pmo, 0);
 // #endif
+        break;
+    }
+    case PMO_RING_BUFFER:
+    {
+        void *new_va = kmalloc(len, pmo->mm_type);
+        pmo->start = (paddr_t)virt_to_phys(new_va);
+        lock_init(&(pmo->dram_cache.lock));
+        init_page_info(virt_to_page(new_va), pmo, 0);
         break;
     }
     case PMO_FILE: {
@@ -306,7 +379,8 @@ static int read_write_pmo(u64 pmo_cap, u64 offset, u64 user_buf, u64 size,
         goto out_obj_put;
     }
 
-    if (pmo_type == PMO_DATA || pmo_type == PMO_DATA_NOCACHE) {
+    if ((pmo_type == PMO_DATA || pmo_type == PMO_DATA_NOCACHE)
+        && is_continuous_pmo(pmo)) {
         kva = phys_to_virt(pmo->start) + offset;
         if (op_type == WRITE)
             r = copy_from_user((char *)kva, (char *)user_buf, size);
@@ -398,6 +472,10 @@ int sys_get_pmo_paddr(u64 pmo_cap, u64 user_buf)
         r = -EINVAL;
         goto out_obj_put;
     }
+    if (!is_continuous_pmo(pmo)) {
+        r = -EINVAL;
+        goto out_obj_put;
+    }
 
     copy_to_user((char *)user_buf, (char *)&pmo->start, sizeof(u64));
 
@@ -431,6 +509,8 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
 
     dst_pmo->size = src_pmo->size;
     dst_pmo->type = src_pmo->type;
+    dst_pmo->mm_type = src_pmo->mm_type;
+    dst_pmo->radix_fallback = src_pmo->radix_fallback;
 #ifdef RMAP_ENABLED
     init_list_head(&dst_pmo->reverse_list);
     lock_init(&dst_pmo->reverse_list_lock);
@@ -438,6 +518,21 @@ int pmo_clone(struct pmobject *dst_pmo, struct pmobject *src_pmo, bool *is_cow)
     switch (src_pmo->type) {
     case PMO_DATA:
     case PMO_DATA_NOCACHE: {
+        if (src_pmo->radix_fallback) {
+            *is_cow = false;
+            dst_pmo->radix = new_radix(__MT_OBJECT__);
+            init_radix(dst_pmo->radix);
+            r = radix_deep_copy(src_pmo->radix,
+                                dst_pmo->radix,
+                                true,
+                                dst_pmo->mm_type);
+            if (r) {
+                kinfo("radix_deep_copy failed: %d\n", r);
+                break;
+            }
+            break;
+        }
+
         lock_init(&(dst_pmo->dram_cache.lock));
 
         if (src_pmo->dram_cache.array != NULL) {
@@ -1219,12 +1314,18 @@ inline bool is_unchangeable_pmo(struct pmobject *pmo)
 
 inline bool is_radix_pmo(struct pmobject *pmo)
 {
+    if (pmo->radix_fallback)
+        return true;
+
     u64 type = pmo->type;
     return (type != PMO_FORBID && !is_continuous_pmo(pmo) && !is_unchangeable_pmo(pmo));
 }
 
 inline bool is_continuous_pmo(struct pmobject *pmo)
 {
+    if (pmo->radix_fallback)
+        return false;
+
     u64 type = pmo->type;
     return (type == PMO_DATA || 
             type == PMO_DATA_NOCACHE ||

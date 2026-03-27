@@ -15,6 +15,14 @@ typedef struct tree {
 } tree_t;
 _Static_assert(sizeof(tree_t) == sizeof(treeF_t), "tree size mismatch");
 
+typedef struct p_range {
+	treeF_t min, max;
+} p_range_t;
+static inline ll_unused p_range_t p_range(treeF_t min, treeF_t max)
+{
+	return (p_range_t){ min, max };
+}
+
 typedef uint8_t (*tree_check_fn)(uint8_t tree_tier, treeF_t frames, void *args);
 
 static inline tree_t ll_unused tree_new(bool reserved, uint8_t tier, treeF_t free)

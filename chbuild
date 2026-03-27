@@ -20,6 +20,7 @@ cmake_init_cache_default="$cmake_script_dir/LoadConfigDefault.cmake"
 cmake_init_cache_ask="$cmake_script_dir/LoadConfigAsk.cmake"
 cmake_init_cache_abort="$cmake_script_dir/LoadConfigAbort.cmake"
 cmake_init_cache_dump="$cmake_script_dir/DumpConfig.cmake"
+ini_loader="scripts/common/load_chcore_ini.sh"
 
 config_file=".config"
 defconfig_dir="scripts/build/defconfigs"
@@ -74,13 +75,15 @@ _check_config_file() {
 }
 
 _config_default() {
+	_load_ini_defaults
 	_echo_info "Configuring CMake..."
-	cmake -B $cmake_build_dir -C $cmake_init_cache_default
+	cmake -B $cmake_build_dir -C $cmake_init_cache_default ${_cmake_ini_args}
 }
 
 _config_ask() {
+	_load_ini_defaults
 	_echo_info "Configuring CMake..."
-	cmake -B $cmake_build_dir -C $cmake_init_cache_ask
+	cmake -B $cmake_build_dir -C $cmake_init_cache_ask ${_cmake_ini_args}
 }
 
 _sync_config_with_cache() {
@@ -262,6 +265,19 @@ _main() {
 	# no command is run
 	_print_help
 	exit 1
+}
+
+_load_ini_defaults() {
+	_cmake_ini_args=""
+	if [ -f "$ini_loader" ]; then
+		# shellcheck source=/dev/null
+		. "$ini_loader"
+		load_chcore_ini
+	fi
+
+	if [ -n "$CHCORE_INI_CPU_NUM" ]; then
+		_cmake_ini_args="${_cmake_ini_args} -DCHCORE_PLAT_CPU_NUM:STRING=$CHCORE_INI_CPU_NUM"
+	fi
 }
 
 _main $@

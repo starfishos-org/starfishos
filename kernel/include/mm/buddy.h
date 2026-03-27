@@ -177,14 +177,14 @@ void init_buddy(struct phys_mem_pool *, struct page *start_page,
 
 #ifdef USE_CXL_MEM
 /*
- * Lock-free buddy for CXL shared pool: tree + CAS state in SHM at
- * free_mem_start..; picks largest 2^ord pages that fit after struct page[].
- * cxl_pool_idx must match the index used in ext_mm_init (cxlmem_map_idx).
+ * CXL shared allocator backend (llfree). Metadata lives in SHM at
+ * free_mem_start.. and is attached by every machine using the same pool index.
+ * cxl_pool_idx must match ext_mm_init's cxlmem_map_idx.
  */
 void init_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,
                  page_type_t type, paddr_t free_mem_start, paddr_t free_mem_end);
 /*
- * Attach to an existing shared allocator state without clearing SHM.
+ * Attach to existing shared llfree state without resetting allocator metadata.
  * Used when DSM_STATE already indicates MM is initialized.
  */
 void attach_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,

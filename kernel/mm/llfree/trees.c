@@ -72,3 +72,61 @@ llfree_result_t trees_search(const trees_t *self, size_t start, size_t offset, s
 	return llfree_err(LLFREE_ERR_MEMORY);
 }
 
+llfree_result_t trees_search_best(const trees_t *self, uint8_t tier, size_t start, size_t offset,
+				  size_t len, treeF_t min_free, llfree_policy_fn policy,
+				  trees_access_fn cb, void *ctx)
+{
+	struct best {
+		uint8_t prio;
+		size_t idx;
+	};
+	struct best best[TREES_SEARCH_BEST] = { { 0 } };
+
+	s64 base = (s64)(start + self->len);
+	for (s64 i = (s64)offset; i < (s64)len; ++i) {
+		s64 off = i % 2 == 0 ? i / 2 : -((i + 1) / 2);
+		size_t idx = (size_t)(base + off) % self->len;
+
+		tree_t tree = atom_load(&self->entries[idx]);
+		if (tree.reserved || tree.free < min_free || tree.free == LLFREE_TREE_SIZE)
+			continue;
+
+		llfree_policy_t p = policy(tier, tree.tier, tree.free);
+		if (p.type != LLFREE_POLICY_MATCH)
+			continue;
+
+		/* Perfect match: try immediately */
+		if (p.priority == UINT8_MAX) {
+			llfree_result_t res = cb(idx, ctx);
+			if (res.error != LLFREE_ERR_MEMORY)
+				return res;
+			continue;
+		}
+
+		/* Priority+1 so 0 means "no candidate" */
+		uint8_t prio = p.priority + 1;
+
+		size_t pos = 0;
+		for (; pos < TREES_SEARCH_BEST; ++pos) {
+			if (prio > best[pos].prio)
+				break;
+		}
+		if (pos < TREES_SEARCH_BEST) {
+			for (size_t j = TREES_SEARCH_BEST - 1; j > pos; --j)
+				best[j] = best[j - 1];
+			best[pos].prio = prio;
+			best[pos].idx = idx;
+		}
+	}
+
+	for (size_t i = 0; i < TREES_SEARCH_BEST; ++i) {
+		if (best[i].prio == 0)
+			break;
+		llfree_result_t res = cb(best[i].idx, ctx);
+		if (res.error != LLFREE_ERR_MEMORY)
+			return res;
+	}
+
+	return llfree_err(LLFREE_ERR_MEMORY);
+}
+

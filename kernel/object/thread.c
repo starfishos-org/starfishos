@@ -228,10 +228,33 @@ void create_root_thread(void)
                      &pmo);
     BUG_ON(ret < 0);
 
-    memset((void *)phys_to_virt(pmo->start), 0, pmo->size);
-    memcpy((void *)phys_to_virt(pmo->start),
-           (void *)(((u64)&binary_procmgr_bin_start) + 48),
-           file_size);
+    if (is_continuous_pmo(pmo)) {
+        memset((void *)phys_to_virt(pmo->start), 0, pmo->size);
+        memcpy((void *)phys_to_virt(pmo->start),
+               (void *)(((u64)&binary_procmgr_bin_start) + 48),
+               file_size);
+    } else {
+        u64 page_num = DIV_ROUND_UP(pmo->size, PAGE_SIZE);
+        u64 copied = 0;
+        const char *src = (const char *)(((u64)&binary_procmgr_bin_start) + 48);
+
+        for (u64 i = 0; i < page_num; ++i) {
+            paddr_t pa = get_page_from_pmo(pmo, i);
+            BUG_ON(pa == 0);
+            memset((void *)phys_to_virt(pa), 0, PAGE_SIZE);
+        }
+
+        while (copied < file_size) {
+            u64 index = copied / PAGE_SIZE;
+            u64 off = copied % PAGE_SIZE;
+            paddr_t pa = get_page_from_pmo(pmo, index);
+            u64 n = MIN(PAGE_SIZE - off, file_size - copied);
+
+            BUG_ON(pa == 0);
+            memcpy((void *)(phys_to_virt(pa) + off), src + copied, n);
+            copied += n;
+        }
+    }
 
     init_vmspace = obj_get(root_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
     obj_put(init_vmspace);

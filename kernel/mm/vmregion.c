@@ -359,9 +359,7 @@ int vmspace_map_range(struct vmspace *vmspace, vaddr_t va, size_t len,
      * In this case, lazy mapping reduces the usage of physical memory
      * resource.
      */
-    if ((pmo->type == PMO_DATA) || (pmo->type == PMO_DATA_NOCACHE)
-        || (pmo->type == PMO_DEVICE) || (pmo->type == PMO_RING_BUFFER)
-        || (pmo->type == PMO_CODE))
+    if (is_continuous_pmo(pmo) || pmo->type == PMO_DEVICE)
         fill_page_table(vmspace, vmr);
 
     if (out_vmregion)
@@ -1277,8 +1275,7 @@ void remove_page_from_pmo(struct pmobject *pmo, u64 index)
 {
     int ret;
 
-    BUG_ON((pmo->type != PMO_ANONYM) && (pmo->type != PMO_SHM)
-           && (pmo->type != PMO_FILE));
+    BUG_ON(!is_radix_pmo(pmo));
 
     ret = radix_del(pmo->radix, index);
     BUG_ON(ret != 0);
@@ -1290,14 +1287,17 @@ int pmo_copy(struct pmobject *src_pmo, struct pmobject *dst_pmo)
     memset((void *)dst_pmo, 0, sizeof(*dst_pmo));
     dst_pmo->type = src_pmo->type;
     dst_pmo->size = src_pmo->size;
+    dst_pmo->mm_type = src_pmo->mm_type;
+    dst_pmo->radix_fallback = src_pmo->radix_fallback;
 
     if (is_continuous_pmo(src_pmo)) {
         dst_pmo->start = src_pmo->start;
     } else if (is_radix_pmo(src_pmo)) {
-        int phy_alloc = (src_pmo->type == PMO_SHM
-                         || src_pmo->type == PMO_RING_BUFFER_RADIX) ?
-                                1 :
-                                0;
+        int phy_alloc = (src_pmo->radix_fallback
+                         || src_pmo->type == PMO_SHM
+                         || src_pmo->type == PMO_RING_BUFFER_RADIX)
+                                ? 1
+                                : 0;
         dst_pmo->radix = new_radix(__MT_OBJECT__);
         init_radix(dst_pmo->radix);
         r = radix_deep_copy(src_pmo->radix, dst_pmo->radix, 

@@ -41,8 +41,8 @@ static struct slab_header *init_slab_cache(int order, int size)
     void *addr;
     struct slab_slot_list *slot;
     struct slab_header *slab;
-    unsigned long cnt, obj_size;
-    int i;
+    unsigned long cnt, obj_size, total_slots, meta_slots;
+    unsigned long i;
 
     addr = alloc_slab_memory(size);
     if (unlikely(addr == NULL))
@@ -51,10 +51,16 @@ static struct slab_header *init_slab_cache(int order, int size)
     slab = (struct slab_header *)addr;
 
     obj_size = order_to_size(order);
-    /* The first slot is used as metadata (struct slab_header). */
-    cnt = size / obj_size - 1;
+    total_slots = size / obj_size;
+    /*
+     * slab_header may be larger than one smallest object slot (e.g. 40B
+     * header vs 32B slot). Reserve enough whole slots for metadata.
+     */
+    meta_slots = ROUND_UP(sizeof(struct slab_header), obj_size) / obj_size;
+    BUG_ON(meta_slots == 0 || meta_slots >= total_slots);
+    cnt = total_slots - meta_slots;
 
-    slot = (struct slab_slot_list *)(addr + obj_size);
+    slot = (struct slab_slot_list *)((unsigned long)addr + meta_slots * obj_size);
     slab->free_list_head = (void *)slot;
     slab->order = order;
     slab->total_free_cnt = cnt;

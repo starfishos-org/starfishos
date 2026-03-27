@@ -37,13 +37,29 @@ void shm_init(void)
         dsm_meta->shm_data[i].data = shm_data;
         dsm_meta->shm_data[i].pmo = new_pmo;
 
-        /* Initialize polling shm region for this machine */
+        /* Initialize durable queue for this machine */
         struct polling_shm_region *shm = (struct polling_shm_region *)shm_data;
         memset(shm, 0, sizeof(struct polling_shm_region));
 
-        kdebug("[SHM] Initialized polling shm region for machine %d at %p\n",
-              i,
-              shm);
+        /* Node 0 is the initial sentinel */
+        shm->nodes[0].next = NODE_NULL;
+        shm->nodes[0].status = MSG_STATUS_DONE;
+
+        /* Queue metadata */
+        shm->meta.head = 0;
+        shm->meta.tail = 0;
+        shm->meta.pending_free = NODE_NULL;
+
+        /* Build free list from nodes[1..MAX_NODE_COUNT-1] */
+        for (int j = 1; j < (int)MAX_NODE_COUNT; j++) {
+            shm->nodes[j].status = MSG_STATUS_FREE;
+            shm->nodes[j].next = (j + 1 < (int)MAX_NODE_COUNT)
+                                         ? j + 1 : NODE_NULL;
+        }
+        shm->meta.free_head = (MAX_NODE_COUNT > 1) ? 1 : NODE_NULL;
+
+        kdebug("[SHM] Initialized durable queue for machine %d at %p\n",
+              i, shm);
     }
 }
 
@@ -56,6 +72,8 @@ int sys_mmap_shm(u32 shm_id, void *addr)
     u64 size = POLLING_SHM_SIZE;
     int ret = 0;
     struct pmobject *pmo = dsm_meta->shm_data[shm_id].pmo;
+    printk("[SHM] sys_mmap_shm: shm_id=%d addr=%p size=%lu pmo=%p pmo->size=%lu pmo->type=%d\n",
+           shm_id, addr, size, pmo, pmo ? pmo->size : 0, pmo ? pmo->type : -1);
     struct vmspace *vmspace =
             obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
     if (vmspace == NULL) {
@@ -73,46 +91,29 @@ int sys_mmap_shm(u32 shm_id, void *addr)
     return 0;
 }
 
-struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
+/*
+ * Treiber stack pop: allocate a node from the free list (kernel side).
+ */
+static struct shm_msg *alloc_node_retry(struct polling_shm_region *shm)
 {
-    s32 w = atomic_load_32(&shm->write_index);
-    s32 r = atomic_load_32(&shm->read_index);
+    while (1) {
+        s32 head = atomic_load_32(&shm->meta.free_head);
+        if (head == NODE_NULL)
+            return NULL;
 
-    if ((unsigned int)(w - r) >= MAX_MSG_COUNT - 1) {
-        kdebug("[SEND MSG] machine %d: no free msg\n", CUR_MACHINE_ID);
-        return NULL;
+        struct shm_msg *node = &shm->nodes[head];
+        s32 next = atomic_load_32(&node->next);
+
+        if (compare_and_swap_32(&shm->meta.free_head, head, next) == head) {
+            return node;
+        }
     }
-
-    /* First, try to acquire the message slot by CAS */
-    struct shm_msg *msg = &shm->msgs[w % MAX_MSG_COUNT];
-
-    if (compare_and_swap_32(&msg->state, MSG_FREE, MSG_REQ_WRITING)
-        != MSG_FREE) {
-        kdebug("[SEND MSG] machine %d: msg %d already in use\n", CUR_MACHINE_ID, w % MAX_MSG_COUNT);
-        return NULL;
-    }
-
-    /* If CAS succeeded, atomically increment write_index */
-    /* Use CAS to ensure atomicity: only one thread can successfully update write_index */
-    s32 expected_w = w;
-    if (compare_and_swap_32(&shm->write_index, expected_w, w + 1) != expected_w) {
-        /* Another thread already incremented write_index, rollback message state */
-        atomic_store_32(&msg->state, MSG_FREE);
-        kdebug("[SEND MSG] machine %d: write_index CAS failed, rolled back msg %d\n", 
-               CUR_MACHINE_ID, w % MAX_MSG_COUNT);
-        return NULL;
-    }
-
-    kdebug("[SEND MSG] machine %d: send msg, msg_id=%d, state=%d\n",
-        CUR_MACHINE_ID, w % MAX_MSG_COUNT, MSG_REQ_WRITING);
-
-    return msg;
 }
 
 struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
 {
     while (1) {
-        struct shm_msg *msg = mpsc_alloc_msg_retry(shm);
+        struct shm_msg *msg = alloc_node_retry(shm);
         if (msg != NULL) {
             return msg;
         }
@@ -122,24 +123,51 @@ struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
     }
 }
 
-void polling_publish_request(struct shm_msg *msg, struct polling_request *req)
+/*
+ * Lock-free enqueue (Michael-Scott style, kernel side).
+ */
+void polling_enqueue(struct polling_shm_region *shm, struct shm_msg *node,
+                     struct polling_request *req)
 {
-    memcpy(&msg->req, req, sizeof(struct polling_request));
-    atomic_store_32(&msg->state, MSG_REQ_READY);
+    /* Initialize node */
+    memcpy(&node->req, req, sizeof(struct polling_request));
+    atomic_store_32(&node->next, NODE_NULL);
+    /* Release barrier: make req visible before status */
+    atomic_store_32(&node->status, MSG_STATUS_INIT);
+
+    s32 node_idx = (s32)(node - shm->nodes);
+
+    /* Lock-free linking */
+    while (1) {
+        s32 last = atomic_load_32(&shm->meta.tail);
+        struct shm_msg *last_node = &shm->nodes[last];
+        s32 next = atomic_load_32(&last_node->next);
+
+        /* Re-check tail consistency */
+        if (last != atomic_load_32(&shm->meta.tail))
+            continue;
+
+        if (next == NODE_NULL) {
+            /* Try to link our node to tail->next */
+            if (compare_and_swap_32(&last_node->next, NODE_NULL, node_idx)
+                == NODE_NULL) {
+                /* Linked! Try to swing tail */
+                compare_and_swap_32(&shm->meta.tail, last, node_idx);
+                return;
+            }
+        } else {
+            /* Help a crashed/slow enqueuer by advancing tail */
+            compare_and_swap_32(&shm->meta.tail, last, next);
+        }
+    }
 }
 
 void polling_wait_for_response(struct shm_msg *msg)
 {
     extern void handle_ipi(void);
-    while (atomic_load_32(&msg->state) != MSG_RESP_READY) {
+    while (atomic_load_32(&msg->status) != MSG_STATUS_DONE) {
         /* Handle IPI while waiting to avoid deadlock */
-        /* Similar to wait_finish_ipi_tx and migration_entry_wait */
         handle_ipi();
         CPU_PAUSE();
     }
-}
-
-void polling_free_msg(struct shm_msg *msg)
-{
-    atomic_store_32(&msg->state, MSG_FREE);
 }
