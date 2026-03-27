@@ -6,25 +6,36 @@
 #include <mm/mm.h>
 #include <posix/sys/types.h>
 
-#define REUSE_REQ_RESP_BUFFER false
-#define POLLING_SHM_SIZE (PAGE_SIZE * 10UL)
+/*
+ * Kernel-side mirror of user/system-servers/polling/polling.h
+ *
+ * Durable Queue with offset-based pointers for cross-address-space safety.
+ * Matches the algorithm from docs/durable-queue.md.
+ */
+
+#define POLLING_SHM_SIZE (PAGE_SIZE * 64UL)
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 #define FS_REQ_PATH_BUF_LEN 256
 
-#define NODE_NULL (-1)
+/* ---- Offset-based pointer ---- */
 
-/*
- * Lock-Free Durable Queue (MPSC) — kernel side mirror of polling.h
- */
+typedef s32 qptr_t;
+#define QPTR_NULL ((qptr_t)-1)
 
-enum polling_msg_status {
-    MSG_STATUS_FREE = 0,
-    MSG_STATUS_INIT,
-    MSG_STATUS_DOING,
-    MSG_STATUS_DONE,
-    MSG_STATUS_CRASH,
+/* FLUSH: use common/mem_sync.h (clwb) in kernel code */
+
+/* ---- Node status ---- */
+
+enum dq_status {
+    DQ_FREE = 0,
+    DQ_INIT,
+    DQ_DOING,
+    DQ_DONE,
+    DQ_CRASH,
 };
+
+/* ---- Request / Response types ---- */
 
 enum polling_request_type {
     POLLING_FS_REQ_OPEN,
@@ -98,9 +109,9 @@ struct polling_fs_resp_close {
 struct polling_resp_empty {};
 
 struct polling_kernel_resp_flush_tlb {
-    u32 reply_received; /* Reply received flag: 0=not received, 1=received */
-    u32 reply_from; /* Reply from machine ID */
-    s32 reply_result; /* Reply result: 0=success, negative=error */
+    u32 reply_received;
+    u32 reply_from;
+    s32 reply_result;
 };
 
 struct polling_response {
@@ -114,42 +125,74 @@ struct polling_response {
     } __attribute__((aligned(8)));
 };
 
-#if REUSE_REQ_RESP_BUFFER == true
-struct shm_msg {
-    int next;   /* index into nodes[], NODE_NULL = -1 */
-    int status; /* enum polling_msg_status */
-    union {
-        struct polling_request req;
-        struct polling_response resp;
-    } __attribute__((aligned(8)));
-};
-#else
-struct shm_msg {
-    int next;   /* index into nodes[], NODE_NULL = -1 */
-    int status; /* enum polling_msg_status */
+/*
+ * Queue Node (kernel side — non-atomic fields, kernel uses its own atomic ops).
+ */
+struct dq_node {
+    qptr_t next;   /* offset-based pointer */
+    int status;    /* enum dq_status */
     struct polling_request req;
     struct polling_response resp;
 };
-#endif
 
-struct durable_queue_meta {
-    int head;       /* index of sentinel node */
-    int tail;       /* index of tail node */
-    int free_head;  /* Treiber stack head for free node pool */
-    int pending_free; /* consumer-only */
+/*
+ * Durable Queue: { head, tail }
+ */
+struct durable_queue {
+    qptr_t head;
+    qptr_t tail;
 } __attribute__((aligned(64)));
 
-#define MAX_NODE_COUNT \
-    ((POLLING_SHM_SIZE - sizeof(struct durable_queue_meta)) / sizeof(struct shm_msg))
+/*
+ * Node allocator (Treiber stack free list).
+ */
+struct dq_allocator {
+    qptr_t free_list;
+    s32 node_size;
+    s32 node_count;
+    s32 pool_offset;
+} __attribute__((aligned(64)));
 
+/*
+ * SHM region.
+ */
 struct polling_shm_region {
-    struct durable_queue_meta meta;
-    struct shm_msg nodes[MAX_NODE_COUNT];
+    struct durable_queue queue;
+    struct dq_allocator alloc;
+    /* node pool follows */
 };
+
+#define DQ_POOL_OFFSET \
+    ((s32)sizeof(struct polling_shm_region))
+
+#define DQ_NODE_SIZE \
+    ((s32)((sizeof(struct dq_node) + 7) & ~7))
+
+#define DQ_MAX_NODES \
+    ((s32)((POLLING_SHM_SIZE - DQ_POOL_OFFSET) / DQ_NODE_SIZE))
+
+/* Offset helpers (kernel side) */
+static inline void *qptr_to_ptr(void *shm_base, qptr_t off)
+{
+    return (off == QPTR_NULL) ? NULL : (char *)shm_base + off;
+}
+
+static inline qptr_t ptr_to_qptr(void *shm_base, void *ptr)
+{
+    return (ptr == NULL) ? QPTR_NULL : (qptr_t)((char *)ptr - (char *)shm_base);
+}
+
+/* ---- API ---- */
 
 void shm_init(void);
 int sys_mmap_shm(u32 shm_id, void *addr);
-struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm);
-void polling_enqueue(struct polling_shm_region *shm, struct shm_msg *msg,
-                     struct polling_request *req);
-void polling_wait_for_response(struct shm_msg *msg);
+
+/* Kernel-side queue operations (used for TLB flush IPI via polling) */
+struct dq_node *dq_alloc_node(struct polling_shm_region *shm);
+void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
+                struct polling_request *req);
+void dq_wait_for_done(struct dq_node *node);
+
+#ifndef MAX_SHM_NUM
+#define MAX_SHM_NUM CLUSTER_MAX_MACHINE_NUM
+#endif

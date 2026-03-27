@@ -1,7 +1,7 @@
 #pragma once
 
-#define PERF_REAL_READ       false
-#define PERF_READ            false
+#define PERF_REAL_READ       true
+#define PERF_READ            true
 #define PERF_ALLOC_MSG_RETRY false
 
 #define USE_THREAD_POOL       true
@@ -14,14 +14,14 @@
 
 /* CPUs to bind polling threads to */
 /* If NUM_POLLING_THREADS > number of CPUs in this list, threads will cycle through */
-#define POLLING_CPU_LIST {8, 9, 10, 11}
+#define POLLING_CPU_LIST {6, 7, 8, 9}
 #define POLLING_CPU_COUNT 4
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096
 #endif
 
-#define POLLING_SHM_SIZE          (PAGE_SIZE * 10UL)
+#define POLLING_SHM_SIZE          (PAGE_SIZE * 64UL)
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 

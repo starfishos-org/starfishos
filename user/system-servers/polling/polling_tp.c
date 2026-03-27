@@ -29,10 +29,10 @@ void thread_pool_destroy(thread_pool_t *pool)
     pthread_cond_destroy(&pool->cond);
 }
 
-void thread_pool_add_task(thread_pool_t *pool, struct shm_msg *msg)
+void thread_pool_add_task(thread_pool_t *pool, struct dq_node *node)
 {
     pthread_mutex_lock(&pool->lock);
-    pool->queue[pool->tail % MAX_QUEUE] = msg;
+    pool->queue[pool->tail % MAX_QUEUE] = node;
     pool->tail++;
     pthread_cond_signal(&pool->cond);
     pthread_mutex_unlock(&pool->lock);
@@ -53,15 +53,15 @@ void *polling_worker_thread(void *arg)
             break;
         }
 
-        struct shm_msg *msg = pool->queue[pool->head % MAX_QUEUE];
+        struct dq_node *node = pool->queue[pool->head % MAX_QUEUE];
         pool->head++;
         pthread_mutex_unlock(&pool->lock);
 
         atomic_store_explicit(
-                &msg->state, MSG_RESP_WRITING, memory_order_relaxed);
-        handle_polling_request(msg);
+                &node->status, DQ_DOING, memory_order_relaxed);
+        handle_polling_request(node);
         atomic_store_explicit(
-                &msg->state, MSG_RESP_READY, memory_order_release);
+                &node->status, DQ_DONE, memory_order_release);
     }
 
     return NULL;

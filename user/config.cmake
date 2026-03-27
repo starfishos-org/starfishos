@@ -1,6 +1,6 @@
 chcore_config(CHCORE_USER_DEBUG BOOL ON "Build debug version of user-level libs and apps?")
 chcore_config(CHCORE_BUILD_SAMPLE_APPS BOOL ON "Build sample apps?")
-chcore_config(CHCORE_BUILD_DEMO_APPS BOOL ON "Build demo apps?")
+chcore_config(CHCORE_BUILD_DEMO_APPS BOOL OFF "Build demo apps?")
 chcore_config(CHCORE_USER_STATIC_APPS BOOL ON "Build static version of user-level apps?")
 
 chcore_config_include(libraries/config.cmake)

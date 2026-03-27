@@ -13,7 +13,7 @@ target_link_libraries(polling-server-core PRIVATE libc-static)
 add_executable(polling.srv polling_server.c)
 
 target_link_options(polling.srv PRIVATE -static)
-target_link_libraries(polling.srv PRIVATE polling-server-core libc-static)
+target_link_libraries(polling.srv PRIVATE polling-server-core polling-client-core libc-static)
 
 add_executable(polling_client.bin polling_client_test.c)
 

@@ -1,146 +1,205 @@
 #include "polling_req.h"
-#include "polling_utils.h"
 #include "polling_config.h"
 
 #include <stdatomic.h>
+#include <string.h>
+#include <stdio.h>
 #include <time.h>
 
-#if PERF_ALLOC_MSG_RETRY == true
-long mpsc_alloc_msg_retry_time[50000];
-int mpsc_alloc_msg_retry_time_index = 0;
-#endif
+/* ================================================================
+ * Node Allocator — Treiber stack (lock-free)
+ * ================================================================ */
 
-void debug_print_shm_region(struct polling_shm_region *shm)
+/*
+ * Pop a node from the free list.
+ * Returns NULL if pool is exhausted.
+ */
+static struct dq_node *alloc_node_try(struct polling_shm_region *shm)
 {
-    int w = atomic_load_explicit(&shm->write_index, memory_order_relaxed);
-    int r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
-    printf("shm_region: write_index = %d, read_index = %d\n", w, r);
-    for (int i = 0; i < MAX_MSG_COUNT; i++) {
-        int state =
-                atomic_load_explicit(&shm->msgs[i].state, memory_order_acquire);
-        printf("shm_msg[%d]: state = %d\n", i, state);
-    }
-}
-
-void debug_print_shm_msg(struct shm_msg *msg)
-{
-    for (int i = 0; i < MAX_MSG_COUNT; i++) {
-        int state = atomic_load_explicit(&msg->state, memory_order_acquire);
-        int type = msg->req.type;
-        printf("shm_msg[%d]: state = %d, type = %d\n", i, state, type);
-    }
-}
-
-struct shm_msg *mpsc_alloc_msg_retry(struct polling_shm_region *shm)
-{
-    int w = atomic_load_explicit(&shm->write_index, memory_order_relaxed);
-    int r = atomic_load_explicit(&shm->read_index, memory_order_acquire);
-
-    if ((unsigned int)(w - r) >= MAX_MSG_COUNT - 1) {
-        return NULL;
-    }
-
-    struct shm_msg *msg = &shm->msgs[w % MAX_MSG_COUNT];
-
-    int expected = MSG_FREE;
-    if (!atomic_compare_exchange_strong_explicit(&msg->state,
-                                                 &expected,
-                                                 MSG_REQ_WRITING,
-                                                 memory_order_acquire,
-                                                 memory_order_relaxed)) {
-        return NULL;
-    }
-
-    int expected_w = w;
-    if (atomic_compare_exchange_strong_explicit(&shm->write_index,
-                                                &expected_w,
-                                                w + 1,
-                                                memory_order_release,
-                                                memory_order_relaxed)) {
-        return msg;
-    } else {
-        atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
-        return NULL;
-    }
-}
-
-struct shm_msg *mpsc_alloc_msg(struct polling_shm_region *shm)
-{
-#if PERF_ALLOC_MSG_RETRY == true
-    struct timespec start_time, end_time;
-    clock_gettime(CLOCK_MONOTONIC, &start_time);
-#endif
     while (1) {
-        struct shm_msg *msg = mpsc_alloc_msg_retry(shm);
-        if (msg != NULL) {
-#if PERF_ALLOC_MSG_RETRY == true
-            clock_gettime(CLOCK_MONOTONIC, &end_time);
-            mpsc_alloc_msg_retry_time[mpsc_alloc_msg_retry_time_index] =
-                    (end_time.tv_sec - start_time.tv_sec) * 1000000000
-                    + (end_time.tv_nsec - start_time.tv_nsec);
-            mpsc_alloc_msg_retry_time_index++;
-#endif
-            return msg;
+        qptr_t head = atomic_load_explicit(&shm->alloc.free_list,
+                                           memory_order_acquire);
+        if (head == QPTR_NULL)
+            return NULL;
+
+        struct dq_node *node = qptr_to_ptr(shm, head);
+        qptr_t next = atomic_load_explicit(&node->next,
+                                           memory_order_relaxed);
+
+        if (atomic_compare_exchange_weak_explicit(
+                    &shm->alloc.free_list, &head, next,
+                    memory_order_release, memory_order_relaxed)) {
+            return node;
         }
     }
 }
 
-void debug_print_mpsc_alloc_msg_retry_time(void)
+/*
+ * Allocate a node, spinning until one is available.
+ */
+struct dq_node *dq_alloc_node(struct polling_shm_region *shm)
 {
-#if PERF_ALLOC_MSG_RETRY == true
-    long *tmp = (long *)malloc(sizeof(long) * mpsc_alloc_msg_retry_time_index);
-    memcpy(tmp,
-           mpsc_alloc_msg_retry_time,
-           sizeof(long) * mpsc_alloc_msg_retry_time_index);
-    sort_long(tmp, mpsc_alloc_msg_retry_time_index);
-    printf("mpsc_alloc_msg_retry_time: p50: %ld, p75: %ld, p90: %ld, p99: %ld\n",
-           tmp[(int)(mpsc_alloc_msg_retry_time_index * 0.50)],
-           tmp[(int)(mpsc_alloc_msg_retry_time_index * 0.75)],
-           tmp[(int)(mpsc_alloc_msg_retry_time_index * 0.90)],
-           tmp[(int)(mpsc_alloc_msg_retry_time_index * 0.99)]);
-    free(tmp);
-#endif
-}
-
-void polling_publish_request(struct shm_msg *msg, struct polling_request *req)
-{
-    memcpy(&msg->req, req, sizeof(struct polling_request));
-    atomic_store_explicit(&msg->state, MSG_REQ_READY, memory_order_release);
-}
-
-void polling_wait_for_response(struct shm_msg *msg)
-{
-    while (atomic_load_explicit(&msg->state, memory_order_acquire)
-           != MSG_RESP_READY) {
+    int spins = 0;
+    while (1) {
+        struct dq_node *node = alloc_node_try(shm);
+        if (node != NULL)
+            return node;
+        if (++spins % 10000000 == 0) {
+            qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
+            printf("[alloc_stuck] spins=%d free_list=%d\n", spins, f);
+        }
+        sched_yield();
     }
 }
 
-void polling_free_msg(struct shm_msg *msg)
+/*
+ * Push a node back to the free list (Treiber stack push).
+ */
+void dq_free_node(struct polling_shm_region *shm, struct dq_node *node)
 {
-    atomic_store_explicit(&msg->state, MSG_FREE, memory_order_release);
+    qptr_t node_off = ptr_to_qptr(shm, node);
+    atomic_store_explicit(&node->status, DQ_FREE, memory_order_relaxed);
+    while (1) {
+        qptr_t head = atomic_load_explicit(&shm->alloc.free_list,
+                                           memory_order_acquire);
+        atomic_store_explicit(&node->next, head, memory_order_relaxed);
+        if (atomic_compare_exchange_weak_explicit(
+                    &shm->alloc.free_list, &head, node_off,
+                    memory_order_release, memory_order_relaxed)) {
+            return;
+        }
+    }
 }
+
+/* ================================================================
+ * Enqueue — Algorithm from docs/durable-queue.md
+ *
+ *   node <- new Node(INIT, payload); FLUSH(node)
+ *   while true:
+ *     last <- tail; next <- last->next
+ *     if last == tail:
+ *       if next == NULL:
+ *         if CAS(&last->next, next, node):
+ *           FLUSH(&last->next)
+ *           CAS(&tail, last, node)
+ *           return node
+ *       else:
+ *         FLUSH(&last->next)          // help crashed enqueuer
+ *         CAS(&tail, last, next)
+ * ================================================================ */
+
+void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
+                struct polling_request *req)
+{
+    qptr_t node_off = ptr_to_qptr(shm, node);
+
+    /* Step 1: init node with payload */
+    memcpy(&node->req, req, sizeof(struct polling_request));
+    atomic_store_explicit(&node->next, QPTR_NULL, memory_order_relaxed);
+    atomic_store_explicit(&node->status, DQ_INIT, memory_order_release);
+    FLUSH(node);
+
+    /* Step 2: link into queue */
+    int enq_spins = 0;
+    while (1) {
+        qptr_t last = atomic_load_explicit(&shm->queue.tail,
+                                           memory_order_acquire);
+        struct dq_node *last_node = qptr_to_ptr(shm, last);
+        qptr_t next = atomic_load_explicit(&last_node->next,
+                                           memory_order_acquire);
+
+        /* Re-check tail consistency */
+        if (last != atomic_load_explicit(&shm->queue.tail,
+                                         memory_order_acquire))
+            continue;
+
+        if (next == QPTR_NULL) {
+            /* Try to link our node to tail->next */
+            qptr_t expected = QPTR_NULL;
+            if (atomic_compare_exchange_strong_explicit(
+                        &last_node->next, &expected, node_off,
+                        memory_order_release, memory_order_relaxed)) {
+                FLUSH(&last_node->next);
+                /* Swing tail to our node */
+                qptr_t exp_last = last;
+                atomic_compare_exchange_strong_explicit(
+                        &shm->queue.tail, &exp_last, node_off,
+                        memory_order_release, memory_order_relaxed);
+                return;
+            }
+        } else {
+            /* Help a crashed/slow enqueuer by advancing tail */
+            FLUSH(&last_node->next);
+            qptr_t exp_last = last;
+            atomic_compare_exchange_strong_explicit(
+                    &shm->queue.tail, &exp_last, next,
+                    memory_order_release, memory_order_relaxed);
+        }
+
+        if (++enq_spins % 10000000 == 0) {
+            qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
+            qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
+            printf("[enq_stuck] spins=%d last=%d next=%d h=%d t=%d node_off=%d\n",
+                   enq_spins, last, next, h, t, node_off);
+        }
+    }
+}
+
+/* ================================================================
+ * Wait — producer spins on status == DQ_DONE
+ * ================================================================ */
+
+void dq_wait_for_done(struct dq_node *node)
+{
+    int spins = 0;
+    while (atomic_load_explicit(&node->status, memory_order_acquire)
+           != DQ_DONE) {
+        if (++spins % 10000000 == 0) {
+            printf("[wait_stuck] spins=%d status=%d\n", spins,
+                   atomic_load_explicit(&node->status, memory_order_relaxed));
+        }
+    }
+}
+
+/* ================================================================
+ * Debug
+ * ================================================================ */
+
+void debug_print_shm_region(struct polling_shm_region *shm)
+{
+    qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
+    qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
+    qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
+    printf("durable_queue: head=%d, tail=%d, free_list=%d, nodes=%d\n",
+           h, t, f, shm->alloc.node_count);
+}
+
+void debug_print_mpsc_alloc_msg_retry_time(void)
+{
+    /* placeholder */
+}
+
+/* ================================================================
+ * High-level FS operations (producer side)
+ *
+ * Pattern: alloc -> fill req -> enqueue -> wait DONE -> read resp -> free
+ * ================================================================ */
 
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
                     int mode)
 {
     struct polling_request req = {
             .type = POLLING_FS_REQ_OPEN,
-            .open =
-                    {
-                            .flags = flags,
-                            .mode = mode,
-                    },
+            .open = { .flags = flags, .mode = mode },
     };
     strncpy(req.open.path, path, FS_REQ_PATH_BUF_LEN);
 
-    struct shm_msg *msg = mpsc_alloc_msg(shm);
-    polling_publish_request(msg, &req);
+    struct dq_node *node = dq_alloc_node(shm);
+    dq_enqueue(shm, node, &req);
+    dq_wait_for_done(node);
 
-    polling_wait_for_response(msg);
-
-    int fd = msg->resp.open.fd;
-
-    polling_free_msg(msg);
+    int fd = node->resp.open.fd;
+    /* Node will be freed by consumer (old sentinel recycling) */
     return fd;
 }
 
@@ -152,26 +211,20 @@ ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
     ssize_t total = 0;
 
     while (left > 0) {
-        size_t chunk = MIN(left, POLLING_FS_READ_BUF_SIZE);
+        size_t chunk = left < POLLING_FS_READ_BUF_SIZE
+                             ? left : POLLING_FS_READ_BUF_SIZE;
 
         struct polling_request req = {
                 .type = POLLING_FS_REQ_READ,
-                .read =
-                        {
-                                .fd = fd,
-                                .count = chunk,
-                        },
+                .read = { .fd = fd, .count = chunk },
         };
 
-        struct shm_msg *msg = mpsc_alloc_msg(shm);
-        polling_publish_request(msg, &req);
+        struct dq_node *node = dq_alloc_node(shm);
+        dq_enqueue(shm, node, &req);
+        dq_wait_for_done(node);
 
-        polling_wait_for_response(msg);
-
-        ssize_t n = msg->resp.read.count;
-        memcpy(p, msg->resp.read.buf, n);
-
-        polling_free_msg(msg);
+        ssize_t n = node->resp.read.count;
+        memcpy(p, node->resp.read.buf, n);
 
         total += n;
         p += n;
@@ -191,26 +244,20 @@ ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
     ssize_t total = 0;
 
     while (left > 0) {
-        size_t chunk = MIN(left, POLLING_FS_WRITE_BUF_SIZE);
+        size_t chunk = left < POLLING_FS_WRITE_BUF_SIZE
+                             ? left : POLLING_FS_WRITE_BUF_SIZE;
 
         struct polling_request req = {
                 .type = POLLING_FS_REQ_WRITE,
-                .write =
-                        {
-                                .fd = fd,
-                                .count = chunk,
-                        },
+                .write = { .fd = fd, .count = chunk },
         };
         memcpy(req.write.buf, p, chunk);
 
-        struct shm_msg *msg = mpsc_alloc_msg(shm);
-        polling_publish_request(msg, &req);
+        struct dq_node *node = dq_alloc_node(shm);
+        dq_enqueue(shm, node, &req);
+        dq_wait_for_done(node);
 
-        polling_wait_for_response(msg);
-
-        ssize_t n = msg->resp.write.count;
-
-        polling_free_msg(msg);
+        ssize_t n = node->resp.write.count;
 
         total += n;
         p += n;
@@ -226,20 +273,14 @@ int polling_fs_close(struct polling_shm_region *shm, int fd)
 {
     struct polling_request req = {
             .type = POLLING_FS_REQ_CLOSE,
-            .close =
-                    {
-                            .fd = fd,
-                    },
+            .close = { .fd = fd },
     };
 
-    struct shm_msg *msg = mpsc_alloc_msg(shm);
-    polling_publish_request(msg, &req);
+    struct dq_node *node = dq_alloc_node(shm);
+    dq_enqueue(shm, node, &req);
+    dq_wait_for_done(node);
 
-    polling_wait_for_response(msg);
-
-    int ret = msg->resp.close.ret;
-
-    polling_free_msg(msg);
+    int ret = node->resp.close.ret;
     return ret;
 }
 
@@ -248,12 +289,9 @@ void polling_fs_empty(struct polling_shm_region *shm)
     struct polling_request req = {
             .type = POLLING_REQ_EMPTY,
     };
-    struct shm_msg *msg = mpsc_alloc_msg(shm);
-
-    polling_publish_request(msg, &req);
-    polling_wait_for_response(msg);
-
-    polling_free_msg(msg);
+    struct dq_node *node = dq_alloc_node(shm);
+    dq_enqueue(shm, node, &req);
+    dq_wait_for_done(node);
 }
 
 void polling_print_debug_info(struct polling_shm_region *shm)
@@ -261,8 +299,7 @@ void polling_print_debug_info(struct polling_shm_region *shm)
     struct polling_request req = {
             .type = POLLING_PRINT_DEBUG_INFO,
     };
-    struct shm_msg *msg = mpsc_alloc_msg(shm);
-    polling_publish_request(msg, &req);
-    polling_wait_for_response(msg);
-    polling_free_msg(msg);
+    struct dq_node *node = dq_alloc_node(shm);
+    dq_enqueue(shm, node, &req);
+    dq_wait_for_done(node);
 }

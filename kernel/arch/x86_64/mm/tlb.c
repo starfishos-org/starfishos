@@ -591,11 +591,11 @@ static void memcpy_and_flush_tlb_on_remote_machine_polling(
                     },
     };
 
-    struct shm_msg *msg = mpsc_alloc_msg(target_shm);
+    struct dq_node *msg = dq_alloc_node(target_shm);
 
-    polling_enqueue(target_shm, msg, &req);
+    dq_enqueue(target_shm, msg, &req);
 
-    polling_wait_for_response(msg);
+    dq_wait_for_done(msg);
 }
 
 /* Migrate pages to shared memory: wrapper function with simplified interface */
