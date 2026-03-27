@@ -55,3 +55,4 @@ struct madt_info_t {
 };
 
 u8 get_cpu_apic_id(u8 cpu_id);
+u8 get_cpu_count(void);

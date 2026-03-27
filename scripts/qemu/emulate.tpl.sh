@@ -11,6 +11,7 @@ else
 	machine_id=-1
 fi
 basedir=$(dirname "$0")
+project_root="$basedir/.."
 # basedir should be /build directory
 nvm_backend_file="/tmp/nvm-file-$USER"
 memdev_dir="/dev/shm"
@@ -21,7 +22,20 @@ hostfs_size=16G
 ivshmem_hostfs_dev="$memdev_dir/ivshmem-hostfs-$USER"
 tmp_size=${TMP_SIZE:-1G}
 dram_size=${DRAM_SIZE:-32G}
-machine_num=${MACHINE_NUM:-2}
+machine_num=${MACHINE_NUM:-1}
+cpu_num=${CPU_NUM:-12}
+cxl_size=${CXL_SIZE:-32G}
+
+ini_loader="$project_root/scripts/common/load_chcore_ini.sh"
+if [ -f "$ini_loader" ]; then
+	# shellcheck source=/dev/null
+	. "$ini_loader"
+	load_chcore_ini
+	[ -n "$CHCORE_INI_MACHINE_NUM" ] && machine_num=${MACHINE_NUM:-$CHCORE_INI_MACHINE_NUM}
+	[ -n "$CHCORE_INI_DRAM_SIZE" ] && dram_size=${DRAM_SIZE:-$CHCORE_INI_DRAM_SIZE}
+	[ -n "$CHCORE_INI_CPU_NUM" ] && cpu_num=${CPU_NUM:-$CHCORE_INI_CPU_NUM}
+	[ -n "$CHCORE_INI_CXL_SIZE" ] && cxl_size=${CXL_SIZE:-$CHCORE_INI_CXL_SIZE}
+fi
 
 size_to_bytes() {
 	local s="$1"
@@ -62,8 +76,7 @@ gib=$(( 1024 * 1024 * 1024 ))
 total_mem_size_gib=$(( (total_mem_size_bytes + gib - 1) / gib ))
 total_mem_size_qemu="${total_mem_size_gib}G"
 numa_size=16G # 默认大小，仅在对应文件不存在时兜底
-cxl_size=32G # 默认大小，仅在对应文件不存在时兜底
-plat_cpu_name=12
+plat_cpu_name=$cpu_num
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
 
@@ -182,12 +195,12 @@ if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
 -cpu host -smp $plat_cpu_name -serial mon:stdio -nographic \
 -cdrom $basedir/chcore.iso \
--fw_cfg name=opt/chcore/bootargs,string=machine_id=$vm_id,,machine_num=$machine_num,,tmp_size=$tmp_size,,dram_size=$dram_size"
+-fw_cfg name=opt/chcore/bootargs,string=machine_id=$vm_id,,machine_num=$machine_num,,cpu_num=$cpu_num,,tmp_size=$tmp_size,,dram_size=$dram_size"
 else
 	qemu_options_updated="@qemu_options@"
 	# 非 IVSHMEM 布局仍使用 CMake 生成的 @qemu_options@（SLS/CXL 等）。
 	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#-m [^ ]\\+#-m $total_mem_size_qemu#g")
-	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#\\(name=opt/chcore/bootargs,string=machine_id=$vm_id\\)#\\1,,machine_num=$machine_num,,tmp_size=$tmp_size,,dram_size=$dram_size#g")
+	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#\\(name=opt/chcore/bootargs,string=machine_id=$vm_id\\)#\\1,,machine_num=$machine_num,,cpu_num=$cpu_num,,tmp_size=$tmp_size,,dram_size=$dram_size#g")
 fi
 
 # Add remaining QEMU options (includes ivshmem configuration，已按实际大小修正)

@@ -14,6 +14,44 @@ hostfsDevName="$base_dir/ivshmem-hostfs-$USER"
 numa_base_dir="/dev/shm"
 hostfsSize=16
 
+project_root="$(cd "$(dirname "$0")/.." && pwd)"
+ini_loader="$project_root/scripts/common/load_chcore_ini.sh"
+
+size_to_gib_count() {
+  local s="$1"
+  local n unit bytes gib
+  n="${s%[KkMmGg]}"
+  unit="${s#$n}"
+  if [ "$n" = "$s" ]; then
+    echo "$s"
+    return
+  fi
+  case "$unit" in
+    G|g) echo "$n" ;;
+    M|m)
+      bytes=$(( n * 1024 * 1024 ))
+      gib=$(( (bytes + 1024*1024*1024 - 1) / (1024*1024*1024) ))
+      echo "$gib"
+      ;;
+    K|k)
+      bytes=$(( n * 1024 ))
+      gib=$(( (bytes + 1024*1024*1024 - 1) / (1024*1024*1024) ))
+      [ "$gib" -lt 1 ] && gib=1
+      echo "$gib"
+      ;;
+    *) echo "$size" ;;
+  esac
+}
+
+if [ -f "$ini_loader" ]; then
+  # shellcheck source=/dev/null
+  . "$ini_loader"
+  load_chcore_ini
+  if [ -n "$CHCORE_INI_CXL_SIZE" ]; then
+    size=$(size_to_gib_count "$CHCORE_INI_CXL_SIZE")
+  fi
+fi
+
 # 如果存在 per-numa 配置，则加载
 numa_sizes_conf="$(dirname "$0")/numa_sizes.conf"
 if [ -f "$numa_sizes_conf" ]; then

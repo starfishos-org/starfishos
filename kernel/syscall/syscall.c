@@ -285,7 +285,7 @@ mid_t sys_get_machine_id(void)
 
 u32 sys_get_machine_cpu_count(void)
 {
-    return PLAT_CPU_NUM;
+    return smp_get_cpu_num();
 }
 
 int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
@@ -352,6 +352,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
          */
         struct vmregion *vmr = find_vmr_for_va(vmspace, (vaddr_t)fault_va);
         if (!vmr || !vmr->pmo) {
+            unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             kwarn("[SYS] query_in_pgtbl failed: pte is NULL, no vmr/pmo for fault_va=0x%lx\n",
                   fault_va);
@@ -362,11 +363,13 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         u64 index = (ROUND_DOWN((vaddr_t)fault_va, PAGE_SIZE) - vmr->start) / PAGE_SIZE;
         paddr_t pa = get_page_from_pmo(pmo, index);
         if (pa == 0) {
+            unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             kwarn("[SYS] pte is NULL: get_page_from_pmo returned 0 for fault_va=0x%lx\n",
                   fault_va);
             return -EINVAL;
         }
+        unlock(&vmspace->pgtbl_lock);
         memcpy(dst_va, src_va, (size_t)len);
         lock(&vmspace->pgtbl_lock);
         int ret = map_page_in_pgtbl(pgtbl, (vaddr_t)fault_va, (paddr_t)dst_pa,
@@ -456,6 +459,12 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
             commit_page_to_pmo(pmo, index, dst_pa);
         }
     }
+
+    /*
+     * Extra flush after remap so CPUs that cached a non-present/migration
+     * translation do not keep using stale state.
+     */
+    flush_tlbs_on_all_cpus(vmspace, (vaddr_t)fault_va, (size_t)len);
     read_unlock(&vmspace->vmspace_lock);
 #ifdef TLB_FLUSH_LATENCY_DEBUG
     t_stage4_end = plat_get_mono_time();
@@ -529,6 +538,7 @@ struct vmspace_flush_range {
 int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
 {
     struct memcpy_flush_tlb_op *kernel_ops;
+    struct tlb_flush_batch_op *tlb_ops = NULL;
     int i, ret = 0;
     size_t ops_size;
     
@@ -604,7 +614,6 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     /* Phase 2: Flush TLB using batch IPI for all operations */
     /* Prepare batch TLB flush operations */
     extern void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count);
-    struct tlb_flush_batch_op *tlb_ops;
     tlb_ops = kmalloc(sizeof(struct tlb_flush_batch_op) * ops_count, __MT_DEFAULT__);
     if (!tlb_ops) {
         kwarn("[SYS] Failed to allocate memory for batch TLB flush operations\n");
@@ -632,8 +641,6 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     
     /* Send batch TLB flush IPI to all CPUs */
     flush_tlbs_batch_on_all_cpus(tlb_ops, ops_count);
-    
-    kfree(tlb_ops);
     
     /* Phase 3: Perform all memcpy operations */
     for (i = 0; i < ops_count; i++) {
@@ -688,10 +695,20 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
     }
+
+    /*
+     * Extra flush after remap for batch path: publish the final present+dst_pa
+     * mappings to all CPUs once.
+     */
+    flush_tlbs_batch_on_all_cpus(tlb_ops, ops_count);
+    kfree(tlb_ops);
     
     kdebug("batch memcpy and flush tlb done: %lu operations\n", ops_count);
     
 out:
+    if (tlb_ops) {
+        kfree(tlb_ops);
+    }
     kfree(kernel_ops);
     return ret;
 }

@@ -12,14 +12,22 @@
 #include <seg.h>
 #include <memlayout.h>
 #include <irq/ipi.h>
+#include <lib/fw_cfg.h>
 
 struct per_cpu_info cpu_info[PLAT_CPU_NUM] __attribute__((aligned(64)));
 ALIGN(STACK_ALIGNMENT)
 char cpu_stacks[PLAT_CPU_NUM][CPU_STACK_SIZE];
 char *cur_cpu_stack;
 u32 cur_cpu_id;
+static u32 runtime_cpu_num = 1;
 
 extern u8 get_cpu_apic_id(u8 cpu_id);
+extern u8 get_cpu_count(void);
+
+u32 smp_get_cpu_num(void)
+{
+    return runtime_cpu_num;
+}
 
 void init_per_cpu_info(u32 cpuid)
 {
@@ -67,12 +75,34 @@ void enable_smp_cores(void)
 {
     u64 mp_code;
     int cpuid;
+    u32 detected_cpu_num, target_cpu_num;
 
-    /*
-     * TODO: Since we can detect the real CPU number by reading the MADT,
-     * we can avoid using the static PLAT_CPU_NUM.
-     */
-    for (cpuid = 1; cpuid < PLAT_CPU_NUM; cpuid++) {
+    detected_cpu_num = get_cpu_count();
+    if (detected_cpu_num == 0)
+        detected_cpu_num = 1;
+
+    target_cpu_num = detected_cpu_num;
+    if (FW_CPU_NUM > 0)
+        target_cpu_num = (u32)FW_CPU_NUM;
+
+    if (target_cpu_num > detected_cpu_num) {
+        kwarn("[SMP] cpu_num=%u exceeds MADT detected cpus=%u, clamp to %u\n",
+              target_cpu_num, detected_cpu_num, detected_cpu_num);
+        target_cpu_num = detected_cpu_num;
+    }
+    if (target_cpu_num > PLAT_CPU_NUM) {
+        kwarn("[SMP] cpu_num=%u exceeds PLAT_CPU_NUM=%u, clamp to %u\n",
+              target_cpu_num, PLAT_CPU_NUM, PLAT_CPU_NUM);
+        target_cpu_num = PLAT_CPU_NUM;
+    }
+    if (target_cpu_num == 0)
+        target_cpu_num = 1;
+
+    runtime_cpu_num = target_cpu_num;
+    kinfo("[SMP] active cpu num: %u (MADT=%u, PLAT_MAX=%u)\n",
+          runtime_cpu_num, detected_cpu_num, PLAT_CPU_NUM);
+
+    for (cpuid = 1; cpuid < (int)runtime_cpu_num; cpuid++) {
         /* check secondary boot size */
         BUG_ON((u64)(&text)
                < MP_BOOT_ADDR + (u64)(&_mp_start_end) - (u64)(&_mp_start));

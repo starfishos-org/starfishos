@@ -323,7 +323,8 @@ void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count)
     /* Flush remote TLBs in parallel */
     /* Step 1.0: Prepare and send IPIs to all target CPUs without waiting */
     for (i = 0; i < PLAT_CPU_NUM; ++i) {
-        if (i != cpuid && vmspace->history_cpus[i] == 1) {
+        // if (i != cpuid && vmspace->history_cpus[i] == 1) {
+        if (i != cpuid) {
             /* IPI_tx: step-1 */
             prepare_ipi_tx(i);
             /* IPI_tx: step-2 */
@@ -339,9 +340,9 @@ void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count)
     }
 
     /* Step 1.1: If necessary, flush local TLBs */
-    if (vmspace->history_cpus[cpuid] == 1) {
+    // if (vmspace->history_cpus[cpuid] == 1) {
         flush_local_tlb_opt(start_va, page_cnt, pcid);
-    }
+    // }
 
     /* Step 2: Wait for all IPIs to finish and unlock */
     if (target_count > 0) {

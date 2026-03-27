@@ -135,22 +135,29 @@ void *polling_reader_thread(void *arg)
                 /* First, add the current message */
                 batch_msgs[batch_count++] = msg;
                 
-                /* Scan queue for more flush_tlb requests */
+                /*
+                 * Scan only contiguous requests after current read index.
+                 * We must keep queue order; skipping non-flush entries and then
+                 * advancing read_index by batch_count would drop requests.
+                 */
                 for (int i = r + 1; i < w && batch_count < MAX_BATCH_OPS; i++) {
                     struct shm_msg *candidate = &shm->msgs[i % MAX_MSG_COUNT];
                     int candidate_state = atomic_load_explicit(&candidate->state, memory_order_acquire);
-                    
-                    if (candidate_state == MSG_REQ_READY &&
-                        candidate->req.type == POLLING_KERNEL_REQ_FLUSH_TLB) {
-                        int candidate_expected = MSG_REQ_READY;
-                        if (atomic_compare_exchange_strong_explicit(&candidate->state,
-                                                                    &candidate_expected,
-                                                                    MSG_RESP_WRITING,
-                                                                    memory_order_acquire,
-                                                                    memory_order_relaxed)) {
-                            batch_msgs[batch_count++] = candidate;
-                        }
+
+                    if (candidate_state != MSG_REQ_READY ||
+                        candidate->req.type != POLLING_KERNEL_REQ_FLUSH_TLB) {
+                        break;
                     }
+
+                    int candidate_expected = MSG_REQ_READY;
+                    if (!atomic_compare_exchange_strong_explicit(&candidate->state,
+                                                                 &candidate_expected,
+                                                                 MSG_RESP_WRITING,
+                                                                 memory_order_acquire,
+                                                                 memory_order_relaxed)) {
+                        break;
+                    }
+                    batch_msgs[batch_count++] = candidate;
                 }
                 
                 /* Allocate buffer for batch operations */

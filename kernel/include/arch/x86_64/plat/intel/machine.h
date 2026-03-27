@@ -1,7 +1,11 @@
 #pragma once
 
 /* Should be set at boot time */
+#ifdef CHCORE_PLAT_CPU_NUM
+#define PLAT_CPU_NUM (CHCORE_PLAT_CPU_NUM)
+#else
 #define PLAT_CPU_NUM (12)
+#endif
 
 /* MSR Registers */
 #define IA32_APIC_BASE        0x0000001b

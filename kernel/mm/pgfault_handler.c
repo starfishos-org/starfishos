@@ -880,6 +880,38 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         fault_addr);
                     return 0;
                 }
+                /*
+                 * IMPORTANT: if the source mapping changed concurrently, we must
+                 * migrate from the rechecked PA instead of the stale PA captured
+                 * before releasing locks. Otherwise we may copy wrong page data.
+                 */
+                if (recheck_ret == 0 && recheck_pte && recheck_pte->pte_4K.present
+                    && !is_migration_entry(recheck_pte)) {
+                    pa = recheck_pa;
+                    mid = get_paddr_machine_id(pa);
+                    BUG_ON(mid == MACHINE_ID_INVALID);
+
+                    /*
+                     * Owner changed while we were racing with another migration.
+                     * If it is now local/shared, direct map and finish.
+                     */
+                    if (mid == CUR_MACHINE_ID || mid == MACHINE_ID_SHARED_MEMORY) {
+                        new_pa = pa;
+                        pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+                        map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                        unlock(&vmspace->pgtbl_lock);
+                        read_unlock(&vmspace->vmspace_lock);
+                        remove_migrating_va(vmspace, fault_addr);
+#ifdef PGFAULT_STATS_DEBUG
+                        u64 case2_end_cycles = get_cycles();
+                        u64 case2_cycles = case2_end_cycles - case2_start_cycles;
+                        add_sample_case2(&pgfault_stats.case2_migrate, case2_cycles);
+#endif
+                        multipt_debug("[case2.3 owner changed] va 0x%lx now maps to pa 0x%lx on mid %d, direct map\n",
+                                      fault_addr, new_pa, mid);
+                        return 0;
+                    }
+                }
                 unlock(&vmspace->pgtbl_lock);
                 read_unlock(&vmspace->vmspace_lock);
                 

@@ -25,4 +25,4 @@ set(USE_DEV_AS_DRAM "ON")
 
 # If "ON", CXL memory pool uses lock-free buddy allocator; 
 # if "OFF", use original lock-based buddy allocator.
-set(DSM_CXL_LF_BUDDY "OFF")
+set(DSM_CXL_LF_BUDDY "ON")

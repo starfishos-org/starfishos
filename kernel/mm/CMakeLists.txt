@@ -1,5 +1,8 @@
 file(GLOB src "*.c")
 
+file(GLOB_RECURSE llfree_src "llfree/*.c")
+list(APPEND src ${llfree_src})
+
 if(CHCORE_SLS)
   file(GLOB_RECURSE sls_src "sls/*.c")
   list(APPEND src ${sls_src})

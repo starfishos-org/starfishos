@@ -1,3 +1,4 @@
+#include "lib/printk.h"
 #include <common/types.h>
 #include <mm/mm.h>
 #include <common/kprint.h>
@@ -282,6 +283,29 @@ void ext_mm_init()
     /* memory model has been inited */
     if (DSM_STATE >= DSM_CONFIG_STATE_MM_INITED) {
         kinfo(ANSI_COLOR_MAGENTA "[CXL MEMORY] cxl mem pool has been inited" ANSI_COLOR_RESET "\n");
+        /*
+         * Shared pool metadata already exists in SHM (initialized by machine 0),
+         * but each machine still needs to attach its allocator handles and
+         * initialize slab state. Otherwise CXL allocations will fail (NULL)
+         * even though DSM_STATE says MM is ready.
+         */
+        for (cxlmem_map_idx = 0; cxlmem_map_idx < cxlmem_map_num; ++cxlmem_map_idx) {
+            free_mem_start = cxlmem_map[cxlmem_map_idx][0];
+            free_mem_end = cxlmem_map[cxlmem_map_idx][1];
+#ifdef DSM_CXL_LF_BUDDY
+            attach_buddy_lf(cxlmem_map_idx,
+                            global_cxl_mem[cxlmem_map_idx],
+                            CXL_MEM_PAGE,
+                            free_mem_start,
+                            free_mem_end);
+#else
+            init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
+                                        CXL_MEM_PAGE,
+                                        free_mem_start,
+                                        free_mem_end);
+#endif
+        }
+        init_cxl_slab();
         goto skip_init;
     }
 
@@ -298,6 +322,7 @@ void ext_mm_init()
                       CXL_MEM_PAGE,
                       free_mem_start,
                       free_mem_end);
+        printk("finish init buddy lf\n");
 #else
         init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
                                     CXL_MEM_PAGE,

@@ -10,16 +10,9 @@
 #include <dsm/dsm-single.h>
 #endif
 
-/**
- * The following structures should be inited on SHM
- */
-#ifndef DSM_ENABLED
-struct slab_pointer cxl_slab_pool[SLAB_MAX_ORDER + 1];
-static struct lock cxl_slabs_locks[SLAB_MAX_ORDER + 1];
-#else
-#define cxl_slab_pool   (dsm_meta->slab_pool)
-#define cxl_slabs_locks (dsm_meta->slabs_locks)
-#endif
+/* Per-CPU CXL slab pools/locks, indexed by [cpu][order]. */
+struct slab_pointer cxl_slab_pool[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
+static struct lock cxl_slabs_locks[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
 
 #if CHECK_FREE_COUNT_IN_SLAB == ON
 static bool check_slot_free_count(struct slab_header *slab)
@@ -66,7 +59,7 @@ static void *alloc_slab_memory(unsigned long size)
     return addr;
 }
 
-static struct slab_header *init_slab_cache(int order, int size)
+static struct slab_header *init_slab_cache(int order, int size, u32 owner_cpu)
 {
     void *addr;
     struct slab_slot_list *slot;
@@ -87,6 +80,7 @@ static struct slab_header *init_slab_cache(int order, int size)
     slot = (struct slab_slot_list *)(addr + obj_size);
     slab->free_list_head = (void *)slot;
     slab->order = order;
+    slab->owner_cpu = owner_cpu;
     slab->total_free_cnt = cnt;
     slab->current_free_cnt = cnt;
 
@@ -122,21 +116,23 @@ static void *alloc_in_cxl_slab_impl(int order)
     struct slab_header *current_slab;
     struct slab_slot_list *free_list;
     void *next_slot;
+    u32 cpu_id = smp_get_cpu_id();
 
-    lock(&cxl_slabs_locks[order]);
+    BUG_ON(cpu_id >= PLAT_CPU_NUM);
+    lock(&cxl_slabs_locks[cpu_id][order]);
 
-    current_slab = cxl_slab_pool[order].current_slab;
+    current_slab = cxl_slab_pool[cpu_id][order].current_slab;
 #if CHECK_FREE_COUNT_IN_SLAB == ON
     check_slot_free_count(current_slab);
 #endif
     /* When serving the first allocation request. */
     if (unlikely(current_slab == NULL)) {
-        current_slab = init_slab_cache(order, SIZE_OF_ONE_SLAB);
+        current_slab = init_slab_cache(order, SIZE_OF_ONE_SLAB, cpu_id);
         if (current_slab == NULL) {
-            unlock(&cxl_slabs_locks[order]);
+            unlock(&cxl_slabs_locks[cpu_id][order]);
             return NULL;
         }
-        cxl_slab_pool[order].current_slab = current_slab;
+        cxl_slab_pool[cpu_id][order].current_slab = current_slab;
     }
 
     free_list = (struct slab_slot_list *)current_slab->free_list_head;
@@ -148,9 +144,9 @@ static void *alloc_in_cxl_slab_impl(int order)
     current_slab->current_free_cnt -= 1;
     /* When current_slab is full, choose a new slab as the current one. */
     if (unlikely(current_slab->current_free_cnt == 0))
-        choose_new_current_slab(&cxl_slab_pool[order], order);
+        choose_new_current_slab(&cxl_slab_pool[cpu_id][order], order);
 
-    unlock(&cxl_slabs_locks[order]);
+    unlock(&cxl_slabs_locks[cpu_id][order]);
 
     return (void *)free_list;
 }
@@ -183,19 +179,25 @@ static void try_insert_full_slab_to_partial(struct slab_header *slab)
         return;
 
     int order;
+    u32 owner_cpu;
     order = slab->order;
+    owner_cpu = slab->owner_cpu;
+    BUG_ON(owner_cpu >= PLAT_CPU_NUM);
 
-    list_append(&slab->node, &cxl_slab_pool[order].partial_slab_list);
+    list_append(&slab->node, &cxl_slab_pool[owner_cpu][order].partial_slab_list);
 }
 
 static void try_return_slab_to_buddy(struct slab_header *slab, int order)
 {
+    u32 owner_cpu = slab->owner_cpu;
+    BUG_ON(owner_cpu >= PLAT_CPU_NUM);
+
     /* The slab is whole free now. */
     if (slab->current_free_cnt != slab->total_free_cnt)
         return;
 
-    if (slab == cxl_slab_pool[order].current_slab)
-        choose_new_current_slab(&cxl_slab_pool[order], order);
+    if (slab == cxl_slab_pool[owner_cpu][order].current_slab)
+        choose_new_current_slab(&cxl_slab_pool[owner_cpu][order], order);
     else
         list_del(&slab->node);
 
@@ -209,12 +211,15 @@ static void try_return_slab_to_buddy(struct slab_header *slab, int order)
 void init_cxl_slab(void)
 {
     int order;
+    u32 cpu_id;
 
     /* slab obj size: 32, 64, 128, 256, 512, 1024, 2048 */
-    for (order = SLAB_MIN_ORDER; order <= SLAB_MAX_ORDER; order++) {
-        lock_init(&cxl_slabs_locks[order]);
-        cxl_slab_pool[order].current_slab = NULL;
-        init_list_head(&(cxl_slab_pool[order].partial_slab_list));
+    for (cpu_id = 0; cpu_id < PLAT_CPU_NUM; cpu_id++) {
+        for (order = SLAB_MIN_ORDER; order <= SLAB_MAX_ORDER; order++) {
+            lock_init(&cxl_slabs_locks[cpu_id][order]);
+            cxl_slab_pool[cpu_id][order].current_slab = NULL;
+            init_list_head(&(cxl_slab_pool[cpu_id][order].partial_slab_list));
+        }
     }
     kdebug("mm: finish initing slab allocators\n");
 }
@@ -238,6 +243,7 @@ void free_in_cxl_slab(void *addr)
     struct slab_header *slab;
     struct slab_slot_list *slot;
     int order;
+    u32 owner_cpu;
 
     slot = (struct slab_slot_list *)addr;
     page = virt_to_page(addr);
@@ -245,7 +251,9 @@ void free_in_cxl_slab(void *addr)
 
     slab = page->slab;
     order = slab->order;
-    lock(&cxl_slabs_locks[order]);
+    owner_cpu = slab->owner_cpu;
+    BUG_ON(owner_cpu >= PLAT_CPU_NUM);
+    lock(&cxl_slabs_locks[owner_cpu][order]);
 
     try_insert_full_slab_to_partial(slab);
 
@@ -271,7 +279,7 @@ void free_in_cxl_slab(void *addr)
     check_slot_free_count(slab);
 #endif
 
-    unlock(&cxl_slabs_locks[order]);
+    unlock(&cxl_slabs_locks[owner_cpu][order]);
 }
 
 /* This interface is not marked as static because it is needed in the unit test.
@@ -282,36 +290,37 @@ unsigned long cxl_get_free_slot_number(int order)
     struct slab_slot_list *slot;
     unsigned long current_slot_num = 0;
     unsigned long check_slot_num = 0;
+    u32 cpu_id;
 
-    lock(&cxl_slabs_locks[order]);
+    for (cpu_id = 0; cpu_id < PLAT_CPU_NUM; cpu_id++) {
+        lock(&cxl_slabs_locks[cpu_id][order]);
 
-    slab = cxl_slab_pool[order].current_slab;
-    if (slab) {
-        slot = (struct slab_slot_list *)slab->free_list_head;
-        while (slot != NULL) {
-            current_slot_num++;
-            slot = slot->next_free;
+        slab = cxl_slab_pool[cpu_id][order].current_slab;
+        if (slab) {
+            slot = (struct slab_slot_list *)slab->free_list_head;
+            while (slot != NULL) {
+                current_slot_num++;
+                slot = slot->next_free;
+            }
+            check_slot_num += slab->current_free_cnt;
         }
-        check_slot_num += slab->current_free_cnt;
-    }
 
-    if (list_empty(&cxl_slab_pool[order].partial_slab_list))
-        goto out;
-
-    for_each_in_list (slab,
-                      struct slab_header,
-                      node,
-                      &cxl_slab_pool[order].partial_slab_list) {
-        slot = (struct slab_slot_list *)slab->free_list_head;
-        while (slot != NULL) {
-            current_slot_num++;
-            slot = slot->next_free;
+        if (!list_empty(&cxl_slab_pool[cpu_id][order].partial_slab_list)) {
+            for_each_in_list (slab,
+                              struct slab_header,
+                              node,
+                              &cxl_slab_pool[cpu_id][order].partial_slab_list) {
+                slot = (struct slab_slot_list *)slab->free_list_head;
+                while (slot != NULL) {
+                    current_slot_num++;
+                    slot = slot->next_free;
+                }
+                check_slot_num += slab->current_free_cnt;
+            }
         }
-        check_slot_num += slab->current_free_cnt;
-    }
 
-out:
-    unlock(&cxl_slabs_locks[order]);
+        unlock(&cxl_slabs_locks[cpu_id][order]);
+    }
 
     BUG_ON(check_slot_num != current_slot_num);
 

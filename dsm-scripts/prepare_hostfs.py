@@ -8,7 +8,7 @@ base_dir = "/dev/shm"
 # 要复制到共享内存的文件路径
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
-    '/home/wfn/twitter-2010/twitter-2010.bin',
+    '/mnt/disk1/wfn/twitter-2010/twitter-2010.bin',
     # '/disk/xt/models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf',
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]

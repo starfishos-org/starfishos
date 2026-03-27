@@ -161,3 +161,8 @@ u8 get_cpu_apic_id(u8 cpu_id)
     BUG_ON(cpu_id < 0 || cpu_id >= madt_info.processor_count);
     return madt_info.local_apic_ids[cpu_id];
 }
+
+u8 get_cpu_count(void)
+{
+    return madt_info.processor_count;
+}

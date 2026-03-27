@@ -22,6 +22,7 @@ struct slab_header {
     struct list_head node;
 
     int order;
+    unsigned short owner_cpu;
     unsigned short total_free_cnt; /* MAX: 65536 */
     unsigned short current_free_cnt;
 };

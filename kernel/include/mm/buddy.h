@@ -183,6 +183,12 @@ void init_buddy(struct phys_mem_pool *, struct page *start_page,
  */
 void init_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,
                  page_type_t type, paddr_t free_mem_start, paddr_t free_mem_end);
+/*
+ * Attach to an existing shared allocator state without clearing SHM.
+ * Used when DSM_STATE already indicates MM is initialized.
+ */
+void attach_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,
+                 page_type_t type, paddr_t free_mem_start, paddr_t free_mem_end);
 struct page *buddy_lf_get_pages(struct phys_mem_pool *pool, int order);
 void buddy_lf_free_pages(struct phys_mem_pool *pool, struct page *page);
 #endif

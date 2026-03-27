@@ -18,6 +18,7 @@ int FW_MACHINE_ID = -1;
 unsigned long long FW_TMP_SIZE_BYTES = SIZE_1G;
 unsigned long long FW_DRAM_SIZE_BYTES = 0;
 int FW_MACHINE_NUM = 0;
+int FW_CPU_NUM = 0;
 
 // fw_cfg directory entry format (big-endian fields)
 struct fw_cfg_file {
@@ -175,6 +176,9 @@ static void parse_bootargs_kv(char *buf)
         } else if (!strcmp(key, "machine_num")) {
             unsigned long long n = parse_size_bytes(val);
             FW_MACHINE_NUM = (int)n;
+        } else if (!strcmp(key, "cpu_num")) {
+            unsigned long long n = parse_size_bytes(val);
+            FW_CPU_NUM = (int)n;
         }
     }
 }
@@ -187,8 +191,8 @@ void fw_cfg_init(void) {
         if (FW_MACHINE_ID < 0) {
             BUG("[FW_CFG] machine_id is negative\n");
         }
-        kdebug("[FW_CFG] machine_id: %d, machine_num=%d, tmp_size=0x%llx, dram_size=0x%llx\n",
-               FW_MACHINE_ID, FW_MACHINE_NUM, FW_TMP_SIZE_BYTES, FW_DRAM_SIZE_BYTES);
+        kdebug("[FW_CFG] machine_id: %d, machine_num=%d, cpu_num=%d, tmp_size=0x%llx, dram_size=0x%llx\n",
+               FW_MACHINE_ID, FW_MACHINE_NUM, FW_CPU_NUM, FW_TMP_SIZE_BYTES, FW_DRAM_SIZE_BYTES);
         CUR_MACHINE_ID = FW_MACHINE_ID;
     } else {
         kinfo("[FW_CFG] machine_id not found!\n");

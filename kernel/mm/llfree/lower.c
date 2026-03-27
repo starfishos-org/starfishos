@@ -1,0 +1,292 @@
+#include "lower.h"
+#include "llfree_platform.h"
+
+#define CHILD_N LLFREE_CHILD_SIZE
+#define RETRIES 128
+
+static size_t child_count(const lower_t *self)
+{
+	return div_ceil(self->frames, CHILD_N);
+}
+
+static ll_unused size_t children_count(const lower_t *self)
+{
+	return div_ceil(child_count(self), LLFREE_TREE_CHILDREN);
+}
+
+static child_t *get_child(const lower_t *self, size_t i)
+{
+	llfree_assert(i < align_up(child_count(self), LLFREE_TREE_CHILDREN));
+	return &self->children[i / LLFREE_TREE_CHILDREN].entries[i % LLFREE_TREE_CHILDREN];
+}
+
+size_t lower_metadata_size(size_t frames)
+{
+	size_t children = div_ceil(frames, CHILD_N);
+	size_t trees = div_ceil(children, LLFREE_TREE_CHILDREN);
+	uint64_t size_bitfields = align_up(children * sizeof(bitfield_t), sizeof(children_t));
+	uint64_t size_children =
+		align_up(trees * sizeof(children_t), LL_MAX(sizeof(children_t), sizeof(bitfield_t)));
+	return (size_t)(size_bitfields + size_children);
+}
+
+static void zero_field(bitfield_t *field)
+{
+	for (size_t i = 0; i < FIELD_N; ++i) {
+		field->rows[i] = 0;
+	}
+}
+
+static void init_field(bitfield_t *field, size_t free)
+{
+	for (size_t i = 0; i < FIELD_N; ++i) {
+		if (free >= LLFREE_ATOMIC_SIZE) {
+			field->rows[i] = 0;
+			free -= LLFREE_ATOMIC_SIZE;
+		} else if (free > 0) {
+			field->rows[i] = UINT64_MAX << free;
+			free = 0;
+		} else {
+			field->rows[i] = UINT64_MAX;
+		}
+	}
+}
+
+static void lower_clear(lower_t *self, bool free_all)
+{
+	llfree_assert(self != NULL);
+
+	size_t child_c = child_count(self);
+
+	for (size_t i = 0; i < child_c; i++) {
+		size_t f = LL_MIN(CHILD_N, self->frames - (i * CHILD_N));
+		size_t free = free_all ? f : 0;
+
+		atom_store(get_child(self, i), child_new((uint16_t)free, free == 0));
+
+		if (free == 0)
+			zero_field(&self->fields[i]);
+		else
+			init_field(&self->fields[i], free);
+	}
+	for (size_t i = child_c; i < align_up(child_c, LLFREE_TREE_CHILDREN); i++) {
+		atom_store(get_child(self, i), child_new(0, true));
+	}
+}
+
+static void lower_recover(lower_t *self)
+{
+	for (size_t i = 0; i < child_count(self); ++i) {
+		child_t child = atom_load(get_child(self, i));
+		if (child.huge) {
+			atom_store(get_child(self, i), child_new(0, true));
+			field_init(&self->fields[i]);
+		} else {
+			uint16_t counter = (uint16_t)(CHILD_N - field_count_ones(&self->fields[i]));
+			atom_store(get_child(self, i), child_new(counter, false));
+		}
+	}
+}
+
+llfree_result_t lower_init(lower_t *self, size_t frames, uint8_t init, uint8_t *primary)
+{
+	self->frames = frames;
+	size_t child_c = child_count(self);
+	size_t bitfield_size = align_up(sizeof(bitfield_t) * child_c, sizeof(children_t));
+
+	self->fields = (bitfield_t *)primary;
+	self->children = (children_t *)(primary + bitfield_size);
+
+	switch (init) {
+	case LLFREE_INIT_FREE:
+		lower_clear(self, true);
+		break;
+	case LLFREE_INIT_ALLOC:
+		lower_clear(self, false);
+		break;
+	case LLFREE_INIT_NONE:
+		break;
+	case LLFREE_INIT_RECOVER:
+		lower_recover(self);
+		break;
+	default:
+		return llfree_err(LLFREE_ERR_INIT);
+	}
+	return llfree_err(LLFREE_ERR_OK);
+}
+
+uint8_t *lower_metadata(const lower_t *self)
+{
+	return (uint8_t *)self->fields;
+}
+
+static llfree_result_t get_max(lower_t *self, uint64_t frame)
+{
+	size_t idx = child_from_frame(frame) / 2;
+	llfree_assert(idx < child_count(self) / 2);
+	for_offsetted(idx, LLFREE_TREE_CHILDREN / 2, current_i)
+	{
+		child_pair_t old;
+		child_pair_t *pair = (child_pair_t *)get_child(self, current_i * 2);
+		if (atom_update(pair, old, child_set_max)) {
+			return llfree_ok(frame_from_child(current_i * 2), 0);
+		}
+	}
+
+	return llfree_err(LLFREE_ERR_MEMORY);
+}
+
+static llfree_result_t get_huge(lower_t *self, uint64_t frame)
+{
+	size_t idx = child_from_frame(frame);
+	llfree_assert(idx < child_count(self));
+	for_offsetted(idx, LLFREE_TREE_CHILDREN, current_i)
+	{
+		child_t old;
+		child_t *child = get_child(self, current_i);
+		if (atom_update(child, old, child_set_huge)) {
+			return llfree_ok(frame_from_child(current_i), 0);
+		}
+	}
+
+	return llfree_err(LLFREE_ERR_MEMORY);
+}
+
+static llfree_result_t lower_get_inner(lower_t *self, uint64_t frame, size_t order)
+{
+	if (order == LLFREE_MAX_ORDER)
+		return get_max(self, frame);
+	if (order == LLFREE_HUGE_ORDER)
+		return get_huge(self, frame);
+
+	const size_t idx = child_from_frame(frame);
+	llfree_assert(idx < child_count(self));
+	for_offsetted(idx, LLFREE_TREE_CHILDREN, current_i)
+	{
+		child_t old;
+		child_t *child = get_child(self, current_i);
+		if (atom_update(child, old, child_dec, order)) {
+			llfree_result_t pos = field_set_next(&self->fields[current_i], frame, order);
+			if (llfree_is_ok(pos)) {
+				return llfree_ok(frame_from_child(current_i) + pos.frame, 0);
+			}
+			if (!atom_update(child, old, child_inc, order)) {
+				llfree_warn("Undo failed!");
+				llfree_assert(false);
+			}
+		}
+	}
+	return llfree_err(LLFREE_ERR_MEMORY);
+}
+
+llfree_result_t lower_get(lower_t *self, const uint64_t start_frame, size_t order, ll_optional_t frame)
+{
+	llfree_assert(order <= LLFREE_MAX_ORDER);
+	if (frame.present) {
+		uint64_t f = frame.value;
+		if (f + (1u << order) > self->frames || f % (1u << order) != 0) {
+			return llfree_err(LLFREE_ERR_ADDRESS);
+		}
+		size_t child_idx = child_from_frame(f);
+		child_t *child = get_child(self, child_idx);
+		if (order == LLFREE_MAX_ORDER) {
+			child_pair_t old;
+			child_pair_t *pair = (child_pair_t *)child;
+			if (atom_update(pair, old, child_set_max))
+				return llfree_ok(f, 0);
+			return llfree_err(LLFREE_ERR_MEMORY);
+		}
+		if (order == LLFREE_HUGE_ORDER) {
+			child_t old;
+			if (atom_update(child, old, child_set_huge))
+				return llfree_ok(f, 0);
+			return llfree_err(LLFREE_ERR_MEMORY);
+		}
+		child_t old;
+		if (atom_update(child, old, child_dec, order)) {
+			bitfield_t *field = &self->fields[child_idx];
+			llfree_result_t ret = field_toggle(field, f % CHILD_N, order, false);
+			if (llfree_is_ok(ret))
+				return llfree_ok(f, 0);
+			if (!atom_update(child, old, child_inc, order)) {
+				llfree_warn("Undo failed!");
+				llfree_assert(false);
+			}
+		}
+		return llfree_err(LLFREE_ERR_MEMORY);
+	}
+	llfree_assert(start_frame < self->frames);
+	return lower_get_inner(self, start_frame, order);
+}
+
+static llfree_result_t split_huge(child_t old, child_t *child, bitfield_t *field)
+{
+	(void)old;
+	uint64_t zero = 0;
+
+	bool success = atom_cmp_exchange(&field->rows[0], &zero, UINT64_MAX);
+	if (success) {
+		for (size_t i = 1; i < FIELD_N; ++i) {
+			atom_store(&field->rows[i], UINT64_MAX);
+		}
+
+		child_t expected = child_new(0, true);
+		success = atom_cmp_exchange(child, &expected, child_new(0, false));
+		llfree_assert(success);
+	} else {
+		for (size_t i = 0; i < RETRIES; i++) {
+			child_t c = atom_load(child);
+			if (!c.huge)
+				return llfree_err(LLFREE_ERR_OK);
+		}
+		return llfree_err(LLFREE_ERR_RETRY);
+	}
+	return llfree_err(LLFREE_ERR_OK);
+}
+
+llfree_result_t lower_put(lower_t *self, uint64_t frame, size_t order)
+{
+	llfree_assert(order <= LLFREE_MAX_ORDER);
+
+	if (frame + (1u << order) > self->frames || frame % (1u << order) != 0) {
+		return llfree_err(LLFREE_ERR_ADDRESS);
+	}
+
+	const size_t child_idx = child_from_frame(frame);
+	child_t *child = get_child(self, child_idx);
+
+	if (order == LLFREE_MAX_ORDER) {
+		child_pair_t old;
+		if (atom_update((child_pair_t *)child, old, child_clear_max))
+			return llfree_err(LLFREE_ERR_OK);
+		return llfree_err(LLFREE_ERR_MEMORY);
+	}
+	if (order == LLFREE_HUGE_ORDER) {
+		child_t old;
+		if (atom_update(child, old, child_clear_huge))
+			return llfree_err(LLFREE_ERR_OK);
+		return llfree_err(LLFREE_ERR_ADDRESS);
+	}
+
+	bitfield_t *field = &self->fields[child_idx];
+
+	child_t old = atom_load(child);
+	if (old.huge) {
+		llfree_result_t res = split_huge(old, child, field);
+		if (!llfree_is_ok(res))
+			return res;
+	}
+
+	size_t field_index = frame % CHILD_N;
+	llfree_result_t ret = field_toggle(field, field_index, order, true);
+	if (!llfree_is_ok(ret))
+		return ret;
+
+	if (!atom_update(child, old, child_inc, order)) {
+		llfree_warn("Inc Failed!");
+		llfree_assert(false);
+	}
+
+	return llfree_err(LLFREE_ERR_OK);
+}
+

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <dsm/dsm_ref.h>
 #include <mm/vmspace.h>
 #include <sched/sched.h>
 #include <common/kprint.h>
@@ -242,7 +243,14 @@ typedef struct {
         struct pmobject *pmo;
         char *data;
     } shm_data[MAX_SHM_NUM];
-     // for testing
+
+    /**
+     * 10. Per-machine redo-log + era for partial-failure-resilient ref counting.
+     *     era matrix: DSM_REF_MAX_MACHINES^2 × 4 bytes = 256 B
+     *     machine state: DSM_REF_MAX_MACHINES × (64 + 8×64) = 4608 B
+     *     Total: ~4.8 KB
+     */
+    dsm_ref_meta_t ref_meta;
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;

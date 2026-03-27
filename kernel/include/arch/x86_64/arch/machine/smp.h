@@ -73,6 +73,7 @@ extern volatile char cpu_status[PLAT_CPU_NUM];
 
 void enable_smp_cores(void);
 u32 smp_get_cpu_id(void);
+u32 smp_get_cpu_num(void);
 void smp_print_status(u32 cpuid);
 void init_per_cpu_info(u32 cpuid);
 

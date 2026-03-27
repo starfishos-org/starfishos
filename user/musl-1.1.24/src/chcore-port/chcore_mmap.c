@@ -245,8 +245,10 @@ void *chcore_mmap(void *start, size_t length, int prot, int flags, int fd,
         return map_addr;
 
 err_free_node:
+        pthread_spin_lock(&va2pmo_lock);
         htable_del(&node->hash_node);
         list_del(&node->list_node);
+        pthread_spin_unlock(&va2pmo_lock);
         free_pmo_node(node);
 err_free_addr:
         chcore_free_vaddr((u64)map_addr, length);
@@ -312,7 +314,9 @@ int chcore_munmap(void *start, size_t length)
                 prev_node = node;
         }
 
+        pthread_spin_lock(&va2pmo_lock);
         list_del(&node->list_node);
+        pthread_spin_unlock(&va2pmo_lock);
         free_pmo_node(node);
         return ret;
 }

@@ -38,8 +38,13 @@ foreach(_var_name ${_cache_var_names})
             add_compile_definitions(${_var_name})
         endif()
     elseif(_var_type STREQUAL STRING)
-        # for STRING, always add definition with string literal value
-        add_compile_definitions(${_var_name}="${${_var_name}}")
+        if(_var_name STREQUAL "CHCORE_PLAT_CPU_NUM")
+            # CHCORE_PLAT_CPU_NUM is used as a numeric constant in C.
+            add_compile_definitions(${_var_name}=${${_var_name}})
+        else()
+            # for STRING, always add definition with string literal value
+            add_compile_definitions(${_var_name}="${${_var_name}}")
+        endif()
     endif()
 endforeach()
 

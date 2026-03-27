@@ -16,6 +16,7 @@
 #define ZERO_SIZE_PTR ((void *)(-1UL))
 
 extern struct phys_mem_pool *global_cxl_mem[];
+extern int cxlmem_map_num;
 
 /* Declaration */
 void *get_cxl_pages(int order)
@@ -28,7 +29,7 @@ void *get_cxl_pages(int order)
     int i;
 
     /* Try to get continous physical memory pages from one physmem pool. */
-    for (i = 0; i < physmem_map_num; ++i) {
+    for (i = 0; i < cxlmem_map_num; ++i) {
         page = buddy_get_pages(global_cxl_mem[i], order);
         if (page)
             break;
