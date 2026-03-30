@@ -16,13 +16,16 @@
 
 /* ---- Server-side timing control ----
  * Set to 1 to collect and dump per-request timing data (dequeue + handle).
+ * Uses rdtsc() for sub-microsecond precision (cycles).
  * Dumped via polling_print_debug_info() when client sends POLLING_PRINT_DEBUG_INFO.
  */
 #define ENABLE_SRV_TIMING 0
 
-static inline long diff_ns(struct timespec a, struct timespec b)
+static inline uint64_t rdtsc(void)
 {
-    return (b.tv_sec - a.tv_sec) * 1000000000L + (b.tv_nsec - a.tv_nsec);
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
 }
 
 struct polling_thread_arg {
@@ -158,12 +161,11 @@ void *polling_reader_thread(void *arg)
 
     while (1) {
 #if ENABLE_SRV_TIMING
-        struct timespec td0, td1, th0, th1;
-        clock_gettime(CLOCK_MONOTONIC, &td0);
+        uint64_t td0 = rdtsc();
 #endif
         struct dq_node *node = durable_dequeue(shm);
 #if ENABLE_SRV_TIMING
-        clock_gettime(CLOCK_MONOTONIC, &td1);
+        uint64_t td1 = rdtsc();
 #endif
 
         // if (node == NULL) {
@@ -182,15 +184,15 @@ void *polling_reader_thread(void *arg)
         poll_count = 0;
 
 #if ENABLE_SRV_TIMING
-        clock_gettime(CLOCK_MONOTONIC, &th0);
+        uint64_t th0 = rdtsc();
 #endif
         handle_polling_request(node);
 #if ENABLE_SRV_TIMING
-        clock_gettime(CLOCK_MONOTONIC, &th1);
+        uint64_t th1 = rdtsc();
 
         if (srv_perf_idx < SRV_PERF_MAX) {
-            srv_t_deq[srv_perf_idx] = diff_ns(td0, td1);
-            srv_t_handle[srv_perf_idx] = diff_ns(th0, th1);
+            srv_t_deq[srv_perf_idx] = (long)(td1 - td0);
+            srv_t_handle[srv_perf_idx] = (long)(th1 - th0);
             srv_perf_idx++;
         }
 #endif
