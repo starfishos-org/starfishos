@@ -22,19 +22,14 @@ echo "Repo: $REPO_ROOT"
 echo "Threads: $NUM_THREADS"
 echo ""
 
-# Function to set flag in file
-set_flag() {
-    local file=$1
-    local flag_name=$2
-    local flag_value=$3
+# Function to set flags using Python script
+set_flags() {
+    local enable_breakdown=$1
+    local enable_srv_timing=$2
 
-    if grep -q "#define $flag_name " "$file"; then
-        sed -i "s/#define $flag_name .*/#define $flag_name $flag_value/" "$file"
-        echo "  ✓ Set $flag_name=$flag_value in $(basename $file)"
-    else
-        echo "  ✗ Flag $flag_name not found in $file"
-        exit 1
-    fi
+    python3 dsm-scripts/ipc-test/configure_timing.py \
+        --breakdown "$enable_breakdown" \
+        --srv-timing "$enable_srv_timing" 2>&1 | sed 's/^/  /'
 }
 
 # Function to run a benchmark configuration
@@ -45,12 +40,10 @@ run_benchmark() {
 
     echo ""
     echo -e "${BLUE}[Test] $test_name${NC}"
-    echo "  ENABLE_BREAKDOWN=$enable_breakdown"
-    echo "  ENABLE_SRV_TIMING=$enable_srv_timing"
 
-    # Set flags
-    set_flag "user/system-servers/polling/polling_client_test.c" "ENABLE_BREAKDOWN" "$enable_breakdown"
-    set_flag "user/system-servers/polling/polling_server.c" "ENABLE_SRV_TIMING" "$enable_srv_timing"
+    # Set flags using Python script
+    echo "  [Configuring flags]"
+    set_flags "$enable_breakdown" "$enable_srv_timing"
 
     # Compile
     echo -e "${BLUE}  [Compiling]${NC}"
