@@ -115,6 +115,11 @@ void usys_ipc_perf_end(void);
 
 int usys_mmap_shm(u32 shm_id, void *addr);
 int usys_print_vmspace_stats(void);
+int usys_set_thread_budget(u32 budget);
+
+/* FS batch IPC helper */
+int chcore_get_mount_id(int fd);
+int chcore_fs_noop(int fd);
 
 #ifdef __cplusplus
 }

@@ -62,9 +62,12 @@ enum fs_req_type {
 	FS_REQ_FDATASYNC,
 
 	FS_REQ_TEST_PERF, /* Test the page cache miss/hit count，disk I/O count  . */
-	
+
+	FS_REQ_BATCH_READ, /* Batch multiple reads in one IPC */
+
 	FS_CHILD_FINISH_FORK,
-	
+	FS_REQ_NOOP,
+
 #ifdef IPC_PERF_ENABLED
 	FS_REQ_IPC_PERF,
 #endif
@@ -88,7 +91,9 @@ enum fsm_req_type {
 	 */
 	FSM_REQ_CONNECT_PROCMGR_AND_FSM,
 
-	FSM_CHILD_FINISH_FORK
+	FSM_CHILD_FINISH_FORK,
+
+	FSM_REQ_REPLACE_FS
 };
 
 #define FS_READ_BUF_SIZE (IPC_SHM_AVAILABLE - (u64)(&(((fs_request *)(0))->read_buff_begin)))
@@ -217,6 +222,27 @@ struct fs_request {
 			unsigned long childBadge;
 		} fork;
         };
+};
+
+/*
+ * Batch read: pack N reads into one IPC call.
+ * Layout in IPC SHM buffer:
+ *   struct fs_batch_read_header  (header)
+ *   struct fs_batch_read_entry[count]  (per-read params)
+ *   -- response written by server: --
+ *   ssize_t ret[count]  (bytes read per entry, at header->ret_offset)
+ *   char data[]  (concatenated read results, at header->data_offset)
+ */
+#define FS_BATCH_READ_MAX 8
+
+struct fs_batch_read_header {
+	enum fs_req_type req;  /* = FS_REQ_BATCH_READ */
+	int count;
+};
+
+struct fs_batch_read_entry {
+	int fd;
+	int count;  /* bytes to read */
 };
 
 struct fsm_request {

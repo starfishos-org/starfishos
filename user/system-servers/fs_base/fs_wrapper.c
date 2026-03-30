@@ -154,8 +154,9 @@ void fs_wrapper_set_server_entry(u64 client_badge, int fd, int fid)
 /* Translate xxxfd field to fid correspondingly */
 void translate_fd_to_fid(u64 client_badge, struct fs_request *fr)
 {
-	/* Except FS_REQ_OPEN and FS_REQ_MOUNT, fd should be translated */
-	if (fr->req == FS_REQ_OPEN || fr->req == FS_REQ_MOUNT)
+	/* Except FS_REQ_OPEN, FS_REQ_MOUNT, FS_REQ_BATCH_READ, and FS_REQ_NOOP, fd should be translated */
+	if (fr->req == FS_REQ_OPEN || fr->req == FS_REQ_MOUNT
+	    || fr->req == FS_REQ_BATCH_READ || fr->req == FS_REQ_NOOP)
 		return;
 
 	switch (fr->req) {
@@ -230,8 +231,9 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 
 	fr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
-	/* We only support concurrent READ and WRITE */
-	if (fr->req != FS_REQ_READ && fr->req != FS_REQ_WRITE) {
+	/* We only support concurrent READ, WRITE, BATCH_READ, and NOOP */
+	if (fr->req != FS_REQ_READ && fr->req != FS_REQ_WRITE
+	    && fr->req != FS_REQ_BATCH_READ && fr->req != FS_REQ_NOOP) {
 		pthread_rwlock_wrlock(&fs_wrapper_meta_rwlock);
 	} else {
 		pthread_rwlock_rdlock(&fs_wrapper_meta_rwlock);
@@ -351,8 +353,14 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 	case FS_REQ_TEST_PERF:
 		ret = fs_wrapper_count(ipc_msg, fr);
 		break;
+	case FS_REQ_BATCH_READ:
+		ret = fs_wrapper_batch_read(client_badge, ipc_msg);
+		break;
 	case FS_CHILD_FINISH_FORK:
 		ret = fs_finish_fork(ipc_msg, fr->fork.childBadge, fr->fork.parentBagde);
+		break;
+	case FS_REQ_NOOP:
+		ret = 0;
 		break;
 #ifdef IPC_PERF_ENABLED
 	case FS_REQ_IPC_PERF:
