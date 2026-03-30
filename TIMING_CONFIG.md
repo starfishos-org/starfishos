@@ -4,6 +4,8 @@
 
 Timing data collection is **always enabled** in both client and server for CDF (Cumulative Distribution Function) generation. Use flags to control **output verbosity**.
 
+Both client and server use **rdtsc()** for sub-microsecond precision timing (in CPU cycles).
+
 ## Client-Side (polling_client_test.c)
 
 ```c
@@ -99,8 +101,63 @@ Timing data collection is **always enabled** in both client and server for CDF (
 ### With ENABLE_SRV_TIMING=1:
 ```
 [SRV_TIMING_BEGIN] count=50000
-[SRV_TIM] 12345 98765   # dequeue_ns handle_ns
+[SRV_TIM] 12345 98765   # dequeue_cycles handle_cycles
 [SRV_TIM] 12456 99000
 ...
 [SRV_TIMING_END]
+```
+
+## Automated Benchmark Scripts
+
+### Quick Benchmark (2 configurations)
+
+```bash
+./dsm-scripts/ipc-test/quick_benchmark.sh [num_threads]
+```
+
+Automatically runs two test configurations:
+1. **CDF Only** - Minimal output (ENABLE_BREAKDOWN=0, ENABLE_SRV_TIMING=0)
+2. **Breakdown** - Detailed client analysis (ENABLE_BREAKDOWN=1, ENABLE_SRV_TIMING=0)
+
+Saves logs with test-specific names:
+- `exec_log_cdf_only_0.log` / `exec_log_cdf_only_1.log`
+- `exec_log_breakdown_0.log` / `exec_log_breakdown_1.log`
+
+### Full Benchmark Suite (3 configurations)
+
+```bash
+./dsm-scripts/ipc-test/run_ipc_benchmarks.sh [num_threads]
+```
+
+Runs three test configurations:
+1. CDF Only (baseline)
+2. Breakdown (detailed)
+3. Server Timing (with ENABLE_SRV_TIMING=1)
+
+### Manual Flag Configuration
+
+```bash
+# View current flags
+python3 dsm-scripts/ipc-test/configure_timing.py --list
+
+# Configure manually
+python3 dsm-scripts/ipc-test/configure_timing.py --breakdown 1 --srv-timing 1
+./chbuild build
+./dsm-scripts/ipc-test/test_polling_cross.sh 3
+```
+
+## Analysis Workflow
+
+```bash
+# 1. Quick comparison (CDF vs breakdown)
+./dsm-scripts/ipc-test/quick_benchmark.sh 3
+
+# 2. View breakdown details
+grep '[BD]' exec_log_breakdown_0.log | head -30
+
+# 3. Plot CDF curves
+python3 dsm-scripts/ipc-test/plot_cdf_all.py exec_log_cdf_only_0.log exec_log_cdf_only_1.log
+
+# 4. Compare all modes
+grep 'mode=' exec_log_*_0.log | grep SUMMARY
 ```
