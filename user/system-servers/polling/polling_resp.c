@@ -4,9 +4,14 @@
 #include "polling_config.h"
 
 #include <chcore/syscall.h>
+#include <chcore/ipc.h>
+#include <chcore-internal/fs_defs.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* batch IPC helpers */
+extern ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id);
 
 long polling_request_time[50000];
 int polling_request_time_index = 0;
@@ -127,20 +132,77 @@ void handle_polling_kernel_flush_tlb(struct dq_node *node)
     node->resp.flush_tlb.reply_received = 1;
 }
 
+/* Set to 1 to dump server-side timing data in polling_print_debug_info() */
+#define ENABLE_SRV_TIMING 0
+
 void handle_polling_print_debug_info(struct dq_node *node)
 {
-#if PERF_REAL_READ == true
-    long *tmp = (long *)malloc(sizeof(long) * polling_request_time_index);
-    memcpy(tmp,
-           polling_request_time,
-           sizeof(long) * polling_request_time_index);
-    sort_long(tmp, polling_request_time_index);
-    printf("polling_request_time: %d p50: %ld, p75: %ld, p90: %ld, p99: %ld\n",
-           polling_request_time_index,
-           tmp[(int)(polling_request_time_index * 0.50)],
-           tmp[(int)(polling_request_time_index * 0.75)],
-           tmp[(int)(polling_request_time_index * 0.90)],
-           tmp[(int)(polling_request_time_index * 0.99)]);
-    free(tmp);
+#if ENABLE_SRV_TIMING
+    /* Dump server-side dequeue + handle timing */
+    extern void srv_dump_timing(void);
+    srv_dump_timing();
 #endif
+}
+
+/*
+ * Batch read: send N read requests to tmpfs in a single IPC call.
+ *
+ * All nodes in batch[] must be POLLING_FS_REQ_READ.
+ * We extract fd/count from each node, build an FS_REQ_BATCH_READ IPC message,
+ * do one ipc_call, then scatter the results back to each node's response.
+ */
+void handle_batch_reads(struct dq_node **batch, int count)
+{
+    if (count <= 0) return;
+
+    /* Use the first fd to get the IPC connection to tmpfs */
+    int first_fd = batch[0]->req.read.fd;
+    int mount_id = chcore_get_mount_id(first_fd);
+    if (mount_id < 0) {
+        /* Fallback: handle individually */
+        for (int i = 0; i < count; i++)
+            handle_polling_fs_read(batch[i]);
+        return;
+    }
+
+    ipc_struct_t *fs_ipc = get_ipc_struct_by_mount_id(mount_id);
+    if (!fs_ipc) {
+        for (int i = 0; i < count; i++)
+            handle_polling_fs_read(batch[i]);
+        return;
+    }
+
+    /* Build batch IPC message */
+    ipc_msg_t *ipc_msg = ipc_create_msg(fs_ipc, IPC_SHM_AVAILABLE, 0);
+    char *buf = ipc_get_msg_data(ipc_msg);
+
+    struct fs_batch_read_header *hdr = (struct fs_batch_read_header *)buf;
+    hdr->req = FS_REQ_BATCH_READ;
+    hdr->count = count;
+
+    struct fs_batch_read_entry *entries =
+        (struct fs_batch_read_entry *)(hdr + 1);
+    for (int i = 0; i < count; i++) {
+        entries[i].fd = batch[i]->req.read.fd;
+        entries[i].count = (int)batch[i]->req.read.count;
+    }
+
+    /* Single IPC call — one context switch to tmpfs and back */
+    ssize_t total = ipc_call(fs_ipc, ipc_msg);
+
+    /* Parse response: ret_arr[count] then concatenated data */
+    ssize_t *ret_arr = (ssize_t *)buf;
+    char *data_ptr = buf + count * sizeof(ssize_t);
+
+    for (int i = 0; i < count; i++) {
+        ssize_t n = ret_arr[i];
+        if (n > 0) {
+            memcpy(batch[i]->resp.read.buf, data_ptr, n);
+            data_ptr += n;
+        }
+        batch[i]->resp.read.count = n;
+    }
+
+    ipc_destroy_msg(ipc_msg);
+    (void)total;
 }

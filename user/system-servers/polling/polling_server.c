@@ -1,15 +1,29 @@
 #define _GNU_SOURCE
 #include "polling_server.h"
+#include "polling_req.h"
 #include "polling_resp.h"
 #include "polling_tp.h"
 #include "polling_config.h"
 
 #include <chcore/syscall.h>
 #include <chcore/memory.h>
+#include <chcore-internal/fs_defs.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+/* ---- Server-side timing control ----
+ * Set to 1 to collect and dump per-request timing data (dequeue + handle).
+ * Dumped via polling_print_debug_info() when client sends POLLING_PRINT_DEBUG_INFO.
+ */
+#define ENABLE_SRV_TIMING 0
+
+static inline long diff_ns(struct timespec a, struct timespec b)
+{
+    return (b.tv_sec - a.tv_sec) * 1000000000L + (b.tv_nsec - a.tv_nsec);
+}
 
 struct polling_thread_arg {
     struct polling_shm_region *shm;
@@ -39,7 +53,7 @@ void init_polling_shm_region(struct polling_shm_region *shm)
     qptr_t sentinel_off = pool_off;
     struct dq_node *sentinel = qptr_to_ptr(shm, sentinel_off);
     atomic_init(&sentinel->next, QPTR_NULL);
-    atomic_init(&sentinel->status, DQ_DONE);
+    atomic_init(&sentinel->status, DQ_CONSUMED); /* sentinel never used by producer */
     memset(&sentinel->req, 0, sizeof(struct polling_request));
 
     /* Initialize queue: head = tail = sentinel */
@@ -82,96 +96,23 @@ void init_polling_shm_region(struct polling_shm_region *shm)
  * is recycled to the free list (deferred by one step).
  * ================================================================ */
 
-/*
- * Deferred-free ring buffer.
- *
- * After a node is dequeued and becomes the old sentinel, it cannot be
- * freed immediately — the producer may still be reading the response
- * (between seeing DQ_DONE and returning from the FS call).
- *
- * We delay freeing by DEFER_DEPTH dequeue cycles. With 3 producer
- * threads, each holding at most 1 node, a depth of 16 is safe.
- */
-#define DEFER_DEPTH 16
-static qptr_t defer_ring[DEFER_DEPTH];
-static int defer_idx = 0;
-static int defer_inited = 0;
+/* ================================================================
+ * Server-side per-request timing (global, dumped on debug_info)
+ * ================================================================ */
 
-static void defer_free(struct polling_shm_region *shm, qptr_t old_sentinel)
+#define SRV_PERF_MAX 50000
+static long srv_t_deq[SRV_PERF_MAX];
+static long srv_t_handle[SRV_PERF_MAX];
+static int srv_perf_idx = 0;
+
+/* Called by handle_polling_print_debug_info via polling_resp.c */
+void srv_dump_timing(void)
 {
-    if (!defer_inited) {
-        for (int i = 0; i < DEFER_DEPTH; i++)
-            defer_ring[i] = QPTR_NULL;
-        defer_inited = 1;
-    }
-
-    /* Free the oldest entry in the ring (if any) */
-    qptr_t to_free = defer_ring[defer_idx];
-    if (to_free != QPTR_NULL) {
-        dq_free_node(shm, qptr_to_ptr(shm, to_free));
-    }
-
-    /* Store the new old-sentinel for future freeing */
-    defer_ring[defer_idx] = old_sentinel;
-    defer_idx = (defer_idx + 1) % DEFER_DEPTH;
-}
-
-static struct dq_node *durable_dequeue(struct polling_shm_region *shm)
-{
-    while (1) {
-        qptr_t first = atomic_load_explicit(&shm->queue.head,
-                                            memory_order_acquire);
-        qptr_t last = atomic_load_explicit(&shm->queue.tail,
-                                           memory_order_acquire);
-        struct dq_node *first_node = qptr_to_ptr(shm, first);
-        qptr_t next = atomic_load_explicit(&first_node->next,
-                                           memory_order_acquire);
-
-        /* Re-check head consistency */
-        if (first != atomic_load_explicit(&shm->queue.head,
-                                          memory_order_acquire))
-            continue;
-
-        if (first == last) {
-            if (next == QPTR_NULL) {
-                /* Queue is empty */
-                return NULL;
-            }
-            /* Tail is lagging, help advance it */
-            FLUSH(&first_node->next);
-            qptr_t exp = last;
-            atomic_compare_exchange_strong_explicit(
-                    &shm->queue.tail, &exp, next,
-                    memory_order_release, memory_order_relaxed);
-        } else {
-            struct dq_node *n = qptr_to_ptr(shm, next);
-
-            /* Try to claim: INIT -> DOING */
-            int expected = DQ_INIT;
-            if (atomic_compare_exchange_strong_explicit(
-                        &n->status, &expected, DQ_DOING,
-                        memory_order_acquire, memory_order_relaxed)) {
-                FLUSH(&n->status);
-
-                /* Advance head past the old sentinel */
-                qptr_t exp_first = first;
-                atomic_compare_exchange_strong_explicit(
-                        &shm->queue.head, &exp_first, next,
-                        memory_order_release, memory_order_relaxed);
-
-                /* Deferred recycle of old sentinel */
-                defer_free(shm, first);
-
-                return n; /* caller will handle + set DONE */
-            }
-
-            /* CAS failed — another consumer or status wasn't INIT */
-            qptr_t exp_first = first;
-            atomic_compare_exchange_strong_explicit(
-                    &shm->queue.head, &exp_first, next,
-                    memory_order_release, memory_order_relaxed);
-        }
-    }
+    printf("[SRV_TIMING_BEGIN] count=%d\n", srv_perf_idx);
+    for (int i = 0; i < srv_perf_idx; i++)
+        printf("[ST] %ld %ld\n", srv_t_deq[i], srv_t_handle[i]);
+    printf("[SRV_TIMING_END]\n");
+    srv_perf_idx = 0; /* reset for next run */
 }
 
 /* ================================================================
@@ -206,33 +147,86 @@ void *polling_reader_thread(void *arg)
     }
     sched_yield();
 
+    /* Set large budget to reduce preemption during busy-spin polling.
+     * 100 ticks = 100ms at 1000Hz — long enough for low-latency polling,
+     * but still allows other threads to eventually run. */
+    usys_set_thread_budget(100);
+    printf("Polling thread %d: set budget to 100 ticks\n", thread_id);
+
     int deq_count = 0;
     int poll_count = 0;
+
     while (1) {
+#if ENABLE_SRV_TIMING
+        struct timespec td0, td1, th0, th1;
+        clock_gettime(CLOCK_MONOTONIC, &td0);
+#endif
         struct dq_node *node = durable_dequeue(shm);
-        if (node == NULL) {
-            poll_count++;
-            if (poll_count % 5000000 == 0) {
-                qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
-                qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
-                qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
-                printf("[srv] idle %d deq=%d h=%d t=%d f=%d\n",
-                       poll_count / 5000000, deq_count, h, t, f);
-            }
-            sched_yield();
-            continue;
-        }
+#if ENABLE_SRV_TIMING
+        clock_gettime(CLOCK_MONOTONIC, &td1);
+#endif
+
+        // if (node == NULL) {
+        //     poll_count++;
+        //     if (poll_count % 5000000 == 0) {
+        //         qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
+        //         qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
+        //         qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
+        //         printf("[srv] idle %d deq=%d h=%d t=%d f=%d\n",
+        //                poll_count / 5000000, deq_count, h, t, f);
+        //     }
+        //     __builtin_ia32_pause();
+        //     continue;
+        // }
         deq_count++;
+        poll_count = 0;
 
-        /* Process the request (handle) */
+#if ENABLE_SRV_TIMING
+        clock_gettime(CLOCK_MONOTONIC, &th0);
+#endif
         handle_polling_request(node);
+#if ENABLE_SRV_TIMING
+        clock_gettime(CLOCK_MONOTONIC, &th1);
 
-        /* Mark as DONE so producer can read response */
-        FLUSH(node); /* flush response payload */
+        if (srv_perf_idx < SRV_PERF_MAX) {
+            srv_t_deq[srv_perf_idx] = diff_ns(td0, td1);
+            srv_t_handle[srv_perf_idx] = diff_ns(th0, th1);
+            srv_perf_idx++;
+        }
+#endif
+
+        FLUSH(node);
         atomic_store_explicit(&node->status, DQ_DONE,
                               memory_order_release);
         FLUSH(&node->status);
     }
+}
+
+/* ================================================================
+ * Crash recovery: walk queue and mark DOING nodes as CRASH
+ * ================================================================ */
+
+void dq_recover_crash(struct polling_shm_region *shm)
+{
+    qptr_t cur = atomic_load_explicit(&shm->queue.head, memory_order_acquire);
+    int recovered = 0;
+
+    while (cur != QPTR_NULL) {
+        struct dq_node *node = qptr_to_ptr(shm, cur);
+        int status = atomic_load_explicit(&node->status, memory_order_acquire);
+
+        if (status == DQ_DOING) {
+            atomic_store_explicit(&node->status, DQ_CRASH,
+                                  memory_order_release);
+            FLUSH(&node->status);
+            recovered++;
+        }
+
+        cur = atomic_load_explicit(&node->next, memory_order_acquire);
+    }
+
+    printf("[polling] dq_recover_crash: marked %d DOING nodes as CRASH\n",
+           recovered);
 }
 
 /* ================================================================

@@ -10,11 +10,12 @@
 #include <string.h>
 #include <stdint.h>
 
-/* ---- Timing switch ----
- * Set ENABLE_TIMING to 1 to record per-iteration breakdown (rdtsc cycles).
- * Set to 0 when measuring CDF to eliminate timing overhead from the hot path.
+/* ---- Timing configuration ----
+ * Timing is always collected for CDF (cycles). Use flags to control output:
+ * - ENABLE_BREAKDOWN: Output per-component breakdown [BREAKDOWN_BEGIN/END]
+ *   (alloc, enqueue, wait times). Set to 1 for detailed, 0 for CDF only.
  */
-#define ENABLE_TIMING 0
+#define ENABLE_BREAKDOWN 0
 
 #define WRITE_SIZE 4096  /* 4KiB file */
 #define NUM_ITERS  1000
@@ -55,18 +56,13 @@ void *worker_direct(void *arg)
         int fd = open(TEST_PATH, O_RDWR, 0);
         if (fd < 0) break;
 
-#if ENABLE_TIMING
         uint64_t t0 = rdtsc();
-#endif
         ssize_t n = read(fd, buf, WRITE_SIZE);
-#if ENABLE_TIMING
         uint64_t t1 = rdtsc();
         wta->perf[i].t_total   = t1 - t0;
         wta->perf[i].t_alloc   = 0;
         wta->perf[i].t_enqueue = 0;
         wta->perf[i].t_wait    = 0;
-#endif
-
         close(fd);
         if (n != WRITE_SIZE) {
             printf("[thread %d] direct read %ld at iter %d\n", wta->tid, n, i);
@@ -88,26 +84,17 @@ void *worker_empty_polling(void *arg)
     for (int i = 0; i < NUM_ITERS; i++) {
         struct polling_request req = { .type = POLLING_REQ_EMPTY };
 
-#if ENABLE_TIMING
         uint64_t t0 = rdtsc();
-#endif
         struct dq_node *node = dq_alloc_node(shm);
-#if ENABLE_TIMING
         uint64_t t1 = rdtsc();
-#endif
         dq_enqueue(shm, node, &req);
-#if ENABLE_TIMING
         uint64_t t2 = rdtsc();
-#endif
         dq_wait_for_done(node);
-#if ENABLE_TIMING
         uint64_t t3 = rdtsc();
         wta->perf[i].t_alloc   = t1 - t0;
         wta->perf[i].t_enqueue = t2 - t1;
         wta->perf[i].t_wait    = t3 - t2;
         wta->perf[i].t_total   = t3 - t0;
-#endif
-
         atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
         count++;
     }
@@ -137,26 +124,17 @@ void *worker_polling(void *arg)
             .read = { .fd = fd, .count = chunk },
         };
 
-#if ENABLE_TIMING
         uint64_t t0 = rdtsc();
-#endif
         struct dq_node *node = dq_alloc_node(shm);
-#if ENABLE_TIMING
         uint64_t t1 = rdtsc();
-#endif
         dq_enqueue(shm, node, &req);
-#if ENABLE_TIMING
         uint64_t t2 = rdtsc();
-#endif
         dq_wait_for_done(node);
-#if ENABLE_TIMING
         uint64_t t3 = rdtsc();
         wta->perf[i].t_alloc   = t1 - t0;
         wta->perf[i].t_enqueue = t2 - t1;
         wta->perf[i].t_wait    = t3 - t2;
         wta->perf[i].t_total   = t3 - t0;
-#endif
-
         ssize_t n = node->resp.read.count;
         if (n > 0) memcpy(buf, node->resp.read.buf, n);
         atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
@@ -187,17 +165,13 @@ void *worker_direct_empty(void *arg)
     }
 
     for (int i = 0; i < NUM_ITERS; i++) {
-#if ENABLE_TIMING
         uint64_t t0 = rdtsc();
-#endif
         chcore_fs_noop(fd);
-#if ENABLE_TIMING
         uint64_t t1 = rdtsc();
         wta->perf[i].t_total   = t1 - t0;
         wta->perf[i].t_alloc   = 0;
         wta->perf[i].t_enqueue = 0;
         wta->perf[i].t_wait    = 0;
-#endif
         count++;
     }
     close(fd);
@@ -268,8 +242,8 @@ static void print_results(struct worker_thread_arg *wta, int num_threads,
             all_total[idx++] = wta[i].perf[j].t_total;
     sort_long((long *)all_total, total);
 
-    printf("[SUMMARY] mode=%s total=%d threads=%d timing=%d\n",
-           mode, total, num_threads, ENABLE_TIMING);
+    printf("[SUMMARY] mode=%s total=%d threads=%d breakdown=%d\n",
+           mode, total, num_threads, ENABLE_BREAKDOWN);
     printf("[SUMMARY] p50=%lu p75=%lu p90=%lu p99=%lu max=%lu (cycles)\n",
            all_total[(int)(total * 0.50)],
            all_total[(int)(total * 0.75)],
@@ -284,7 +258,6 @@ static void print_results(struct worker_thread_arg *wta, int num_threads,
     printf("[CDF_END]\n");
     free(all_total);
 
-#if ENABLE_TIMING
     /* Breakdown data (all per-iteration samples, unsorted) */
     printf("[BREAKDOWN_BEGIN] mode=%s count=%d\n", mode, total);
     for (int i = 0; i < num_threads; i++)
@@ -295,7 +268,6 @@ static void print_results(struct worker_thread_arg *wta, int num_threads,
                    wta[i].perf[j].t_enqueue,
                    wta[i].perf[j].t_wait);
     printf("[BREAKDOWN_END]\n");
-#endif
 }
 
 /* ---- Main ---- */
@@ -317,9 +289,9 @@ int main(int argc, char *argv[])
         shm = (struct polling_shm_region *)shm_addr;
     }
 
-    printf("[client] mode=%s shm_id=%d threads=%d direct=%d empty=%d timing=%d\n",
+    printf("[client] mode=%s shm_id=%d threads=%d direct=%d empty=%d breakdown=%d\n",
            args.mode, args.shm_id, args.num_threads, args.direct, args.empty,
-           ENABLE_TIMING);
+           ENABLE_BREAKDOWN);
 
     /* Create test file (needed for direct_empty to get valid fd for ipc_call) */
     if (args.direct) {
