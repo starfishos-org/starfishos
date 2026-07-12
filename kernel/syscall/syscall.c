@@ -111,6 +111,17 @@ void sys_perf_end(void)
     plat_enable_timer();
 }
 
+/* Set current thread's scheduling budget (0 = reset to default) */
+int sys_set_thread_budget(u32 budget)
+{
+    if (!current_thread || !current_thread->thread_ctx->sc)
+        return -1;
+    if (budget == 0)
+        budget = DEFAULT_BUDGET;
+    current_thread->thread_ctx->sc->budget = budget;
+    return 0;
+}
+
 void sys_debug_va(u64 va);
 
 extern char shutdown_kernel_stack[PLAT_CPU_NUM][CPU_STACK_SIZE];
@@ -928,4 +939,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_memcpy_and_flush_tlb] = sys_memcpy_and_flush_tlb,
         [SYS_memcpy_and_flush_tlb_batch] = sys_memcpy_and_flush_tlb_batch,
         [SYS_print_vmspace_stats] = sys_print_vmspace_stats,
+
+        /* Scheduling control */
+        [SYS_set_thread_budget] = sys_set_thread_budget,
 };

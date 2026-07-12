@@ -2,8 +2,6 @@
 
 #include <common/util.h> /* memset */
 
-#define RETRIES 8
-
 #define LLFREE_TRACE_GET 0
 
 #if LLFREE_TRACE_GET
@@ -123,14 +121,14 @@ static void swap_reserved(llfree_t *self, uint8_t tier, size_t index, size_t new
 
 struct check_args {
 	uint8_t tier;
-	p_range_t free;
+	treeF_t min_free;
 	llfree_policy_fn policy;
 };
 
 static uint8_t check_reserve_tree(uint8_t tree_tier, treeF_t frames, void *args)
 {
 	struct check_args *a = (struct check_args *)args;
-	if (frames < a->free.min || frames > a->free.max)
+	if (frames < a->min_free)
 		return LLFREE_TIER_NONE;
 	llfree_policy_t p = a->policy(a->tier, tree_tier, frames);
 	if (p.type == LLFREE_POLICY_MATCH)
@@ -198,18 +196,7 @@ static llfree_result_t get_reserve(size_t idx, void *ctx)
 static llfree_result_t get_matching_reserve(llfree_t *self, uint8_t tier, size_t local, uint8_t order,
 					    uint64_t start, llfree_get_trace_t *trace)
 {
-	llfree_result_t res;
-	const size_t cl_trees = LLFREE_CACHE_SIZE / sizeof(tree_t);
-	size_t near = self->trees.len / 16;
-	if (near < cl_trees / 4)
-		near = cl_trees / 4;
-	start = align_down(start, next_pow2(2 * near));
-
-	struct check_args check_args = {
-		.tier = tier,
-		.free = p_range(0, 0),
-		.policy = self->policy,
-	};
+	struct check_args check_args = { .tier = tier, .min_free = (treeF_t)(1u << order), .policy = self->policy };
 	reserve_args_t args = {
 		.self = self,
 		.order = order,
@@ -218,26 +205,7 @@ static llfree_result_t get_matching_reserve(llfree_t *self, uint8_t tier, size_t
 		.check_args = &check_args,
 		.trace = trace,
 	};
-
-	if (order < LLFREE_HUGE_ORDER) {
-		/* First: best-fit in nearby region, excluding fully-free trees */
-		check_args.free = p_range((treeF_t)(1u << order), LLFREE_TREE_SIZE - 1);
-
-		res = trees_search_best(&self->trees, tier, start, 1, near,
-					(treeF_t)(1u << order), self->policy, get_reserve, &args);
-		if (res.error != LLFREE_ERR_MEMORY)
-			return res;
-
-		/* Second: full scan, still excluding fully-free trees */
-		res = trees_search(&self->trees, start, 1, self->trees.len, get_reserve, &args);
-		if (res.error != LLFREE_ERR_MEMORY)
-			return res;
-	}
-
-	/* Last resort: any tree including fully-free ones */
-	check_args.free = p_range((treeF_t)(1u << order), LLFREE_TREE_SIZE);
-	res = trees_search(&self->trees, start, 0, self->trees.len, get_reserve, &args);
-	return res;
+	return trees_search(&self->trees, start, 0, self->trees.len, get_reserve, &args);
 }
 
 static bool sync_with_global(llfree_t *self, uint8_t tier, size_t index, treeF_t needed,
@@ -311,7 +279,7 @@ static llfree_result_t get_matching(llfree_t *self, const llfree_request_t *requ
 
 	if (request->local != LLFREE_LOCAL_NONE && tier_count != LLFREE_LOCAL_NONE && tier_count > 0 &&
 		tier_count < self->trees.len) {
-		for (size_t i = 0; i < RETRIES; i++) {
+		for (size_t i = 0; i < 16; i++) {
 			local_result_t old;
 			llfree_result_t res =
 				get_from_local(self, request->tier, request->local,
@@ -330,8 +298,7 @@ static llfree_result_t get_matching(llfree_t *self, const llfree_request_t *requ
 	}
 
 	reserve_args_t args = { .self = self, .order = request->order, .tier = request->tier, .local = 0,
-				.check_args = &(struct check_args){ .tier = request->tier,
-					.free = p_range(frames, LLFREE_TREE_SIZE), .policy = self->policy },
+				.check_args = &(struct check_args){ .tier = request->tier, .min_free = frames, .policy = self->policy },
 				.trace = trace };
 	return trees_search(&self->trees, *start, 0, self->trees.len, get_reserve, &args);
 }

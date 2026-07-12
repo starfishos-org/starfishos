@@ -307,9 +307,20 @@ if(LEVELDB_BUILD_TESTS)
   # This project is tested using GoogleTest.
   add_subdirectory("third_party/googletest")
 
+  # googletest sets -Werror for GNU/Clang; gtest sources warn under musl/ChCore flags.
+  foreach(_chcore_gtest_tgt gtest gtest_main gmock gmock_main)
+    if(TARGET "${_chcore_gtest_tgt}")
+      target_compile_options("${_chcore_gtest_tgt}" PRIVATE -Wno-error)
+    endif()
+  endforeach()
+
   # This project uses Google benchmark for benchmarking.
   set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
   set(BENCHMARK_ENABLE_EXCEPTIONS OFF CACHE BOOL "" FORCE)
+  # cxx_feature_check compiles+links tiny probes; with musl/ChCore flags this often
+  # fails (no regex backend selected). POSIX regex matches BENCHMARK_ENABLE_EXCEPTIONS=OFF
+  # (see third_party/benchmark/src/re.h).
+  set(HAVE_POSIX_REGEX 1)
   add_subdirectory("third_party/benchmark")
 
   # GoogleTest triggers a missing field initializers warning.

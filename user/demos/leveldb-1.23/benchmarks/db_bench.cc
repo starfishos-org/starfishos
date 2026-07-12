@@ -5,6 +5,7 @@
 #include <sys/types.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -786,8 +787,18 @@ class Benchmark {
     }
   }
 
+  // Create path and all its parent directories (mkdir -p semantics).
+  static void MakeDirP(Env* env, const std::string& path) {
+    for (size_t i = 1; i <= path.size(); i++) {
+      if (i == path.size() || path[i] == '/') {
+        env->CreateDir(path.substr(0, i));  // ignore EEXIST
+      }
+    }
+  }
+
   void Open() {
     assert(db_ == nullptr);
+    MakeDirP(g_env, FLAGS_db);  // ensure DB dir and all parents exist
     Options options;
     options.env = g_env;
     options.create_if_missing = !FLAGS_use_existing_db;
@@ -801,10 +812,21 @@ class Benchmark {
     options.max_open_files = FLAGS_open_files;
     options.filter_policy = filter_policy_;
     options.reuse_logs = FLAGS_reuse_logs;
+    auto db_open_start = std::chrono::steady_clock::now();
     Status s = DB::Open(options, FLAGS_db, &db_);
+    auto db_open_end = std::chrono::steady_clock::now();
     if (!s.ok()) {
       std::fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       std::exit(1);
+    }
+    long db_open_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          db_open_end - db_open_start).count();
+    if (FLAGS_use_existing_db) {
+      std::fprintf(stdout, "[TIMING] leveldb_restart (open existing db): %ld ms\n",
+                   db_open_ms);
+    } else {
+      std::fprintf(stdout, "[TIMING] leveldb_open (fresh db): %ld ms\n",
+                   db_open_ms);
     }
   }
 

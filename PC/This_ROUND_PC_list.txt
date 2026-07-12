@@ -1,0 +1,99 @@
+SOSP 2026Submission deadline in 5 days·wufangnuo@sjtu.edu.cn
+Program committee
+Name	Affiliation
+Aditya Akella	The University of Texas at Austin
+Aishwarya Ganesan	University of Illinois Urbana-Champaign
+Alain Tchana	University of Grenoble Alpes
+Alexandra (Sasha) Fedorova	University of British Columbia and MongoDB
+Ali Jose Mashtizadeh	University of Waterloo/Netflix, Inc.
+Ana Klimovic	ETH Zurich
+Andi Quinn	University of California Santa Cruz
+Angela Demke Brown chair	University of Toronto
+Ankit Bhardwaj	Tufts University
+Antoine Kaufmann	Max Planck Institute for Software Systems (MPI-SWS)
+Anton Burtsev	University of Utah
+Anurag Khandelwal	Yale University
+Ashvin Goel	University of Toronto
+Atul Adya	Databricks
+Aurojit Panda	NYU
+Baptiste Lepers	Inria
+Baris Kasikci	University of Washington
+Burcu Canakci	Microsoft Research
+Byung-Gon Chun	FriendliAI and Seoul National University
+Cheng Li	University of Science and Technology of China (USTC)
+Christina Delimitrou	MIT
+Christina Giannoula	Max Planck Institute for Software Systems (MPI-SWS)
+Christos Kozyrakis	Stanford University
+Dan Williams	Virginia Tech
+Daniel S. Berger	Microsoft
+Dejan Kostić	KTH Royal Institute of Technology
+Deniz Altınbüken	Google
+Diyu Zhou	Peking University
+Don Porter	Amazon Web Services and UNC Chapel Hill
+Dong Du	Shanghai Jiao Tong University
+Emmett Witchel	The University of Texas at Austin
+Evangelia Kalyvianaki	University of Cambridge
+Fan Lai	University of Illinois Urbana-Champaign
+Fan Yang	Microsoft Research Asia
+Florian Suri-Payer	Databricks
+Gennady Pekhimenko	NVIDIA / University of Toronto
+Gernot Heiser	UNSW Sydney
+Hakim Weatherspoon	Cornell University
+Haris Volos	University of Cyprus
+Hayley LeBlanc	Microsoft Research
+Hongliang Tian	Ant Group
+James Larus	EPFL
+James Mickens	Harvard University
+Jana Giceva	Technical University of Munich
+Jason Flinn	Meta
+Jason Nieh	Columbia University
+Jay Lorch	Microsoft Research
+Jayashree Mohan	Microsoft Research
+Jean-Pierre Lozi	INRIA
+Jialin Li	National University of Singapore
+Jing Liu	Microsoft Research
+John Liagouris	Boston University
+john wilkes	Google
+Juncheng Yang	Harvard University
+Junfeng Yang	Columbia University
+Kexin Pei	University of Chicago
+Konstantinos Kallas	University of California, Los Angeles
+Lillian Tsai	Google
+Malte Schwarzkopf	Brown University
+Marios Kogias	Imperial College London
+Mark Silberstein	Technion
+Martin Maas	Google DeepMind
+Michael Swift	University of Wisconsin - Madison
+Michal Friedman	ETH Zurich
+Mingxing Zhang	Tsinghua University
+Mosharaf Chowdhury	University of Michigan
+Nadav Amit	Technion - Israel Institute of Technology
+Nickolai Zeldovich	MIT
+Pedro Fonseca	Purdue University
+Peter Alvaro	UC Santa Cruz
+Peter Pietzuch	Imperial College London
+Rishabh Iyer	UC Berkeley
+Rodrigo Rodrigues	Instituto Superior Técnico (ULisboa) / INESC-ID
+Ryan Huang	University of Michigan
+Sara McAllister	University of Wisconsin, Madison and Google
+Shan Lu chair	Microsoft Research / University of Chicago
+Shivaram Venkataraman	University of Wisconsin, Madison
+Simon Peter	University of Washington
+Sudarsun Kannan	Rutgers University
+Tej Chajed	University of Wisconsin-Madison
+Thaleia Dimitra Doudali	IMDEA Software Institute
+Tianyin Xu	University of Illinois Urbana-Champaign
+Tim Harris	OpenAI
+Wei Lin	Alibaba
+Wenguang Chen	Tsinghua University
+Wyatt Lloyd	Princeton University
+Xiaosong Ma	Mohamed bin Zayed University of Artificial Intelligence
+Yanfang Le	Advanced Micro Devices, Inc.
+Yang Wang	The Ohio State University and Meta
+Yiying Zhang	University of California, San Diego
+Yongle Zhang	Purdue University
+Youngjin Kwon	KAIST
+Youyou Lu	Tsinghua University
+Yubin Xia	Shanghai Jiao Tong University
+Yufei Ding	University of California, San Diego
+Zhipeng Jia	Anthropic PBC

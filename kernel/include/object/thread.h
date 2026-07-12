@@ -38,11 +38,8 @@ struct thread {
     struct list_head node; // link threads in a same cap_group
     struct list_head ready_queue_node; // link threads in a ready queue
 #ifdef DSM_ENABLED
-    struct list_head shared_queue_node; // link threads in shared queue node for
-                                        // migration
+    int notif_dq_node_off; // offset of node in thread_dq for notification waiting (qptr_t)
 #endif
-    struct list_head notification_queue_node; // link threads in a notification
-                                              // waiting queue
     struct thread_ctx *thread_ctx; // thread control block
 
     /*

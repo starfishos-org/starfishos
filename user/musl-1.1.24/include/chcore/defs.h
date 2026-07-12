@@ -251,3 +251,6 @@
 
 /* Virtual Memory */
 #define CHCORE_SYS_print_vmspace_stats  264
+
+/* Scheduling control */
+#define CHCORE_SYS_set_thread_budget    266

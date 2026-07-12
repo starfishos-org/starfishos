@@ -1,0 +1,1 @@
+$ /polling_client.bin -e -t 1 -m empty_t1 ; /polling_client.bin -e -t 4 -m empty_t4 ; /polling_client.bin -e -t 8 -m empty_t8 ; /polling_client.bin -t 1 -m read_t1 ; /polling_client.bin -t 4 -m read_t4 ; /polling_client.bin -t 8 -m read_t8 ; echo BENCH_DONE

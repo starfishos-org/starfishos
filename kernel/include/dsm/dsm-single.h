@@ -10,6 +10,7 @@
 #include <common/util.h>
 #include <mm/mm.h>
 #include <mm/slab.h>
+#include <mm/shm.h>
 #include <machine.h>
 #include <uapi/types.h>
 
@@ -64,7 +65,7 @@
 #endif
 
 #ifndef MAX_SHM_NUM
-#define MAX_SHM_NUM (8)
+#define MAX_SHM_NUM (2 * CLUSTER_MAX_MACHINE_NUM)
 #endif
 
 /**
@@ -94,12 +95,6 @@ static bool inline is_local_cpu(u32 cpuid)
     return ((cpuid <= CPU_RANGE_HIGH) && (cpuid >= CPU_RANGE_LOW))
            || cpuid == NO_AFF;
 }
-
-struct shared_queue_meta {
-    struct list_head queue_head;
-    u32 queue_len;
-    struct lock queue_lock;
-};
 
 typedef struct {
     u32 cpu_range_low;
@@ -169,10 +164,27 @@ typedef struct {
     struct slab_pointer slab_pool[SLAB_MAX_ORDER + 1];   // slab system
     struct lock slabs_locks[SLAB_MAX_ORDER + 1];         // slab lock
 
+#ifdef SLAB_CRASH_RECOVERY
     /**
-     * 5. shared queue for scheduler
+     * 4b. Per-machine CXL slab pools and crash recovery logs.
+     * Stored in CXL so they survive machine crashes.
      */
-    struct shared_queue_meta shared_queue[CLUSTER_MAX_CPU_NUM];
+    struct {
+        struct slab_pointer pool[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
+        struct lock         locks[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
+        struct slab_cpu_log cpu_logs[PLAT_CPU_NUM];
+    } cxl_slab_meta[CLUSTER_MAX_MACHINE_NUM];
+#endif
+
+    /**
+     * 5. shared queue for scheduler (using durable_queue structure)
+     */
+    struct durable_queue shared_queue[CLUSTER_MAX_CPU_NUM];
+
+    /**
+     * 5b. thread durable queue pool (for scheduler & notification)
+     */
+    struct thread_dq_pool thread_dq_pool;
 
     /**
      * MSI message area for inter-machine communication
@@ -251,6 +263,17 @@ typedef struct {
      *     Total: ~4.8 KB
      */
     dsm_ref_meta_t ref_meta;
+
+#ifdef PHOENIX_SCHED_TIMING
+    /**
+     * Cross-machine TSC calibration.
+     * Each machine signals ready, all spin until every slot is ready,
+     * then writes get_cycles() simultaneously.  After the barrier,
+     * TSC_TO_M0(t) normalises any machine's raw TSC to machine-0's domain.
+     */
+    volatile u8  tsc_sync_ready[CLUSTER_MAX_MACHINE_NUM];
+    volatile u64 tsc_sync[CLUSTER_MAX_MACHINE_NUM];
+#endif
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -262,6 +285,17 @@ static inline void dsm_init_meta(vaddr_t shm_vaddr)
 {
     dsm_meta = (dsm_metadata_t *)shm_vaddr;
 }
+
+#ifdef PHOENIX_SCHED_TIMING
+/* Convert a raw get_cycles() reading on the current machine to the
+ * machine-0 TSC domain.  Valid only after dsm_tsc_sync_barrier(). */
+static inline u64 dsm_tsc_to_m0(u64 local_tsc)
+{
+    return local_tsc
+           - dsm_meta->tsc_sync[CUR_MACHINE_ID]
+           + dsm_meta->tsc_sync[0];
+}
+#endif
 
 static inline u64 dsm_is_inited()
 {

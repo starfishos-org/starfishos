@@ -167,6 +167,15 @@ struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
 
         pthread_mutex_lock(&read_elf_lock);
         ret = readelf_from_fs(input_argv[0], &user_elf, is_cross_machine);
+        if (ret < 0 && strcmp(input_argv[0], "/tmpfs.srv") == 0) {
+                /* tmpfs.srv is embedded in procmgr, not stored in the FS */
+                ret = readelf_from_vaddr(&user_elf,
+                                         (size_t)*(u64 *)&__binary_tmpfs_elf_size,
+                                         &__binary_tmpfs_elf_start,
+                                         is_cross_machine);
+                if (ret >= 0)
+                        memcpy(user_elf.path, "/tmpfs.srv", sizeof("/tmpfs.srv"));
+        }
         pthread_mutex_unlock(&read_elf_lock);
 
         if (ret < 0) {

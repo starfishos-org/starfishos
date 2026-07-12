@@ -56,6 +56,7 @@ enum dq_status {
     DQ_INIT,
     DQ_DOING,
     DQ_DONE,
+    DQ_CONSUMED, /* producer finished reading response */
     DQ_CRASH,
 };
 

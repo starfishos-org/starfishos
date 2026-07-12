@@ -343,7 +343,9 @@ void trap_c(arch_exec_ctx_t *ec)
         if (cnt == 0) {
             cnt += 1;
             kinfo("General Protection Fault\n");
-            kinfo("Faulting Address: 0x%lx\n", get_fault_addr());
+            /* #GP does not load CR2; value is stale — do not treat as fault VA */
+            kinfo("(CR2 dump, often meaningless for #GP) 0x%lx\n",
+                  get_fault_addr());
             kinfo("Current thread %p\n", current_thread);
             kinfo("Trap from IP 0x%lx EC %d Trap No. %d\n",
                   ec->reg[RIP],
@@ -358,12 +360,18 @@ void trap_c(arch_exec_ctx_t *ec)
                   ec->reg[RAX],
                   ec->reg[RDX],
                   ec->reg[RDI]);
-            kinfo("rcx: 0x%lx\n", ec->reg[RCX]);
+            kinfo("rcx: 0x%lx, rbx: 0x%lx, r14: 0x%lx\n",
+                  ec->reg[RCX],
+                  ec->reg[RBX],
+                  ec->reg[R14]);
 
-            kprint_vmr(current_thread->vmspace);
-
-            kinfo("process: %p\n", current_cap_group);
-            print_thread(current_thread);
+            if (current_thread && current_thread->vmspace) {
+                kprint_vmr(current_thread->vmspace);
+                kinfo("process: %p\n", current_cap_group);
+                print_thread(current_thread);
+            } else {
+                kinfo("#GP during early boot (no current_thread/vmspace dump)\n");
+            }
             while (1)
                 ;
         }

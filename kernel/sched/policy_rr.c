@@ -79,71 +79,27 @@ int __rr_sched_enqueue(struct thread *thread, u32 cpuid)
 #ifdef DSM_ENABLED
 int __rr_sched_enqueue_shared_machine(struct thread *thread, u32 m_id)
 {
-    struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
-    // lock(&(queue->queue_lock));
     dsm_debug("%s: thread (%s, %p) -> machine %d\n",
               __func__,
               thread->cap_group->cap_group_name,
               thread,
               m_id);
-    list_append(&(thread->shared_queue_node),
-                &(rr_shared_queue[m_id].queue_head));
-    queue->queue_len++;
-    // unlock(&(queue->queue_lock));
-    return 0;
-}
-
-/* dequeue w/o lock */
-int __rr_sched_dequeue_shared_machine(struct thread *thread, u32 m_id)
-{
-    struct shared_queue_meta *queue = &(rr_shared_queue[m_id]);
-    // lock(&(queue->queue_lock));
-    dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
-              __func__,
-              thread->cap_group->cap_group_name,
-              thread,
-              thread->thread_ctx);
-    list_del(&(thread->shared_queue_node));
-    queue->queue_len--;
-    // unlock(&(queue->queue_lock));
+    thread_dq_enqueue(&(rr_shared_queue[m_id]), thread);
     return 0;
 }
 
 int __rr_sched_enqueue_shared(struct thread *thread, u32 cpuid)
 {
-    struct shared_queue_meta *queue = &(rr_shared_queue[cpuid]);
-
     // should check that the thread is ready to run across machines
     // extern int check_thread_ready_to_run_across_machines(struct thread *thread);
     // BUG_ON(check_thread_ready_to_run_across_machines(thread));
 
-    // lock(&(queue->queue_lock));
     dsm_debug("%s: thread (%s, %p) -> cpuid %d\n",
               __func__,
               thread->cap_group->cap_group_name,
               thread,
               cpuid);
-    list_append(&(thread->shared_queue_node),
-                &(rr_shared_queue[cpuid].queue_head));
-    queue->queue_len++;
-    // unlock(&(queue->queue_lock));
-    return 0;
-}
-
-/* dequeue w/o lock */
-int __rr_sched_dequeue_shared(struct thread *thread, u32 cpuid)
-{
-    struct shared_queue_meta *queue = &(rr_shared_queue[cpuid]);
-    // lock(&(queue->queue_lock));
-    dsm_debug("%s: thread (%s, %p, ctx=%p)\n",
-              __func__,
-              thread->cap_group->cap_group_name,
-              thread,
-              thread->thread_ctx);
-    list_del(&(thread->shared_queue_node));
-    BUG_ON(queue->queue_len == 0);
-    queue->queue_len--;
-    // unlock(&(queue->queue_lock));
+    thread_dq_enqueue(&(rr_shared_queue[cpuid]), thread);
     return 0;
 }
 
@@ -208,12 +164,12 @@ void copy_thread_ctx_to_dst(struct thread_ctx *src, struct thread_ctx *dst)
 int rr_sched_migrate_from_shared_queue()
 {
     u32 gcpuid = 0, lcpuid = 0;
-    struct thread *thread, *tmp;
+    struct thread *thread;
     int ret = 0;
 
-    /* Fast path: fast check queue_len */
+    /* Fast path: check if empty (no lock needed for lockless dq) */
     /* Mostly, the shared queue is empty */
-    if (likely(rr_cur_shared_queue.queue_len == 0)) {
+    if (likely(rr_cur_shared_queue.head == rr_cur_shared_queue.tail)) {
         return 0;
     }
 
@@ -226,32 +182,36 @@ int rr_sched_migrate_from_shared_queue()
      */
     lock(&(rr_cur_shared_queue.queue_lock));
 
-    if (rr_cur_shared_queue.queue_len == 0) {
+    if (rr_cur_shared_queue.head == rr_cur_shared_queue.tail) {
         unlock(&(rr_cur_shared_queue.queue_lock));
         return ret;
     }
 
-    for_each_in_list_safe (thread, tmp,
-                      shared_queue_node,
-                      &(rr_cur_shared_queue.queue_head)) {
+    while ((thread = thread_dq_dequeue(&rr_cur_shared_queue)) != NULL) {
         // measure dequeue shared & enqueue local
         // u64 begin = plat_get_mono_time();
         gcpuid = thread->thread_ctx->affinity;
         // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
         lcpuid = cpuid_g2l(gcpuid);
 
-        /* move thread from shared queue to local queue */
-        ret = __rr_sched_dequeue_shared(thread, gcpuid);
         thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
         thread->thread_ctx->sc->budget = DEFAULT_BUDGET;
         thread->machine_id = CUR_MACHINE_ID;
-        
+
         /* CRITICAL: Reset kernel_stack_state when migrating thread to local machine.
          * The thread was running on another machine, but now it's migrated to
          * the current machine. The kernel_stack_state from the old machine is
          * no longer valid, so we can safely reset it to KS_FREE. */
         thread->thread_ctx->kernel_stack_state = KS_FREE;
+
+#ifdef PHOENIX_SCHED_TIMING
+        {
+            u64 arrive_tsc = dsm_tsc_to_m0(get_cycles());
+            printk("[SCHED_TIMING] SET_AFF_TO_SCHED tsc_delta=%llu\n",
+                   arrive_tsc - thread->thread_ctx->migrate_tsc);
+        }
+#endif
 
         // copy thread_ctx to local thread_ctx (for paper) measure copy ctx to local
         // struct thread_ctx *local_thread_ctx_on_dram = kzalloc(sizeof(struct thread_ctx), __MT_SHARED__);
@@ -479,9 +439,7 @@ int rr_sched_enqueue_to_affinity(struct thread *thread)
     gcpuid = (u32)aff;
     lock(&(rr_shared_queue[gcpuid].queue_lock));
     thread->thread_ctx->state = TS_READY;
-    list_append(&(thread->shared_queue_node),
-                &(rr_shared_queue[gcpuid].queue_head));
-    rr_shared_queue[gcpuid].queue_len++;
+    thread_dq_enqueue(&(rr_shared_queue[gcpuid]), thread);
     unlock(&(rr_shared_queue[gcpuid].queue_lock));
     return 0;
 }
@@ -745,11 +703,17 @@ int rr_sched_init(void)
     }
 
 #ifdef DSM_ENABLED
-    /* Initialize owned shared queues */
+    /* Initialize thread_dq pool once (machine 0 only) */
+    if (CUR_MACHINE_ID == 0) {
+        thread_dq_pool_init();
+    }
+
+    /* Initialize shared queue heads and locks for all CPUs */
     for (i = 0; i < CLUSTER_MAX_CPU_NUM; i++) {
-        init_list_head(&(rr_shared_queue[i].queue_head));
-        lock_init(&(rr_shared_queue[i].queue_lock));
-        rr_shared_queue[i].queue_len = 0;
+        if (thread_dq_init(&(rr_shared_queue[i])) != 0) {
+            kwarn("Failed to initialize shared queue %d\n", i);
+            return -ENOMEM;
+        }
     }
 #endif
     return 0;

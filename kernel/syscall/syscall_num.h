@@ -158,3 +158,6 @@
 
 /* Debug - VMSPACE Stats */
 #define SYS_print_vmspace_stats  264
+
+/* Scheduling control */
+#define SYS_set_thread_budget    266

@@ -119,6 +119,12 @@ struct thread_ctx {
     volatile u32 kernel_stack_state;
     /* Thread exit state */
     volatile u32 thread_exit_state;
+#ifdef PHOENIX_SCHED_TIMING
+    /* TSC (in machine-0 domain) at the moment sys_set_affinity marked
+     * this thread as TE_MIGRATING.  Read by the remote machine's
+     * scheduler to compute the set_affinity → first-scheduled latency. */
+    volatile u64 migrate_tsc;
+#endif
 } __attribute__((aligned(CACHELINE_SZ)));
 
 /* Debug functions */

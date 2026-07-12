@@ -1,6 +1,6 @@
 #pragma once
 
-#define PERF_REAL_READ       true
+#define PERF_REAL_READ       false
 #define PERF_READ            true
 #define PERF_ALLOC_MSG_RETRY false
 

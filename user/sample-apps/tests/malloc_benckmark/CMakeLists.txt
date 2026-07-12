@@ -8,3 +8,12 @@ else()
   target_compile_options(malloc_benchmark.bin PRIVATE -fPIE -fPIC)
   target_link_options(malloc_benchmark.bin PRIVATE -pie)
 endif()
+
+add_custom_target(malloc_benchmark-copy ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:malloc_benchmark.bin>
+            ${build_ramdisk_dir}/malloc_benchmark.bin
+    DEPENDS malloc_benchmark.bin
+    COMMENT "Copy malloc_benchmark.bin to ramdisk"
+)
+add_dependencies(ramdisk malloc_benchmark-copy)

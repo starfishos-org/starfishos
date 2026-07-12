@@ -211,6 +211,7 @@ endif()
 
 if(CHCORE_DEMOS_PHOENIX)
   set(PHOENIX_DIR ${src_demos_dir}/phoenix-2.0)
+  set(PHOENIX_TIMING ON CACHE BOOL "" FORCE)
   add_subdirectory(${PHOENIX_DIR})
 endif()
 

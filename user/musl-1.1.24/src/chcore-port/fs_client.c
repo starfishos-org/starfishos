@@ -53,6 +53,20 @@ ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id)
 }
 
 /*
+ * Get mount_id for a POSIX fd. Returns -1 on error.
+ * Used by polling server to build batch IPC without including musl internals.
+ */
+int chcore_get_mount_id(int fd)
+{
+	if (fd < MIN_FD || fd >= MAX_FD || fd_dic[fd] == NULL)
+		return -1;
+	struct fd_record_extension *ext =
+		(struct fd_record_extension *)fd_dic[fd]->private_data;
+	if (!ext) return -1;
+	return ext->mount_id;
+}
+
+/*
  * Copy path to dst, dst_buf_size is dst's buffer size,
  * return: -1 means dst_buf_size is not large enough,
  *	  0 mean operation succeed.

@@ -1,0 +1,262 @@
+Abtin Molavi	University of Wisconsin-Madison
+Adam Morrison	Tel Aviv University
+Aditya Akella	UT Austin
+Ahmed Louri	George Washington University
+Akanksha Jain	Google
+Alaa Alameldeen	Simon Fraser University
+Alec Wolman	Microsoft Research
+Alon Rashelbach	Tabnine
+Amanda Xu	University of Wisconsin-Madison
+Amir Yazdanbakhsh	Google DeepMind
+Anand Iyer	Georgia Tech
+Anbang Wu	Shanghai Jiao Tong University
+Andrea Lattuada	Max Planck Institute for Software Systems (MPI-SWS)
+Andrew Putnam	Microsoft
+Ang Chen	University of Michigan
+Ang Li	University of Maryland, College Park
+Anju Mongandampulath Akathoott	Texas State University
+Ankur Limaye	Pacific Northwest National Laboratory
+Anton Burtsev	University of Utah
+Antonino Tumeo	Pacific Northwest National Laboratory
+Antony Hosking	Australian National University
+Aravind Machiry	Purdue University
+Ashish Venkat	University of Virginia
+[No name] chair	
+Aurojit Panda	NYU
+Aviad Zuck	Technion
+Babak Falsafi	EPFL
+Bahar Asgari	University of Maryland, College Park
+Baris Kasikci	University of Washington
+Behnaz Arzani	MSR
+Benjamin Lee chair	University of Pennsylvania
+Bernard Wong	University of Waterloo
+Binoy Ravindran	Virginia Tech
+Bo Wu	Colorado School of Mines
+Boris Grot	University of Edinburgh
+Brian Demsky	University of California, Irvine
+Calin Cascaval	Google DeepMind
+Carl Waldspurger	Carl Waldspurger Consulting
+Chandrakana Nandi	Certora Inc. and UW Seattle
+Changhee Jung	Purdue University
+Changwoo Min	Igalia
+Chao Li	Shanghai Jiao Tong University
+Charles Yuan	University of Wisconsin–Madison
+Chenxi Wang	Institute of Computing Technology, Chinese Academy of Sciences
+Chris Fletcher	UC Berkeley
+Christina Delimitrou	MIT
+Christina Giannoula	Max Planck Institute for Software Systems (MPI-SWS)
+Cliff Young	Google
+Daehyeok Kim	University of Texas at Austin
+Daniel Wong	University of California, Riverside
+Danyang Zhuo	Duke University
+David Cock	Neutrality and ETH Zurich
+David Lo	Google
+David G. Andersen	Carnegie Mellon University
+Di Wu	University of Central Florida
+Dimitrios Nikolopoulos	Virginia Tech
+Dimitrios Stavrakakis	Technical University of Munich (TUM)
+Divya Mahajan	Georgia Institute of Technology
+Diyu Zhou	Peking University
+Dong Du	Shanghai Jiao Tong University
+Dong Li	UC Merced
+Doug Lea	SUNY Oswego
+Emery Berger	University of Massachusetts Amherst and Amazon Web Services
+Emmett Witchel	UT Austin
+Enrico Armenio Deiana	Google
+Fan Lai	UIUC
+Felix Lin	UVA
+Fredrik Kjolstad	Stanford University
+Geonhwa Jeong	Meta
+George Tzimpragos	University of Wisconsin-Madison
+Gernot Heiser	UNSW Sydney
+Gokul Ravi	University of Michigan
+Guilherme Cox	NVIDIA
+Gurunath KADAM	AMD
+Haggai Eran	NVIDIA
+Hajar Falahati	Barcelona Supercomputing Center (BSC)
+Hanru Jiang	BIMSA
+Hao Zhang	UCSD & Snowflake
+Haoran Ma	ByteDance
+Harry Xu chair	UCLA
+Heiner Litz	UCSC
+Heming Cui	University of Hong Kong
+Herbert Bos	Vrije Universiteit Amsterdam
+Huaicheng Li	Virginia Tech
+Hugo Lefeuvre	The University of British Columbia
+Huiyang Zhou	North Carolina State University
+Hung-Wei Tseng	University of California, Riverside
+Hyeran Jeon	University of California Merced
+Jacques Pienaar	Google
+Jaehyuk Huh	KAIST
+James Larus	EPFL
+James Tuck	NC State University
+Jana Giceva	TU Munich
+Jeongseob Ahn	Korea University
+Ji Liu	ANL
+Jian Huang	University of Illinois at Urbana-Champaign
+Jian Zhang	The Hong Kong University of Science and Technology (Guangzhou)
+Jianping Zeng	Arizona State University
+Jiarong Xing	UC Berkeley and Rice University
+Jichuan Chang	Google DeepMind
+JIDONG ZHAI	TSINGHUA UNIVERSITY
+Jishen Zhao	UCSD
+Jiwon Lee	Uppsala University
+John Alsop	AMD
+John Kim	KAIST
+John Vilk	Stripe, Inc.
+John (Jack) Sampson	Pennsylvania State University
+John Zhuoyang Ye	University of California Los Angeles
+Jonathan Balkind	UC Santa Barbara
+Jongouk Choi	U. of Central Florida
+Jongse Park	KAIST
+Jongsoo Park	OpenAI
+Joseph Devietti	University of Pennsylvania
+Joseph Izraelevitz	University of Colorado
+Joseph L. Greathouse	Advanced Micro Devices, Inc.
+Jovan Stojkovic	Meta & UT Austin
+Jun Yang	University of Pittsburgh
+Junyi Shu	UCLA
+Karu Sankaralingam	U. of Wisconsin and NVIDIA
+Keli Huang	University of California, Los Angeles
+Keshav Pingali	The University of Texas at Austin
+Keval Vora	Simon Fraser University
+Kevin Skadron	U. Virginia
+Khanh Nguyen	Texas A&M University
+Kimberly Keeton	Google
+Kiwan Maeng	Pennsylvania State University
+Konstantinos Kallas	University of California, Los Angeles
+Lana Josipovic	ETH Zurich
+Li Shang	Fudan University
+Lia Yeh	University of Cambridge
+Liangcheng Yu	Microsoft Research
+Lieven Eeckhout	Ghent University
+Lior Zeno	NVIDIA
+Liuba Shrira	Brandeis University
+Lluis Vilanova	Imperial College London
+Luo Mai	University of Edinburgh
+Mario Badr	University of Toronto
+Marios Kogias	Imperial College London
+Mark Jeffrey	University of Toronto
+Mark Silberstein chair	Technion - Israel Institute of Technology
+Martin Burtscher	Texas State University
+Martin Maas	Google DeepMind
+Mengjia Yan	MIT
+Michael Bond	Ohio State University
+Michael O'Boyle	University of Edinburgh
+Michael Swift	University of Wisconsin--Madison
+Michal Friedman	ETH
+Miguel A. Arroyo	Code Heads Inc.
+Ming Liu	University of Wisconsin--Madison
+Mingkai Dong	Shanghai Jiao Tong University
+Mingxing Zhang	Tsinghua University
+Mingyu Gao	Tsinghua University
+Mohamed Tarek Ibn Ziad	NVIDIA
+Mohammad Shahrad	University of British Columbia
+Muhammad Husnain Mubarik	AMD
+Myeongjae Jeon	POSTECH
+Naama Ben-David	Technion
+Nadav Amit	Technion - Israel Institute of Technology
+Nandita Vijaykumar	University of Toronto
+Natalie Enright Jerger	University of Toronto
+Nathan Bleier	University of Michigan
+Neeraja J. Yadwadkar	UT Austin
+Neil Adit	Meta
+Neil Zhao	UT Austin & NVIDIA
+Nengkun Yu	Stony Brook University
+Nils Asmussen	Barkhausen Institut
+Nishil Talati	University of Michigan, University of Illinois Urbana Champaign, AMD
+Nuno Preguiça	NOVA University Lisbon
+Olivia Hsu	Stanford University
+Omer Khan	University of Connecticut
+Onur Mutlu	ETH Zurich
+Osbert Bastani	University of Pennsylvania
+Owen Arden	UC Santa Cruz
+Paolo Faraboschi	HPE
+Pedro Fonseca	Purdue University
+Peter Druschel	MPI-SWS
+Prakash Murali	University of Cambridge
+Pramod Bhatotia	TU Munich
+Puneet Gupta	UCLA
+Qian Ge	Google DeepMind
+Qian Zhang	University of California, Riverside
+Rajeev Balasubramonian	University of Utah
+Rajiv Gupta	UC Riverside
+Ramnatthan Alagappan	University of Illinois Urbana-Champaign
+Robert Hundt	Google
+Robert M. Radway	University of Pennsylvania
+Rodrigo Bruno	INESC-ID, Instituto Superior Técnico, University of Lisbon
+Rohan Basu Roy	University of Utah
+Rong Chen	Shanghai Jiao Tong University
+Ryan Huang	University of Michigan
+Ryan Stutsman	University of Utah
+Saikat Dutta	Cornell University
+Sam Ainsworth	University of Edinburgh
+Sam Kumar	University of California, Los Angeles
+Sanidhay Bhambay	Durham University
+Sanidhya Kashyap	EPFL
+Santosh Nagarakatte	Rutgers University
+Sara Achour	Stanford University
+Sasa Misailovic	University of Illinois Urbana-Champaign
+Saurabh Bagchi	Purdue University and KeyByte
+Seonjin Na	NVIDIA
+Seth Pugsley	Intel
+Shai Bergman	Huawei Research
+Shan Lu	Microsoft Research
+Shan Yu	UCLA
+Shoaib Akram	Australian National University
+Shoaib Kamil	Adobe
+Shravan Narayan	University of Texas at Austin
+Shuai Mu	Stony Brook University
+Simon Cooksey	NVIDIA
+Siva Kesava Reddy Kakarla	Microsoft Research
+Snehasish Kumar	Google
+Soumyadeep Ghosh	Meta
+Sreepathi Pai	University of Rochester
+Stephen Freund	Williams College
+Steve Blackburn	Google
+Sushant Dinesh	UC Berkeley
+T. N. Vijaykumar	Purdue University
+Tanvir Ahmed Khan	Columbia University in the City of New York
+Tapti Palit	University of California, Davis
+Tathagata Srimani	Carnegie Mellon University
+Thaleia Dimitra Doudali	IMDEA Software Institute
+Thomas Pasquier	University of British Columbia
+Tim Harris	OpenAI
+Timothy Jones	University of Cambridge
+Todd C. Mowry	Carnegie Mellon University
+Tom Conte	Georgia Institute of Technology
+Tony Gutierrez	Advanced Micro Devices, Inc.
+Tony Nowatzki	UCLA
+Tushar Krishna	Georgia Institute of Technology
+Venkat Arun	UT Austin
+Venkatesh Akella	University of California, Davis
+Vincent Liu	University of Pennsylvania
+Xiaoguang Wang	University of Illinois Chicago
+Xingda Wei	Shanghai Jiao Tong University
+Xupeng Miao	Peking University
+Yakun Sophia Shao	UC Berkeley
+Yanan Guo	University of Rochester
+Yang Wang	The Ohio State Universty and Meta
+Yang Wang	Intel
+Yang You	National University of Singapore
+Yang Zhou	UC Berkeley and UC Davis
+Yaniv David	Technion
+Yi Ding	Purdue University
+Yi Xu	University of California, Berkeley
+Yifan Qiao	UC Berkeley
+Yigong Hu	Boston University
+Yiming Qiu	University of Hong Kong
+Yipeng Huang	Rutgers University
+Yoav Etsion	Technion
+Youyou Lu	Tsinghua University
+Yuanchao Xu	University of California, Santa Cruz
+Yubin Xia	Shanghai Jiao Tong University
+Yuhao Zhu	University of Rochester
+Yuke Wang	Rice University
+Yunming Xiao	CUHK(SZ)
+Zeyu Mi	Shanghai Jiao Tong University
+Zhi Zhang	The University of Western Australia
+Zhijia Zhao	University of California, Riverside
+Zhiqiang Zuo	Nanjing University, China
+Zhiru Zhang	Cornell University
+Zsolt István	TU Darmstadt

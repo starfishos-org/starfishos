@@ -305,6 +305,118 @@ out:
 	return ret;
 }
 
+/*
+ * Batch read: process N reads in a single IPC call.
+ *
+ * Request layout (in IPC SHM):
+ *   struct fs_batch_read_header       (req type + count)
+ *   struct fs_batch_read_entry[count] (fd + count per entry)
+ *
+ * Response layout (overwritten in same IPC SHM):
+ *   ssize_t ret[count]                (bytes actually read, per entry)
+ *   char data[]                       (concatenated read data)
+ *
+ * The caller (fs_wrapper.c) has already taken the rdlock on
+ * fs_wrapper_meta_rwlock. We do fd translation here ourselves.
+ */
+int fs_wrapper_batch_read(u64 client_badge, ipc_msg_t *ipc_msg)
+{
+	char *base = ipc_get_msg_data(ipc_msg);
+	struct fs_batch_read_header *hdr = (struct fs_batch_read_header *)base;
+	int n = hdr->count;
+
+	if (n <= 0 || n > FS_BATCH_READ_MAX)
+		return -EINVAL;
+
+	/* Read entries before we overwrite the buffer */
+	struct fs_batch_read_entry entries[FS_BATCH_READ_MAX];
+	struct fs_batch_read_entry *src_entries =
+		(struct fs_batch_read_entry *)(hdr + 1);
+	for (int i = 0; i < n; i++) {
+		entries[i].fd = src_entries[i].fd;
+		entries[i].count = src_entries[i].count;
+		/* Translate client fd -> server fid */
+		entries[i].fd = fs_wrapper_get_server_entry(
+			client_badge, entries[i].fd);
+	}
+
+	/* Response layout: ret array, then data */
+	ssize_t *ret_arr = (ssize_t *)base;
+	char *data_ptr = base + n * sizeof(ssize_t);
+	size_t data_avail = IPC_SHM_AVAILABLE - n * sizeof(ssize_t);
+
+	int total_read = 0;
+	for (int i = 0; i < n; i++) {
+		int fd = entries[i].fd;
+		size_t count = entries[i].count;
+
+		if (fd < 0 || fd >= MAX_SERVER_ENTRY_NUM
+		    || server_entrys[fd] == NULL) {
+			ret_arr[i] = -EBADF;
+			continue;
+		}
+
+		/* Cap to available space */
+		if (count > data_avail) count = data_avail;
+
+		/* Use the same logic as fs_wrapper_read */
+		pthread_mutex_lock(&server_entrys[fd]->lock);
+		pthread_rwlock_rdlock(&server_entrys[fd]->vnode->rwlock);
+
+		off_t offset = server_entrys[fd]->offset;
+		struct fs_vnode *vnode = server_entrys[fd]->vnode;
+		ssize_t ret = 0;
+
+		if (offset < vnode->size) {
+			if (offset + count > vnode->size)
+				count = vnode->size - offset;
+
+			if (!using_page_cache) {
+				ret = server_ops.read(
+					vnode->private, offset, count,
+					data_ptr);
+			} else {
+				int fptr, page_idx, page_off, copy_size;
+				for (fptr = offset;
+				     fptr < offset + (int)count;
+				     fptr = ROUND_DOWN(fptr, PAGE_SIZE)
+					    + PAGE_SIZE) {
+					page_idx = fptr / PAGE_SIZE;
+					page_off = fptr
+						   - ROUND_DOWN(fptr,
+								PAGE_SIZE);
+					copy_size = MIN(
+						PAGE_SIZE - page_off,
+						offset + (int)count - fptr);
+					char *page_buf =
+						page_cache_get_block_or_page(
+							vnode->page_cache,
+							page_idx, -1, READ);
+					memcpy(data_ptr + ret,
+					       page_buf + page_off,
+					       copy_size);
+					page_cache_put_block_or_page(
+						vnode->page_cache,
+						page_idx, -1, READ);
+					ret += copy_size;
+				}
+			}
+			server_entrys[fd]->offset += ret;
+		}
+
+		pthread_rwlock_unlock(&server_entrys[fd]->vnode->rwlock);
+		pthread_mutex_unlock(&server_entrys[fd]->lock);
+
+		ret_arr[i] = ret;
+		data_ptr += ret;
+		data_avail -= ret;
+		total_read += ret;
+	}
+
+	/* Return total bytes of data (caller uses ret_arr for per-entry sizes) */
+	return total_read;
+}
+
 int fs_wrapper_pread(ipc_msg_t *ipc_msg, struct fs_request *fr)
 {
 	int fd;
@@ -772,6 +884,9 @@ int fs_wrapper_sync(void)
 	if (using_page_cache)
 		ret = page_cache_flush_all_pages();
 
+	if (ret == 0 && server_ops.fsync)
+		ret = server_ops.fsync();
+
 	return ret;
 }
 
@@ -788,6 +903,9 @@ int fs_wrapper_fsync(ipc_msg_t *ipc_msg, struct fs_request *fr)
 		vnode = server_entrys[fd]->vnode;
 		ret = page_cache_flush_pages_of_inode(vnode->page_cache);
 	}
+
+	if (ret == 0 && server_ops.fsync)
+		ret = server_ops.fsync();
 
 	return ret;
 }

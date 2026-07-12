@@ -6,6 +6,7 @@
 #include <mm/mm.h>
 #include <mm/uaccess.h>
 #include <mm/vmspace.h>
+#include <mm/shm.h>
 #include <object/thread.h>
 #include <object/recycle.h>
 #include <sched/context.h>
@@ -84,6 +85,10 @@ int thread_init(struct thread *thread, struct cap_group *cap_group,
 
     // FN: mark empty to check when deinit thread
     init_list_head(&thread->ready_queue_node);
+
+#ifdef DSM_ENABLED
+    thread->notif_dq_node_off = -1;  /* Not in notification queue initially (QPTR_NULL) */
+#endif
 
     /* Initialize scheduling history */
     memset(thread->sched_history.cpu_history, 0, sizeof(thread->sched_history.cpu_history));
@@ -607,6 +612,11 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
              * The thread will be migrated to another machine, so the current
              * kernel_stack_state is no longer valid. */
             thread->thread_ctx->kernel_stack_state = KS_FREE;
+#ifdef PHOENIX_SCHED_TIMING
+            /* Record set_affinity time in machine-0 TSC domain so the
+             * remote scheduler can compute the end-to-end latency. */
+            thread->thread_ctx->migrate_tsc = dsm_tsc_to_m0(get_cycles());
+#endif
         }
 
         // print_thread(current_thread);

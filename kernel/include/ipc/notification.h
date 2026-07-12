@@ -4,11 +4,12 @@
 #include <object/thread.h>
 #include <common/types.h>
 #include <posix/time.h>
+#include <mm/shm.h>
 
 struct notification {
     u32 not_delivered_notifc_count;
     u32 waiting_threads_count;
-    struct list_head waiting_threads;
+    struct durable_queue waiting_threads;
     /*
      * notifc_lock protects counter and list of waiting threads,
      * including the internal states of waiting threads.

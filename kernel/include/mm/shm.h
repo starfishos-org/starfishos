@@ -2,7 +2,6 @@
 
 #include <common/types.h>
 #include <common/lock.h>
-#include <dsm/dsm-single.h>
 #include <mm/mm.h>
 #include <posix/sys/types.h>
 
@@ -14,6 +13,11 @@
  */
 
 #define POLLING_SHM_SIZE (PAGE_SIZE * 64UL)
+
+/* P-log SHM for Ananke-style FS recovery */
+#define PLOG_SHM_SIZE     (PAGE_SIZE * 256UL)  /* 1MB per p-log */
+#define PLOG_SHM_ID_BASE  CLUSTER_MAX_MACHINE_NUM
+#define PLOG_SHM_ID(mid)  (PLOG_SHM_ID_BASE + (mid))
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 #define FS_REQ_PATH_BUF_LEN 256
@@ -32,7 +36,9 @@ enum dq_status {
     DQ_INIT,
     DQ_DOING,
     DQ_DONE,
+    DQ_CONSUMED,
     DQ_CRASH,
+    DQ_CANCELLED,
 };
 
 /* ---- Request / Response types ---- */
@@ -136,11 +142,12 @@ struct dq_node {
 };
 
 /*
- * Durable Queue: { head, tail }
+ * Durable Queue: { head, tail, queue_lock }
  */
 struct durable_queue {
     qptr_t head;
     qptr_t tail;
+    struct lock queue_lock;  /* Lock for enqueus/dequeue operations */
 } __attribute__((aligned(64)));
 
 /*
@@ -182,6 +189,35 @@ static inline qptr_t ptr_to_qptr(void *shm_base, void *ptr)
     return (ptr == NULL) ? QPTR_NULL : (qptr_t)((char *)ptr - (char *)shm_base);
 }
 
+/* ---- Thread Durable Queue (for scheduler & notification) ---- */
+
+#define THREAD_DQ_POOL_SIZE 4096
+
+/*
+ * Node for thread durable queue.
+ * Stores: next pointer, status, and thread physical address.
+ */
+struct thread_dq_node {
+    qptr_t next;        /* offset-based pointer to next node */
+    int status;         /* enum dq_status */
+    u64 thread_pa;      /* physical address of the thread struct */
+} __attribute__((aligned(16)));
+
+/*
+ * Pool of thread_dq_nodes, stored in CXL SHM.
+ * Free list is a Treiber stack.
+ */
+struct thread_dq_pool {
+    qptr_t free_list;   /* head of Treiber stack free list */
+    s32 node_count;     /* total nodes allocated */
+    char _pad[56];      /* padding to cache line */
+    struct thread_dq_node nodes[THREAD_DQ_POOL_SIZE];
+} __attribute__((aligned(64)));
+
+/* Helper functions for thread queue offset calculations - declared in shm.c */
+void *thread_qptr_to_ptr(qptr_t off);
+qptr_t thread_ptr_to_qptr(void *ptr);
+
 /* ---- API ---- */
 
 void shm_init(void);
@@ -193,6 +229,17 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
                 struct polling_request *req);
 void dq_wait_for_done(struct dq_node *node);
 
+/* Forward declaration for durable queue operations */
+struct thread;
+struct durable_queue;
+
+/* Kernel-side thread durable queue operations (for sched & notification) */
+void thread_dq_pool_init(void);
+int thread_dq_init(struct durable_queue *q);
+void thread_dq_enqueue(struct durable_queue *q, struct thread *thread);
+struct thread *thread_dq_dequeue(struct durable_queue *q);
+void thread_dq_cancel_node(qptr_t node_off);
+
 #ifndef MAX_SHM_NUM
-#define MAX_SHM_NUM CLUSTER_MAX_MACHINE_NUM
+#define MAX_SHM_NUM (2 * CLUSTER_MAX_MACHINE_NUM)
 #endif

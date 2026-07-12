@@ -6,13 +6,45 @@
 #include <mm/slab.h>
 #include <mm/buddy.h>
 #include <mm/nvm.h>
+#ifdef SLAB_CRASH_RECOVERY
+#include <common/mem_sync.h>
+#endif
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #endif
 
-/* Per-CPU CXL slab pools/locks, indexed by [cpu][order]. */
-struct slab_pointer cxl_slab_pool[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
-static struct lock cxl_slabs_locks[PLAT_CPU_NUM][SLAB_MAX_ORDER + 1];
+/*
+ * When SLAB_CRASH_RECOVERY is ON, pools/locks/logs live in dsm_meta (CXL).
+ * When OFF, they are plain DRAM globals (original behavior).
+ */
+#ifdef SLAB_CRASH_RECOVERY
+
+#define CXL_SLAB_META  (dsm_meta->cxl_slab_meta[CUR_MACHINE_ID])
+#define cxl_slab_pool   (CXL_SLAB_META.pool)
+#define cxl_cpu_logs    (CXL_SLAB_META.cpu_logs)
+
+/*
+ * Keep per-CPU locks in DRAM even with crash recovery — they are
+ * re-initialized in Phase 2 of recovery, so persistence is unnecessary.
+ * This avoids expensive CXL atomics on every lock acquire/release.
+ * Padded stride prevents false sharing between CPUs.
+ */
+#define SLAB_PADDED_STRIDE 16
+static struct lock cxl_slabs_locks[PLAT_CPU_NUM][SLAB_PADDED_STRIDE];
+
+#else /* !SLAB_CRASH_RECOVERY */
+
+/*
+ * Per-CPU CXL slab pools/locks in DRAM.
+ * Stride padded to 16 entries so each CPU's slice is 64-byte aligned,
+ * preventing false sharing. (Only indices [SLAB_MIN_ORDER..SLAB_MAX_ORDER]
+ * are used; the padding slots are never accessed.)
+ */
+#define SLAB_PADDED_STRIDE 16
+struct slab_pointer cxl_slab_pool[PLAT_CPU_NUM][SLAB_PADDED_STRIDE];
+static struct lock cxl_slabs_locks[PLAT_CPU_NUM][SLAB_PADDED_STRIDE];
+
+#endif /* SLAB_CRASH_RECOVERY */
 
 #if CHECK_FREE_COUNT_IN_SLAB == ON
 static bool check_slot_free_count(struct slab_header *slab)
@@ -144,13 +176,24 @@ static void *alloc_in_cxl_slab_impl(int order)
     free_list = (struct slab_slot_list *)current_slab->free_list_head;
     BUG_ON(free_list == NULL);
 
+    slab_log_begin(&cxl_cpu_logs[cpu_id], current_slab, SLAB_OP_ALLOC);
+
     next_slot = free_list->next_free;
     current_slab->free_list_head = next_slot;
 
     current_slab->current_free_cnt -= 1;
     /* When current_slab is full, choose a new slab as the current one. */
-    if (unlikely(current_slab->current_free_cnt == 0))
+    if (unlikely(current_slab->current_free_cnt == 0)) {
         choose_new_current_slab(&cxl_slab_pool[cpu_id][order], order);
+#ifdef SLAB_CRASH_RECOVERY
+        /* Track full slab so recovery can find it */
+        list_append(&current_slab->node,
+                    &cxl_slab_pool[cpu_id][order].full_slab_list);
+#endif
+    }
+
+    slab_persist_header(current_slab);
+    slab_log_end(&cxl_cpu_logs[cpu_id]);
 
     unlock(&cxl_slabs_locks[cpu_id][order]);
 
@@ -190,6 +233,10 @@ static void try_insert_full_slab_to_partial(struct slab_header *slab)
     owner_cpu = slab->owner_cpu;
     BUG_ON(owner_cpu >= PLAT_CPU_NUM);
 
+#ifdef SLAB_CRASH_RECOVERY
+    /* Remove from full list first */
+    list_del(&slab->node);
+#endif
     list_append(&slab->node, &cxl_slab_pool[owner_cpu][order].partial_slab_list);
 }
 
@@ -225,7 +272,13 @@ void init_cxl_slab(void)
             lock_init(&cxl_slabs_locks[cpu_id][order]);
             cxl_slab_pool[cpu_id][order].current_slab = NULL;
             init_list_head(&(cxl_slab_pool[cpu_id][order].partial_slab_list));
+#ifdef SLAB_CRASH_RECOVERY
+            init_list_head(&(cxl_slab_pool[cpu_id][order].full_slab_list));
+#endif
         }
+#ifdef SLAB_CRASH_RECOVERY
+        cxl_cpu_logs[cpu_id].op = SLAB_OP_NONE;
+#endif
     }
     kdebug("mm: finish initing slab allocators\n");
 }
@@ -275,9 +328,14 @@ void free_in_cxl_slab(void *addr)
     }
 #endif
 
+    slab_log_begin(&cxl_cpu_logs[owner_cpu], slab, SLAB_OP_FREE);
+
     slot->next_free = slab->free_list_head;
     slab->free_list_head = slot;
     slab->current_free_cnt += 1;
+
+    slab_persist_header(slab);
+    slab_log_end(&cxl_cpu_logs[owner_cpu]);
 
     try_return_slab_to_buddy(slab, order);
 
@@ -332,6 +390,126 @@ unsigned long cxl_get_free_slot_number(int order)
 
     return current_slot_num;
 }
+
+#ifdef SLAB_CRASH_RECOVERY
+/*
+ * Collect all slabs from a pool (current + partial + full) into a flat list,
+ * then clear the pool.
+ */
+static void collect_all_slabs(struct slab_pointer *pool,
+                              struct list_head *collect)
+{
+    struct slab_header *slab, *tmp;
+
+    /* Move current_slab */
+    if (pool->current_slab) {
+        list_append(&pool->current_slab->node, collect);
+        pool->current_slab = NULL;
+    }
+
+    /* Move partial list */
+    if (!list_empty(&pool->partial_slab_list)) {
+        __for_each_in_list_safe (slab, tmp, struct slab_header, node,
+                               &pool->partial_slab_list) {
+            list_del(&slab->node);
+            list_append(&slab->node, collect);
+        }
+    }
+
+    /* Move full list */
+    if (!list_empty(&pool->full_slab_list)) {
+        __for_each_in_list_safe (slab, tmp, struct slab_header, node,
+                               &pool->full_slab_list) {
+            list_del(&slab->node);
+            list_append(&slab->node, collect);
+        }
+    }
+}
+
+/*
+ * Recovery: undo in-flight slab operations, clear locks, rebuild pool lists.
+ * Called during init when recovering from a crash.
+ * Walks per-CPU logs + pool lists in CXL — no full page scan needed.
+ */
+void recover_cxl_slabs(void)
+{
+    u32 cpu_id;
+    int order, mid;
+    struct slab_header *slab, *tmp;
+    struct slab_cpu_log *log;
+    struct list_head all_slabs;
+
+    kinfo("[SLAB RECOVERY] Starting CXL slab recovery...\n");
+
+    /* Recover all machines' slab state (each machine's pools are in CXL) */
+    for (mid = 0; mid < (int)dsm_meta->cluster_machine_num; mid++) {
+
+        /* Phase 1: Undo in-flight operations via per-CPU logs */
+        for (cpu_id = 0; cpu_id < PLAT_CPU_NUM; cpu_id++) {
+            log = &dsm_meta->cxl_slab_meta[mid].cpu_logs[cpu_id];
+            if (log->op != SLAB_OP_NONE) {
+                slab = (struct slab_header *)log->slab_addr;
+                kinfo("[SLAB RECOVERY] M%d CPU%d: undoing op=%d on slab %p\n",
+                      mid, cpu_id, log->op, slab);
+                slab->free_list_head   = log->old_free_head;
+                slab->current_free_cnt = log->old_free_cnt;
+                FLUSH(slab);
+                FENCE;
+                log->op = SLAB_OP_NONE;
+                FLUSH(&log->op);
+                FENCE;
+            }
+        }
+
+        /* Phase 2: Clear all locks */
+        for (cpu_id = 0; cpu_id < PLAT_CPU_NUM; cpu_id++)
+            for (order = SLAB_MIN_ORDER; order <= SLAB_MAX_ORDER; order++)
+                lock_init(&dsm_meta->cxl_slab_meta[mid].locks[cpu_id][order]);
+
+        /* Phase 3: Rebuild pool lists from collected slabs */
+        for (cpu_id = 0; cpu_id < PLAT_CPU_NUM; cpu_id++) {
+            for (order = SLAB_MIN_ORDER; order <= SLAB_MAX_ORDER; order++) {
+                struct slab_pointer *pool =
+                    &dsm_meta->cxl_slab_meta[mid].pool[cpu_id][order];
+
+                /* Collect all slabs from this pool */
+                init_list_head(&all_slabs);
+                collect_all_slabs(pool, &all_slabs);
+
+                /* Re-init pool */
+                pool->current_slab = NULL;
+                init_list_head(&pool->partial_slab_list);
+                init_list_head(&pool->full_slab_list);
+
+                /* Re-classify each slab */
+                __for_each_in_list_safe (slab, tmp, struct slab_header, node,
+                                       &all_slabs) {
+                    list_del(&slab->node);
+
+                    if (slab->current_free_cnt == slab->total_free_cnt) {
+                        /* Fully free: return to buddy */
+                        set_or_clear_slab_in_page(slab, SIZE_OF_ONE_SLAB,
+                                                  false);
+                        free_pages(slab);
+                    } else if (slab->current_free_cnt == 0) {
+                        /* Full slab */
+                        list_append(&slab->node, &pool->full_slab_list);
+                    } else {
+                        /* Partial slab */
+                        if (pool->current_slab == NULL)
+                            pool->current_slab = slab;
+                        else
+                            list_append(&slab->node,
+                                        &pool->partial_slab_list);
+                    }
+                }
+            }
+        }
+    }
+
+    kinfo("[SLAB RECOVERY] CXL slab recovery complete.\n");
+}
+#endif /* SLAB_CRASH_RECOVERY */
 
 /* Get the size of free memory in slab */
 unsigned long cxl_get_free_mem_size_from_slab(void)

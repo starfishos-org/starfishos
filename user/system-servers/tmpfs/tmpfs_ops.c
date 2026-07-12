@@ -24,6 +24,7 @@
 #include <fs_wrapper_defs.h>
 #include <fs_vnode.h>
 #include "tmpfs.h"
+#include "plog.h"
 
 #define DIRENT_NAME_MAX 256
 
@@ -63,6 +64,11 @@ int tmpfs_open(char *path, int flags, int mode, ino_t *vnode_id, size_t *vnode_s
 
 	/* ref tmpfs inode */
 	get_inode(walk.target);
+
+	/* P-log: log creat if O_CREAT and track inode->path */
+	if (flags & O_CREAT)
+		plog_append_creat(path, mode);
+	plog_track_inode(walk.target, path);
 
 	/**
 	 * Set Output
@@ -105,8 +111,15 @@ ssize_t tmpfs_write(void *operator, off_t offset, size_t size, const char *buf)
 {
 	struct inode *inode = (struct inode *)operator;
 	ssize_t ret = 0;
-	if (inode)
+	if (inode) {
 		ret = tfs_file_write(inode, offset, buf, size);
+		/* P-log: log successful writes */
+		if (ret > 0) {
+			const char *path = plog_get_inode_path(inode);
+			if (path)
+				plog_append_write(path, offset, buf, ret);
+		}
+	}
 	return ret;
 }
 
@@ -136,6 +149,17 @@ int __fs_creat(const char *path, mode_t mode)
 
 	path_init(&path_record);
 	path_append(&path_record, tmpfs_root_dent);
+
+	/* Skip leading slashes — path_record is already rooted, tfs_namex
+	 * does not accept a leading '/' (it walks relative components). */
+	while (*leaf == '/')
+		leaf++;
+
+	if (!*leaf) {
+		/* Path was just "/" — target is the root itself */
+		err = -EISDIR;
+		goto error;
+	}
 
 	err = tfs_namex(&leaf, &path_record,
 			/* mkdir_p */ 0,
@@ -259,6 +283,7 @@ int tmpfs_mkdir(const char *path, mode_t mode)
 	if (err)
 		goto error;
 
+	plog_append_mkdir(path, mode);
 	err = 0;
 
 error:
@@ -278,6 +303,8 @@ error:
 		err = -ENOENT;
 	return err;
 }
+
+static void plog_log_file_content(const char *path, struct inode *inode);  /* defined below */
 
 int tmpfs_rename(const char *oldpath, const char *newpath)
 {
@@ -374,6 +401,9 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 		}
 	}
 
+	/* Save inode pointer before freeing the old dentry. */
+	struct inode *moved_inode = dent_old->inode;
+
 	if ((err = put_inode(dent_old->inode))) {
 		return err;
 	}
@@ -381,6 +411,13 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 	htable_del(&dent_old->node);
 	// free dentry
 	free(dent_old);
+
+	/*
+	 * Log the destination file's full content to the p-log.
+	 * LevelDB updates CURRENT and MANIFEST via atomic rename, so we must
+	 * capture the result here — it won't be covered by any prior WRITE log.
+	 */
+	plog_log_file_content(newpath, moved_inode);
 
 	return 0;
 }
@@ -1070,6 +1107,79 @@ vaddr_t tmpfs_get_page_addr(void *operator, size_t offset)
 }
 #endif
 
+/*
+ * Recursively snapshot all directories and files under `dir` into the p-log.
+ * `path` is the absolute path of `dir` (empty string for root).
+ */
+static void plog_snapshot_dir(struct inode *dir, const char *path)
+{
+	int b;
+	struct dentry *iter;
+	char child_path[PLOG_MAX_PATH];
+	char buf[PLOG_MAX_DATA];
+
+	for_each_in_htable(iter, b, node, &dir->dentries) {
+		int n = snprintf(child_path, sizeof(child_path), "%s/%s",
+		                 path, iter->name.str);
+		if (n <= 0 || n >= (int)sizeof(child_path))
+			continue;
+
+		if (iter->inode->type == FS_DIR) {
+			plog_append_mkdir(child_path, iter->inode->mode);
+			plog_snapshot_dir(iter->inode, child_path);
+		} else {
+			plog_append_creat(child_path, iter->inode->mode);
+			uint64_t off = 0;
+			size_t total = iter->inode->size;
+			while (off < total) {
+				size_t chunk = total - off;
+				if (chunk > PLOG_MAX_DATA)
+					chunk = PLOG_MAX_DATA;
+				ssize_t got = tfs_file_read(iter->inode, off,
+				                            buf, chunk);
+				if (got <= 0)
+					break;
+				plog_append_write(child_path, off, buf,
+				                  (uint32_t)got);
+				off += got;
+			}
+		}
+	}
+}
+
+/*
+ * Log the content of a regular file at `path` with inode `inode`.
+ * Used after rename to ensure the destination file is captured in the p-log.
+ */
+static void plog_log_file_content(const char *path, struct inode *inode)
+{
+	if (!inode || inode->type != FS_REG)
+		return;
+	char buf[PLOG_MAX_DATA];
+	plog_append_creat(path, inode->mode);
+	uint64_t off = 0;
+	size_t total = inode->size;
+	while (off < total) {
+		size_t chunk = total - off;
+		if (chunk > PLOG_MAX_DATA)
+			chunk = PLOG_MAX_DATA;
+		ssize_t got = tfs_file_read(inode, off, buf, chunk);
+		if (got <= 0)
+			break;
+		plog_append_write(path, off, buf, (uint32_t)got);
+		off += got;
+	}
+}
+
+static int tmpfs_fsync(void)
+{
+	/* Checkpoint: reset log then re-emit the full current FS state. */
+	plog_truncate();
+	if (tmpfs_root)
+		plog_snapshot_dir(tmpfs_root, "");
+	return 0;
+}
+
 struct fs_server_ops server_ops = {
 	.mount = default_server_operation,
 	.umount = default_server_operation,
@@ -1093,6 +1203,7 @@ struct fs_server_ops server_ops = {
 	.readlinkat = tmpfs_readlinkat,
 	.fallocate = tmpfs_fallocate,
 	.fcntl = tmpfs_fcntl,
+	.fsync = tmpfs_fsync,
 #ifdef CHCORE_ENABLE_FMAP
 	.fmap_get_page_addr = tmpfs_get_page_addr,
 #endif

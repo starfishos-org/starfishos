@@ -168,18 +168,10 @@ void *polling_reader_thread(void *arg)
         uint64_t td1 = rdtsc();
 #endif
 
-        // if (node == NULL) {
-        //     poll_count++;
-        //     if (poll_count % 5000000 == 0) {
-        //         qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
-        //         qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
-        //         qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
-        //         printf("[srv] idle %d deq=%d h=%d t=%d f=%d\n",
-        //                poll_count / 5000000, deq_count, h, t, f);
-        //     }
-        //     __builtin_ia32_pause();
-        //     continue;
-        // }
+        if (node == NULL) {
+            __builtin_ia32_pause();
+            continue;
+        }
         deq_count++;
         poll_count = 0;
 

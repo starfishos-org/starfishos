@@ -1,0 +1,573 @@
+ASPLOS'26 - Summer cycle Paper #227 Reviews and Comments
+===========================================================================
+Paper #227 Single System Image Made Efficient and Partial-failure Resilient
+on CXL with State-partitioned Microkernel
+
+
+Review #227A
+===========================================================================
+* Updated: Nov 18, 2025
+
+Reviewer expertise
+------------------
+3. I published/worked in the area but might miss the most recent related
+   work
+
+Reviewer confidence
+-------------------
+3. I understood the paper but missed some details
+
+Paper summary
+-------------
+The paper proposes Starfish, a rack-scale distributed microkernel system that leverages the emerging
+CXL technology to achieve a Single System Image (SSI) with low overhead and partial-failure
+resilience. Starfish achieves claimed goals by partitioning the capability-based system states and
+storing the states in private and shared memory accordingly, and by maintaining a minimal and
+recoverable CXL shared state. Based on this foundation, they have much easier time with services and
+need no modifications for applications.
+
+Significance of the problem
+---------------------------
+3. Important and emerging. Big opportunity for significant gains
+
+Novelty of the solution
+-----------------------
+3. Significant, encouraging others to build on results
+
+Correctness
+-----------
+3. The paper has no factual mistakes
+
+Writing quality
+---------------
+2. Reasonable. Would benefit from revision
+
+Related work
+------------
+1. I am not up-to-date with the current literature
+
+Robustness of the evaluation
+----------------------------
+1. Missing experiments. Weak baselines
+
+Advancement in the core ASPLOS disciplines
+------------------------------------------
+1. Systems / Operating Systems
+3. Computer Architecture / Emerging Hardware
+
+Strengths
+---------
+- important and well-motivated problem
+- approach (state-replicated microkernel) convincing for this problem
+
+Weaknesses
+----------
+- missing background on used microkernel
+- unscientific evaluation
+
+Comments for authors
+--------------------
+Thanks for submitting to ASPLOS! I had no easy time reading the paper as at least some parts are
+difficult to understand. However, I think the problem is important given that CXL-based systems are
+expected in the near future and a single-system image provides an easy abstraction for all upper
+layers of the stack, which makes it a desirable solution. Additionally, building on top of a
+microkernel is a good fit here as they indeed are easier to use as the lowest layer. That said, I
+see two severe problems that make it impossible to accept the paper in its current version.
+
+## Missing background on the used microkernel
+
+The beginning of 4.3 hints at what microkernel is used by providing three references to papers and a
+website, which reveals that it is apparently TreeSLS. However, the name is never stated. Not sure
+what the reason is. Please be specific and state the name.
+
+More importantly, the paper does not explain properly how the microkernel works. Some information is
+given like that it's capability based and that it has some IPC mechanism and notifications, but this
+is scattered all over the paper and is not sufficient to understand the challenges and how these are
+overcome.
+
+That problem is most prevalent in section 5.1 that tries to explain the changes to IPC. The authors
+state that clients have direct access to shadow threads. But it is unclear what shadow threads even
+are. For example, does every client have its own shadow thread or are they shared? When are they
+created and by whom? Are they stateful and if so what kind of state do they have? Are they similar
+to real threads given their name? These open questions make it impossible to understand the
+necessary changes to the IPC subsystem.
+
+Similarly, the authors state that clients can directly access the server state. Is there no
+isolation between clients and servers? Or have clients only access to a subset of the state or only
+in special circumstances? Here is clearly explanation necessary to explain the design of TreeSLS.
+
+I also don't understand why a shadow thread of a private server needs to execute on the clients
+machine at all. I thought it would only execute in the server address space and thus on the server
+machine. So, what does the shadow thread do on the client machine? Especially because this requires
+to migrate it between machines back and forth, which is definitely expensive.
+
+## Unscientific evaluation
+
+The most severe problem of the paper is its evaluation. While I appreciate the effort the authors
+went through for this quite extensive evaluation with lots of complex applications, the evaluation
+does simply not meet scientific standards in its current form.
+
+At first, the authors state in 8.1 that QEMU/KVM is used for the measurements. This can be
+acceptable, but does not necessarily produce realistic results. Yet there is no discussion of the
+overhead due to vmexits in this case or the accuracy of the results.
+
+Second, across all benchmarks the authors do not state how many repetitions were used, whether
+warmup runs were done and how many, and what the standard deviation is. Without that, I have to
+assume that only a single run was done, which renders all results meaningless.
+
+Third, multiple benchmarks are not properly explained. This is most severe for the microbenchmarks
+in 8.2. For the IPC benchmark, it's unclear whether round-trip times have been measured or just one
+direction. Similarly, what does "cross-machine scheduling" mean? It's completely unclear to me what
+was measured there.
+
+Fourth, given how IPC was described to work, I'm wondering why the results shown in Table 2 were
+achieved. The authors say that IPC requires a migration of the shadow thread between the client and
+the server machine. I assume that the migration itself only requires a memcpy from/to CXL memory.
+However, since it's a different machine, the receiver would need to be polling the whole time to
+notice a client request *and* migrate the shadow thread in just a few hundred nanoseconds. Polling
+is typically not an acceptable solution, yet the paper does never discusses that and does not even
+clearly state whether and how polling is used. If no polling is used, which is required for
+energy-efficient systems, the receiver would sleep/idle and probably require several microseconds
+for the IPI and wake up, depending on the CPU. Hybrid solutions are possible of course, but the
+paper does not discuss this problem.
+
+Fifth, I do not understand why IPC performance is compared with Linux. Linux is known to not have
+good IPC performance, whereas other microkernel-based systems are both more comparable and have also
+superior IPC performance than Linux. Therefore, comparing Starfish to L4Re or seL4, for example,
+would be much more appropriate and convincing.
+
+Lastly, I have a couple of smaller issues with the evaluation:
+
+- 8.1: "Performance reported by real switch-based CXL 3.0 deployment": this is at least missing a
+  reference and should also be extended by the reported performance numbers.
+- 8.3: Why are there ticks and numbers missing at the y axis of Figure 11?
+- 8.4: The plots give the impression that there are measurements with Starfish-DRAM and Linux on
+  multiple machines although there are none. Maybe it's better to show a dot instead of a line?
+- 8.4.1: I don't get how the results for GeminiGraph were produced. It's apparently distributed by
+  itself. So is there a non-distributed version that was used on Starfish? Or was GeminiGraph
+  changed?
+- 8.4.3: I don't understand the patterns on the bars in Figure 14. These are not explained in the
+  text or in the figure itself.
+- 8.4.3: I'm also wondering about the slowdown for running some applications on Starfish instead of
+  the base microkernel. For example, why is String Match 15% slower? Why is that not the case for
+  others? That should be explained in the text.
+
+## Smaller things and nitpicking
+
+- "process the request on behalf of the server" -> "process the request on behalf of the client"
+- "Placement decisions of each object are made based on OS semantics": what does that mean?
+- 3.2: when you split it into two categories, please stick to them and don't address the point of
+  category two also in category one.
+- 5.2: what is a thread node?
+- There is a lot of duplication between the introduction and the motivation in section 2. IMHO,
+  either section 2 should go more into detail (this already happens for some aspects, but not all),
+  or it should be removed.
+- Figure 3 is completely superfluous IMHO. The text is at least as clear as the figure.
+- Table 1 caption: "... due to our CXL 1.0 device" but in 8.1 it says "CXL 1.1"
+- Figure 2 and 3 are placed too close. Their captions are merging.
+- typo 5.1 "and any running SHADOW threads also crash"
+
+## Post-Rebuttal
+
+I appreciate the thorough author response, which answered a couple of questions I had. However, in the end I think there were simply too many issues with the current version so that several important aspects remain unclear (how does the microkernel work, why is IPC compared to a Linux syscall, why did vmexits occur, etc.). I therefore encourage the authors to continue on this path, but need to stay negative on this submission.
+
+Overall Merit
+-------------
+1. Reject (The paper does not meet the bar for ASPLOS)
+
+Ranking relative to other papers assigned to you
+------------------------------------------------
+1. Below 40%
+
+
+
+Review #227B
+===========================================================================
+
+Reviewer expertise
+------------------
+3. I published/worked in the area but might miss the most recent related
+   work
+
+Reviewer confidence
+-------------------
+3. I understood the paper but missed some details
+
+Paper summary
+-------------
+This paper describes Starfish, an OS for clusters of machines connected to a single CXL shared memory region. Starfish has a microkernel design with many OS services. It uses CXL memory to hold carefully decided pieces of service state in shared memory to allow them to be replicated and operated on cooperatively and/or to allow service instances to be restarted quickly. This allows Starfish to tolerate partial failures: when a machine dies, only the processes and service instances running on that machine die. The paper specifically details Starfish's IPC, Notification, scheduling, memory management, file system, and thread/process migration work. The paper shows that Starfish is able to run some process spanned across nodes, which gives it more scheduling flexibility compared to conventional approaches that would restrict a process to one node, which allows it to provide better throughput for collections of services on a set of nodes.
+
+Significance of the problem
+---------------------------
+2. Important but extensively studied. Little opportunity for significant
+   gains
+3. Important and emerging. Big opportunity for significant gains
+
+Novelty of the solution
+-----------------------
+2. Low conceptual novelty
+
+Correctness
+-----------
+3. The paper has no factual mistakes
+
+Writing quality
+---------------
+2. Reasonable. Would benefit from revision
+
+Related work
+------------
+4. Fairly comprehensive; I would add a bit more
+
+Robustness of the evaluation
+----------------------------
+3. Well-executed and supports claims
+
+Advancement in the core ASPLOS disciplines
+------------------------------------------
+1. Systems / Operating Systems
+3. Computer Architecture / Emerging Hardware
+
+Strengths
+---------
++ Interesting OS design that manages multiple machines with a single kernel and tolerates partial failure.
++ First "door"-like IPC mechanism I've seen for IPC that uses CXL/cross-host shared memory.
++ Figure 14 focuses on things this enables that aren't possible using two hosts just communicating over a network -- this shared memory lets the OS schedule in interesting ways that provides good performance and reduces stranding in some cases.
+
+Weaknesses
+----------
+- This is very cool, but the paper doesn't make a strong case for why folks would want to run systems this way compared to the way we handle partial failure today in commodity systems connected over a network.
+- Assumes large clusters (rack-scale) with large, coherent CXL memory. Most papers are now assuming some limited coherent region with larger incoherent memory. Things like putting application heap in shared memory become problematic if large regions of coherent memory won't be available on real machines.
+- The paper feels somewhat incomplete about "why" it does things a particular way and for many choices there are some assumptions or incomplete aspects of the system that make it hard to determine whether the chosen techniques are going to work out well more generally. e.g. is thread and process migration going to be lightweight enough especially if application heap state isn't always in CXL memory? Complex policy and evaluation is needed there, and the paper leaves that as future work for now.
+
+The paper describes several systems and mechanisms, but it generally doesn't describe why is chosen way makes more sense than other ways, and there are assumptions
+
+Comments for authors
+--------------------
+Review summary
+
+Thanks for your submission. This is an interesting paper and design. The effort here seems huge, so I appreciated the substantial engineering that is going into Starfish. On the whole, the paper left me right on the fence between Weak Accept and Weak Reject.  This would be a fine paper to have as part of the program, but it also feels incomplete in some important ways.
+
+My primary concern with the paper is that is delicately divides up the state of the kernel to let the kernel manage multiple machines. But, it didn't sound like this helps ensure applications are divided in a way that helps them scale when spanned across machines. So, it wasn't clear to me how much better this is than, say, just scheduling processes using a cluster scheduler that manages the 8 machines. Figure 14 helped push back on that concern somewhat. However, given that 8 nodes connected over a network already provide partial failure tolerance I was left wondering what problem all of this extra complexity is solving.
+
+My second concern with the paper is that there are lots of little details about how things are divided, how things are implemented, and the policies that are needed to govern them. The paper manages to squeeze a lot in, but then the descriptions of each of the subsystems and mechanisms are fairly high level. On the policy front, there isn't quite enough in the evaluation to be sure everything is going to work well more generally. For example, Figure 11 shows that Starfish's simple policy of putting all application heap state in CXL memory seems to have a high cost, generally taking between 2 to 6 machines to catch up to a single node OS. On top of that, many of these applications have reasonable cross-machine scaling strategies.
+
+Other comments
+
+> Currently, Starfish does not recover state-gap [ 46 ], i.e., the state that resides in the failed system service’s private memory, like file descriptors.
+
+What does this mean for applications? Does this mean that open file descriptors will all return errors until applications close and reopen them? Do real applications deal with this well? It seems likely that most would crash/abort in this case?
+
+Section 7.1.1 seems like a critical piece of the paper, and I think I mostly understood it, but it is detail-oriented yet vague about what is happening overall. For example, what are the set of possible object types that the capability tree refers to? What does "inuse" and "unused" mean? Is there an "unused" but allocated shadow copy of a demoted object in case it is promoted? Who would decide to promote an object? What's a "pmo"? Does Fig 8 contain all of the object types?
+
+> While it is possible to partition the state with help of compilers, managed runtime, application frameworks, and application hints, Starfish directly places the state in the shared memory for simplicity and leaves possible optimizations as future work
+
+While I can appreciate that this is a challenge, to me this seems like a serious shortcoming in the story for Starfish. So far the paper has made a strong case that for efficiency and partial failure resilience the Starfish OS needs to carefully divide its state between local and CXL memory. But, now applications aren't going to get that same benefit. Most applications spend most of their time in userspace. So, isn't this givingup a huge amount of performance in userspace? I wasn't also immediately sure that this isn't at least a partially solvable problem. Why not use a "first-touch" like policy in local memory and then demote cross-node touched pages to shared memory similar to the policy used for private replicated state?
+
+Section 7.2. This reminds me of Tigon's scheme for moving shared mutable access on working sets to CXL HWcc memory. This seemed quite cool to me, though I was a bit skeptical about the utility of thread/process migration across hosts (fortunately, the evaluation had some experiments on this). The migration times reported in Section 8.4.3 are quite impressive -- though I wanted to hear more about why DBx1000 takes so much longer to migrate -- if its heap is kept in shared memory what of its state takes so long to copy? The text says that the working set size is 2.5 GB. If applications keep heap state in shared memory why does this affect migration times?
+
+Figure 11 seems like perhaps as much a negative result as a positive one. Even the amount of sharing that Starfish does still causes slowdowns of nearly 2x in some applications. For example, for the workload in DBx1000 which can already be partitioned at application level, just using two separate Linux machines seems like it will be a nearly 2x gain over running a cross-node spanned version of DBx1000.
+
+For DBx1000 what is an "op" in kops/s? Does this mean thousands of 16-item transactions? Does this mean 1.5 kops/s is accessing about 24,000 items second? Doesn't DBx1000 run a variety of concurrency control protocols? What is the specific set up of this experiment?
+
+Figure 14 was an important figure in my view. Throughout the paper I wanted to see Starfish do something better than what existing networked clusters can do. My feeling is that applications that need to scale are generally going to be engineered to do that at application level (e.g. memcached). But, this figure shows that Starfish has extra bin packing flexibility that can be used to reduce negative interference. However, I'd have liked to hear more about the fragility of the set ups. How sensitive are the applications? For example, in the first cluster if I did Starfish-Cross for DBx1000 does this still work? How can Starfish or Starfish's operators determine the best configurations to ensure they don't end up with worse results than the Exclusive/Co-located configurations?
+
+Overall Merit
+-------------
+2. Leaning reject (Generally negative, requires a major overhaul)
+
+Ranking relative to other papers assigned to you
+------------------------------------------------
+2. Top 30%
+
+
+
+Review #227C
+===========================================================================
+
+Reviewer expertise
+------------------
+3. I published/worked in the area but might miss the most recent related
+   work
+
+Reviewer confidence
+-------------------
+3. I understood the paper but missed some details
+
+Paper summary
+-------------
+CXL 3.0 offers near-DRAM latency and high throughput for remote memory access, along with hardware-assisted coherence support. This paper takes this opportunity to revisit the idea of a single system image, an operating system abstraction that enables unmodified applications to operate on multiple machines. The proposed OS, Starfish, is an OS-level SSI built on a microkernel. It uses a capability-based cross-machine state management approach to handle partial failures while maintaining high performance. Evaluation shows that Starfish can automatically (i.e., without modifying the application source code) scale applications across multiple machines with acceptable overhead.
+
+Significance of the problem
+---------------------------
+3. Important and emerging. Big opportunity for significant gains
+
+Novelty of the solution
+-----------------------
+2. Low conceptual novelty
+
+Correctness
+-----------
+3. The paper has no factual mistakes
+
+Writing quality
+---------------
+2. Reasonable. Would benefit from revision
+
+Related work
+------------
+5. Comprehensive coverage, well done!
+
+Robustness of the evaluation
+----------------------------
+2. Substantial but misaligned with claims
+
+Advancement in the core ASPLOS disciplines
+------------------------------------------
+1. Systems / Operating Systems
+3. Computer Architecture / Emerging Hardware
+
+Strengths
+---------
+* Targets a vital problem: revisiting the concept of SSI with CXL.
+
+* Solid implementation
+
+* Clear writing.
+
+Weaknesses
+----------
+* Unclear how does Startfish acheive Partial-failure resilience
+
+* Missing relevant baselines in the evaluation
+
+Comments for authors
+--------------------
+Thank you for submitting the paper to ASPLOS!
+
+It is great to see the effort in co-designing the system software with CXL to explore the opportunity for Single System Image (SSI), especially through the lens of the microkernel; the insight that microkernels work well with CXL-based systems is very powerful. 
+
+The paper is well-written and easy to follow. The implementation is solid, demonstrating that the proposed system can effectively scale several unmodified, commonly-used applications across multiple machines. I have several comments that I believe would further enhance the paper. 
+
+### Solution for Partial-Failure Resilience
+
+My primary concern is with the solution to the partial-failure issue. I appreciate the effort to ensure partial-failure resilience for kernel states. However, the solution for the system servers and applications seems problematic: for user-space processes running on failed machines, Starfish simply reboots system service processes, and kills the  application processes.
+
+As far as I am concerned, the system service's *state-gap* after rebooting is not "orthogonal" (§6.2) to partial-failure resilience. The "non-uniform" system servers, i.e., servers that exhibit a *state-gap* after reboot, are often stateful. This means that the corresponding services may not be idempotent and must rely on specific states to function correctly. Without extra handling, simply rebooting and discarding the states may cause applications running above to fail. 
+
+In addition, given that partial failure resilience is an important part of the paper, I would expect to see more rigorous, systematic fault-injection campaigns to demonstrate that Starfish handles faults correctly. The current version of Section 8.5 is too thin. 
+
+### Motivation of Single System Image
+
+The motivation for revisiting SSI needs more clarification. The paper clearly and extensively discusses the benefits of SSI, but the discussion mainly focuses on SSI itself. Other alternatives, such as a more lightweight distributed-shard memory runtime, could also achieve both efficiency and partial-failure resilience. These alternatives are rarely mentioned, which weakens the case for re-adopting SSI.
+
+### Evaluation
+
+I believe that the evaluation misses a quantitative comparison of Starfish with related work. For example,  the evaluation omits DSM alternatives. In addition, there seems to be a need to evaluate related solutions mentioned in the paper, such as [37, 65, 73, 77]. The quantitative results themselves can answer an important question: why do we need a new OS abstraction instead of improving existing OSes? In other words, while the current evaluation demonstrates that Starfish is one way to achieve SSI, the paper would be much stronger if it showed that Starfish is the best way to achieve SSI (by including the comparison with alternative solutions).
+
+I fail to understand some of the presented results, and I believe a breakdown analysis would help. Take Table 2 as an example, the inter-machine IPC adds only around 205 ns, which is roughly 450 cycles on your machine. However, as introduced in §5.1 and Figure 4, the inter-machine IPC involves costly scheduler operations. As far as I know, these scheduler operations are often very expensive and take around 2000 cycles on Linux. A breakdown or discussion would help clarify the above understanding.
+
+A minor issue is the way the evaluation section is written. Many analyses in the evaluation simply repeat results already shown in the figure. More in-depth analysis might help to understand Starfish's performance.
+
+### Nits
+
+* The reference format is messy. For example, references [20] and [38] from the same conference do not follow the same formatting style.
+
+Overall Merit
+-------------
+3. Weak accept (Generally positive, some issues can be fixed with effective
+   shepherding or minor revision)
+
+Ranking relative to other papers assigned to you
+------------------------------------------------
+2. Top 30%
+
+
+
+Rebuttal Response by Author [Fangnuo Wu <wufangnuo@sjtu.edu.cn>] (1057 words)
+---------------------------------------------------------------------------
+#### Common-Q1:Motivation of single system image.(review-B, review-C)
+
+**1.Benefits compared to network-based clusters?**
+
+Starfish solves the **CPU bin-packing problem**. In cloud environments, single-process multi-thread workloads (e.g., Memcached) must be assigned entirely to one machine, often resulting in underutilized CPU resources. In contrast, Starfish allows single-process multi-thread tasks to run transparently across multiple machines without code changes. This transparency is valuable for cloud providers, who generally cannot alter user code. Existing disaggregation systems (e.g., Pond[ASPLOS23]) primarily address memory bin-packing; Starfish is the first to address both the CPU and memory bin-packing problems.
+
+**2.Why not use distributed runtimes or DSMs?**
+
+Distributed runtimes or DSMs are insufficient because supporting single-process applications across machines would require fundamentally the same OS-level mechanisms as Starfish. First, runtimes/DSMs require sharing an application’s address space across hosts, which is identical to Starfish's approach. Second, using runtimes/DSMs raises critical questions: Which machine should handle a cross-machine file access request? How should the file system be distributed? How should cross-machine sys_notify or thread migration be supported? Answering these questions necessitates the OS-level SSI design adopted by Starfish.
+
+#### Common-Q2:Explain IPC performance.(review-A, review-C)
+
+Each machine polls the cross-machine scheduling queue to wake up the scheduler immediately, so the scheduler operation takes an extra 205ns (total IPC time takes 1158ns).  Another way is to send a cross-machine CXL-based Message Signaled Interrupt to awaken the scheduler, the associated overhead is approximately 10 us.
+
+#### Common-Q3:How to handle state-gap?(review-B, review-C)
+
+Without recovering the state-gap of system services, applications might encounter failures. Currently, Starfish avoids this problem because it restarts applications that are connected to the crashed system services together with recovering the system service.
+
+In the revised version, we will implement the state-gap recovery method proposed by Ananke/TxIPC (two systems designed for recovering state-gap for microkernel’s system services) in Starfish.
+
+### Review-A
+
+#### Q-1:The used microkernel.
+
+Starfish is built on ChCore, which is the microkernel underlying TreeSLS.
+
+#### Q-2:Explain the shadow thread.
+
+Shadow threads are “passive servers” in seL4. They differ from regular threads in that they are not scheduling units; instead, they run on their clients' scheduling context.
+
+Each client-server connection is associated with a shadow thread. Connections to system services are established on demand, i.e., connections are established when a client first invokes a service. Upon establishing such a connection, the associated shadow thread is initialized. The process manager is responsible for both creating these connections and initializing shadow threads. Notably, the connection to the process manager itself is established during each client's initialization.
+
+A shadow thread does not execute on the client machine. The IPC procedure is as follows: the client thread first switches its context to the shadow thread, enabling it to directly access the server’s state. The shadow thread is then migrated to the server machine, executed, and subsequently migrated back, where it switches context back to the client thread.
+
+Client and server are isolated via separate page tables. To Clarify: “A client thread, after switching its context to the shadow thread, can directly access the server’s state.”
+
+#### Q-3:Questions about evaluation.
+
+- VM exit (except CPU sleep) accounts for 3–5% of all our tested applications.
+
+- Each test has a single warm-up run and 3 measurement runs. The reported results are the average of 3 measurement runs.
+
+- We compare the latency of Starfish IPC with the latency of Linux syscall, rather than with Linux IPC.
+
+- IPC latency measures an IPC round-trip.
+
+- “Cross-machine scheduling” measures the end-to-end duration beginning with the invocation of the scheduler, and ending when the selected thread is actually scheduled.
+
+- 8.3: Throughput is normalized, and the y-axis is labeled with values 0 and 1.
+
+- 8.4.1: GeminiGraph has both single-machine and multi-machine versions. We run the unmodified single-machine version on Starfish and the unmodified multi-machine version on Linux.
+
+- 8.4.3: Bars with the same pattern represent co-located applications.
+
+- 8.4.3: The slowdown of String_Match should be 2% instead of 15%. We mistakenly report the time of the cross-machine String_Match (15%) instead of the time of running String_Match on Starfish (2%). The other data in Figure-14 are correct. The slight performance decrease of running applications on Starfish is due to a portion of the OS state being stored on CXL.
+
+### Review-B
+
+#### Q-1:Is full CC realistic？
+
+According to our device vendor, full CC support for 8-hosts is fully achievable on the hardware level. 
+
+#### Q-2:Questions about the capability tree.
+
+- All possible object types in the capability tree are contained in Figure-8.
+
+- The PMO (Physical Memory Object) is a set of physical memory pages that correspond to a Virtual Memory Area (VMA).
+
+
+#### Q-3:inuse/unused copy and promotion/demotion.
+
+In normal cases, an object has a single copy (assuming on local DRAM), which is in-use. When migration is required, a new shadow copy of the object is created (on CXL), and it is the unused copy. As the object is demoted to the CXL, the on-CXL copy becomes in-use and the DRAM copy becomes unused. Then the unused one can be reclaimed or retained for future reuse. Demotion/promotion only happens during migration, decided by the scheduler who is migrating the thread.
+
+#### Q-3:Why not use the “first-torch” policy to place applications‘ heap?
+
+The first-touch policy is applicable. However, when most application data is shared across threads (like in many of our evaluated workloads), first-touch introduces overhead from migrating data between local DRAM and CXL, which hurts performance. Therefore, Starfish adopts a simpler approach for now and leaves the exploration of more advanced techniques to future work.
+
+#### Q-4:Why is migrating DBx1000 slow?
+
+We only place cross-machine running applications’ entire heap on CXL. DBx1000 in the process migration test is run on a single machine with its heap on DRAM. Thus, migrating DBx1000 involves copying DBx1000‘s entire 2.5GB heap to CXL, which makes the migration slow.
+
+#### Q-5:Setup of DBx1000.
+
+op = txn. We run TPCC with concurrency control protocol = NO_WAIT.
+
+#### Q-6:Do other setups work well in Figure 14?
+
+If DBx1000 is deployed across multiple machines, its performance decreases by 38%. However, it still outperforms the co-located DBx1000 configuration, which experiences 50%/60% performance drop when colocated with String_Match/LevelDB (String_Match/LevelDB are applications in the same group with DBx1000 in Figure-14).
+
+Currently, Starfish employs a scheduling strategy that prioritizes applications with smaller heap sizes for cross-machine execution. Starfish does not yet provide an automated mechanism for determining optimal configurations to ensure that performance does not fall below that of the co-located baseline. This is a direction for future work.   
+
+### Review-C
+
+Please refer to Common-Q1, 2 and 3.
+
+
+
+Review #227D
+===========================================================================
+
+Reviewer expertise
+------------------
+3. I published/worked in the area but might miss the most recent related
+   work
+
+Reviewer confidence
+-------------------
+4. I understood quite well
+
+Paper summary
+-------------
+This paper built a single system image on multiple machines that are connected via shared CXL memory. It separated the system state into two parts: shared and private. The shared state included top-level scheduling queue, application heap, IPC buffer, and global allocator’s metadata.  The private state included everything that related to local execution (within a machine). They evaluated the solution on a simulated setup (8 machines sharing CXL memory), and showed the system overhead is quite high.
+
+Significance of the problem
+---------------------------
+3. Important and emerging. Big opportunity for significant gains
+
+Novelty of the solution
+-----------------------
+2. Low conceptual novelty
+
+Correctness
+-----------
+1. The paper has fundamental flaws
+
+Writing quality
+---------------
+2. Reasonable. Would benefit from revision
+
+Related work
+------------
+3. Many related works are missing
+
+Robustness of the evaluation
+----------------------------
+1. Missing experiments. Weak baselines
+
+Advancement in the core ASPLOS disciplines
+------------------------------------------
+1. Systems / Operating Systems
+
+Strengths
+---------
+- Running applications on machines sharing CXL memory (pool) is an important topic.
+
+Weaknesses
+----------
+- The paper did not justify why we need to have a single system image. What was the benefit for running applications on such a system compared to a classical distributed setup? 
+
+- The paper missed many important details on how the system worked, such as load balancing, health checking, and handling memory sharing cross machines. 
+
+- The evaluation was not complete in many ways. For example, it did not explain why the IPC cost was so high (Table 2, 953 ns), and did not use a fair baseline in a couple of cases (e.g., Section 8.4.2, Section 8.4.3). The paper did not compare the application's performance to a distributed version (e.g., RPC based).
+
+Comments for authors
+--------------------
+**Correctness** 
+
+My main concern about the paper is the reason it chose to use SSI as the programming environment on machines that are sharing CXL memory. The author stated that the CXL memory has longer latency and lower bandwidth compared to local DRAM. (CXL memory can be easier and cheaper to scale up. ) However, the authors did not justify why we need such a system and what type of applications can benefit from it. For example, is there any application that requires multiple machines to handle one request? How does the application work normally and how would a CXL connected machine cluster improve its performance? These are all important questions, and need to be answered before choosing a solution. IMHO, SSI is a solution to that problem. It can be the best solution but we need to understand the problem first. 
+
+
+**Evaluation** 
+
+- Section 8.4.2. Please compare the migration performance to a "distributed based solution". For example, the service needs to drain all RPC messages, and migrate the system state to other machine before ready to receive any new requests.  
+
+- Section 8.4.3. Please compare the "exclusive" performance to Linux, and explain why only one of the three applications had "starfish-cross" numbers. Please explain how load balancing worked. 
+
+- Section 8.2. Please explain why IPC was so expensive on Starfish. Generally, IPC should be the most optimized system service in microkernels. 
+
+- Section 8.3. Please explain how many threads were in these benchmarks and where they were located (one machine, multiple machines, etc). How was their address space constructed (e.g., was the heap shared)? 
+
+- Section 8.4.1. The performance of scaling was quite bad. For example, Starfish introduced about 50% overhead for DBX1000 when running on a single machine, and achieved about 1x throughput improvements when running on 8 machines. This result cannot justify that having Starfish was a better choice. Please explain where the overhead came from.
+
+Overall Merit
+-------------
+1. Reject (The paper does not meet the bar for ASPLOS)
+
+Ranking relative to other papers assigned to you
+------------------------------------------------
+1. Below 40%
+
+
+
+Comment @A1 by Reviewer C
+---------------------------------------------------------------------------
+Thank you for your submission to ASPLOS. While the reviewers find the paper contains some interesting technical nuggets, the current submission is vague on many aspects, including the target problem, key design aspects (e.g., how the microkernel works), and the use case (e.g., a killer app). We encourage the authors to revise the paper and look forward to a much stronger submission in the future.

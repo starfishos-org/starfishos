@@ -371,7 +371,7 @@ void boot_default_servers(void)
         printf("User Init: booting polling server\n");
 
         srv_path = "/polling.srv";
-        procmgr_launch_process(1, &srv_path, "polling", true, INIT_BADGE, false);
+        proc_node = procmgr_launch_process(1, &srv_path, "polling", true, INIT_BADGE, false);
         polling_server_cap = proc_node->proc_mt_cap;
 }
 

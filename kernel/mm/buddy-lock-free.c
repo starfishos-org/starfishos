@@ -23,6 +23,21 @@ extern int cxlmem_map_num;
 extern void destory_track_info(struct page *page);
 #endif
 
+/*
+ * Per-CPU page cache (PCP) for order-0 allocations.
+ * Amortizes the cost of llfree's multi-level CAS by caching freed pages
+ * locally and serving allocs from the cache when possible.
+ */
+#define PCP_SIZE  64   /* max cached pages per CPU */
+#define PCP_BATCH 32   /* batch refill/drain count */
+
+struct pcp_cache {
+	struct page *stack[PCP_SIZE];
+	int top;  /* index of next free slot; stack[0..top-1] are cached pages */
+} __attribute__((aligned(64)));
+
+static struct pcp_cache pcp_caches[PLAT_CPU_NUM];
+
 struct buddy_llfree_layout {
 	size_t frames;
 	llfree_meta_size_t meta_sz;
@@ -268,6 +283,79 @@ void attach_buddy_lf(int cxl_pool_idx, struct phys_mem_pool *pool,
 			     free_mem_end, LLFREE_INIT_NONE);
 }
 
+/* Allocate a single order-0 page via llfree (no PCP). */
+static struct page *lf_get_one_page(struct buddy_lf_ctx *ctx,
+				    struct phys_mem_pool *pool)
+{
+	llfree_request_t req;
+	llfree_result_t res;
+	unsigned long page_idx;
+	struct page *page;
+
+	req = llfree_simple_request(ctx->locals, 0,
+				    (size_t)smp_get_cpu_id());
+	res = llfree_get(ctx->llfree, ll_none(), req);
+	if (!llfree_is_ok(res))
+		return NULL;
+	page_idx = (unsigned long)res.frame;
+	if (unlikely(page_idx >= ctx->frames))
+		BUG("llfree out-of-range frame=%lu\n", page_idx);
+
+	page = pool->page_metadata + page_idx;
+	if (unlikely(page_check_flag(page, PG_allocated)))
+		BUG("llfree: duplicate alloc page_idx=%lu\n", page_idx);
+#ifdef RMAP_ENABLED
+	set_compound_head(page, page);
+#endif
+	page_set_flag(page, PG_allocated);
+	page->pool = pool;
+	page->order = 0;
+	return page;
+}
+
+/* Batch-fill PCP cache from llfree. */
+static void pcp_refill(struct pcp_cache *pcp, struct buddy_lf_ctx *ctx,
+		       struct phys_mem_pool *pool)
+{
+	int i;
+
+	for (i = 0; i < PCP_BATCH && pcp->top < PCP_SIZE; i++) {
+		struct page *p = lf_get_one_page(ctx, pool);
+		if (!p)
+			break;
+		/* Clear allocated flag: page is cached, not in use */
+		page_clear_flag(p, PG_allocated);
+		pcp->stack[pcp->top++] = p;
+	}
+}
+
+/* Batch-drain PCP cache back to llfree. */
+static void pcp_drain(struct pcp_cache *pcp, struct buddy_lf_ctx *ctx,
+		      struct phys_mem_pool *pool)
+{
+	int i;
+
+	for (i = 0; i < PCP_BATCH && pcp->top > 0; i++) {
+		struct page *page = pcp->stack[--pcp->top];
+		unsigned long idx = (unsigned long)(page - pool->page_metadata);
+		llfree_request_t req;
+		llfree_result_t res;
+
+#ifdef RMAP_ENABLED
+		clear_compound_head(page);
+		page->pmo = NULL;
+		page->index = 0;
+#endif
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+		page->page_pair = 0;
+#endif
+		req = llfree_simple_request(ctx->locals, 0,
+					    (size_t)smp_get_cpu_id());
+		res = llfree_put(ctx->llfree, idx, req);
+		BUG_ON(!llfree_is_ok(res));
+	}
+}
+
 struct page *buddy_lf_get_pages(struct phys_mem_pool *pool, int order)
 {
 	struct buddy_lf_ctx *ctx = lf_ctx_for_pool(pool);
@@ -289,6 +377,24 @@ struct page *buddy_lf_get_pages(struct phys_mem_pool *pool, int order)
 	}
 	if (!ctx)
 		return NULL;
+
+	/* PCP fast path for order-0 */
+	if (order == 0) {
+		u32 cpu = smp_get_cpu_id();
+		struct pcp_cache *pcp = &pcp_caches[cpu];
+
+		if (pcp->top == 0)
+			pcp_refill(pcp, ctx, pool);
+		if (pcp->top > 0) {
+			page = pcp->stack[--pcp->top];
+			page_set_flag(page, PG_allocated);
+			page->pool = pool;
+			page->order = 0;
+			return page;
+		}
+		/* PCP refill failed (OOM), fall through */
+		return NULL;
+	}
 
 	req = llfree_simple_request(ctx->locals, (uint8_t)order,
 				   (size_t)smp_get_cpu_id());
@@ -336,6 +442,27 @@ void buddy_lf_free_pages(struct phys_mem_pool *pool, struct page *page)
 		BUG("buddy_lf_free_pages: no ctx\n");
 	if (unlikely(ord < 0 || (unsigned)ord > LLFREE_MAX_ORDER))
 		BUG("buddy_lf_free_pages: unsupported order=%d\n", ord);
+
+	/* PCP fast path for order-0 */
+	if (ord == 0) {
+		u32 cpu = smp_get_cpu_id();
+		struct pcp_cache *pcp = &pcp_caches[cpu];
+
+		BUG_ON(!page_check_flag(page, PG_allocated));
+		page->flags = 0;
+#ifdef RMAP_ENABLED
+		clear_compound_head(page);
+		page->pmo = NULL;
+		page->index = 0;
+#endif
+#if defined CHCORE_SLS || defined CHCORE_SSI_SLS
+		page->page_pair = 0;
+#endif
+		if (pcp->top >= PCP_SIZE)
+			pcp_drain(pcp, ctx, pool);
+		pcp->stack[pcp->top++] = page;
+		return;
+	}
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 	prepare_latest_log(pool, REMOVE_PAGES, (u64)page, page->order, 0);

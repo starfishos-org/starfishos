@@ -152,11 +152,117 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
 void dq_wait_for_done(struct dq_node *node)
 {
     int spins = 0;
-    while (atomic_load_explicit(&node->status, memory_order_acquire)
-           != DQ_DONE) {
+    while (1) {
+        int status = atomic_load_explicit(&node->status, memory_order_acquire);
+        if (status == DQ_DONE)
+            return;
+        if (status == DQ_CRASH) {
+            printf("[dq_wait] node crashed, server may have died\n");
+            return;
+        }
         if (++spins % 10000000 == 0) {
-            printf("[wait_stuck] spins=%d status=%d\n", spins,
-                   atomic_load_explicit(&node->status, memory_order_relaxed));
+            printf("[wait_stuck] spins=%d status=%d\n", spins, status);
+        }
+    }
+}
+
+/* Returns 0 if DONE, -1 if CRASH */
+int dq_wait_for_done_or_crash(struct dq_node *node)
+{
+    int spins = 0;
+    while (1) {
+        int status = atomic_load_explicit(&node->status, memory_order_acquire);
+        if (status == DQ_DONE)
+            return 0;
+        if (status == DQ_CRASH)
+            return -1;
+        if (++spins % 10000000 == 0) {
+            printf("[wait_stuck] spins=%d status=%d\n", spins, status);
+        }
+    }
+}
+
+/* ================================================================
+ * Server-side dequeue — shared by polling_server.c and tmpfs_polling.c
+ *
+ * Deferred-free ring: after a node is dequeued it becomes the new queue
+ * sentinel and cannot be freed immediately (the producer may still be
+ * reading the response).  We delay by DEFER_DEPTH dequeue cycles; the
+ * slot being evicted must be DQ_CONSUMED before we call dq_free_node.
+ * ================================================================ */
+
+#define DEFER_DEPTH 16
+static qptr_t defer_ring[DEFER_DEPTH];
+static int defer_idx = 0;
+static int defer_inited = 0;
+
+static void defer_free(struct polling_shm_region *shm, qptr_t old_sentinel)
+{
+    if (!defer_inited) {
+        for (int i = 0; i < DEFER_DEPTH; i++)
+            defer_ring[i] = QPTR_NULL;
+        defer_inited = 1;
+    }
+
+    qptr_t to_free = defer_ring[defer_idx];
+    if (to_free != QPTR_NULL) {
+        struct dq_node *node = qptr_to_ptr(shm, to_free);
+        while (atomic_load_explicit(&node->status, memory_order_acquire)
+               != DQ_CONSUMED) {
+            __builtin_ia32_pause();
+        }
+        dq_free_node(shm, node);
+    }
+
+    defer_ring[defer_idx] = old_sentinel;
+    defer_idx = (defer_idx + 1) % DEFER_DEPTH;
+}
+
+struct dq_node *durable_dequeue(struct polling_shm_region *shm)
+{
+    while (1) {
+        qptr_t first = atomic_load_explicit(&shm->queue.head,
+                                            memory_order_acquire);
+        qptr_t last = atomic_load_explicit(&shm->queue.tail,
+                                           memory_order_acquire);
+        struct dq_node *first_node = qptr_to_ptr(shm, first);
+        qptr_t next = atomic_load_explicit(&first_node->next,
+                                           memory_order_acquire);
+
+        if (first != atomic_load_explicit(&shm->queue.head,
+                                          memory_order_acquire))
+            continue;
+
+        if (first == last) {
+            if (next == QPTR_NULL)
+                return NULL;
+            FLUSH(&first_node->next);
+            qptr_t exp = last;
+            atomic_compare_exchange_strong_explicit(
+                    &shm->queue.tail, &exp, next,
+                    memory_order_release, memory_order_relaxed);
+        } else {
+            struct dq_node *n = qptr_to_ptr(shm, next);
+
+            int expected = DQ_INIT;
+            if (atomic_compare_exchange_strong_explicit(
+                        &n->status, &expected, DQ_DOING,
+                        memory_order_acquire, memory_order_relaxed)) {
+                FLUSH(&n->status);
+
+                qptr_t exp_first = first;
+                atomic_compare_exchange_strong_explicit(
+                        &shm->queue.head, &exp_first, next,
+                        memory_order_release, memory_order_relaxed);
+
+                defer_free(shm, first);
+                return n;
+            }
+
+            qptr_t exp_first = first;
+            atomic_compare_exchange_strong_explicit(
+                    &shm->queue.head, &exp_first, next,
+                    memory_order_release, memory_order_relaxed);
         }
     }
 }
@@ -182,7 +288,7 @@ void debug_print_mpsc_alloc_msg_retry_time(void)
 /* ================================================================
  * High-level FS operations (producer side)
  *
- * Pattern: alloc -> fill req -> enqueue -> wait DONE -> read resp -> free
+ * Pattern: alloc -> enqueue -> wait DONE -> read resp -> mark CONSUMED
  * ================================================================ */
 
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
@@ -199,7 +305,7 @@ int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
     dq_wait_for_done(node);
 
     int fd = node->resp.open.fd;
-    /* Node will be freed by consumer (old sentinel recycling) */
+    atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
     return fd;
 }
 
@@ -225,6 +331,7 @@ ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
 
         ssize_t n = node->resp.read.count;
         memcpy(p, node->resp.read.buf, n);
+        atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
 
         total += n;
         p += n;
@@ -258,6 +365,7 @@ ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
         dq_wait_for_done(node);
 
         ssize_t n = node->resp.write.count;
+        atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
 
         total += n;
         p += n;
@@ -281,6 +389,7 @@ int polling_fs_close(struct polling_shm_region *shm, int fd)
     dq_wait_for_done(node);
 
     int ret = node->resp.close.ret;
+    atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
     return ret;
 }
 
@@ -292,6 +401,7 @@ void polling_fs_empty(struct polling_shm_region *shm)
     struct dq_node *node = dq_alloc_node(shm);
     dq_enqueue(shm, node, &req);
     dq_wait_for_done(node);
+    atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
 }
 
 void polling_print_debug_info(struct polling_shm_region *shm)
@@ -302,4 +412,5 @@ void polling_print_debug_info(struct polling_shm_region *shm)
     struct dq_node *node = dq_alloc_node(shm);
     dq_enqueue(shm, node, &req);
     dq_wait_for_done(node);
+    atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
 }

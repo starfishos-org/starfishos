@@ -30,9 +30,12 @@ void run_test(void)
 {
     // tst_mutex();
     // tst_rwlock();
+#ifdef SLAB_CRASH_RECOVERY
+    tst_slab_recovery();
+#endif
     u32 cpu_id = smp_get_cpu_id();
     u32 online_cpu_num = smp_get_cpu_num();
-    static const u32 parallel_levels[] = {1, 4, 16, 32, 48, 64, 96};
+    static const u32 parallel_levels[] = {1, 4, 8, 16, 32, 48, 64, 96};
 
     if (online_cpu_num == 0)
         online_cpu_num = PLAT_CPU_NUM;

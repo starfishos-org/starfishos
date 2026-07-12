@@ -87,6 +87,9 @@ struct fs_server_ops {
 	int (*fallocate) (ipc_msg_t *ipc_msg, struct fs_request *fr);
 	int (*fcntl) (void *operator, int fd, int fcntl_cmd, int fcntl_arg);
 
+	/* Called after fsync/fdatasync; NULL means no-op. */
+	int (*fsync) (void);
+
 #ifdef CHCORE_ENABLE_FMAP
 	vaddr_t (*fmap_get_page_addr)(void *operator, size_t offset);
 #endif
@@ -102,6 +105,7 @@ int fs_wrapper_fmap(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr,
 int fs_wrapper_open(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_close(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_read(ipc_msg_t *ipc_msg, struct fs_request *fr);
+int fs_wrapper_batch_read(u64 client_badge, ipc_msg_t *ipc_msg);
 int fs_wrapper_pread(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_pwrite(ipc_msg_t *ipc_msg, struct fs_request *fr);
 int fs_wrapper_write(ipc_msg_t *ipc_msg, struct fs_request *fr);

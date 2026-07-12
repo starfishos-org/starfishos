@@ -1,0 +1,273 @@
+vm_id: 0, qemu: qemu-6.2-system-x86_64, qemu_options: -gdb tcp::36856 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa0.0-wfn,id=cxl0 -device ivshmem-plain,memdev=cxl0 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa0.1-wfn,id=cxl1 -device ivshmem-plain,memdev=cxl1 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa1.0-wfn,id=cxl2 -device ivshmem-plain,memdev=cxl2 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa1.1-wfn,id=cxl3 -device ivshmem-plain,memdev=cxl3 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa2.0-wfn,id=cxl4 -device ivshmem-plain,memdev=cxl4 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa2.1-wfn,id=cxl5 -device ivshmem-plain,memdev=cxl5 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa3.0-wfn,id=cxl6 -device ivshmem-plain,memdev=cxl6 -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/numa3.1-wfn,id=cxl7 -device ivshmem-plain,memdev=cxl7 --enable-kvm -M q35 -name chcore-0 -m 17G -object memory-backend-file,size=34359738368,share=on,mem-path=/dev/shm/ivshmem-wfn,id=hostmem -device ivshmem-plain,memdev=hostmem -object memory-backend-file,size=17179869184,share=on,mem-path=/dev/shm/ivshmem-hostfs-wfn,id=hostfsmem -device ivshmem-plain,memdev=hostfsmem -chardev socket,path=/tmp/ivshmem-doorbell-wfn,id=doorbell_chardev -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 -cpu host -smp 96 -serial mon:stdio -nographic -cdrom ./build/chcore.iso -fw_cfg name=opt/chcore/bootargs,string=machine_id=0,,machine_num=1,,cpu_num=96,,tmp_size=1G,,dram_size=16G
+c[?7l[2J[0mSeaBIOS (version rel-1.15.0-0-g2dd4b9b3f840-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7FF90D30+7FEF0D30 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: could not read the boot disk
+
+Booting from DVD/CD...
+[01;01H[2J[INFO] [Multiboot2 INFO] Detect framebuffer type RGB, width = 640, height = 480, depth = 32, addr = 0xfd000000
+[INFO] [Multiboot2 INFO] Found old acpi tag, size = 28, rsdp = 0xffffff003c2004e8
+[INFO] [ChCore] framebuffer console init finished
+[INFO] [ACPI INFO] ACPI version 1.0, use COMMON RSDP and RSDT
+[INFO] [ChCore] cpu frequency=(Dec)2100202051
+[INFO] Use temp memory: 0x100000000 - 0x140000000 (size: 0x40000000)
+[INFO] [35m[TEMP MEMORY] Initializing temp allocator: 0x100000000 - 0x140000000 (size: 0x40000000)[0m
+[INFO] [BUDDY_INIT] pool: ffffffff8c0a40a0, type: 4, pool_start_addr: 0xffffff010139e000, pool_mem_size: 0x3ec62000, page_num: 257122, machine_id: 0
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/drivers/pci/pci.c pci_cfg_space_size: need to check if it is a PCIE device
+[PCI] [IVSHMEM] [0] identified as doorbell device (unknown magic)
+[PCI] [IVSHMEM] Deferring peer_id registration: dsm_meta=0, CUR_MACHINE_ID=0
+[PCI] [IVSHMEM] [1] magic "match hostfs"
+[PCI] [IVSHMEM] [2] magic "match cxlmem" (shared memory device)
+[PCI] [IVSHMEM] [7] magic "numa3.1" -> DRAM device 7 (numa3.1)
+[PCI] [IVSHMEM] [6] magic "numa3.0" -> DRAM device 6 (numa3.0)
+[PCI] [IVSHMEM] [5] magic "numa2.1" -> DRAM device 5 (numa2.1)
+[PCI] [IVSHMEM] [4] magic "numa2.0" -> DRAM device 4 (numa2.0)
+[PCI] [IVSHMEM] [3] magic "numa1.1" -> DRAM device 3 (numa1.1)
+[PCI] [IVSHMEM] [2] magic "numa1.0" -> DRAM device 2 (numa1.0)
+[PCI] [IVSHMEM] [1] magic "numa0.1" -> DRAM device 1 (numa0.1)
+[PCI] [IVSHMEM] [0] magic "numa0.0" -> DRAM device 0 (numa0.0)
+[INFO] [DSM] machine 0 local memory range: 1000001000-1400000000 (size: 3fffff000)
+[INFO] [35m[DRAM MEMORY] machine 0 local memory range: 1000001000-1400000000[0m
+[INFO] [BUDDY_INIT] pool: ffffffff8c0a5540, type: 0, pool_start_addr: 0xffffff10139e0000, pool_mem_size: 0x3ec620000, page_num: 4113952, machine_id: 0
+[INFO] [32m[1m[DSM] machine 0 (cpu0 - cpu95) join the cluster!
+[0m[INFO] [SHM] Use 0x80000b000 - 0x1000000000
+[INFO] [LLFREE_INIT] pool ffffff08000000f8 type 3 frames 8227610 locals 96 data @ 0x8274e6000 meta @ 0x80000b000
+finish init llfree backend
+[INFO] list hostfs file info
+[PCI] [HOSTFS] /host/: file_num=1
+[PCI] [HOSTFS] /host/twitter-2010.bin: offset=1000, size=2bc2bcbf0
+[INFO] [ChCore] Registering IVSHMEM peer_id...
+[INFO] [IVSHMEM] Registered peer_id mapping: machine_id=0 -> peer_id=0
+[INFO] [35m[IVSHMEM] Message processing mode: Polling (user-space)[0m
+[INFO] [ChCore] Using polling mode - user-space polling server will handle messages
+[INFO] [SMP] active cpu num: 96 (MADT=96, PLAT_MAX=96)
+[INFO] [ChCore] kernel tests start
+[INFO] [TEST] start malloc test parallel=1
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=1): 449872 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=1): 327621 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 150884 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6231228 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 14019 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 83165 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 121319 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1348186 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 16053 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 11122 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 68207 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=2
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=2): 257066 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=2): 220591 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3578927 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6338711 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 57994 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 80812 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 503559 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1336612 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 16037 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 72556 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 76363 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=4
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=4): 198874 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=4): 87023 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3318438 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6343158 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 95795 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 113722 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 126807 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1345866 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 16005 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 71242 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 76021 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=8
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=8): 146470 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=8): 82157 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3258478 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6392493 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 95551 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 112371 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 127144 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1345566 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15941 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 67931 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 70979 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=12
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=12): 110598 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=12): 67017 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3124438 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6395968 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 77565 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 113277 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 126854 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1347507 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15877 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 67997 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 75211 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=16
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=16): 68267 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=16): 48924 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3082213 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6431142 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 77892 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 114404 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 124386 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1340827 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15813 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 68625 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 75804 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=32
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=32): 25901 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=32): 26635 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 1321346 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6329243 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 51881 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 64352 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 75021 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1342569 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15557 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 66884 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 75746 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=48
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=48): 17707 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=48): 21654 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3013530 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6342753 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 73661 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 108332 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 126587 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1346584 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15301 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 67821 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 76108 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=64
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=64): 16203 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=64): 13549 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3041829 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6258597 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 72210 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 112510 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 126691 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1350629 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 15045 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 66903 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 75277 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [TEST] start malloc test parallel=96
+[INFO] [TEST] DRAM kmalloc avg throughput (parallel=96): 8334 ops/s
+[INFO] [TEST] CXL kmalloc avg throughput (parallel=96): 8568 ops/s
+[INFO] [TEST] get_pages alloc (DRAM, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (DRAM, 4096B): 3102544 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 4096B): 6360119 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/buddy.c [OOM] No enough memory in memory pool ffffffff8c0a5540
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/dram_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (DRAM, 2097152B): 8032 chunks
+[INFO] [TEST] get_pages throughput (DRAM, 2097152B): 52570 ops/s (avg)
+[INFO] [TEST] free_pages throughput (DRAM, 2097152B): 83260 ops/s (avg)
+[INFO] [TEST] get_pages alloc (CXL, 4096B): 50000 chunks (capped)
+[INFO] [TEST] get_pages throughput (CXL, 4096B): 120817 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 4096B): 1343223 ops/s (avg)
+[33m[WARN][0m file:/home/wfn/chcore-cxl/kernel/mm/cxl/cxl_alloc.c [OOM] Cannot get page from any memory pool!
+[INFO] [TEST] get_pages alloc (CXL, 2097152B): 14533 chunks
+[INFO] [TEST] get_pages throughput (CXL, 2097152B): 60412 ops/s (avg)
+[INFO] [TEST] free_pages throughput (CXL, 2097152B): 66507 ops/s (avg)
+[INFO] [TEST] malloc succ!
+[INFO] [ChCore] kernel tests done
+[INFO] [ChCore] create initial thread done, machine id: 0
+User Init: booting fs server (FSMGR and real FS) 
+[procmgr] register server value = 0
+[plog] Initialized p-log for machine 0 (capacity=1048512)
+User Init: booting network server
+[fsm] Mounting fs from local binary: /tmpfs.srv...
+[fsm] Mounting TMPFS, cap = 13
+[fsm] TMPFS is up, with cap = 13
+[tmpfs] Polling thread startup DISABLED for debugging
+[tmpfs] [tmpfs] [rfesgimst]e r[ FSsM]e rrveegri vsatleure  =s 0er
+ver value = 0
+User Init: booting polling server
+[lwip] Host at 192.168.0.3 mask 255.255.255.0 gateway 192.168.0.1
+[lwip] TCrCeaPt/IiPn g in1itialized. p
+olling threads
+Polling Service Server: mmap shm by id 0
+[dq_i[nlwiipt] ]A pddo onlet_ifo ff0x=15020080 n0o7def_eseizae=8232 max_nodes=31
+Polling thread 0 bound t0o C
+PU 9[lw
+iPpol]l riegngis ttherre asde 0r:v esr etva bluudeget to 100 ticks
+ = 0
+
+[1m ______     __  __     ______     __  __     ______     __         __        
+/\  ___\   /\ \_\ \   /\  ___\   /\ \_\ \   /\  ___\   /\ \       /\ \       
+\ \ \____  \ \  __ \  \ \___  \  \ \  __ \  \ \  __\   \ \ \____  \ \ \____  
+ \ \_____\  \ \_\ \_\  \/\_____\  \ \_\ \_\  \ \_____\  \ \_____\  \ \_____\ 
+  \/_____/   \/_/\/_/   \/_____/   \/_/\/_/   \/_____/   \/_____/   \/_____/ 
+[0m
+[1m[32mWelcome to ChCore shell![0m
+
+$ 
+
+$ 

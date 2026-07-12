@@ -445,3 +445,8 @@ int usys_print_vmspace_stats(void)
 {
 	return chcore_syscall0(CHCORE_SYS_print_vmspace_stats);
 }
+
+int usys_set_thread_budget(u32 budget)
+{
+	return chcore_syscall1(CHCORE_SYS_set_thread_budget, (u64)budget);
+}

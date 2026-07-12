@@ -2,6 +2,9 @@
 #include <common/macro.h>
 #include <common/size.h>
 #include <lib/fw_cfg.h>
+#ifdef PHOENIX_SCHED_TIMING
+#include <arch/time.h>
+#endif
 
 int machine_id = -1;
 
@@ -103,4 +106,25 @@ void dsm_add_machine()
           "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
           ANSI_COLOR_RESET,
           CUR_MACHINE_ID, CPU_RANGE_LOW, CPU_RANGE_HIGH);
+
+#ifdef PHOENIX_SCHED_TIMING
+    /*
+     * Cross-machine TSC calibration barrier.
+     * All machines signal ready, spin until everyone is ready, then
+     * write get_cycles() simultaneously.  After this barrier,
+     * dsm_tsc_to_m0() can convert any machine's raw TSC to machine-0's
+     * time domain with < 1 µs error.
+     */
+    {
+        int _n = FW_MACHINE_NUM > 0 ? FW_MACHINE_NUM : 1;
+        dsm_meta->tsc_sync_ready[CUR_MACHINE_ID] = 1;
+        /* Wait for all machines to mark ready */
+        for (int _i = 0; _i < _n; _i++)
+            while (!dsm_meta->tsc_sync_ready[_i]) {}
+        /* All machines write their TSC at roughly the same real time */
+        dsm_meta->tsc_sync[CUR_MACHINE_ID] = get_cycles();
+        kinfo("[SCHED_TIMING] machine %d tsc_sync=%llu\n",
+              CUR_MACHINE_ID, dsm_meta->tsc_sync[CUR_MACHINE_ID]);
+    }
+#endif
 }

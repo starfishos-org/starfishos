@@ -10,6 +10,10 @@ void dq_free_node(struct polling_shm_region *shm, struct dq_node *node);
 void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
                 struct polling_request *req);
 void dq_wait_for_done(struct dq_node *node);
+int dq_wait_for_done_or_crash(struct dq_node *node);
+
+/* ---- Server-side dequeue (shared by polling_server and tmpfs_polling) ---- */
+struct dq_node *durable_dequeue(struct polling_shm_region *shm);
 
 /* ---- High-level FS operations (producer side) ---- */
 int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,

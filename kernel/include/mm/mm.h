@@ -1,12 +1,16 @@
 #pragma once
 
-#include <common/util.h>
-#include <mm/vmspace.h>
 #include <mm/buddy.h>
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE BUDDY_PAGE_SIZE
 #endif
+
+#include <common/util.h>
+#include <mm/vmspace.h>
+
+/* Forward declarations */
+struct vmspace;
 
 #define N_PHYS_MEM_POOLS 8
 

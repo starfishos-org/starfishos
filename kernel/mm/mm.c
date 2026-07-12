@@ -306,6 +306,9 @@ void ext_mm_init()
 #endif
         }
         init_cxl_slab();
+#ifdef SLAB_CRASH_RECOVERY
+        recover_cxl_slabs();
+#endif
         goto skip_init;
     }
 

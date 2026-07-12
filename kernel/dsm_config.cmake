@@ -23,6 +23,14 @@ set(DSM_PAGE_MODE "CXL")
 # If "OFF", use QEMU RAM (-m) and slice it in kernel: [tmp_size, tmp_size+dram_size/DSM_FIXED_MACHINE_NUM).
 set(USE_DEV_AS_DRAM "ON")
 
-# If "ON", CXL memory pool uses lock-free buddy allocator; 
+# If "ON", CXL memory pool uses lock-free buddy allocator;
 # if "OFF", use original lock-based buddy allocator.
 set(DSM_CXL_LF_BUDDY "ON")
+
+# If "ON", enable per-slab in-flight undo log for crash recovery.
+# Adds FLUSH/FENCE overhead on slab alloc/free hot path.
+set(SLAB_CRASH_RECOVERY "OFF")
+
+# If "ON", enable cross-machine scheduler timing probes (set_affinity → dequeue latency).
+# Requires PHOENIX_SCHED_TIMING in kernel; pairs with PHOENIX_TIMING in user/demos/phoenix-2.0.
+set(PHOENIX_SCHED_TIMING "ON")

@@ -297,6 +297,28 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 			}
 			break;
 		}
+		case FSM_REQ_REPLACE_FS: {
+			/* Recovery: replace mount point with new FS instance */
+			int new_cap = ipc_get_msg_cap(ipc_msg, 0);
+			pthread_rwlock_wrlock(&mount_point_infos_rwlock);
+			struct mount_point_info_node *mp =
+				get_mount_point(fsm_req->mount_path,
+						strlen(fsm_req->mount_path));
+			if (mp) {
+				mp->fs_cap = new_cap;
+				mp->_fs_ipc_struct = ipc_register_client(new_cap);
+				mp->target_machine_id = fsm_req->target_machine_id;
+				info("[FSM] Replaced FS for %s (new_cap=%d, mid=%d)\n",
+				     mp->path, new_cap, mp->target_machine_id);
+				ret = 0;
+			} else {
+				error("[FSM] REPLACE_FS: mount point %s not found\n",
+				      fsm_req->mount_path);
+				ret = -1;
+			}
+			pthread_rwlock_unlock(&mount_point_infos_rwlock);
+			break;
+		}
 		default:
 			error("%s: %d Not impelemented yet\n", __func__,
 			      ((int *)(ipc_get_msg_data(ipc_msg)))[0]);

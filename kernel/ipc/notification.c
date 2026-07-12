@@ -19,7 +19,7 @@ void init_notific(struct notification *notifc)
 {
     notifc->not_delivered_notifc_count = 0;
     notifc->waiting_threads_count = 0;
-    init_list_head(&notifc->waiting_threads);
+    thread_dq_init(&notifc->waiting_threads);
     lock_init(&notifc->notifc_lock);
     notifc->state = NOTIFIC_VALID;
 }
@@ -88,7 +88,8 @@ static void notific_timer_cb(struct thread *thread)
     notification_lazy_copy_ckpt(notifc, true);
 #endif
 
-    list_del(&thread->notification_queue_node);
+    thread_dq_cancel_node(thread->notif_dq_node_off);
+    thread->notif_dq_node_off = QPTR_NULL;
     BUG_ON(notifc->waiting_threads_count <= 0);
     notifc->waiting_threads_count--;
 
@@ -141,8 +142,7 @@ int wait_notific_internal(struct notification *notifc, bool is_block,
                         lock(&thread->sleep_state.queue_lock);
 
                         /* Add this thread to waiting list */
-                        list_append(&thread->notification_queue_node,
-                                    &notifc->waiting_threads);
+                        thread_dq_enqueue(&notifc->waiting_threads, thread);
                         thread->thread_ctx->state = TS_WAITING;
                         notifc->waiting_threads_count++;
                         arch_set_thread_return(thread, 0);
@@ -211,8 +211,7 @@ void wait_irq_notific(struct irq_notification *irq_notifc)
     lock(&notifc->notifc_lock);
 
     /* Add this thread to waiting list */
-    list_append(&current_thread->notification_queue_node,
-                &notifc->waiting_threads);
+    thread_dq_enqueue(&notifc->waiting_threads, current_thread);
     current_thread->thread_ctx->state = TS_WAITING;
     notifc->waiting_threads_count++;
     arch_set_thread_return(current_thread, 0);
@@ -247,13 +246,13 @@ void signal_irq_notific(struct irq_notification *irq_notifc)
 
     /*
      * Some threads have been blocked and waiting for notifc.
-     * Wake up one waiting thread
+     * Dequeue one waiting thread
      */
-    target = list_entry(notifc->waiting_threads.next,
-                        struct thread,
-                        notification_queue_node);
-    list_del(&target->notification_queue_node);
-    notifc->waiting_threads_count--;
+    target = thread_dq_dequeue(&notifc->waiting_threads);
+    if (target != NULL) {
+        target->notif_dq_node_off = QPTR_NULL;
+        notifc->waiting_threads_count--;
+    }
 
     // int count = notifc->waiting_threads_count;
     // 	count--;
@@ -317,11 +316,17 @@ int signal_notific(struct notification *notifc)
     } else {
         /*
          * Some threads have been blocked and waiting for notifc.
-         * Wake up one waiting thread
+         * Dequeue one waiting thread
          */
-        target = list_entry(notifc->waiting_threads.next,
-                            struct thread,
-                            notification_queue_node);
+        target = thread_dq_dequeue(&notifc->waiting_threads);
+
+        if (target == NULL) {
+            /* Queue was empty despite count > 0, possibly due to cancellations in progress */
+            unlock(&notifc->notifc_lock);
+            return -EAGAIN;
+        }
+
+        notifc->waiting_threads_count--;
 
 #ifdef DSM_ENABLED
         // debug
@@ -332,7 +337,6 @@ int signal_notific(struct notification *notifc)
         if (obj2object(target)->status == DSM_STATUS_MIGRATED) {
             struct object *object = dsm_get_inuse_object(obj2object(target), false);
             BUG_ON(!object);
-            list_del(&target->notification_queue_node);
             target = (struct thread *)object2obj(object);
         }
 #endif
@@ -341,7 +345,7 @@ int signal_notific(struct notification *notifc)
             printk("signal_notific: target thread %p\n", target);
             // print_thread(target);
         }
-        
+
         BUG_ON(target == NULL || target->thread_ctx == NULL);
 
         /*
@@ -367,9 +371,8 @@ int signal_notific(struct notification *notifc)
             }
         }
 
-        /* Delete the thread from the waiting list of the notification */
-        list_del(&target->notification_queue_node);
-        notifc->waiting_threads_count--;
+        /* Clear the dq node offset since thread was dequeued */
+        target->notif_dq_node_off = QPTR_NULL;
 
         target->thread_ctx->state = TS_TO_SCHED;
         if (target->thread_ctx->thread_exit_state == TE_EXITING) {
@@ -422,28 +425,31 @@ int requeue_notific(struct notification *src_notifc, struct notification *dst_no
                 goto out_unlock;
         }
 
-        target = list_entry(src_notifc->waiting_threads.next,
-                            struct thread,
-                            notification_queue_node);
+        target = thread_dq_dequeue(&src_notifc->waiting_threads);
 
-        BUG_ON(target == NULL);
-
-        if (try_lock(&target->sleep_state.queue_lock) != 0) {
-                /* Lock failed: must be timeout now */
+        if (target == NULL) {
+                /* Queue empty despite count > 0, possibly due to cancellations */
                 ret = -EAGAIN;
                 goto out_unlock;
         }
 
-        /* Delete the thread from the waiting list of the src notification*/
-        list_del(&target->notification_queue_node);
         src_notifc->waiting_threads_count--;
+
+        if (try_lock(&target->sleep_state.queue_lock) != 0) {
+                /* Lock failed: must be timeout now. Requeue back to src.
+                 * Note: we already dequeued, so we need to enqueue back. */
+                thread_dq_enqueue(&src_notifc->waiting_threads, target);
+                src_notifc->waiting_threads_count++;
+                ret = -EAGAIN;
+                goto out_unlock;
+        }
 
         /* Add this thread to dst waiting list */
         if (dst_notifc->not_delivered_notifc_count > 0) {
                 BUG("Futex code should guarantee ZERO not_delivered_notifc_count.");
         } else {
                 target->sleep_state.pending_notific = dst_notifc;
-                list_append(&target->notification_queue_node, &dst_notifc->waiting_threads);
+                thread_dq_enqueue(&dst_notifc->waiting_threads, target);
                 dst_notifc->waiting_threads_count++;
         }
 
@@ -462,7 +468,7 @@ int sys_create_notifc(void)
     int notifc_cap = 0;
     int ret = 0;
 
-    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __MT_OBJECT__);
+    notifc = obj_alloc(TYPE_NOTIFICATION, sizeof(*notifc), __MT_SHARED__);
     if (!notifc) {
         ret = -ENOMEM;
         goto out_fail;

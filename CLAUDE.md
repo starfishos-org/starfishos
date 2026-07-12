@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+- 所有测latency/crash等在代码中添加的，都需要用一个kernel的变量来控制，可以开关
+- 所有
+
 ## Current Target
 
 **研究目标**：搞清楚运行`user/demos/GeminiGraph`的pagerank程序时，**访问什么状态（哪些 VA/数据结构）导致页被迁移到 CXL**。
