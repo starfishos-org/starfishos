@@ -4,10 +4,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/ipc-cdf"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
-OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
+# NUM_MACHINES=2 reproduces the paper figure; NUM_MACHINES=8 is the
+# reviewer-requested variant (same workloads on an 8-machine cluster).
+NUM_MACHINES="${NUM_MACHINES:-2}"
+OUT_DIR="${OUT_DIR:-$AE_DIR/out/${TS}-m${NUM_MACHINES}}"
 LOG_DIR="$OUT_DIR/logs"
 SESSION="${SESSION:-${USER}-ipc-ae}"
-NUM_MACHINES=2
 TIMEOUT="${TIMEOUT:-240}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
 
@@ -84,6 +86,9 @@ run_client() {
 
     before="$(done_count "$logfile")"
     echo "=== Running $mode on machine $machine ==="
+    # flush any pending tty escape-sequence garbage before the real command
+    tmux send-keys -t "$SESSION:$machine" "" Enter
+    sleep 1
     tmux send-keys -t "$SESSION:$machine" "$command" Enter
 
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
@@ -152,14 +157,18 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
 fi
 
-echo "=== Booting two QEMU machines ==="
+echo "=== Booting $NUM_MACHINES QEMU machines ==="
 tmux new-session -d -s "$SESSION" -n 0 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 0 2>&1 | tee '$LOG_DIR/machine0.log'"
 wait_for_pane_text 0 "DSM] machine 0 " "DSM machine 0 joined"
 wait_for_pane_text 0 "Welcome to ChCore shell!" "Machine 0 shell ready"
 
-tmux new-window -t "$SESSION" -n 1 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 1 2>&1 | tee '$LOG_DIR/machine1.log'"
-wait_for_pane_text 1 "DSM] machine 1 " "DSM machine 1 joined"
-wait_for_pane_text 1 "Welcome to ChCore shell!" "Machine 1 shell ready"
+for i in $(seq 1 $((NUM_MACHINES - 1))); do
+    tmux new-window -t "$SESSION" -n "$i" "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $i 2>&1 | tee '$LOG_DIR/machine$i.log'"
+    wait_for_pane_text "$i" "DSM] machine $i " "DSM machine $i joined"
+done
+for i in $(seq 1 $((NUM_MACHINES - 1))); do
+    wait_for_pane_text "$i" "Welcome to ChCore shell!" "Machine $i shell ready"
+done
 
 run_client 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty"
 run_client 0 direct "polling_client.bin -d -t 1 -m direct"

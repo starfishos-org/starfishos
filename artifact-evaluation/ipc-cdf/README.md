@@ -10,6 +10,18 @@ Run from the repository root:
 ./artifact-evaluation/ipc-cdf/run.sh
 ```
 
+This reproduces paper **Figure 11** on the default 2-machine cluster. For the
+reviewer-requested 8-machine variant (same workloads — direct IPC on machine
+0, cross IPC from machine 1 — but with an 8-machine cluster joined to the
+same CXL pool):
+
+```bash
+NUM_MACHINES=8 ./artifact-evaluation/ipc-cdf/run.sh
+```
+
+Outputs go to `out/<timestamp>-m<NUM_MACHINES>/` so the two variants can be
+compared side by side.
+
 `artifact-evaluation/prepare.sh` is global. Run it before the individual
 artifact tests; repeated default runs reuse existing large backing files. It
 prepares:
