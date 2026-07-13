@@ -55,3 +55,8 @@ third_party/
 chcore-ckpt-logs
 ivshmem_server.log
 logs/
+
+# runtime/benchmark outputs must not live in the repo root (file them
+# under log/<benchmark>/ per CLAUDE.md File Placement Rules)
+/*.log
+/*.csv

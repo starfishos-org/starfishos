@@ -18,7 +18,7 @@ build:
 
 ba: build-all
 build-all:
-	./quick-build.sh
+	./scripts/quick-build.sh
 
 clean-dsm:
 	./dsm-scripts/config_memdev.sh cxl
@@ -51,7 +51,7 @@ r4-perf: perf-config r4
 prepare:
 	./dsm-scripts/config_memdev.sh cxl-new
 	python3 ./dsm-scripts/prepare_hostfs.py
-	./quick-build.sh
+	./scripts/quick-build.sh
 
 c: clean
 clean:

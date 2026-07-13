@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # This is a script for the quick building
-# ./quick-build.sh (build x86_64)
-# ./quick-build.sh raspi3 (build raspi3)
+# ./scripts/quick-build.sh (build x86_64)
+# ./scripts/quick-build.sh raspi3 (build raspi3)
 
 if [[ $1 == *"raspi3"* ]]; then
         ./chbuild distclean

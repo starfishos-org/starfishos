@@ -1,5 +1,0 @@
-mode,total_samples,threads,p50,p75,p90,p99,max
-direct,3000,3,0,0,0,0,98305
-direct_empty,3000,3,0,0,0,0,98305
-local_polling,3000,3,0,0,0,0,98305
-cross_polling,3000,3,0,0,0,0,98305

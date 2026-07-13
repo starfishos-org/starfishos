@@ -69,7 +69,7 @@ To use the newly built container, you can modify the Docker image name in the `c
 
 ## Artificial Evaluation
 
-Please refer to [artificial_eval.md](./artificial_eval.md)
+Please refer to [artificial_eval.md](./docs/artificial_eval.md)
 
 ## File Tree
 

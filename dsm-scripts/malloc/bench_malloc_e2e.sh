@@ -108,7 +108,7 @@ build_and_run() {
     echo "[E2E] Building config: $label"
     echo "========================================"
     local build_ok=0
-    (cd "$ROOT_DIR" && ./quick-build.sh) 2>&1 | tail -10 && build_ok=1 || build_ok=0
+    (cd "$ROOT_DIR" && ./scripts/quick-build.sh) 2>&1 | tail -10 && build_ok=1 || build_ok=0
     if [ "$build_ok" -eq 0 ]; then
         echo "[E2E] BUILD FAILED for config: $label — skipping all runs." >&2
         return 0

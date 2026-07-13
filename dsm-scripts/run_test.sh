@@ -7,7 +7,7 @@ mode=$3
 if [ "$mode" = "build" ]; then
     ./chbuild build
 elif [ "$mode" = "full-build" ]; then
-    ./quick-build.sh
+    ./scripts/quick-build.sh
 else
     echo "direct run without build"
 fi
