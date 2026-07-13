@@ -6,23 +6,36 @@ used by the paper evaluation: local direct IPC vs cross-machine polling IPC.
 Run from the repository root:
 
 ```bash
+./artifact-evaluation/prepare.sh
 ./artifact-evaluation/ipc-cdf/run.sh
 ```
 
-The script:
+`artifact-evaluation/prepare.sh` is global. Run it before the individual
+artifact tests; repeated default runs reuse existing large backing files. It
+prepares:
 
-1. Temporarily enables client breakdown and server timing instrumentation.
-2. Rebuilds ChCore.
-3. Boots two QEMU machines through the existing DSM/ivshmem setup.
-4. Runs:
+- CXL shared memory file
+- 8 NUMA backing files
+- hostfs shared memory file and metadata
+- CXL/NUMA magic headers
+- ivshmem doorbell server
+
+The IPC test script:
+
+1. Checks that the global AE environment has been prepared.
+2. Resets DSM metadata for this run.
+3. Temporarily enables client breakdown and server timing instrumentation.
+4. Rebuilds ChCore.
+5. Boots two QEMU machines through the prepared DSM/ivshmem setup.
+6. Runs:
    - `direct_empty`
    - `direct`
    - `cross_empty`
    - `cross`
    - `cross_empty_4t`
    - `cross_4t`
-5. Parses the QEMU logs.
-6. Writes CSV files and figures under `artifact-evaluation/ipc-cdf/out/<timestamp>/`.
+7. Parses the QEMU logs.
+8. Writes CSV files and figures under `artifact-evaluation/ipc-cdf/out/<timestamp>/`.
 
 Useful outputs:
 

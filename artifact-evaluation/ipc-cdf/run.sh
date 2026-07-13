@@ -48,8 +48,14 @@ wait_for_pane_text() {
     local pane="$1"
     local pattern="$2"
     local label="$3"
+    local logfile="$LOG_DIR/machine${pane}.log"
     local elapsed=0
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
+        if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+            echo "tmux session $SESSION exited while waiting for $label" >&2
+            tail -120 "$logfile" >&2 || true
+            return 1
+        fi
         if tmux capture-pane -t "$SESSION:$pane" -pS -3000 | grep -q "$pattern"; then
             echo "$label"
             return 0
@@ -95,7 +101,44 @@ run_client() {
     return 1
 }
 
+check_global_prepare() {
+    local cxl_file="/dev/shm/ivshmem-$USER"
+    local hostfs_file="/dev/shm/ivshmem-hostfs-$USER"
+    local doorbell_socket="/tmp/ivshmem-doorbell-$USER"
+    local server_pid_file="/tmp/ivshmem-server-$USER.pid"
+    local numa_files=(
+        "/dev/shm/numa0.0-$USER"
+        "/dev/shm/numa0.1-$USER"
+        "/dev/shm/numa1.0-$USER"
+        "/dev/shm/numa1.1-$USER"
+        "/dev/shm/numa2.0-$USER"
+        "/dev/shm/numa2.1-$USER"
+        "/dev/shm/numa3.0-$USER"
+        "/dev/shm/numa3.1-$USER"
+    )
+    local f
+
+    echo "=== Checking global AE environment ==="
+    for f in "$cxl_file" "$hostfs_file" "$doorbell_socket" "${numa_files[@]}"; do
+        if [ ! -e "$f" ]; then
+            echo "Missing global AE resource: $f" >&2
+            echo "Run ./artifact-evaluation/prepare.sh once before this test." >&2
+            return 1
+        fi
+    done
+    if [ ! -f "$server_pid_file" ] || ! ps -p "$(cat "$server_pid_file")" >/dev/null 2>&1; then
+        echo "ivshmem doorbell server is not running." >&2
+        echo "Run ./artifact-evaluation/prepare.sh before this test." >&2
+        return 1
+    fi
+
+    echo "=== Resetting DSM metadata before QEMU boot ==="
+    make clean-dsm-meta
+}
+
 cd "$REPO_ROOT"
+
+check_global_prepare
 
 echo "=== Enabling IPC instrumentation for this artifact run ==="
 set_define "$CLIENT_SRC" ENABLE_BREAKDOWN 1
@@ -109,16 +152,12 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
 fi
 
-echo "=== Starting DSM shared-memory backend ==="
-make start-ivshmem-server
-make clean-dsm-meta
-
 echo "=== Booting two QEMU machines ==="
-tmux new-session -d -s "$SESSION" -n 0 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 0 | tee '$LOG_DIR/machine0.log'"
+tmux new-session -d -s "$SESSION" -n 0 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 0 2>&1 | tee '$LOG_DIR/machine0.log'"
 wait_for_pane_text 0 "DSM] machine 0 " "DSM machine 0 joined"
 wait_for_pane_text 0 "Welcome to ChCore shell!" "Machine 0 shell ready"
 
-tmux new-window -t "$SESSION" -n 1 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 1 | tee '$LOG_DIR/machine1.log'"
+tmux new-window -t "$SESSION" -n 1 "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 1 2>&1 | tee '$LOG_DIR/machine1.log'"
 wait_for_pane_text 1 "DSM] machine 1 " "DSM machine 1 joined"
 wait_for_pane_text 1 "Welcome to ChCore shell!" "Machine 1 shell ready"
 
