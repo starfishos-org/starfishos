@@ -161,3 +161,4 @@
 
 /* Scheduling control */
 #define SYS_set_thread_budget    266
+#define SYS_ivshmem_msi_bench    267

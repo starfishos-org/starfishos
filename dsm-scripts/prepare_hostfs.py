@@ -2,6 +2,7 @@
 import mmap
 import os
 import struct
+import sys
 
 base_dir = "/dev/shm"
 
@@ -18,12 +19,6 @@ source_file_list = [
 user_name = os.getenv('USER')
 shm_device_path = f'{base_dir}/ivshmem-hostfs-{user_name}'
 
-if not os.path.exists(shm_device_path):
-    print(f"Shared memory device file {shm_device_path} does not exist.")
-    # dd if=/dev/zero of=$devName bs=1M count=1024
-    os.system(f"dd if=/dev/zero of={shm_device_path} bs=1G count=16")
-    print(f"Shared memory device file {shm_device_path} created.")
-
 # 头部信息，格式为
 file_info_list= []
 
@@ -31,6 +26,64 @@ PAGE_SIZE = 4096
 
 def round_up(x, n):
     return ((x) + (n) - 1) & ~((n) - 1)
+
+
+def hostfs_metadata_is_current():
+    """Return whether hostfs already describes the configured source files."""
+    if not os.path.isfile(shm_device_path):
+        return False
+
+    expected_files = []
+    for source_file_path in source_file_list:
+        if os.path.isfile(source_file_path):
+            expected_files.append((
+                os.path.basename(source_file_path),
+                os.path.getsize(source_file_path),
+            ))
+
+    try:
+        with open(shm_device_path, 'rb') as shm_fd:
+            if shm_fd.read(8) != b"hostfs\0\0":
+                return False
+
+            file_num_data = shm_fd.read(8)
+            if len(file_num_data) != 8:
+                return False
+            file_num = struct.unpack("<Q", file_num_data)[0]
+            if file_num != len(expected_files):
+                return False
+
+            offset = PAGE_SIZE
+            for expected_name, expected_size in expected_files:
+                entry = shm_fd.read(8 + 8 + 128)
+                if len(entry) != 8 + 8 + 128:
+                    return False
+                file_offset, file_size = struct.unpack("<QQ", entry[:16])
+                file_name = entry[16:].split(b'\0', 1)[0].decode('utf-8')
+                if (file_offset, file_size, file_name) != (offset, expected_size, expected_name):
+                    return False
+                offset += round_up(expected_size, PAGE_SIZE)
+    except (OSError, UnicodeDecodeError, struct.error):
+        return False
+
+    return True
+
+
+if len(sys.argv) == 2 and sys.argv[1] == "--check":
+    if hostfs_metadata_is_current():
+        print(f"Hostfs metadata is current: {shm_device_path}")
+        sys.exit(0)
+    print(f"Hostfs metadata is missing or stale: {shm_device_path}")
+    sys.exit(1)
+elif len(sys.argv) != 1:
+    print(f"Usage: {sys.argv[0]} [--check]", file=sys.stderr)
+    sys.exit(2)
+
+if not os.path.exists(shm_device_path):
+    print(f"Shared memory device file {shm_device_path} does not exist.")
+    # dd if=/dev/zero of=$devName bs=1M count=1024
+    os.system(f"dd if=/dev/zero of={shm_device_path} bs=1G count=16")
+    print(f"Shared memory device file {shm_device_path} created.")
 
 # 打开共享内存设备文件
 with open(shm_device_path, 'r+b') as shm_fd:

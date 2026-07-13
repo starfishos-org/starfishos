@@ -20,6 +20,7 @@
 #include <sched/fpu.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
+#include <drivers/ivshmem.h>
 #endif
 #ifdef IPC_PERF_ENABLED
 #include <arch/machine/pmu.h>
@@ -46,6 +47,7 @@ struct queue_meta {
 };
 
 extern struct queue_meta rr_ready_queue_meta[PLAT_CPU_NUM];
+static s32 pending_remote_resched[PLAT_CPU_NUM];
 #endif
 
 /* For TLB maintenence */
@@ -452,6 +454,64 @@ void add_pending_resched(u32 cpuid)
     resched_bitmaps[smp_get_cpu_id()] |= BIT(cpuid);
 }
 
+/*
+ * Send a lightweight reschedule IPI without using the synchronous IPI
+ * transaction protocol.  The interrupt vector itself carries all the
+ * information needed by the receiver, while resched_flags makes repeated
+ * kicks idempotent.
+ *
+ * The caller must publish the target thread to its ready queue before calling
+ * this function.
+ */
+void sched_kick_cpu(u32 cpuid)
+{
+    BUG_ON(cpuid >= PLAT_CPU_NUM);
+    BUG_ON(cpuid == smp_get_cpu_id());
+
+    __atomic_store_n(&resched_flags[cpuid], true, __ATOMIC_RELEASE);
+    arch_send_ipi(cpuid, IPI_RESCHED);
+}
+
+/*
+ * A running thread cannot kick its destination CPU as soon as it is enqueued:
+ * the destination could otherwise run it before the source CPU has completed
+ * the context switch.  Such kicks are recorded in the source CPU's bitmap and
+ * flushed by eret_to_thread() after finish_switch() releases the old thread.
+ */
+void flush_pending_resched_ipis(void)
+{
+    u32 cpuid;
+    u32 local_cpuid = smp_get_cpu_id();
+
+    while (resched_bitmaps[local_cpuid]) {
+        cpuid = bsr(resched_bitmaps[local_cpuid]);
+        resched_bitmaps[local_cpuid] &= ~BIT(cpuid);
+        if (cpuid != local_cpuid)
+            sched_kick_cpu(cpuid);
+    }
+
+#ifdef DSM_ENABLED
+    {
+        s32 gcpuid = __atomic_exchange_n(&pending_remote_resched[local_cpuid],
+                                         -1,
+                                         __ATOMIC_ACQUIRE);
+        if (gcpuid >= 0 && ivshmem_send_sched_msi((u32)gcpuid) != 0)
+            kwarn_once("Remote scheduler MSI failed; using tick fallback\n");
+    }
+#endif
+}
+
+#ifdef DSM_ENABLED
+void sched_defer_remote_kick(u32 gcpuid)
+{
+    u32 local_cpuid = smp_get_cpu_id();
+
+    BUG_ON(gcpuid >= CLUSTER_CPU_NUM || is_local_cpu(gcpuid));
+    BUG_ON(pending_remote_resched[local_cpuid] >= 0);
+    pending_remote_resched[local_cpuid] = (s32)gcpuid;
+}
+#endif
+
 void wait_for_kernel_stack(struct thread *thread)
 {
     /*
@@ -530,6 +590,7 @@ void eret_to_thread(u64 sp)
 {
 #ifndef CHCORE_KERNEL_RT
     finish_switch();
+    flush_pending_resched_ipis();
 #endif
     __eret_to_thread(sp);
 }
@@ -606,6 +667,10 @@ static void init_current_threads(void)
 static void init_resched_bitmaps(void)
 {
     memset(resched_bitmaps, 0, sizeof(resched_bitmaps));
+#ifdef DSM_ENABLED
+    for (u32 cpu = 0; cpu < PLAT_CPU_NUM; ++cpu)
+        pending_remote_resched[cpu] = -1;
+#endif
 }
 
 int sched_init(struct sched_ops *sched_ops)

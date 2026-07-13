@@ -24,8 +24,17 @@ void ivshmem_msix_handler(void);
  * initialized) */
 void ivshmem_register_peer_id(void);
 
+/* Configure one MSI-X doorbell vector per local CPU. */
+int ivshmem_configure_cpu_msix_vectors(void);
+
 /* Send MSI interrupt to another machine via ivshmem doorbell */
 int ivshmem_send_msi(mid_t target_machine_id, u16 vector);
+
+/* Send a scheduler doorbell directly to a global CPU. */
+int ivshmem_send_sched_msi(u32 target_global_cpu);
+
+/* Measure one-way doorbell-to-remote-MSI-handler delivery latency. */
+long sys_ivshmem_msi_bench(u64 target_machine, u64 target_local_cpu, u64 samples);
 
 /* Process received MSI messages and send replies */
 void ivshmem_process_msi_messages(void);

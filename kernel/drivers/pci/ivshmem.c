@@ -232,13 +232,11 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     msix_flags |= PCI_MSIX_FLAGS_ENABLE;
     pci_write_config_word(pdev, dev->msix_cap + PCI_MSIX_FLAGS, msix_flags);
 
-    /* Doorbell registers are in BAR 0 (MMIO registers) */
-    /* ivshmem-doorbell layout in BAR 0:
-     * - Offset 0x00: IVPosition (read-only, VM ID)
-     * - Offset 0x04: Doorbell (write to trigger interrupt)
-     * - Offset 0x08: Interrupt Mask
-     * - Offset 0x0C: Interrupt Status
-     * Each VM has its own doorbell register at offset (vm_id * 0x10) + 0x04
+    /* ivshmem-doorbell BAR 0 layout used by QEMU:
+     * - Offset 0x00: Interrupt Mask
+     * - Offset 0x04: Interrupt Status
+     * - Offset 0x08: IVPosition (peer ID assigned by ivshmem-server)
+     * - Offset 0x0c: Doorbell
      */
     if (!dev->regs_iova) {
         pci_info("[IVSHMEM] BAR 0 not initialized (regs_iova=%p), cannot set doorbell registers\n",
@@ -248,23 +246,13 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
         return -EINVAL;
     }
     
-    /* Note: IVPosition is at offset 0x08, Doorbell is at offset 0x0c */
-    /* Doorbell format: low 16 bits = peer_id, high 16 bits = vector */
+    /* Doorbell value: high 16 bits = peer ID, low 16 bits = vector. */
     dev->doorbell_regs = (u32 *)(dev->regs_iova + 0x0c); /* Doorbell register at offset 0x0c */
+    dev->peer_id = *(volatile u32 *)(dev->regs_iova + 0x08);
     
-    /* Use machine_id as peer_id directly (IVPosition register may not be reliable) */
-    if (CUR_MACHINE_ID >= 0 && CUR_MACHINE_ID < CLUSTER_MAX_MACHINE_NUM) {
-        dev->peer_id = CUR_MACHINE_ID;
-    } else {
-        /* Fallback: try to read IVPosition if machine_id is not available yet */
-        u32 *ivposition_reg = (u32 *)dev->regs_iova;
-        dev->peer_id = *ivposition_reg;
-        pci_info("[IVSHMEM] Warning: CUR_MACHINE_ID=%d is invalid, using IVPosition=%u\n", 
-                 CUR_MACHINE_ID, dev->peer_id);
-    }
-    
-    pci_debug("[IVSHMEM] Doorbell registers set at %p (BAR0 base + 0x04)\n", dev->doorbell_regs);
-    pci_debug("[IVSHMEM] Using machine_id as peer_id: machine_id=%d -> peer_id=%u\n", 
+    pci_debug("[IVSHMEM] Doorbell register set at %p (BAR0 base + 0x0c)\n",
+              dev->doorbell_regs);
+    pci_debug("[IVSHMEM] Read IVPosition: machine_id=%d -> peer_id=%u\n",
              CUR_MACHINE_ID, dev->peer_id);
     
     /* Register peer_id mapping in shared memory */
@@ -282,8 +270,8 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
     pci_debug("[IVSHMEM] MSI-X initialized: table_size=%d, table_base=%p, pba_base=%p, doorbell=%p\n",
              dev->msix_table_size, dev->msix_table_base, dev->msix_pba_base, dev->doorbell_regs);
 
-    /* Configure MSI-X table entries and register interrupt handler */
-    /* Use IRQ_MSIX_IVSHMEM (48) for MSI-X interrupts */
+    /* Configure vector 0 for generic ivshmem messages.  Scheduler vectors are
+     * configured after SMP initialization, when all APIC IDs are available. */
     #include <irq/irq.h>
     
     if (dev->msix_table_base && dev->msix_table_size > 0) {
@@ -300,7 +288,7 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
          * Address format: 0xFEE00000 (Local APIC base) + (destination_id << 12)
          * For broadcast: destination_id = 0
          */
-        u32 msg_addr_low = 0xFEE00000; /* Local APIC base, broadcast to all CPUs */
+        u32 msg_addr_low = 0xFEE00000; /* Local APIC base, destination APIC 0 */
         u32 msg_addr_high = 0x00000000;
         /* MSI-X msg_data format for x86_64:
          * - Bits [7:0]: Interrupt vector (IDT index, 0-255)
@@ -343,6 +331,46 @@ static int ivshmem_init_msix(struct kvm_ivshmem_device *dev)
                  IRQ_MSIX_IVSHMEM);
     }
 
+    return 0;
+}
+
+/*
+ * MSI-X entry 0 remains the generic ivshmem message vector.  Entries 1..N
+ * carry scheduler doorbells and are routed directly to local CPUs 0..N-1.
+ * All entries use the same IDT vector; their MSI message address selects the
+ * destination APIC.
+ */
+int ivshmem_configure_cpu_msix_vectors(void)
+{
+    struct kvm_ivshmem_device *dev = doorbell_dev;
+    u32 cpu_count = smp_get_cpu_num();
+    u32 cpu;
+
+    if (!dev || !dev->msix_table_base || !dev->msix_cap)
+        return -ENODEV;
+    if (dev->msix_table_size <= cpu_count) {
+        pci_info("[IVSHMEM] Need %u MSI-X vectors for %u CPUs, have %u\n",
+                 cpu_count + 1,
+                 cpu_count,
+                 dev->msix_table_size);
+        return -EINVAL;
+    }
+
+    for (cpu = 0; cpu < cpu_count; ++cpu) {
+        u32 vector = cpu + 1;
+        u32 apic_id = cpu_info[cpu].apic_id;
+        u32 *entry = (u32 *)((u64)dev->msix_table_base
+                             + vector * PCI_MSIX_ENTRY_SIZE);
+
+        entry[PCI_MSIX_ENTRY_LOWER_ADDR / 4] =
+                0xFEE00000U | ((apic_id & 0xffU) << 12);
+        entry[PCI_MSIX_ENTRY_UPPER_ADDR / 4] = 0;
+        entry[PCI_MSIX_ENTRY_DATA / 4] = IRQ_MSIX_IVSHMEM;
+        entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] = 0;
+    }
+    __sync_synchronize();
+    pci_info("[IVSHMEM] Configured %u direct scheduler MSI-X vectors\n",
+             cpu_count);
     return 0;
 }
 
@@ -599,14 +627,13 @@ int pci_hostfs_list(void *args) {
  * @target_machine_id: Target machine ID
  * @vector: MSI-X vector number (0-15)
  * 
- * This function writes to the doorbell register in shared memory to trigger
- * an MSI interrupt on the target machine.
+ * This function writes to the local device's BAR0 doorbell register to
+ * trigger an MSI interrupt on the target peer.
  * 
  * ivshmem-doorbell device layout:
  * - BAR 0 (MMIO): Registers including doorbell
- *   - Each VM has doorbell register at offset (vm_id * 0x10) + 0x04 in BAR 0
- *   - Writing to doorbell register triggers MSI interrupt to that VM
- *   - The value written is the vector number
+ *   - Doorbell register is at offset 0x0c
+ *   - Written value is (target_peer_id << 16) | vector
  * - BAR 2 (Memory): Shared memory for data exchange
  * 
  * Returns 0 on success, -EINVAL on failure
@@ -630,7 +657,6 @@ int ivshmem_send_msi(mid_t target_machine_id, u16 vector)
         return -EINVAL;
     }
 
-    /* ivshmem-doorbell: Each VM has a doorbell register at offset (peer_id * 0x10) + 0x04 in BAR 0 */
     /* Note: We need to use peer_id (assigned by ivshmem-server) not machine_id */
     /* Get peer_id for target machine from shared memory mapping */
     u32 target_peer_id = target_machine_id; /* Default: assume peer_id == machine_id */
@@ -649,13 +675,14 @@ int ivshmem_send_msi(mid_t target_machine_id, u16 vector)
     //          target_machine_id, target_peer_id, doorbell_dev ? doorbell_dev->peer_id : 0xFFFFFFFF);
     
     /* Writing to doorbell register triggers MSI interrupt to that VM */
-    /* According to ivshmem-doorbell spec:
-     * - Doorbell is 32-bit register at offset 0x0c in BAR0
-     * - Low 16 bits: peer_id (target peer to interrupt)
-     * - High 16 bits: vector number (interrupt vector, 0-based index)
-     * - Format: (vector << 16) | peer_id
+    /* According to the QEMU ivshmem-doorbell ABI:
+     * - Doorbell is a 32-bit register at offset 0x0c in BAR0
+     * - High 16 bits: peer_id (target peer to interrupt)
+     * - Low 16 bits: vector number (interrupt vector, 0-based index)
+     * - Format: (peer_id << 16) | vector
      */
-    u32 doorbell_value = ((u32)vector << 16) | (target_peer_id & 0xFFFF);
+    u32 doorbell_value = ((target_peer_id & 0xFFFF) << 16)
+                         | ((u32)vector & 0xFFFF);
     u32 *doorbell = (u32 *)((u64)dev->regs_iova + 0x0c); /* Doorbell at offset 0x0c */
     
     // pci_info("[IVSHMEM] Writing to doorbell: peer_id=%u, vector=%d\n", target_peer_id, vector);
@@ -678,6 +705,28 @@ int ivshmem_send_msi(mid_t target_machine_id, u16 vector)
     return 0;
 }
 
+int ivshmem_send_sched_msi(u32 target_global_cpu)
+{
+    mid_t target_machine_id;
+    u32 target_local_cpu;
+    u16 vector;
+
+    if (!dsm_meta || target_global_cpu >= CLUSTER_CPU_NUM)
+        return -EINVAL;
+
+    target_machine_id = cpuid_g2mid(target_global_cpu);
+    if (target_machine_id < 0 || target_machine_id == CUR_MACHINE_ID)
+        return -EINVAL;
+
+    target_local_cpu = target_global_cpu
+                       - dsm_meta->local_meta[target_machine_id].cpu_range_low;
+    vector = (u16)(target_local_cpu + 1);
+    if (!doorbell_dev || vector >= doorbell_dev->msix_table_size)
+        return -EINVAL;
+
+    return ivshmem_send_msi(target_machine_id, vector);
+}
+
 /**
  * ivshmem_register_peer_id - Register peer_id mapping in shared memory
  * 
@@ -696,10 +745,11 @@ void ivshmem_register_peer_id(void)
         return;
     }
     
-    /* Re-read IVPosition to ensure we have the latest value */
-    /* ivshmem-server may update IVPosition after VM connects */
-    /* Use machine_id as peer_id directly */
-    doorbell_dev->peer_id = my_id;
+    /* IVPosition is the only authoritative peer ID.  It is not necessarily
+     * equal to machine_id, especially when a long-lived server has served
+     * earlier QEMU instances. */
+    doorbell_dev->peer_id =
+            *(volatile u32 *)(doorbell_dev->regs_iova + 0x08);
     
     /* Register peer_id mapping */
     dsm_meta->machine_to_peer_id[my_id] = doorbell_dev->peer_id;
@@ -716,22 +766,114 @@ void ivshmem_register_peer_id(void)
  */
 void ivshmem_msix_handler(void)
 {
-    kinfo("[IVSHMEM] ===== MSI-X interrupt received on machine %d (mode=%d) =====\n", 
-          CUR_MACHINE_ID, ivshmem_msg_mode);
-    
+    u64 request_seq;
+    u64 handled_seq;
+    u32 sender;
+
+    /* Complete a pending delivery benchmark at interrupt-entry time.  This is
+     * intentionally before message parsing and scheduler work. */
+    if (dsm_meta && CUR_MACHINE_ID >= 0
+        && CUR_MACHINE_ID < CLUSTER_MACHINE_NUM) {
+        request_seq = __atomic_load_n(
+                &dsm_meta->msi_bench[CUR_MACHINE_ID].request_seq,
+                __ATOMIC_ACQUIRE);
+        handled_seq = __atomic_load_n(
+                &dsm_meta->msi_bench[CUR_MACHINE_ID].handled_seq,
+                __ATOMIC_RELAXED);
+        if (request_seq != 0 && request_seq != handled_seq) {
+            sender = __atomic_load_n(
+                    &dsm_meta->msi_bench[CUR_MACHINE_ID].sender_machine,
+                    __ATOMIC_RELAXED);
+            if (sender < CLUSTER_MACHINE_NUM) {
+                __atomic_store_n(&dsm_meta->msi_bench[sender].completed_seq,
+                                 request_seq,
+                                 __ATOMIC_RELEASE);
+                __atomic_store_n(
+                        &dsm_meta->msi_bench[CUR_MACHINE_ID].handled_seq,
+                        request_seq,
+                        __ATOMIC_RELEASE);
+            }
+        }
+    }
+
     /* Only process MSI messages if MSI mode is enabled */
     /* In polling mode, messages are handled by user-space polling server */
-    if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_MSI) {
-        /* Process MSI messages */
+    if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_MSI)
         ivshmem_process_msi_messages();
-    } else {
-        kinfo("[IVSHMEM] MSI-X interrupt ignored (polling mode enabled)\n");
+}
+
+long sys_ivshmem_msi_bench(u64 target_machine, u64 target_local_cpu, u64 samples)
+{
+    mid_t source = CUR_MACHINE_ID;
+    u64 seq;
+    u64 start;
+    u64 end;
+    u64 deadline;
+    u16 vector;
+
+    if (!dsm_meta || !doorbell_dev || source < 0
+        || source >= CLUSTER_MACHINE_NUM
+        || target_machine >= (u64)CLUSTER_MACHINE_NUM
+        || target_machine == (u64)source
+        || target_local_cpu >= (u64)PLAT_CPU_NUM
+        || samples == 0 || samples > 10000)
+        return -EINVAL;
+
+    vector = (u16)(target_local_cpu + 1);
+    if (vector >= doorbell_dev->msix_table_size)
+        return -EINVAL;
+
+    __atomic_store_n(&dsm_meta->msi_bench[target_machine].request_seq,
+                     0,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&dsm_meta->msi_bench[target_machine].handled_seq,
+                     0,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&dsm_meta->msi_bench[source].completed_seq,
+                     0,
+                     __ATOMIC_RELEASE);
+
+    kinfo("[MSI_LATENCY_BENCH] BEGIN samples=%llu target_machine=%llu "
+          "target_cpu=%llu\n",
+          samples,
+          target_machine,
+          target_local_cpu);
+
+    for (seq = 1; seq <= samples; ++seq) {
+        __atomic_store_n(&dsm_meta->msi_bench[source].completed_seq,
+                         0,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&dsm_meta->msi_bench[target_machine].sender_machine,
+                         (u32)source,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&dsm_meta->msi_bench[target_machine].request_seq,
+                         seq,
+                         __ATOMIC_RELEASE);
+
+        start = plat_get_mono_time();
+        if (ivshmem_send_msi((mid_t)target_machine, vector) != 0)
+            return -EINVAL;
+
+        deadline = start + 1000000000ULL;
+        while (__atomic_load_n(&dsm_meta->msi_bench[source].completed_seq,
+                               __ATOMIC_ACQUIRE)
+               != seq) {
+            if (plat_get_mono_time() >= deadline) {
+                kinfo("[MSI_LATENCY_BENCH] FAILED sample=%llu timeout\n",
+                      seq - 1);
+                return -ETIMEDOUT;
+            }
+            __asm__ volatile("pause");
+        }
+        end = plat_get_mono_time();
+        kinfo("[MSI_LATENCY_BENCH] metric=delivery sample=%llu "
+              "latency_ns=%llu\n",
+              seq - 1,
+              end - start);
     }
-    
-    kinfo("[IVSHMEM] ===== MSI-X interrupt handling completed =====\n");
-    
-    /* Acknowledge interrupt (if needed) */
-    /* For MSI-X, the interrupt is automatically acknowledged by the hardware */
+
+    kinfo("[MSI_LATENCY_BENCH] DONE\n");
+    return 0;
 }
 
 /**
@@ -1240,4 +1382,3 @@ enum ivshmem_msg_mode ivshmem_get_msg_mode(void)
 {
     return ivshmem_msg_mode;
 }
-

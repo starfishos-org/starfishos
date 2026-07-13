@@ -55,3 +55,4 @@ third_party/
 chcore-ckpt-logs
 ivshmem_server.log
 logs/
+/deleted/

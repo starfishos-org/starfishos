@@ -19,6 +19,7 @@
 #include <arch/time.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
+#include <drivers/ivshmem.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
 #define rr_cur_shared_queue (dsm_meta->shared_queue[cpuid_l2g(smp_get_cpu_id())])
 #endif
@@ -145,6 +146,11 @@ int rr_sched_migrate_to_remote(struct thread *thread)
     ret = __rr_sched_enqueue_shared(thread, gcpuid);
     unlock(&(rr_shared_queue[gcpuid].queue_lock));
 
+    /* The migrated thread is still current on the source CPU.  Defer the
+     * doorbell until finish_switch() has released it. */
+    if (ret == 0)
+        sched_defer_remote_kick(gcpuid);
+
     return ret;
 }
 
@@ -233,6 +239,12 @@ int rr_sched_migrate_from_shared_queue()
 
     unlock(&(rr_cur_shared_queue.queue_lock));
     return ret;
+}
+
+bool rr_sched_remote_queue_pending(void)
+{
+    smp_mb();
+    return rr_cur_shared_queue.head != rr_cur_shared_queue.tail;
 }
 #endif
 
@@ -395,6 +407,12 @@ int rr_sched_enqueue(struct thread *thread)
         unlock(&(rr_shared_queue[gcpuid].queue_lock));
         // u64 end = plat_get_mono_time();
         // printk("enqueue shared time: %llu\n", end - begin);
+        if (ret == 0) {
+            if (thread == current_thread)
+                sched_defer_remote_kick(gcpuid);
+            else if (ivshmem_send_sched_msi(gcpuid) != 0)
+                kwarn_once("Remote scheduler MSI failed; using tick fallback\n");
+        }
         return ret;
     }
 #endif
@@ -403,6 +421,16 @@ int rr_sched_enqueue(struct thread *thread)
     lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
     ret = __rr_sched_enqueue(thread, lcpuid);
     unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
+
+    /* Wake an idle remote CPU immediately instead of waiting for its next
+     * scheduler tick.  A running thread migrating itself must defer the kick
+     * until the source CPU has finished switching away from it. */
+    if (ret == 0 && lcpuid != smp_get_cpu_id()) {
+        if (thread == current_thread)
+            add_pending_resched(lcpuid);
+        else
+            sched_kick_cpu(lcpuid);
+    }
     return ret;
 }
 
@@ -441,6 +469,8 @@ int rr_sched_enqueue_to_affinity(struct thread *thread)
     thread->thread_ctx->state = TS_READY;
     thread_dq_enqueue(&(rr_shared_queue[gcpuid]), thread);
     unlock(&(rr_shared_queue[gcpuid].queue_lock));
+    if (ivshmem_send_sched_msi(gcpuid) != 0)
+        kwarn_once("Remote scheduler MSI failed; using tick fallback\n");
     return 0;
 }
 #endif

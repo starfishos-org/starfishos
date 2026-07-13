@@ -196,7 +196,12 @@ static qptr_t defer_ring[DEFER_DEPTH];
 static int defer_idx = 0;
 static int defer_inited = 0;
 
-static void defer_free(struct polling_shm_region *shm, qptr_t old_sentinel)
+/*
+ * Reclaim the ring slot about to be reused.  This must not wait here: after
+ * durable_dequeue marks a new node DOING, blocking on an older producer
+ * prevents the server from ever completing that new node.
+ */
+static int defer_try_free(struct polling_shm_region *shm)
 {
     if (!defer_inited) {
         for (int i = 0; i < DEFER_DEPTH; i++)
@@ -205,15 +210,21 @@ static void defer_free(struct polling_shm_region *shm, qptr_t old_sentinel)
     }
 
     qptr_t to_free = defer_ring[defer_idx];
-    if (to_free != QPTR_NULL) {
-        struct dq_node *node = qptr_to_ptr(shm, to_free);
-        while (atomic_load_explicit(&node->status, memory_order_acquire)
-               != DQ_CONSUMED) {
-            __builtin_ia32_pause();
-        }
-        dq_free_node(shm, node);
-    }
+    if (to_free == QPTR_NULL)
+        return 1;
 
+    struct dq_node *node = qptr_to_ptr(shm, to_free);
+    if (atomic_load_explicit(&node->status, memory_order_acquire)
+        != DQ_CONSUMED)
+        return 0;
+
+    dq_free_node(shm, node);
+    defer_ring[defer_idx] = QPTR_NULL;
+    return 1;
+}
+
+static void defer_node(qptr_t old_sentinel)
+{
     defer_ring[defer_idx] = old_sentinel;
     defer_idx = (defer_idx + 1) % DEFER_DEPTH;
 }
@@ -221,6 +232,10 @@ static void defer_free(struct polling_shm_region *shm, qptr_t old_sentinel)
 struct dq_node *durable_dequeue(struct polling_shm_region *shm)
 {
     while (1) {
+        /* Apply backpressure before claiming the next request. */
+        if (!defer_try_free(shm))
+            return NULL;
+
         qptr_t first = atomic_load_explicit(&shm->queue.head,
                                             memory_order_acquire);
         qptr_t last = atomic_load_explicit(&shm->queue.tail,
@@ -255,7 +270,7 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
                         &shm->queue.head, &exp_first, next,
                         memory_order_release, memory_order_relaxed);
 
-                defer_free(shm, first);
+                defer_node(first);
                 return n;
             }
 

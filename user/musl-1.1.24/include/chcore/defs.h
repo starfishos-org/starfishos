@@ -254,3 +254,4 @@
 
 /* Scheduling control */
 #define CHCORE_SYS_set_thread_budget    266
+#define CHCORE_SYS_ivshmem_msi_bench    267

@@ -208,6 +208,15 @@ typedef struct {
         volatile u64 memcpy_fault_va; /* Fault virtual address (for TLB flush) */
         volatile u64 memcpy_vmspace;  /* vmspace pointer (for TLB flush) */
     } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
+
+    /* One-way ivshmem MSI delivery benchmark.  The sender publishes a request
+     * in the target slot; the target MSI handler completes the sender slot. */
+    struct {
+        volatile u64 request_seq;
+        volatile u64 handled_seq;
+        volatile u64 completed_seq;
+        volatile u32 sender_machine;
+    } msi_bench[CLUSTER_MAX_MACHINE_NUM];
     
     /**
      * Mapping from machine_id to ivshmem peer_id

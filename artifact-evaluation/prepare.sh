@@ -48,7 +48,12 @@ ensure_backing_files() {
         echo "hostfs backing file already exists: $hostfs_file"
     fi
 
-    python3 ./dsm-scripts/prepare_hostfs.py
+    if python3 ./dsm-scripts/prepare_hostfs.py --check; then
+        echo "hostfs metadata is current; skipping dataset copy."
+    else
+        echo "Initializing hostfs metadata and dataset contents."
+        python3 ./dsm-scripts/prepare_hostfs.py
+    fi
     python3 ./dsm-scripts/prepare_cxlmem.py
 }
 
