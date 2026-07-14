@@ -313,6 +313,65 @@ ae_kill_cluster() {
     fi
 }
 
+# Kill every known AE / benchmark tmux session so a timed-out experiment
+# cannot leave QEMU holding ivshmem and break the next one.
+ae_kill_all_ae_sessions() {
+    local s
+    for s in \
+        "${USER}-ae" \
+        "${USER}-ipc-ae" \
+        "${USER}-sched-notify-ae" \
+        "${USER}-recover-fs-ae" \
+        "${USER}-msi-basic-ae" \
+        "${USER}-qemu"
+    do
+        tmux kill-session -t "$s" 2>/dev/null || true
+    done
+}
+
+# First-time OS prepare (equivalent to `make prepare`'s build step).
+# Shared-memory / hostfs / doorbell are handled by prepare.sh (idempotent).
+# This only runs chbuild/quick-build when the tree has never been built:
+#   missing .config  OR  missing build/kernel.img
+# SKIP_BASE_BUILD=1 skips this. FORCE_BASE_BUILD=1 always re-runs quick-build.
+ae_ensure_base_build() {
+    local skip_build="${SKIP_BASE_BUILD:-0}"
+    local force_build="${FORCE_BASE_BUILD:-0}"
+    local kernel_img="$AE_REPO_ROOT/build/kernel.img"
+    cd "$AE_REPO_ROOT"
+
+    if [ "$skip_build" = "1" ]; then
+        echo "[AE] SKIP_BASE_BUILD=1 — not checking OS image"
+        return 0
+    fi
+
+    if [ "$force_build" = "1" ]; then
+        echo "[AE] FORCE_BASE_BUILD=1 — running scripts/quick-build.sh (make prepare build step)"
+        ./scripts/quick-build.sh
+        return $?
+    fi
+
+    if [ -f "$AE_DOTCONFIG" ] && [ -f "$kernel_img" ]; then
+        echo "[AE] OS already prepared (.config + build/kernel.img present); skip first-time build"
+        return 0
+    fi
+
+    echo "[AE] First-time OS prepare (same as make prepare's build step)"
+    if [ ! -f "$AE_DOTCONFIG" ]; then
+        echo "[AE]   missing .config"
+    fi
+    if [ ! -f "$kernel_img" ]; then
+        echo "[AE]   missing $kernel_img"
+    fi
+    # quick-build.sh: distclean + defconfig x86_64 + build
+    ./scripts/quick-build.sh
+    if [ ! -f "$kernel_img" ]; then
+        echo "[AE] quick-build finished but $kernel_img is still missing" >&2
+        return 1
+    fi
+    echo "[AE] First-time OS prepare done: $kernel_img"
+}
+
 # ae_archive_logs <num_machines> <dest_dir> [suffix]
 ae_archive_logs() {
     local n="$1" dest="$2" suffix="${3:-}"
