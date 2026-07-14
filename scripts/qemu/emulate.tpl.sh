@@ -24,7 +24,7 @@ tmp_size=${TMP_SIZE:-1G}
 dram_size=${DRAM_SIZE:-32G}
 machine_num=${MACHINE_NUM:-1}
 cpu_num=${CPU_NUM:-12}
-cxl_size=${CXL_SIZE:-32G}
+cxl_size=${CXL_SIZE:-64G}
 
 ini_loader="$project_root/scripts/common/load_chcore_ini.sh"
 if [ -f "$ini_loader" ]; then

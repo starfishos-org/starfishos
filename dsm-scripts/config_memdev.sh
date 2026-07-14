@@ -2,7 +2,7 @@
 
 mode=$1
 memNumaNode=4
-size=32 # 32GB shared memory
+size=64 # 64GB shared memory
 numa_size=16 # 默认每个 numax.x 的大小（GB），可被 numa_sizes.conf 覆盖
 
 # CXL 相关大块 ivshmem 仍放在 /mnt/cxlshm
