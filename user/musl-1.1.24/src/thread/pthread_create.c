@@ -304,7 +304,7 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
 	pthread_attr_t attr = { 0 };
 	sigset_t set;
 
-	if (!libc.can_do_threads) return ENOSYS;
+	if (!libc.can_do_threads) return -ENOSYS;
 	self = __pthread_self();
 	if (!libc.threaded) {
 		for (FILE *f=*__ofl_lock(); f; f=f->next)
@@ -489,14 +489,14 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
 
 	if (ret < 0) {
 		if (map) __munmap(map, size);
-		return -ret;
+		return ret;
 	}
 
 	*res = new;
 	return new->tid;
 fail:
 	__release_ptc();
-	return EAGAIN;
+	return -EAGAIN;
 }
 
 /*
@@ -512,7 +512,7 @@ int __pthread_create(pthread_t *restrict res,
 {
 	int ret = __pthread_create_internal(THREAD_TYPE_USER, res, attrp, entry, arg);
 
-	return ret < 0? ret: 0;
+	return ret < 0? -ret: 0;
 }
 
 /* Similar to __pthread_create but the return value is thread cap */

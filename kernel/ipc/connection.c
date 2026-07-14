@@ -588,7 +588,12 @@ cap_t sys_register_fs_client(mid_t target_machine_id, u64 shm_config_ptr)
 
     client = current_thread;
 
+    if (target_machine_id < 0 || target_machine_id >= CLUSTER_MACHINE_NUM)
+        return -EINVAL;
+
     server = dsm_meta->tmpfs_thread[target_machine_id];
+    if (server == NULL)
+        return -EINVAL;
 
     return sys_register_client_helper(client, server, shm_config_ptr, true);
 }

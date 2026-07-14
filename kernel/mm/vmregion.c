@@ -405,10 +405,12 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
         BUG_ON(1);
     }
 
+    /* Cache pmo before freeing vmr via del_vmr_from_vmspace */
+    pmo = vmr->pmo;
+
     del_vmr_from_vmspace(vmspace, vmr);
     write_unlock(&vmspace->vmspace_lock);
 
-    pmo = vmr->pmo;
     /* No pmo is mapped */
     if (pmo == NULL) {
         ret = 0;
@@ -721,6 +723,10 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
      * removed by shmctl.
      */
 
+    /* Cache vmr range before freeing it via del_vmr_from_vmspace */
+    flush_va_start = vmr->start;
+    flush_len = vmr->size;
+
     /* Delete the vmr from the vmspace */
     del_vmr_from_vmspace(vmspace, vmr);
 
@@ -733,14 +739,12 @@ int vmspace_unmap_shm_vmr(struct vmspace *vmspace, vaddr_t va)
     for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
         void *pgtbl = get_vmspace_pgtbl(vmspace, i);
         if (pgtbl != NULL) {
-            unmap_range_in_pgtbl(pgtbl, vmr->start, vmr->size);
+            unmap_range_in_pgtbl(pgtbl, flush_va_start, flush_len);
         }
     }
 #else
-    unmap_range_in_pgtbl(vmspace->pgtbl, vmr->start, vmr->size);
+    unmap_range_in_pgtbl(vmspace->pgtbl, flush_va_start, flush_len);
 #endif
-    flush_va_start = vmr->start;
-    flush_len = vmr->size;
     unlock(&vmspace->pgtbl_lock);
 
     /* Flush TLBs without holding locks */
@@ -1147,7 +1151,6 @@ void vmspace_deinit(void *ptr)
     print_vmspace_stats(vmspace);
 #endif
 
-#ifdef RMAP_ENABLED
     struct vmregion *vmr;
     struct vmregion *tmp;
 
@@ -1156,13 +1159,15 @@ void vmspace_deinit(void *ptr)
      * Only invoked when a process exits. No need to acquire the lock.
      */
     for_each_in_list_safe (vmr, tmp, list_node, &vmspace->vmr_list) {
+#ifdef RMAP_ENABLED
         pmo_remove_reverse_node(vmr->pmo, vmr);
+#endif
         free_vmregion(vmr);
     }
-#endif
     extern void free_page_table(void *);
 #ifdef MULTI_PAGETABLE_ENABLED
-    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+    /* Mirror vmspace_init, which allocates a root pgtbl for every slot. */
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
         if (vmspace->pgtbl[i] != NULL) {
             void *pgtbl = (void *)((u64)vmspace->pgtbl[i] & ~0xFFFUL); /* Remove PCID */
             free_page_table(pgtbl);

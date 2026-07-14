@@ -303,7 +303,7 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
         BUG_ON(!object);
         if (object->mem_type != __MT_SHARED__) {
             printk("object not shared: %p type: %s\n", object, obj_name_tbl[object->type]);
-            return 1;
+            goto out_unlock;
         }
         switch (object->type) {
             case TYPE_THREAD:
@@ -311,7 +311,7 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
                 struct thread *thread = (struct thread *)object2obj(object);
                 if (!IS_SHM_PADDR(virt_to_phys(thread->thread_ctx))) {
                     printk("thread context is not shared: %p\n", object);
-                    return 1;
+                    goto out_unlock;
                 }
                 break;
             }
@@ -319,9 +319,9 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
             {
                 struct pmobject *pmo = (struct pmobject *)object2obj(object);
                 if (pmo->mm_type != __MT_SHARED__) {
-                    printk("pmo %p is not shared, mm_type = %d type = %d\n", 
+                    printk("pmo %p is not shared, mm_type = %d type = %d\n",
                         pmo, pmo->mm_type, pmo->type);
-                    return 1;
+                    goto out_unlock;
                 }
                 if (is_radix_pmo(pmo)) {
                     // loop the radix tree and check paddr of each page
@@ -330,7 +330,7 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
                 } else if (is_continuous_pmo(pmo)) {
                     if (!IS_SHM_PADDR(pmo->start)) {
                         printk("pmo %p is not shared, start = %p\n", pmo, pmo->start);
-                        return 1;
+                        goto out_unlock;
                     }
                 }
                 break;
@@ -340,7 +340,7 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
                 struct vmspace *vmspace = (struct vmspace *)object2obj(object);
                 if (!IS_SHM_PADDR(virt_to_phys(vmspace->pgtbl))) {
                     printk("page table is not shared: %p\n", object);
-                    return 1;
+                    goto out_unlock;
                 }
                 break;
             }
@@ -350,4 +350,8 @@ int check_thread_ready_to_run_across_machines(struct thread *thread)
     }
     read_unlock(&slot_table->table_guard);
     return 0;
+
+out_unlock:
+    read_unlock(&slot_table->table_guard);
+    return 1;
 }

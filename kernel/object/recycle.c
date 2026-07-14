@@ -217,6 +217,18 @@ static void recycle_server_shadow_thread(struct ipc_connection *conn,
                             conn->shm.shm_size);
         BUG_ON(sched_enqueue(server_thread));
     }
+    else if (config->ipc_exit_routine_entry == 0) {
+        /*
+         * Single-handler server (register_cb_single, e.g. posix_shm):
+         * ONE shadow thread is shared by ALL client connections, so it
+         * must survive an individual client's exit. Only release the
+         * per-connection hold: unlock the shared ipc_lock grabbed by
+         * __stop_connection(), otherwise the lock is left locked
+         * forever — the server stops serving and every later
+         * connection recycle spins in -EAGAIN (hanging all waitpid).
+         */
+        unlock(&config->ipc_lock);
+    }
     else {
         /*
         * Since the shadow thread does need to be recycled

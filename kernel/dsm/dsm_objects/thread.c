@@ -23,7 +23,7 @@ static inline void dsm_copy_ipc_server_handler_config(void *src_ipc_config, void
     memcpy(dst, src, sizeof(struct ipc_server_handler_config));
 
     if (src->active_conn) {
-        BUG_ON(!dsm_demote_object(obj2object(src->active_conn)));
+        BUG_ON(dsm_demote_object(obj2object(src->active_conn)));
         dst->active_conn = (struct ipc_connection *)obj2objpair(src->active_conn);
     } else {
         dst->active_conn = NULL;
@@ -237,8 +237,9 @@ int dsm_copy_thread(struct object *src_obj, struct object *dst_obj)
     if (src_thread->general_ipc_config) {
         switch (((struct ipc_config *)src_thread->general_ipc_config)->config_type) {
         case IPC_SERVER_REGISTER_CB: {
-            dst_thread->general_ipc_config = 
+            dst_thread->general_ipc_config =
                 kmalloc(sizeof(struct ipc_server_register_cb_config), mem_type);
+            break;
         }
         case IPC_SERVER_HANDLER: {
             dst_thread->general_ipc_config = 

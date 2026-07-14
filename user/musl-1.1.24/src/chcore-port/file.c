@@ -963,6 +963,8 @@ static int chcore_file_read(int fd, void *buf, size_t count)
 		fr_ptr->read.fd = fd;
 		fr_ptr->read.count = cnt;
 		ret = ipc_call(_fs_ipc_struct, ipc_msg);
+		if (ret < 0)
+			break;
 		if (ret > 0)
 			memcpy(buf, ipc_get_msg_data(ipc_msg), ret);
 		buf = (char *)buf + ret;
@@ -970,7 +972,13 @@ static int chcore_file_read(int fd, void *buf, size_t count)
 		if (ret != cnt)
 			break;
 	}
-	ret = count - remain;
+	/*
+	 * Return bytes transferred. Only surface the error when the first
+	 * chunk failed (no progress); a later-chunk error returns the bytes
+	 * already read (short read) rather than a corrupted count.
+	 */
+	if (remain != (int)count || ret >= 0)
+		ret = count - remain;
 	ipc_destroy_msg(ipc_msg);
 	return ret;
 }
@@ -1001,12 +1009,16 @@ static int chcore_file_write(int fd, void *buf, size_t count)
 		fr_ptr->write.count = cnt;
 		ipc_set_msg_data(ipc_msg, buf, sizeof(struct fs_request), cnt);
 		ret = ipc_call(_fs_ipc_struct, ipc_msg);
+		if (ret < 0)
+			break;
 		buf = (char *)buf + ret;
 		remain -= ret;
 		if (ret != cnt)
 			break;
 	}
-	ret = count - remain;
+	/* See chcore_file_read: short-write returns bytes already written. */
+	if (remain != (int)count || ret >= 0)
+		ret = count - remain;
 	ipc_destroy_msg(ipc_msg);
 	return ret;
 }

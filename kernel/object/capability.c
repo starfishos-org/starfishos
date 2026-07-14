@@ -480,6 +480,12 @@ int sys_transfer_caps(u64 dest_group_cap, u64 src_caps_buf, int nr_caps,
     if (!dest_cap_group)
         return -ECAPBILITY;
 
+    /* Bound nr_caps to avoid negative/huge sizes from the syscall boundary. */
+    if (nr_caps < 0 || nr_caps > 1024) {
+        obj_put(dest_cap_group);
+        return -EINVAL;
+    }
+
     size = sizeof(int) * nr_caps;
     src_caps = kmalloc(size, __MT_DEFAULT__);
     dst_caps = kmalloc(size, __MT_DEFAULT__);

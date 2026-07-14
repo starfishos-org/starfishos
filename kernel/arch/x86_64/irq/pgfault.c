@@ -80,7 +80,7 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
     fault_addr = get_fault_addr();
 
     if (current_thread == NULL || fault_addr == 0) {
-        kinfo("%s: fault addr %p fault ip %p\n", 
+        kinfo("%s: fault addr %p fault ip %p\n",
             __func__, fault_addr, fault_ins_addr);
         if (current_thread) {
             kinfo("current_thread is %p\n", current_thread);
@@ -88,6 +88,17 @@ void do_page_fault(u64 errorcode, u64 fault_ins_addr)
             kprint_vmr(current_thread->vmspace);
         } else {
             kinfo("current_thread is NULL\n");
+        }
+        /*
+         * A user-mode NULL dereference is an application bug, not a
+         * kernel one: kill the faulting process like a normal segfault
+         * (same policy as the handle_trans_fault failure path below)
+         * instead of panicking the whole machine.
+         */
+        if (current_thread != NULL && (errorcode & FLAG_US)) {
+            kinfo("do_page_fault: user NULL dereference, killing process via sys_exit_group.\n");
+            sys_exit_group(-1);
+            return;
         }
         BUG_ON(1);
     }

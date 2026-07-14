@@ -221,9 +221,24 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 		switch (fsm_req->req) {
 		case FSM_REQ_PARSE_PATH: {
 
+			/*
+			 * Validate the client-supplied path: it must be
+			 * NUL-terminated within the buffer and absolute
+			 * (start with '/'). Otherwise get_mount_point would
+			 * hit BUG_ON(matched_fs == NULL) and abort fsm (DoS),
+			 * and an unterminated path would overrun strlen.
+			 */
+			size_t parse_path_len =
+				strnlen(fsm_req->path, FS_REQ_PATH_BUF_LEN);
+			if (parse_path_len == 0
+			    || parse_path_len >= FS_REQ_PATH_BUF_LEN
+			    || fsm_req->path[0] != '/') {
+				ipc_return(ipc_msg, -EINVAL);
+			}
+
 			// Get Corresponding MOUNT_INFO
 			pthread_rwlock_rdlock(&mount_point_infos_rwlock);
-			mpinfo = get_mount_point(fsm_req->path, strlen(fsm_req->path));
+			mpinfo = get_mount_point(fsm_req->path, parse_path_len);
 			pthread_mutex_lock(&fsm_client_cap_table_lock);
 			if (mpinfo->fs_cap == -1) {
 				mount_id = mpinfo->target_machine_id + MAX_MOUNT_ID;

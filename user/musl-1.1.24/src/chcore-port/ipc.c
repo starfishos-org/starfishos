@@ -86,6 +86,7 @@ ipc_msg_t *ipc_create_msg(ipc_struct_t *icb, u64 data_len, u64 cap_slot_number)
 	    || ((data_len + sizeof(u64) * cap_slot_number) < data_len)) {
 		printf("%s failed: too long msg (the usable shm size is 0x%lx)\n",
 		       __func__, buf_len);
+		chcore_spin_unlock(&(icb->lock));
 		return NULL;
 	}
 

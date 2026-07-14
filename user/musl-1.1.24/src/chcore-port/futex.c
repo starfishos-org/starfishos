@@ -126,7 +126,7 @@ int chcore_futex_wait(int *uaddr, int futex_op, int val,
 	if (empty_idx < 0 && idx < 0)
 		BUG("futex entries overflow");
 
-	if (idx > 0) {
+	if (idx >= 0) {
 		/*
 		 * 1. waiter_count > 0: already waited on the same uaddr
 		 * 2. waiter_count = 0: have requeued waiters
@@ -297,7 +297,7 @@ int chcore_futex_requeue(int *uaddr, int *uaddr2, int nr_wake, int nr_requeue)
 
 	if (futex_entries[idx].waiter_count != 0) {
 		/* requeue a waiter that wait on the address at beginning */
-		requeue = malloc(sizeof(requeue));
+		requeue = malloc(sizeof(*requeue));
 		if (!requeue)
 			BUG("out of memory");
 		requeue->next = NULL;

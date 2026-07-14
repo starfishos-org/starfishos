@@ -64,9 +64,16 @@ static void handle_newproc(ipc_msg_t *ipc_msg, u64 client_badge,
         struct proc_node *proc_node;
         int is_cross_machine = pr->is_cross_machine;
 
-        /* Translate to argv pointers from argv offsets. */
-        for (int i = 0; i < input_argc; ++i)
+        /* Validate client-supplied argc against the fixed-size argv array. */
+        if (input_argc < 0 || input_argc > PROC_REQ_ARGC_MAX)
+                ipc_return(ipc_msg, -EINVAL);
+
+        /* Translate to argv pointers from argv offsets (bounds-check each). */
+        for (int i = 0; i < input_argc; ++i) {
+                if (pr->argv[i] < 0 || pr->argv[i] >= PROC_REQ_TEXT_SIZE)
+                        ipc_return(ipc_msg, -EINVAL);
                 input_argv[i] = &pr->text[pr->argv[i]];
+        }
 
         proc_node = procmgr_launch_process(
                 input_argc,
@@ -92,7 +99,6 @@ static void handle_wait(ipc_msg_t *ipc_msg, u64 client_badge,
         /* Get client_proc */
         client_proc = get_proc_node(client_badge);
         assert(client_proc);
-
         /*
          * May be we use the child thread state to identify whether we need to
          * wait child process in the future.
@@ -212,7 +218,9 @@ static void handle_fork(ipc_msg_t *ipc_msg, u64 client_badge)
          * to complete the missing info.
          *
          */
-        name = malloc(strlen(client_proc->name));
+        name = malloc(strlen(client_proc->name) + 1);
+        if (name == NULL)
+                ipc_return(ipc_msg, -ENOMEM);
         strcpy(name, client_proc->name);
         child = new_proc_node(client_proc, name);
         pr = (struct proc_request *)ipc_get_msg_data(ipc_msg);

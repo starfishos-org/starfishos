@@ -401,7 +401,14 @@ int main(int argc, char *argv[])
     parse_args(argc, argv, &args);
 
     int nt = args.num_threads;
-    size_t wta_shm_size = sizeof(struct worker_thread_arg) * nt;
+    /*
+     * Size the wta[] shm segment for the max supported thread count, not
+     * nt: shmctl(IPC_RMID) is unsupported so the segment created by the
+     * first run is reused by every later run in the same boot (see the
+     * IPC_EXCL fallback below), including runs with a larger -t.
+     */
+#define WTA_MAX_THREADS 96
+    size_t wta_shm_size = sizeof(struct worker_thread_arg) * WTA_MAX_THREADS;
 
     /* ----- Worker mode: child process spawned by parent ----- */
     if (args.worker_id >= 0) {
@@ -456,10 +463,24 @@ int main(int argc, char *argv[])
     printf("[client] file created, sleeping 1s...\n");
     sleep(1);
 
-    /* Create shared wta[] for result collection across processes */
+    /*
+     * Create shared wta[] for result collection across processes.
+     * shmctl(IPC_RMID) is unsupported, so after the first run in a boot
+     * the segment persists: fall back to attaching the existing one.
+     */
     int wta_shmid = shmget(WTA_SHM_KEY, wta_shm_size, IPC_CREAT | IPC_EXCL);
+    if (wta_shmid < 0)
+        wta_shmid = shmget(WTA_SHM_KEY, wta_shm_size, IPC_CREAT);
+    if (wta_shmid < 0) {
+        printf("shmget for wta[] failed\n");
+        return -1;
+    }
     struct worker_thread_arg *wta =
         (struct worker_thread_arg *)shmat(wta_shmid, 0, 0);
+    if (wta == (void *)-1) {
+        printf("shmat for wta[] failed\n");
+        return -1;
+    }
     for (int i = 0; i < nt; i++) {
         wta[i].tid = i;
         wta[i].count = 0;

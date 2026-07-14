@@ -219,9 +219,8 @@ out:
 
 void init_root_proc_node()
 {
-	/* Init the init node. */
+	/* Init the init node. new_proc_node already adds it to badge2proc. */
 	proc_init = new_proc_node(NULL, strdup("procmgr"));
-	htable_add(&badge2proc, proc_init->badge, &proc_init->hash_node);
 
 	__sync_synchronize();
 }

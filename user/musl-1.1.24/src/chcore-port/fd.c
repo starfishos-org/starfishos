@@ -89,10 +89,14 @@ int chcore_write(int fd, void *buf, size_t count)
 }
 
 int chcore_pread(int fd, void *buf, size_t count, off_t offset) {
+	if (fd < 0 || fd_dic[fd] == 0)
+		return -EBADF;
 	return fd_dic[fd]->fd_op->pread(fd, buf, count, offset);
 }
 
 int chcore_pwrite(int fd, const void *buf, size_t count, off_t offset) {
+	if (fd < 0 || fd_dic[fd] == 0)
+		return -EBADF;
 	return fd_dic[fd]->fd_op->pwrite(fd, (void *)buf, count, offset);
 }
 
@@ -215,11 +219,15 @@ int chcore_writev(int fd, const struct iovec *iov, int iovcnt)
 
 off_t chcore_lseek(int fd, off_t offset, int whence)
 {
-    return fd_dic[fd]->fd_op->lseek(fd, offset, whence);
+	if (fd < 0 || fd_dic[fd] == 0)
+		return -EBADF;
+	return fd_dic[fd]->fd_op->lseek(fd, offset, whence);
 }
 
 long chcore_fd_mmap(long vaddr, size_t length, int prot, int flags, int fd, off_t offset)
 {
+	if (fd < 0 || fd_dic[fd] == 0)
+		return -EBADF;
 	return fd_dic[fd]->fd_op->mmap(vaddr, length, prot, flags, fd, offset);
 }
 
@@ -231,6 +239,8 @@ int dup_fd_content(int fd, int arg)
 	} else {
 		new_fd = alloc_fd_since(arg);
 	}
+	if (new_fd < 0)
+		return new_fd;
 	type = fd_dic[fd]->type;
 	fd_dic[new_fd]->fd = fd_dic[fd]->fd;
 	fd_dic[new_fd]->type = fd_dic[fd]->type;

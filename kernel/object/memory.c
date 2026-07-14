@@ -661,6 +661,7 @@ int sys_get_phys_addr(u64 va, u64 *pa_buf)
     void *pgtbl = (void *)vmspace->pgtbl;
 #endif
     ret = query_in_pgtbl(pgtbl, va, &pa, NULL);
+    unlock(&vmspace->pgtbl_lock);
 
     if (ret < 0)
         return ret;

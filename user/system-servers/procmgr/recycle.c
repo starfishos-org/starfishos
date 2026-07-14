@@ -49,12 +49,16 @@ void *recycle_routine(void *arg)
 		usys_wait(notific_cap, 1 /* Block */, NULL /* No timeout */);
 		while (get_one_msg(recycle_msg_buffer, &msg)) {
 			proc_to_recycle = get_proc_node(msg.badge);
-			assert(proc_to_recycle != 0);
-
 			/*
-			info("[recycle thread]: start recycling process (pid: %d)\n",
-			     proc_to_recycle->pid);
-			*/
+			 * A stale/unknown badge must not kill the recycle
+			 * thread: if this thread dies, no process exit is
+			 * ever processed again and every waitpid hangs.
+			 */
+			if (proc_to_recycle == NULL) {
+				error("[recycle] no proc node for badge 0x%lx, skipping\n",
+				      (unsigned long)msg.badge);
+				continue;
+			}
 
 			pthread_mutex_lock(&recycle_lock);
 			proc_to_recycle->exitstatus = msg.exitcode;
@@ -80,11 +84,6 @@ void *recycle_routine(void *arg)
 
 			del_proc_node(proc_to_recycle);
 			pthread_mutex_unlock(&recycle_lock);
-
-			/*
-			info("[recycle thread]: finish recycling process (pid: %d)\n",
-			     proc_to_recycle->pid);
-			*/
 		}
 	}
 }

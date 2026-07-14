@@ -113,7 +113,7 @@ int fs_wrapper_get_server_entry(u64 client_badge, int fd)
 		return AT_FDROOT;
 
 	/* Validate fd */
-	BUG_ON(fd < 0 || fd > MAX_SERVER_ENTRY_PER_CLIENT);
+	BUG_ON(fd < 0 || fd >= MAX_SERVER_ENTRY_PER_CLIENT);
 
 	for_each_in_list(n, struct server_entry_node, node, &server_entry_mapping)
 		if (n->client_badge == client_badge)
@@ -128,7 +128,7 @@ void fs_wrapper_set_server_entry(u64 client_badge, int fd, int fid)
 	struct server_entry_node *private_iter;
 
 	/* Validate fd */
-	BUG_ON(fd < 0 || fd > MAX_SERVER_ENTRY_PER_CLIENT);
+	BUG_ON(fd < 0 || fd >= MAX_SERVER_ENTRY_PER_CLIENT);
 
 	/* Check if client_badge already involved */
 	for_each_in_list(private_iter, struct server_entry_node, node, &server_entry_mapping) {
@@ -140,6 +140,8 @@ void fs_wrapper_set_server_entry(u64 client_badge, int fd, int fid)
 
 	/* New server_entry_node */
 	struct server_entry_node *n = (struct server_entry_node *)malloc(sizeof(*n));
+	if (n == NULL)
+		return;
 	n->client_badge = client_badge;
 	int i;
 	for (i = 0; i < MAX_SERVER_ENTRY_PER_CLIENT; i++)

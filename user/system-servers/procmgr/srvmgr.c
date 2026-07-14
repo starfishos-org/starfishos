@@ -252,8 +252,8 @@ void handle_get_server_cap(ipc_msg_t *ipc_msg, struct proc_request *pr)
 	int server_cap;
 	int ret = 0;
 
-	/* Check if server_id is valid */
-	if (pr->server_id >= CONFIG_SERVER_MAX) {
+	/* Check if server_id is valid (client-controlled, may be negative). */
+	if ((int)pr->server_id < 0 || pr->server_id >= CONFIG_SERVER_MAX) {
 		ipc_return(ipc_msg, -EINVAL);
 	}
 

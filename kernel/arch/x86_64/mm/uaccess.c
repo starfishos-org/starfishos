@@ -206,7 +206,9 @@ int copy_from_user(char *kernel_buf, char *user_buf, size_t size)
     len = 0;
 
     /* Validate user_buf */
-    BUG_ON(((u64)user_buf >= KBASE) || ((u64)user_buf + size >= KBASE));
+    /* Overflow-safe: reject if [user_buf, user_buf+size) reaches into KBASE. */
+    BUG_ON(((u64)user_buf >= KBASE) || (size > KBASE)
+           || ((u64)user_buf >= KBASE - size));
 
     /* For the frist user memory page */
     kva = transform_vaddr(user_buf, false);
@@ -250,7 +252,9 @@ int copy_to_user(char *user_buf, char *kernel_buf, size_t size)
     len = 0;
 
     /* Validate user_buf */
-    BUG_ON(((u64)user_buf >= KBASE) || ((u64)user_buf + size >= KBASE));
+    /* Overflow-safe: reject if [user_buf, user_buf+size) reaches into KBASE. */
+    BUG_ON(((u64)user_buf >= KBASE) || (size > KBASE)
+           || ((u64)user_buf >= KBASE - size));
 
     /* For the frist user memory page */
     kva = transform_vaddr(user_buf, true);

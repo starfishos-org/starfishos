@@ -374,9 +374,13 @@ void shell_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				 (int)ipc_get_msg_cap(ipc_msg, 1),
 				 req->pid);
 		break;
-	case SHELL_APPEND_INPUT_BUFFER:
-		append_input_buffer(req->buf, req->size);
+	case SHELL_APPEND_INPUT_BUFFER: {
+		size_t append_size = req->size;
+		if (append_size > sizeof(req->buf))
+			append_size = sizeof(req->buf);
+		append_input_buffer(req->buf, append_size);
 		break;
+	}
 	default:
 		printf("wrong request\n");
 		break;

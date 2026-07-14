@@ -87,7 +87,7 @@ void memmove(void *dst, const void *src, size_t size)
 
     d = (char *)dst;
     s = (char *)src;
-    for (i = size; i >= 0; --i)
+    for (i = (s64)size - 1; i >= 0; --i)
         d[i] = s[i];
 }
 
