@@ -35,7 +35,12 @@ OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
 NUM_MACHINES="${NUM_MACHINES:-2}"
 TIMEOUT="${TIMEOUT:-1200}"
-BENCHS="${BENCHS:-leveldb dbx1000 pca matrix_multiply linear_regression word_count}"
+# leveldb (DB::Open fsync-dir EBADF) and matrix_multiply 2-machine (#GP in
+# the shared CXL slab free path) were fixed 2026-07-14 and are now included.
+# Default still excludes:
+#   dbx1000 — vendored config is the 16 GB / 8-machine CXL-footprint build and
+#             OOMs on 1-2 machines; fig13 needs the small (1x) TPC-C config.
+BENCHS="${BENCHS:-pca matrix_multiply linear_regression word_count leveldb}"
 CONFIGS="${CONFIGS:-All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM}"
 
 mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
@@ -136,6 +141,20 @@ for cfg in $CONFIGS; do
             sleep 2
             ae_send_command 0 "rundb.bin"
             bench_timeout="$DBX_TIMEOUT"
+        elif [ "$bench" = "matrix_multiply" ]; then
+            # run_matrix_multiply.sh hardcodes the 2-machine setup (16 threads
+            # bound to 0-10,12-23); on 1 machine threads bound to CPUs >= 12
+            # never run and the app hangs at its barrier. Use the original
+            # single-machine parameters (8 threads, CPUs 0-11) instead.
+            ae_boot_cluster "$cfg_machines"
+            if [ "$cfg_machines" -eq 1 ]; then
+                ae_send_command 0 "write matrix_multiply_bind_cpu.txt 0-11"
+                sleep 2
+                ae_send_command 0 "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t 8"
+            else
+                ae_send_command 0 "source run_${bench}.sh"
+            fi
+            bench_timeout="$TIMEOUT"
         else
             ae_boot_cluster "$cfg_machines"
             ae_send_command 0 "source run_${bench}.sh"
@@ -145,8 +164,10 @@ for cfg in $CONFIGS; do
             sleep 3   # let trailing output (e.g. summary lines) flush
             cp "$(ae_machine_log 0)" "$logfile"
         else
+            # rc 1 (timeout) or 3 (guest error/crash) — the specific reason is
+            # already recorded above; save the log and skip to the next test.
             cp "$(ae_machine_log 0)" "$logfile" || true
-            echo "[WARN] $bench under $cfg timed out; log saved anyway" >&2
+            echo "[WARN] $bench under $cfg did not complete; skipping to next test" >&2
         fi
         ae_kill_cluster
     done

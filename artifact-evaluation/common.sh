@@ -71,9 +71,15 @@ ae_set_dsm_var() {
 }
 
 # ae_set_dotconfig CHCORE_KERNEL_TEST BOOL ON
+# Appends the entry if the key is not present yet (e.g. a chcore_config added
+# after .config was generated).
 ae_set_dotconfig() {
     local key="$1" type="$2" val="$3"
-    sed -i "s/^${key}:${type}=.*/${key}:${type}=${val}/" "$AE_DOTCONFIG"
+    if grep -q "^${key}:${type}=" "$AE_DOTCONFIG"; then
+        sed -i "s/^${key}:${type}=.*/${key}:${type}=${val}/" "$AE_DOTCONFIG"
+    else
+        echo "${key}:${type}=${val}" >> "$AE_DOTCONFIG"
+    fi
     grep -q "^${key}:${type}=${val}$" "$AE_DOTCONFIG" || {
         echo "Failed to set ${key}=${val} in $AE_DOTCONFIG" >&2
         return 1
@@ -137,11 +143,23 @@ ae_machine_log() {
     echo "$AE_REPO_ROOT/exec_log$1.log"
 }
 
-# ── timeout-error accounting ────────────────────────────────────────────────
-# Every timeout is recorded here; experiments call ae_finish at the end so a
-# run with timeouts still parses its logs but exits non-zero.
+# ── run-error / timeout accounting ──────────────────────────────────────────
+# Timeouts and detected guest errors are recorded here; experiments call
+# ae_finish at the end so a run with failures still parses whatever logs it
+# has but exits non-zero.
 
 AE_TIMEOUT_ERRORS=()
+AE_RUN_ERRORS=()
+
+# Fatal guest-side signatures. When any appears in a machine log while we are
+# waiting for a benchmark's success marker, the benchmark is considered
+# failed: we stop waiting immediately, record it, and the caller moves on to
+# the next test. Kept conservative to avoid matching benign WARN lines.
+#   General Protection Fault / Trap No. / #GP     -> CPU exception
+#   panic / Kernel panic / BUG:                    -> kernel abort
+#   Unhandled ... [Ee]xception / fault             -> unhandled trap
+#   pool=NULL for va / KERNEL FAULT                 -> known fatal paths
+AE_ERROR_PATTERN="${AE_ERROR_PATTERN:-General Protection Fault|Kernel panic|kernel panic|panic:|BUG:|BUG_ON|Unhandled .*[Ee]xception|Unhandled .*fault|pool=NULL for va|KERNEL FAULT|Trap No\\. }"
 
 ae_record_timeout() {
     local what="$1"
@@ -149,35 +167,65 @@ ae_record_timeout() {
     echo "[AE][TIMEOUT-ERROR] $what" >&2
 }
 
-# ae_finish [exit-on-timeouts]
-# Print a timeout summary; exit 2 if any step timed out.
+ae_record_error() {
+    local what="$1"
+    AE_RUN_ERRORS+=("$what")
+    echo "[AE][RUN-ERROR] $what" >&2
+}
+
+# ae_finish
+# Print a failure summary; exit non-zero if any step errored or timed out.
 ae_finish() {
-    if [ "${#AE_TIMEOUT_ERRORS[@]}" -gt 0 ]; then
+    local n_to="${#AE_TIMEOUT_ERRORS[@]}" n_err="${#AE_RUN_ERRORS[@]}"
+    if [ "$n_err" -gt 0 ]; then
         echo "" >&2
-        echo "[AE] ${#AE_TIMEOUT_ERRORS[@]} step(s) TIMED OUT in this run:" >&2
+        echo "[AE] $n_err step(s) FAILED with a detected error:" >&2
         local t
-        for t in "${AE_TIMEOUT_ERRORS[@]}"; do
-            echo "[AE]   - $t" >&2
-        done
+        for t in "${AE_RUN_ERRORS[@]}"; do echo "[AE]   - $t" >&2; done
+    fi
+    if [ "$n_to" -gt 0 ]; then
+        echo "" >&2
+        echo "[AE] $n_to step(s) TIMED OUT:" >&2
+        local t
+        for t in "${AE_TIMEOUT_ERRORS[@]}"; do echo "[AE]   - $t" >&2; done
+    fi
+    if [ "$n_err" -gt 0 ] || [ "$n_to" -gt 0 ]; then
         exit 2
     fi
 }
 
-# ae_wait_in_log <machine> <pattern> <timeout-s> <label>
+# grep helper: BSD-style [[:<:]] word boundaries aren't in GNU grep, so use -E
+# with our alternation directly (word-boundary intent kept via the phrasing).
+_ae_error_grep() {
+    grep -aE "$AE_ERROR_PATTERN" "$1" 2>/dev/null | head -1
+}
+
+# ae_wait_in_log <machine> <success-pattern> <timeout-s> <label>
+# Returns:
+#   0  success pattern seen
+#   1  timed out          (recorded via ae_record_timeout)
+#   3  guest error / crash / tmux died (recorded via ae_record_error)
+# On 1 or 3 the caller should save the log and continue to the next test.
 ae_wait_in_log() {
     local machine="$1" pattern="$2" timeout="$3" label="$4"
-    local logfile
+    local logfile err
     logfile="$(ae_machine_log "$machine")"
     local elapsed=0
     while [ "$elapsed" -lt "$timeout" ]; do
-        if grep -q "$pattern" "$logfile" 2>/dev/null; then
+        if grep -aq "$pattern" "$logfile" 2>/dev/null; then
             [ -n "$label" ] && echo "$label"
             return 0
         fi
+        err="$(_ae_error_grep "$logfile")"
+        if [ -n "$err" ]; then
+            ae_record_error "$label: guest error detected -> ${err## } (log: $logfile)"
+            tail -40 "$logfile" >&2 || true
+            return 3
+        fi
         if ! tmux has-session -t "$AE_SESSION" 2>/dev/null; then
-            echo "tmux session $AE_SESSION died while waiting for: $label" >&2
-            tail -60 "$logfile" >&2 || true
-            return 1
+            ae_record_error "$label: tmux session $AE_SESSION died before success marker (log: $logfile)"
+            tail -40 "$logfile" >&2 || true
+            return 3
         fi
         sleep 2
         elapsed=$((elapsed + 2))
@@ -224,15 +272,39 @@ ae_boot_cluster() {
 }
 
 # ae_send_command <machine> <command>
-# A bare Enter is sent first: right after boot the guest tty may still hold
-# terminal escape-sequence responses (e.g. "1;2c" from a Device Attributes
-# query); submitting them as a bogus command flushes the input line so the
-# real command lands clean.
+# Robust against two console failure modes:
+#  1. Right after boot the guest tty may hold terminal escape-sequence
+#     responses (e.g. "1;2c"); a bare Enter first flushes the input line.
+#  2. During heavy output floods the emulated serial line drops input chars,
+#     silently eating the command — so wait for the console to quiesce,
+#     verify the command echoed back in the machine log, and resend if not.
 ae_send_command() {
     local machine="$1" cmd="$2"
-    tmux send-keys -t "$AE_SESSION:$machine" "" Enter
-    sleep 1
-    tmux send-keys -t "$AE_SESSION:$machine" "$cmd" Enter
+    local logfile prev_sz=-1 cur_sz quiet=0 waited=0 try sent
+    logfile="$(ae_machine_log "$machine")"
+
+    # wait for console quiesce (log size stable twice in a row, max 60s)
+    while [ "$quiet" -lt 2 ] && [ "$waited" -lt 60 ]; do
+        cur_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
+        if [ "$cur_sz" = "$prev_sz" ]; then quiet=$((quiet + 1)); else quiet=0; fi
+        prev_sz="$cur_sz"
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    for try in 1 2 3; do
+        tmux send-keys -t "$AE_SESSION:$machine" "" Enter
+        sleep 1
+        tmux send-keys -t "$AE_SESSION:$machine" "$cmd" Enter
+        sleep 3
+        sent="$(grep -acF "$cmd" "$logfile" 2>/dev/null || true)"
+        if [ "${sent:-0}" -gt 0 ]; then
+            return 0
+        fi
+        echo "[WARN] command not echoed on machine $machine (try $try); resending" >&2
+    done
+    echo "[WARN] command may not have reached machine $machine: $cmd" >&2
+    return 0
 }
 
 ae_kill_cluster() {

@@ -127,7 +127,9 @@ for ratio in $RATIOS; do
     if ae_wait_in_log 0 "PASS! SimTime" "$TIMEOUT" "dbx1000 done (ratio=${ratio}%)"; then
         sleep 5   # let trailing vmspace stats flush on all machines
     else
-        echo "[WARN] ratio=${ratio}% timed out; logs saved anyway" >&2
+        # rc 1 (timeout) or 3 (guest error/crash) — reason recorded above;
+        # save logs and move on to the next ratio.
+        echo "[WARN] ratio=${ratio}% did not complete; skipping to next ratio" >&2
     fi
     ae_archive_logs "$NUM_MACHINES" "$AE_LOG_DIR" "_r${ratio}"
     ae_kill_cluster

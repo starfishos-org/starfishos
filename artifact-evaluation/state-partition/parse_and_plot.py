@@ -155,17 +155,24 @@ def plot(norm, fig_dir: Path):
     colormap = plt.colormaps["tab20c"]
     colors = [colormap(i) for i in range(4)]
 
+    # Only plot benches that produced data (e.g. leveldb is skipped when it
+    # hangs / is excluded from BENCHS).
+    benchs = [b for b in BENCHS
+              if any(not np.isnan(norm[b][c]) for c in CONFIGS)]
+    if not benchs:
+        raise SystemExit("No bench produced data; nothing to plot")
+
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
     plt.rcParams.update({"font.size": 26, "figure.figsize": (13, 4.8)})
     plt.figure()
 
-    x = np.arange(len(BENCHS))
+    x = np.arange(len(benchs))
     n_cfg = len(CONFIGS)
     width = 0.8 / n_cfg
 
     for i, cfg in enumerate(CONFIGS):
-        vals = [norm[b][cfg] for b in BENCHS]
+        vals = [norm[b][cfg] for b in benchs]
         plt.bar(
             x + (i - n_cfg / 2 + 0.5) * width,
             vals,
@@ -177,14 +184,14 @@ def plot(norm, fig_dir: Path):
 
     plt.ylabel("Norm. Perf.")
     ymax = max(
-        (norm[b][c] for b in BENCHS for c in CONFIGS if not np.isnan(norm[b][c])),
+        (norm[b][c] for b in benchs for c in CONFIGS if not np.isnan(norm[b][c])),
         default=1.0,
     )
     plt.yticks([0, 0.25, 0.5, 0.75, 1.0])
     plt.ylim(0, max(1.05, ymax * 1.05))
     plt.grid(axis="y", linestyle="--", linewidth=0.8, alpha=0.5)
     plt.gca().set_axisbelow(True)
-    plt.xticks(x, [BENCH_LABEL[b] for b in BENCHS], rotation=15, ha="center")
+    plt.xticks(x, [BENCH_LABEL[b] for b in benchs], rotation=15, ha="center")
     plt.legend(
         frameon=False, fontsize=26, loc="upper center", ncol=4,
         columnspacing=0.6, handletextpad=0.3, labelspacing=1.5,

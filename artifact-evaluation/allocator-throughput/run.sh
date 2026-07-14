@@ -101,8 +101,9 @@ for cfg in $CONFIGS; do
             if ae_wait_in_log 0 "throughput(ops/s):" "$TIMEOUT" "user bench done (t=$threads)"; then
                 cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${cfg}_run${run}_user_t${threads}.log"
             else
+                # rc 1 (timeout) or 3 (guest error) — reason recorded above.
                 cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${cfg}_run${run}_user_t${threads}.log" || true
-                echo "user bench t=$threads timed out; log saved, stopping sweep for this run" >&2
+                echo "user bench t=$threads did not complete; stopping sweep for this run" >&2
                 ae_kill_cluster
                 break
             fi
