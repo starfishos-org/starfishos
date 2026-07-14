@@ -10,6 +10,7 @@ help:
 	@echo "make run / r: start the qemu"
 	@echo "make clean / c: clean the system"
 	@echo "make test: run tests under the directory ./dsm-scripts/tests"
+	@echo "make run-mm-test / run-graph-test / run-dbx1000-test: run automated benchmarks"
 	@echo "make prepare: prepare the system (only need to run once after the first clone)"
 
 b: build
@@ -56,6 +57,18 @@ prepare:
 c: clean
 clean:
 	./dsm-scripts/clean_memdev.sh
+
+run-mm-test:
+	./dsm-scripts/simulate_ncluster.sh 2 mm "source run_matrix_multiply.sh" "matrix multiply finished"
+
+run-graph-test:
+	./dsm-scripts/simulate_ncluster.sh 2 graph "pagerank /host/twitter-2010.bin 41652230 50 2" "exec_time=" --timeout=1800
+
+run-medium-graph-test:
+	./dsm-scripts/simulate_ncluster.sh 2 graph "pagerank /host/uk-2014-host.bin 4769354 10 2" "exec_time=" --timeout=600
+
+run-dbx1000-test:
+	./dsm-scripts/simulate_ncluster.sh 2 dbx1000 "source run_dbx1000.sh" "DBX1000 finished"
 
 ip2c:
 	addr2line -e user/build/ramdisk/$(P) -fCi $(IP)
