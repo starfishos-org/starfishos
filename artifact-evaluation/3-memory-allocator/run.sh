@@ -39,28 +39,10 @@ PROJECT_INI_BACKUP="$(mktemp)"
 cp "$PROJECT_CONFIG" "$PROJECT_CONFIG_BACKUP"
 cp "$PROJECT_INI" "$PROJECT_INI_BACKUP"
 
-check_global_prepare() {
-    local resources=(
-        "/dev/shm/ivshmem-$USER"
-        "/dev/shm/ivshmem-hostfs-$USER"
-        "/dev/shm/numa0.0-$USER" "/dev/shm/numa0.1-$USER"
-        "/dev/shm/numa1.0-$USER" "/dev/shm/numa1.1-$USER"
-        "/dev/shm/numa2.0-$USER" "/dev/shm/numa2.1-$USER"
-        "/dev/shm/numa3.0-$USER" "/dev/shm/numa3.1-$USER"
-    )
-    local resource
-
-    for resource in "${resources[@]}"; do
-        if [ ! -e "$resource" ]; then
-            echo "Missing global AE resource: $resource" >&2
-            echo "Run ./artifact-evaluation/prepare.sh first." >&2
-            return 1
-        fi
-    done
-}
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+ae_check_global_prepare
 
 cd "$REPO_ROOT"
-check_global_prepare
 
 # Load benchmark execution/parsing helpers only. Configuration selection and
 # compilation intentionally live in this AE entry point.
@@ -69,6 +51,7 @@ BENCH_MALLOC_LIB_ONLY=1
 source "$REPO_ROOT/dsm-scripts/malloc/bench_malloc_e2e.sh"
 
 cleanup_ae_config() {
+    ae_kill_all_ae_sessions
     restore_config
     cp "$PROJECT_CONFIG_BACKUP" "$PROJECT_CONFIG"
     cp "$PROJECT_INI_BACKUP" "$PROJECT_INI"

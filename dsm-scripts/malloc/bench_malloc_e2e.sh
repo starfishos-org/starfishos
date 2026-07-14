@@ -130,8 +130,8 @@ build_current_config() {
         return 0
     fi
 
-    echo "[E2E] chbuild failed; retrying with quick-build.sh" >&2
-    if ! (cd "$ROOT_DIR" && ./quick-build.sh) 2>&1 | tail -10; then
+    echo "[E2E] chbuild failed; retrying with scripts/quick-build.sh" >&2
+    if ! (cd "$ROOT_DIR" && ./scripts/quick-build.sh) 2>&1 | tail -10; then
         rm -f "$config_snapshot"
         echo "[E2E] QUICK BUILD FAILED for config: $label" >&2
         return 1

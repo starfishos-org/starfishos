@@ -27,16 +27,16 @@ not used because its `defconfig` step would reset the AE-selected options.
 
 ```bash
 ./artifact-evaluation/prepare.sh
-./artifact-evaluation/memory-allocator/run.sh
+./artifact-evaluation/3-memory-allocator/run.sh
 ```
 
 The full sweep is intentionally long. Useful overrides are:
 
 ```bash
-NRUNS=3 ./artifact-evaluation/memory-allocator/run.sh
-USER_BENCH_THREADS="1 2 4 8 16" ./artifact-evaluation/memory-allocator/run.sh
-CPU_NUM=96 ./artifact-evaluation/memory-allocator/run.sh
-CLEAN_RESULTS=0 ./artifact-evaluation/memory-allocator/run.sh
+NRUNS=3 ./artifact-evaluation/3-memory-allocator/run.sh
+USER_BENCH_THREADS="1 2 4 8 16" ./artifact-evaluation/3-memory-allocator/run.sh
+CPU_NUM=96 ./artifact-evaluation/3-memory-allocator/run.sh
+CLEAN_RESULTS=0 ./artifact-evaluation/3-memory-allocator/run.sh
 ```
 
 `run.sh` runs the benchmarks, parses the raw logs into
@@ -60,7 +60,7 @@ needed. Redundant `.match` checkpoint files are not generated.
 To redraw the figure from the existing CSV without rebuilding or booting QEMU:
 
 ```bash
-python3 artifact-evaluation/memory-allocator/plot.py
+python3 artifact-evaluation/3-memory-allocator/plot.py
 ```
 
 By default, the script reads `allocator_results.csv` and writes the figure in

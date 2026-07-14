@@ -226,6 +226,16 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
         dpi=240,
         bbox_inches="tight",
     )
+    figure.savefig(
+        out_dir / "fig00-allocator-all.pdf",
+        format="pdf",
+        bbox_inches="tight",
+    )
+    figure.savefig(
+        out_dir / "fig00-allocator-all.eps",
+        format="eps",
+        bbox_inches="tight",
+    )
     plt.close(figure)
 
 
@@ -261,7 +271,7 @@ def main():
     rows = load_rows(args.csv)
     buckets = make_buckets(rows)
     draw_paper_figure(rows, buckets, args.out_dir)
-    print(f"Figure written to {args.out_dir / 'fig00-allocator-all.png'}")
+    print(f"Figure written to {args.out_dir / 'fig00-allocator-all.png'} (+ .pdf/.eps)")
 
 
 if __name__ == "__main__":

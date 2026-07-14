@@ -17,7 +17,11 @@ if [ -z "${MLC_BIN:-}" ]; then
 fi
 
 if [ -z "${MLC_BIN:-}" ] || [ ! -x "$MLC_BIN" ]; then
-    echo "Intel MLC not found. Set MLC_BIN=/path/to/mlc." >&2
+    if [ "${ALLOW_MLC_SKIP:-1}" = "1" ]; then
+        echo "Intel MLC not found; skipping (set MLC_BIN=/path/to/mlc to run)." >&2
+        exit 0
+    fi
+    echo "Intel MLC not found. Set MLC_BIN=/path/to/mlc (or ALLOW_MLC_SKIP=1)." >&2
     exit 1
 fi
 

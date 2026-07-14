@@ -199,11 +199,23 @@ start_cluster() {
 }
 
 build_chcore() {
+    local config_snapshot
+    config_snapshot="$(mktemp)"
+    cp "$REPO_ROOT/.config" "$config_snapshot"
+
     echo '=== Building LevelDB recovery artifact ==='
     if ./chbuild build; then
+        rm -f "$config_snapshot"
         return 0
     fi
-    ./quick-build.sh
+    echo '=== chbuild failed; retrying with scripts/quick-build.sh ===' >&2
+    if ! ./scripts/quick-build.sh; then
+        rm -f "$config_snapshot"
+        return 1
+    fi
+    cp "$config_snapshot" "$REPO_ROOT/.config"
+    rm -f "$config_snapshot"
+    ./chbuild build
     test -x "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
 }
 

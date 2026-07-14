@@ -73,8 +73,29 @@ check_global_prepare() {
 }
 
 build_chcore() {
+    # Prefer incremental chbuild so enable_microbench_config() is not wiped by
+    # quick-build's distclean+defconfig. Fall back to quick-build, then restore
+    # the sample-apps flags and rebuild.
+    local config_snapshot
+    config_snapshot="$(mktemp)"
+    cp "$PROJECT_CONFIG" "$config_snapshot"
+
     echo "=== Building sched/notify microbenchmark ==="
-    ./quick-build.sh
+    if ./chbuild build && \
+       [ -x "$REPO_ROOT/user/build/ramdisk/sched_notify_microbench.bin" ]; then
+        rm -f "$config_snapshot"
+        return 0
+    fi
+
+    echo "=== chbuild failed or binary missing; retrying with scripts/quick-build.sh ===" >&2
+    if ! ./scripts/quick-build.sh; then
+        rm -f "$config_snapshot"
+        return 1
+    fi
+    cp "$config_snapshot" "$PROJECT_CONFIG"
+    rm -f "$config_snapshot"
+    enable_microbench_config
+    ./chbuild build
     test -x "$REPO_ROOT/user/build/ramdisk/sched_notify_microbench.bin"
 }
 
