@@ -3,7 +3,7 @@ set -euo pipefail
 
 AE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$AE_DIR/linux_sched_notify_microbench.c"
-BUILD_DIR="${BUILD_DIR:-/tmp/chcore-cxl-linux-sched-notify}"
+BUILD_DIR="${BUILD_DIR:-/tmp/chcore-cxl-linux-sched-notify-$USER}"
 BINARY="$BUILD_DIR/linux_sched_notify_microbench.bin"
 OUT_DIR="${OUT_DIR:-$AE_DIR/linux-results}"
 LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"

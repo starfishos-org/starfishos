@@ -62,7 +62,7 @@ const char *pci_class_name(unsigned int class_code)
         case 0x07: return "Serial bus controller";
         default: return "Serial bus controller";
         }
-    // 可以根据需要添加更多类别
+    // More classes can be added as needed
     default:
         return "";
     }

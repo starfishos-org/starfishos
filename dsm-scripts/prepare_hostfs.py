@@ -6,7 +6,7 @@ import sys
 
 base_dir = "/dev/shm"
 
-# 要复制到共享内存的文件路径
+# Paths of files to copy into shared memory
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
     '/mnt/disk1/wfn/twitter-2010/twitter-2010.bin',
@@ -14,12 +14,12 @@ source_file_list = [
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]
 
-# 共享内存设备文件路径
+# Shared memory device file path
 # get current user name
 user_name = os.getenv('USER')
 shm_device_path = f'{base_dir}/ivshmem-hostfs-{user_name}'
 
-# 头部信息，格式为
+# Header info layout
 file_info_list= []
 
 PAGE_SIZE = 4096
@@ -85,9 +85,9 @@ if not os.path.exists(shm_device_path):
     os.system(f"dd if=/dev/zero of={shm_device_path} bs=1G count=16")
     print(f"Shared memory device file {shm_device_path} created.")
 
-# 打开共享内存设备文件
+# Open the shared memory device file
 with open(shm_device_path, 'r+b') as shm_fd:
-    # 内存映射文件
+    # Memory-map the file
     shm_file_size = os.path.getsize(shm_device_path)
     shm = mmap.mmap(shm_fd.fileno(), shm_file_size)
 
@@ -99,9 +99,9 @@ with open(shm_device_path, 'r+b') as shm_fd:
             print(f"Warning: source file not found, skipping: {source_file_path}")
             continue
 
-        # 打开源文件以读取
+        # Open the source file for reading
         with open(source_file_path, 'rb') as source_file:
-            # 获取文件大小
+            # Get file size
             file_size = os.path.getsize(source_file_path)
 
             file_offset = offset
@@ -113,7 +113,7 @@ with open(shm_device_path, 'r+b') as shm_fd:
                 "file_name": source_file_path.split('/')[-1],
             })
 
-            # 写入shm offset的位置
+            # Write at the shm offset
             if file_offset + file_size > shm_file_size:
                 print("file_offset + file_size > shm_file_size")
                 break
@@ -125,19 +125,19 @@ with open(shm_device_path, 'r+b') as shm_fd:
             print("Writing file %s offset: %x size: %x" % (source_file_path, file_offset, file_size))
             shm.write(source_file.read(file_size))
 
-            # 更新offset
+            # Update offset
             offset += round_up(file_size, PAGE_SIZE)
             file_num += 1
     
-    # 写入magic
+    # Write magic
     shm.seek(0)
-    shm.write(b"hostfs\0\0")  # 确保8字节对齐
+    shm.write(b"hostfs\0\0")  # Ensure 8-byte alignment
 
-    # 写入file_num
+    # Write file_num
     shm.seek(8)
-    shm.write(struct.pack("<Q", file_num))  # 使用小端序格式化u64
+    shm.write(struct.pack("<Q", file_num))  # Pack u64 in little-endian
 
-    # 写入file_info_list
+    # Write file_info_list
     # struct kvm_ivshmem_header {
     #     char magic[8];
     #     u64 file_num;
@@ -150,23 +150,23 @@ with open(shm_device_path, 'r+b') as shm_fd:
 
     for file_info in file_info_list:
         print(file_info)
-    # 计算file_info_list的起始位置
+    # Compute the start offset of file_info_list
     file_info_list_offset = 16  # magic(8) + file_num(8)
     
-    # 遍历file_info_list并写入共享内存
+    # Walk file_info_list and write into shared memory
     for i, file_info in enumerate(file_info_list):
-        # 计算当前file_info的偏移量
+        # Compute offset of the current file_info entry
         current_offset = file_info_list_offset + i * (8 + 8 + 128)  # file_offset(8) + file_size(8) + file_name(128)
         
-        # 写入file_offset
+        # Write file_offset
         shm.seek(current_offset)
         shm.write(struct.pack("<Q", file_info["file_offset"]))
         
-        # 写入file_size
+        # Write file_size
         shm.seek(current_offset + 8)
         shm.write(struct.pack("<Q", file_info["file_size"]))
         
-        # 写入file_name (确保不超过128字节，不足的部分用0填充)
+        # Write file_name (at most 128 bytes; pad with zeros if shorter)
         shm.seek(current_offset + 16)
         file_name_bytes = file_info["file_name"].encode('utf-8')
         if len(file_name_bytes) > 128:
@@ -175,10 +175,10 @@ with open(shm_device_path, 'r+b') as shm_fd:
             file_name_bytes = file_name_bytes + b'\0' * (128 - len(file_name_bytes))
         shm.write(file_name_bytes)
 
-    # 同步更改回文件系统
+    # Sync changes back to the filesystem
     shm.flush()
 
-    # 关闭映射
+    # Close the mapping
     shm.close()
 
 print("All files have been copied to shared memory.")

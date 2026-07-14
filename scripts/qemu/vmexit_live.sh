@@ -1,34 +1,29 @@
 #!/bin/bash
 
-# 实时监控 vmexit 开销的脚本
-# 使用方法: ./vmexit_live.sh [interval]
-# interval: 刷新间隔（秒），默认 1 秒
+# Live monitoring script for vmexit overhead
+# Usage: ./vmexit_live.sh [interval]
+# interval: refresh interval in seconds (default: 1)
 
 set -e
 
 interval=${1:-1}
 
-# 检查是否以 root 权限运行
+# Check whether running as root
 if [ "$EUID" -ne 0 ]; then 
-    echo "错误: 此脚本需要 root 权限"
-    echo "请使用: sudo $0"
+    echo "Error: this script requires root privileges"
+    echo "Please run: sudo $0"
     exit 1
 fi
 
-# 检查 perf 是否可用
+# Check whether perf is available
 if ! command -v perf &> /dev/null; then
-    echo "错误: perf 工具未安装"
+    echo "Error: perf tool is not installed"
     exit 1
 fi
 
-echo "实时监控 vmexit 开销 (刷新间隔: ${interval}秒)"
-echo "按 Ctrl+C 停止"
+echo "Live monitoring vmexit overhead (refresh interval: ${interval}s)"
+echo "Press Ctrl+C to stop"
 echo ""
 
-# 使用 perf kvm stat live 实时显示
+# Use perf kvm stat live for real-time display
 perf kvm stat live --interval $interval
-
-
-
-
-

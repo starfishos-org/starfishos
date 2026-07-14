@@ -16,11 +16,11 @@ int main(int argc, char *argv[]) {
         if (!fp) { perror("fopen"); return 1; }
 
         fprintf(fp, "Message %d\n", counter++);
-        fflush(fp); // 刷新到内核缓冲
-        fsync(fileno(fp));  // 刷新到磁盘
+        fflush(fp); // flush to kernel buffer
+        fsync(fileno(fp));  // flush to disk
 
         fclose(fp);
 
-        sleep(1); // 每秒更新一次
+        sleep(1); // update once per second
     }
 }

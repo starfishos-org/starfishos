@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-解析 exec_log0.log 中两次 VMSPACE STATS 的 CXL 状态，只关心「第 2 次比第 1 次多的」CXL 段；
-数据结构 VA 直接来自同一文件中的 [PR][part=0] 行（如第 417 行），输出：新增 CXL 的大小、
-VA 区间、可能落在的数据结构。输出格式与 exec_log0.log 一致：具体的 CXL 段
-（如 0x3007d2f07000-0x3007d2f0c000 -> CXL），而不是整块 VMR。
+Parse CXL state from two VMSPACE STATS dumps in exec_log0.log, focusing only on
+CXL segments that appear in the 2nd dump but not the 1st. Data-structure VAs come
+from [PR][part=0] lines in the same file (e.g. around line 417). Output: size of
+new CXL, VA ranges, and possible data structures. Format matches exec_log0.log:
+concrete CXL segments (e.g. 0x3007d2f07000-0x3007d2f0c000 -> CXL), not whole VMRs.
 """
 
 import re
@@ -12,11 +13,11 @@ import sys
 PAGE_SIZE = 0x1000  # 4KB
 
 def parse_cxl_line(line):
-    """解析一行 '   VA或VA-VA -> CXL'，返回 (start_va, end_va) 左闭右开，或 None。"""
+    """Parse a '   VA or VA-VA -> CXL' line; return (start_va, end_va) half-open, or None."""
     line = line.strip()
     if ' -> CXL' not in line or 'machines:' in line:
         return None
-    # 格式: "0x3007d2f07000-0x3007d2f0c000 -> CXL" 或 "0x3007d2f07000 -> CXL"
+    # Format: "0x3007d2f07000-0x3007d2f0c000 -> CXL" or "0x3007d2f07000 -> CXL"
     range_m = re.search(r'0x([0-9a-fA-F]+)-0x([0-9a-fA-F]+)\s*->\s*CXL', line)
     single_m = re.search(r'0x([0-9a-fA-F]+)\s*->\s*CXL', line)
     if range_m:
@@ -31,7 +32,7 @@ def parse_cxl_line(line):
     return None
 
 def collect_cxl_ranges(lines, start_lineno, end_lineno):
-    """从 lines 的 [start_lineno, end_lineno) 中收集所有 CXL 段，返回 [(start,end), ...] 左闭右开。"""
+    """Collect all CXL segments from lines[start_lineno:end_lineno); return [(start,end), ...] half-open."""
     ranges = []
     for i in range(start_lineno, min(end_lineno, len(lines))):
         t = parse_cxl_line(lines[i])
@@ -40,9 +41,9 @@ def collect_cxl_ranges(lines, start_lineno, end_lineno):
     return ranges
 
 def find_vmspace_blocks(lines, require_pagerank=False):
-    """找到 VMSPACE STATS 块的起止行号。支持 Process: /pagerank 或 Process: unknown 等。
-    段范围：从 Process: 所在行到下一个 '==========' 之前。
-    require_pagerank: 仅匹配 Process: /pagerank；否则匹配任意 Process: 行。
+    """Find start/end line numbers of VMSPACE STATS blocks. Supports Process: /pagerank or Process: unknown, etc.
+    Block range: from the Process: line until just before the next '=========='.
+    require_pagerank: match only Process: /pagerank; otherwise match any Process: line.
     """
     blocks = []
     i = 0
@@ -74,11 +75,11 @@ def find_vmspace_blocks(lines, require_pagerank=False):
     return blocks
 
 def find_pagerank_blocks(lines):
-    """兼容旧接口：找 Process: /pagerank 的块。"""
+    """Legacy wrapper: find Process: /pagerank blocks."""
     return find_vmspace_blocks(lines, require_pagerank=True)
 
 def merge_intervals(intervals):
-    """合并重叠/相邻的区间，返回有序不重叠的 [(s,e), ...] 左闭右开。"""
+    """Merge overlapping/adjacent intervals; return sorted non-overlapping [(s,e), ...] half-open."""
     if not intervals:
         return []
     sorted_i = sorted(intervals, key=lambda x: (x[0], x[1]))
@@ -91,8 +92,8 @@ def merge_intervals(intervals):
     return [tuple(x) for x in out]
 
 def subtract_intervals(outer, to_subtract):
-    """从 outer 区间列表中减去 to_subtract。outer 和 to_subtract 均为 [(s,e), ...] 左闭右开。
-    返回 outer 中不在 to_subtract 内的部分（可能切成多段）。
+    """Subtract to_subtract from outer. Both are [(s,e), ...] half-open.
+    Return the parts of outer not covered by to_subtract (may split into multiple segments).
     """
     result = []
     for a, b in outer:
@@ -112,8 +113,8 @@ def subtract_intervals(outer, to_subtract):
     return merge_intervals(result)
 
 def get_cxl_blocks_from_log(lines, single_block_ok=False):
-    """从 log 定位 VMSPACE 块并返回 CXL 区间列表。
-    single_block_ok: 若为 True，仅 1 个块时也返回 (None, ranges)；否则返回 (None, None)。
+    """Locate VMSPACE blocks in the log and return CXL interval lists.
+    single_block_ok: if True, with only 1 block return (None, ranges); else return (None, None).
     """
     blocks = find_vmspace_blocks(lines, require_pagerank=False)
     if len(blocks) >= 2:
@@ -125,9 +126,9 @@ def get_cxl_blocks_from_log(lines, single_block_ok=False):
     return None, None
 
 def find_last_vmspace_block(lines):
-    """找到最后一次出现的 [VMSPACE STATS] Process: ... 块的起止行号。
+    """Find start/end line numbers of the last [VMSPACE STATS] Process: ... block.
 
-    与 find_vmspace_blocks 不同，这里不会在找到两个块后提前退出，而是始终保留最后一个块。
+    Unlike find_vmspace_blocks, this does not stop after finding two blocks; it always keeps the last one.
     """
     last_block = None
     i = 0
@@ -151,15 +152,15 @@ def find_last_vmspace_block(lines):
         i += 1
     return last_block
 
-# 匹配 name: [0x...-0x...) 或 name=[0x...-0x...)，name 可含 [0] 等
+# Match name: [0x...-0x...) or name=[0x...-0x...); name may include [0], etc.
 _DS_RANGE_PATTERN = re.compile(
     r'([a-zA-Z_][a-zA-Z0-9_]*(?:\[\d+\])?)\s*[:=]\s*\[\s*0x([0-9a-fA-F]+)\s*-\s*0x([0-9a-fA-F]+)\s*\)',
     re.MULTILINE
 )
 
 def parse_pr_line(line):
-    """解析 [PR][part=0] 这类行中的 name: [0xstart-0xend) 或 name=[0xstart-0xend)。
-    返回 [(name, start_va, end_va), ...]，区间为左闭右开。
+    """Parse name: [0xstart-0xend) or name=[0xstart-0xend) from a [PR][part=0]-style line.
+    Return [(name, start_va, end_va), ...], half-open intervals.
     """
     result = []
     for m in _DS_RANGE_PATTERN.finditer(line):
@@ -170,10 +171,10 @@ def parse_pr_line(line):
     return result
 
 def find_pr_line_in_log(lines, part=0):
-    """在 log 行列表中查找 [PR][part=N] 且包含 VA 区间的行。
+    """Find a [PR][part=N] line that contains VA ranges in the log line list.
 
-    优先返回能被 parse_pr_line 解析出至少一个 [0x...-0x...) 的那一行；
-    若没有带 VA 的行，则退化为返回第一条包含 [PR][part=N] 的行；都没有则返回 None。
+    Prefer a line that parse_pr_line can extract at least one [0x...-0x...) from;
+    if none have VAs, fall back to the first line containing [PR][part=N]; else None.
     """
     prefix = f'[PR][part={part}]'
     first_match = None
@@ -182,15 +183,15 @@ def find_pr_line_in_log(lines, part=0):
             continue
         if first_match is None:
             first_match = line
-        # 这一行如果已经有 VA 区间，就直接用它
+        # If this line already has VA ranges, use it
         if parse_pr_line(line):
             return line
     return first_match
 
 def collect_all_ds_ranges(lines):
-    """在 log 中收集所有 [PR][part=N] 行里的数据结构 VA 区间。
+    """Collect data-structure VA ranges from all [PR][part=N] lines in the log.
 
-    返回 [(name, start_va, end_va), ...]，其中 name 不做额外拼接（保持原样，如含 [0] 等）。
+    Return [(name, start_va, end_va), ...]; name is kept as-is (e.g. may include [0]).
     """
     all_ds = []
     for line in lines:
@@ -202,10 +203,10 @@ def collect_all_ds_ranges(lines):
     return all_ds
 
 def accumulate_ds_original_sizes(ds_list):
-    """根据数据结构自己的 VA 区间，统计每个数据结构的「原始大小」总和。
+    """Sum each data structure's 'original size' from its own VA ranges.
 
     ds_list: [(name, start_va, end_va), ...]
-    返回: { name: total_size_bytes }
+    Return: { name: total_size_bytes }
     """
     totals = {}
     for name, start_va, end_va in ds_list:
@@ -214,7 +215,7 @@ def accumulate_ds_original_sizes(ds_list):
     return totals
 
 def overlaps(seg_start, seg_end, ds_start, ds_end):
-    """区间是否重叠（左闭右开）。"""
+    """Whether two half-open intervals overlap."""
     return seg_start < ds_end and seg_end > ds_start
 
 def format_size(size_bytes):
@@ -238,50 +239,50 @@ def main():
         log0_lines = f.readlines()
 
     if single_mode:
-        # 单块模式：只分析「最后一次」 VMSPACE STATS 的 CXL 段
+        # Single-block mode: analyze only CXL segments from the last VMSPACE STATS dump
         last_block = find_last_vmspace_block(log0_lines)
         if last_block is None:
-            print("log 中未找到任何 [VMSPACE STATS] Process: ... 块")
+            print("No [VMSPACE STATS] Process: ... block found in log")
             sys.exit(1)
         s, e = last_block
         cxl1, cxl2 = None, collect_cxl_ranges(log0_lines, s, e)
     else:
-        # 默认模式：分析「前两次」 VMSPACE STATS 的差分（第 2 次相较第 1 次的新增 CXL）
+        # Default mode: diff the first two VMSPACE STATS dumps (new CXL in the 2nd vs the 1st)
         cxl1, cxl2 = get_cxl_blocks_from_log(log0_lines, single_block_ok=False)
     if cxl2 is None:
-        print("需要至少两段 [VMSPACE STATS] Process: ... 块；或使用 --single 分析单块")
+        print("Need at least two [VMSPACE STATS] Process: ... blocks; or use --single for one block")
         sys.exit(1)
 
-    # 单块模式：直接分析 cxl2 的 CXL 段；双块模式：分析 new_ranges = cxl2 - cxl1
+    # Single-block: analyze cxl2 directly; two-block: new_ranges = cxl2 - cxl1
     if cxl1 is None:
         new_ranges = merge_intervals(cxl2)
-        title = "CXL 段（单块模式：本次打印的全部 CXL）"
+        title = "CXL segments (single-block mode: all CXL from this dump)"
     else:
         merged1 = merge_intervals(cxl1)
         merged2 = merge_intervals(cxl2)
         new_ranges = subtract_intervals(merged2, merged1)
         if not new_ranges:
-            print("没有新增的 CXL 段（第 2 次相对第 1 次无新增）")
+            print("No new CXL segments (2nd dump has nothing beyond the 1st)")
             return
-        title = "新增 CXL 段（第 2 次比第 1 次多的 CXL 内存）"
+        title = "New CXL segments (CXL memory present in the 2nd dump but not the 1st)"
 
-    # 从同一 exec_log0.log 中的所有 [PR][part=N] 行解析数据结构 VA 区间
+    # Parse data-structure VA ranges from all [PR][part=N] lines in the same exec_log0.log
     ds_list = collect_all_ds_ranges(log0_lines)
     if not ds_list:
-        print("(未在 log 中找到可解析的数据结构 VA 区间，[PR][part=*] 行可能缺失或格式不匹配)")
+        print("(No parseable data-structure VA ranges in log; [PR][part=*] lines may be missing or mismatched)")
     ds_original_totals = accumulate_ds_original_sizes(ds_list) if ds_list else {}
 
     total_new_bytes = sum(e - s for s, e in new_ranges)
     print("=" * 60)
     print(title)
     print("=" * 60)
-    print(f"新增总大小: {format_size(total_new_bytes)} ({total_new_bytes} bytes, {total_new_bytes // PAGE_SIZE} pages)")
+    print(f"Total new size: {format_size(total_new_bytes)} ({total_new_bytes} bytes, {total_new_bytes // PAGE_SIZE} pages)")
     print()
 
-    # 按 CXL 段大小降序排序
+    # Sort CXL segments by size descending
     new_ranges = sorted(new_ranges, key=lambda r: r[1] - r[0], reverse=True)
 
-    # 按可能数据结构汇总大小（用于最后打印）
+    # Aggregate size by possible data structure (printed at the end)
     ds_totals = {}
     for start, end in new_ranges:
         size = end - start
@@ -292,12 +293,12 @@ def main():
         for name in matching_ds:
             ds_totals[name] = ds_totals.get(name, 0) + size
         if not matching_ds:
-            ds_totals.setdefault("(无匹配)", 0)
-            ds_totals["(无匹配)"] += size
+            ds_totals.setdefault("(no match)", 0)
+            ds_totals["(no match)"] += size
 
     for start, end in new_ranges:
         size = end - start
-        # 与 exec_log0 一致：单页只打 start，多页打 start-end
+        # Match exec_log0: single page prints start only; multi-page prints start-end
         if size <= PAGE_SIZE:
             va_str = f"0x{start:x}-0x{end:x}" if size == PAGE_SIZE else f"0x{start:x}"
         else:
@@ -306,17 +307,17 @@ def main():
             name for name, ds_start, ds_end in ds_list
             if overlaps(start, end, ds_start, ds_end)
         ]
-        ds_str = ", ".join(matching_ds) if matching_ds else "(无匹配数据结构)"
-        print(f"[CXL 段] {va_str} -> CXL")
-        print(f"  大小: {format_size(size)} ({size} bytes)")
-        print(f"  VA 区间: [{hex(start)}, {hex(end)})")
-        print(f"  可能数据结构: {ds_str}")
+        ds_str = ", ".join(matching_ds) if matching_ds else "(no matching data structure)"
+        print(f"[CXL segment] {va_str} -> CXL")
+        print(f"  size: {format_size(size)} ({size} bytes)")
+        print(f"  VA range: [{hex(start)}, {hex(end)})")
+        print(f"  possible data structures: {ds_str}")
         print()
 
     print("=" * 60)
-    print("按数据结构汇总的 CXL 大小（紧凑显示，含占比）")
+    print("CXL size by data structure (compact, with ratio)")
     print("=" * 60)
-    for name in sorted(ds_totals.keys(), key=lambda n: (n == "(无匹配)", n)):
+    for name in sorted(ds_totals.keys(), key=lambda n: (n == "(no match)", n)):
         added_bytes = ds_totals[name]
         original_bytes = ds_original_totals.get(name, 0)
         if original_bytes > 0:

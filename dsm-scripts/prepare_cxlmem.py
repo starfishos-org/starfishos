@@ -2,13 +2,13 @@ import mmap
 import os
 import re
 
-# 共享内存设备文件路径
+# Shared memory device file path
 base_dir = "/dev/shm"
 numa_base_dir = "/dev/shm"
 user_name = os.getenv('USER')
 shm_device_path = f'{base_dir}/ivshmem-{user_name}'
 
-# 8个CXL设备文件路径（numax.x 现在在 /dev/shm）
+# Paths of the 8 CXL device files (numax.x now live under /dev/shm)
 cxl_devices = [
     f'{numa_base_dir}/numa0.0-{user_name}',
     f'{numa_base_dir}/numa1.0-{user_name}',
@@ -71,31 +71,31 @@ def _write_magic_compatible(dev_path: str, magic_padded: bytes) -> None:
             dev_fd.write(magic_padded)
             dev_fd.flush()
 
-# 处理共享内存设备文件（cxlmem magic）
+# Prepare the shared memory device file (cxlmem magic)
 if os.path.exists(shm_device_path):
     with open(shm_device_path, 'r+b') as shm_fd:
-        # 将前1M设置为0
+        # Zero the first 16K
         shm_fd.seek(0)
         shm_fd.write(b"\0" * SIZE_16K)
 
-        # 写入magic
+        # Write magic
         shm_fd.seek(0)
-        shm_fd.write(b"cxlmem\0\0")  # 确保8字节对齐
+        shm_fd.write(b"cxlmem\0\0")  # Ensure 8-byte alignment
 
-        # 同步更改回文件系统
+        # Sync changes back to the filesystem
         shm_fd.flush()
         shm_fd.close()
     print(f"Shared memory {shm_device_path} has been prepared.")
 else:
     print(f"Shared memory device {shm_device_path} does not exist, skipping.")
 
-# 处理8个CXL设备文件
+# Prepare the 8 CXL device files
 for dev_path in cxl_devices:
     if not os.path.exists(dev_path):
         print(f"CXL device {dev_path} does not exist, skipping.")
         continue
     
-    # 从文件名提取numa信息（例如：numa0.0, numa1.0等）
+    # Extract numa info from the filename (e.g. numa0.0, numa1.0, ...)
     filename = os.path.basename(dev_path)
     match = re.search(r'numa(\d+)\.(\d+)', filename)
     if match:
@@ -103,7 +103,7 @@ for dev_path in cxl_devices:
         numa_dev = match.group(2)
         magic = f"numa{numa_node}.{numa_dev}\0".encode('ascii')
         
-        # 确保magic是8字节对齐
+        # Ensure magic is 8-byte aligned
         magic_padded = magic.ljust(8, b'\0')
 
         _write_magic_compatible(dev_path, magic_padded)

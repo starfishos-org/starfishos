@@ -9,7 +9,7 @@ static void swap_long(long *a, long *b)
 
 static long partition(long *arr, long left, long right)
 {
-    long pivot = arr[(left + right) >> 1]; // 取中间值，降低最坏情况概率
+    long pivot = arr[(left + right) >> 1]; // pick middle value to reduce worst-case probability
     long i = left;
     long j = right;
 

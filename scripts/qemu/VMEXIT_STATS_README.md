@@ -1,117 +1,117 @@
-# QEMU/KVM vmexit 开销统计指南
+# QEMU/KVM vmexit Overhead Statistics Guide
 
-本目录提供了用于统计和分析 QEMU/KVM 运行过程中 vmexit 开销的工具脚本。
+This directory provides tool scripts for collecting and analyzing vmexit overhead while QEMU/KVM is running.
 
-## 工具说明
+## Tools
 
-### 1. vmexit_stats.sh - 完整统计脚本
+### 1. vmexit_stats.sh — full statistics script
 
-在运行 QEMU 虚拟机时自动记录和分析 vmexit 事件。
+Automatically records and analyzes vmexit events while a QEMU VM is running.
 
-**使用方法:**
+**Usage:**
 ```bash
 sudo ./scripts/qemu/vmexit_stats.sh [vm_id] [command]
 ```
 
-**示例:**
+**Example:**
 ```bash
-# 统计 simulate.sh 运行时的 vmexit
+# Collect vmexit stats while simulate.sh is running
 sudo ./scripts/qemu/vmexit_stats.sh 0 './build/simulate.sh 0'
 ```
 
-**功能:**
-- 自动启动 perf kvm stat record 记录 vmexit 事件
-- 执行指定的 QEMU 命令
-- 自动生成统计报告
-- 输出保存到 `/tmp/vmexit_stats_*/` 目录
+**Features:**
+- Automatically starts `perf kvm stat record` to capture vmexit events
+- Runs the specified QEMU command
+- Automatically generates a statistics report
+- Saves output under `/tmp/vmexit_stats_*/`
 
-### 2. vmexit_live.sh - 实时监控
+### 2. vmexit_live.sh — live monitoring
 
-实时显示 vmexit 统计信息，适合在另一个终端监控。
+Displays vmexit statistics in real time; suitable for monitoring from another terminal.
 
-**使用方法:**
+**Usage:**
 ```bash
 sudo ./scripts/qemu/vmexit_live.sh [interval]
 ```
 
-**示例:**
+**Example:**
 ```bash
-# 每秒刷新一次
+# Refresh once per second
 sudo ./scripts/qemu/vmexit_live.sh 1
 
-# 每5秒刷新一次
+# Refresh every 5 seconds
 sudo ./scripts/qemu/vmexit_live.sh 5
 ```
 
-### 3. vmexit_analyze.sh - 分析已记录的数据
+### 3. vmexit_analyze.sh — analyze recorded data
 
-分析之前记录的 perf 数据文件。
+Analyzes previously recorded perf data files.
 
-**使用方法:**
+**Usage:**
 ```bash
 sudo ./scripts/qemu/vmexit_analyze.sh [perf_data_file]
 ```
 
-**示例:**
+**Example:**
 ```bash
-# 分析默认位置的数据
+# Analyze data at the default location
 sudo ./scripts/qemu/vmexit_analyze.sh
 
-# 分析指定文件
+# Analyze a specific file
 sudo ./scripts/qemu/vmexit_analyze.sh /tmp/vmexit_stats_12345/perf.data
 ```
 
-## 手动方法
+## Manual methods
 
-### 方法1: 使用 perf kvm stat
+### Method 1: Use perf kvm stat
 
-**实时统计:**
+**Live statistics:**
 ```bash
 sudo perf kvm stat live
 ```
 
-**记录并分析:**
+**Record and analyze:**
 ```bash
-# 记录
+# Record
 sudo perf kvm stat record
 
-# 在另一个终端运行 QEMU
+# In another terminal, run QEMU
 ./build/simulate.sh 0
 
-# 停止记录 (Ctrl+C)，然后生成报告
+# Stop recording (Ctrl+C), then generate the report
 sudo perf kvm stat report
 ```
 
-### 方法2: 使用 perf stat 统计 KVM tracepoints
+### Method 2: Use perf stat on KVM tracepoints
 
 ```bash
-# 查看可用的 KVM 事件
+# List available KVM events
 sudo perf list | grep kvm
 
-# 统计特定事件
+# Count specific events
 sudo perf stat -e kvm:kvm_exit,kvm:kvm_entry,kvm:kvm_vcpu_wakeup \
     ./build/simulate.sh 0
 ```
 
-### 方法3: 使用 ftrace
+### Method 3: Use ftrace
 
 ```bash
-# 挂载 debugfs (如果未挂载)
+# Mount debugfs (if not already mounted)
 sudo mount -t debugfs none /sys/kernel/debug
 
-# 启用 kvm_exit 事件
+# Enable the kvm_exit event
 echo 1 > /sys/kernel/debug/tracing/events/kvm/kvm_exit/enable
 
-# 查看实时事件
+# View live events
 cat /sys/kernel/debug/tracing/trace_pipe
 
-# 查看统计
+# View statistics
 cat /sys/kernel/debug/tracing/events/kvm/kvm_exit/hist
 ```
 
-### 方法4: 使用 QEMU trace
+### Method 4: Use QEMU trace
 
-在 QEMU 启动参数中添加 trace 选项:
+Add trace options to the QEMU launch command:
 
 ```bash
 qemu-system-x86_64 \
@@ -120,59 +120,58 @@ qemu-system-x86_64 \
     ...
 ```
 
-## 常见 vmexit 原因
+## Common vmexit causes
 
-通过统计可以了解导致 vmexit 的主要原因:
+Statistics help identify the main causes of vmexit:
 
-- **EXTERNAL_INTERRUPT**: 外部中断
-- **IO_INSTRUCTION**: I/O 指令
-- **CPUID**: CPUID 指令
-- **MSR_READ/MSR_WRITE**: MSR 读写
-- **EPT_VIOLATION**: EPT 页表违规
-- **APIC_ACCESS**: APIC 访问
-- **HLT**: HLT 指令
+- **EXTERNAL_INTERRUPT**: external interrupt
+- **IO_INSTRUCTION**: I/O instruction
+- **CPUID**: CPUID instruction
+- **MSR_READ/MSR_WRITE**: MSR read/write
+- **EPT_VIOLATION**: EPT page-table violation
+- **APIC_ACCESS**: APIC access
+- **HLT**: HLT instruction
 
-## 性能优化建议
+## Performance tuning tips
 
-1. **减少不必要的 vmexit**:
-   - 使用 virtio 设备而非模拟设备
-   - 启用 KVM 加速特性 (如 posted interrupts)
-   - 优化中断处理
+1. **Reduce unnecessary vmexits**:
+   - Prefer virtio devices over emulated devices
+   - Enable KVM acceleration features (e.g. posted interrupts)
+   - Optimize interrupt handling
 
-2. **分析 vmexit 开销**:
-   - 关注 vmexit 频率高的原因
-   - 检查 vmexit 到 vmentry 的延迟
-   - 分析不同工作负载下的模式
+2. **Analyze vmexit cost**:
+   - Focus on high-frequency vmexit reasons
+   - Measure latency from vmexit to vmentry
+   - Compare patterns under different workloads
 
-3. **使用 CPU 特性**:
-   - 启用硬件辅助虚拟化特性
-   - 使用合适的 CPU 模型 (`-cpu host`)
+3. **Use CPU features**:
+   - Enable hardware-assisted virtualization features
+   - Use an appropriate CPU model (`-cpu host`)
 
-## 依赖要求
+## Dependencies
 
-- `perf` 工具 (通常包含在 `linux-perf` 或 `perf` 包中)
-- root 权限 (用于访问 KVM tracepoints)
-- KVM 模块已加载
-- 内核支持 KVM (CONFIG_KVM)
+- `perf` tool (usually from the `linux-perf` or `perf` package)
+- Root privileges (to access KVM tracepoints)
+- KVM module loaded
+- Kernel with KVM support (`CONFIG_KVM`)
 
-## 故障排除
+## Troubleshooting
 
-1. **perf kvm 不可用**:
-   - 确保内核支持 KVM
-   - 检查 `/sys/module/kvm` 是否存在
-   - 某些发行版可能需要安装额外的 perf 包
+1. **perf kvm unavailable**:
+   - Ensure the kernel supports KVM
+   - Check that `/sys/module/kvm` exists
+   - Some distributions may need an extra perf package
 
-2. **权限问题**:
-   - 使用 sudo 运行脚本
-   - 检查 `/proc/sys/kernel/perf_event_paranoid` 设置
+2. **Permission issues**:
+   - Run the scripts with sudo
+   - Check `/proc/sys/kernel/perf_event_paranoid`
 
-3. **没有数据**:
-   - 确保 QEMU 使用了 `--enable-kvm` 选项
-   - 检查虚拟机是否实际运行在 KVM 模式下
+3. **No data**:
+   - Ensure QEMU is started with `--enable-kvm`
+   - Verify the VM is actually running under KVM
 
-## 参考资料
+## References
 
-- [perf kvm 文档](https://www.kernel.org/doc/html/latest/virtual/kvm/tracing.html)
-- [KVM 性能调优](https://www.linux-kvm.org/page/Tuning_KVM)
-- [QEMU 文档](https://www.qemu.org/documentation/)
-
+- [perf kvm documentation](https://www.kernel.org/doc/html/latest/virtual/kvm/tracing.html)
+- [KVM performance tuning](https://www.linux-kvm.org/page/Tuning_KVM)
+- [QEMU documentation](https://www.qemu.org/documentation/)

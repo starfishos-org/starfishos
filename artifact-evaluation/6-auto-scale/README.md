@@ -13,8 +13,14 @@ Target paper figures (`p3os-paper/eval/`):
 1. Sweep machine counts (1 → 8) under Mixed / DRAM configs.
 2. Run Matrix Multiply (Phoenix), DBx1000, GeminiGraph via existing
    `dsm-scripts/tests/` expect scripts / Makefile targets.
-3. Write CSVs matching `p3os-paper/eval/` schema.
-4. Plot with logic adapted from:
+3. Measure paper **Ideal** (Linux DRAM) and Gemini **Distributed** (Linux-MPI)
+   baselines from `test-on-linux/` (see `test-on-linux/README.md`):
+   - Ideal Matrix → `test-on-linux/phoenix`
+   - Ideal DBx1000 → `test-on-linux/dbx1000`
+   - Ideal Gemini → `test-on-linux/GeminiGraph`
+   - Distributed Gemini → `test-on-linux/ggraph-distri`
+4. Write CSVs matching `p3os-paper/eval/` schema.
+5. Plot with logic adapted from:
    - `p3os-paper/eval/auto_scale_matrix.py`
    - `p3os-paper/eval/db1000.py`
    - `p3os-paper/eval/gemini_graph.py`

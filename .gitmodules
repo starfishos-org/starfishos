@@ -2,35 +2,71 @@
 	path = user/demos/phoenix-2.0
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/phoenix.git
 	branch = phoenix-2.0
-[submodule "user/demos/ligra"]
-	path = user/demos/ligra
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/ligra.git
-  branch = master
 [submodule "user/demos/dbx1000"]
 	path = user/demos/dbx1000
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/dbx1000.git
-  branch = chcore
-[submodule "user/demos/cpython"]
-	path = user/demos/cpython
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/cpython.git
-  branch = 3.12
-[submodule "user/demos/libffi"]
-	path = user/libraries/libffi
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/libffi.git
-  branch = dev
-[submodule "user/demos/zlib"]
-	path = user/libraries/zlib
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/zlib.git
-	branch = master
+	branch = chcore
 [submodule "user/libraries/rpmalloc"]
 	path = user/libraries/rpmalloc
 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/rpmalloc.git
 [submodule "user/demos/GeminiGraph"]
 	path = user/demos/GeminiGraph
 	url = git@ipads.se.sjtu.edu.cn:nvsys/shm-lock/GeminiGraph.git
-[submodule "user/demos/VeryTinyCnn"]
-	path = user/demos/VeryTinyCnn
-	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/tiny-cnn.git
-[submodule "user/demos/llama.cpp"]
-	path = user/demos/llama.cpp
-	url = https://github.com/ggml-org/llama.cpp.git
+
+# Linux baselines for paper Ideal / Distributed curves (AE auto-scale, etc.)
+[submodule "test-on-linux/phoenix"]
+	path = test-on-linux/phoenix
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/phoenix.git
+	branch = cmake-debug
+[submodule "test-on-linux/dbx1000"]
+	path = test-on-linux/dbx1000
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/dbx1000.git
+	branch = master
+[submodule "test-on-linux/GeminiGraph"]
+	path = test-on-linux/GeminiGraph
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/GeminiGraph.git
+	branch = atom
+[submodule "test-on-linux/ggraph-distri"]
+	path = test-on-linux/ggraph-distri
+	url = https://github.com/thu-pacman/GeminiGraph.git
+	branch = master
+[submodule "test-on-linux/leveldb"]
+	path = test-on-linux/leveldb
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/leveldb.git
+	branch = dev
+[submodule "test-on-linux/linux-kernel-test"]
+	path = test-on-linux/linux-kernel-test
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/linux-tests.git
+	branch = main
+
+# --- unused by current AE; keep for later ---
+# [submodule "user/demos/ligra"]
+# 	path = user/demos/ligra
+# 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/ligra.git
+# 	branch = master
+# [submodule "user/demos/cpython"]
+# 	path = user/demos/cpython
+# 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/cpython.git
+# 	branch = 3.12
+# [submodule "user/libraries/libffi"]
+# 	path = user/libraries/libffi
+# 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/libffi.git
+# 	branch = dev
+# [submodule "user/libraries/zlib"]
+# 	path = user/libraries/zlib
+# 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/zlib.git
+# 	branch = master
+# [submodule "user/demos/VeryTinyCnn"]
+# 	path = user/demos/VeryTinyCnn
+# 	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/tiny-cnn.git
+# [submodule "user/demos/llama.cpp"]
+# 	path = user/demos/llama.cpp
+# 	url = https://github.com/ggml-org/llama.cpp.git
+
+# --- orphan gitlinks removed from index (were never in .gitmodules) ---
+# linux-tests  -> now test-on-linux/linux-kernel-test
+# user/demos/GeminiGraph-update
+# user/demos/libffi  (duplicate of user/libraries/libffi)
+# user/demos/zlib    (duplicate of user/libraries/zlib)
+# user/libraries/lkl-libs/linux
+# user/musl-cross-make

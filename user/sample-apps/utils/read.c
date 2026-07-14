@@ -12,14 +12,14 @@ int main(int argc, char *argv[])
 
     const char *path = argv[1];
 
-    // 用 "rb" 保证跨平台原样读取
+    // Use "rb" for portable raw binary reads
     FILE *fp = fopen(path, "rb");
     if (fp == NULL) {
         fprintf(stderr, "read: cannot open '%s': %s\n", path, strerror(errno));
         return 1;
     }
 
-    unsigned char buf[4096];  // 用 unsigned char 确保可处理任意字节
+    unsigned char buf[4096];  // unsigned char so any byte is handled
     size_t n;
 
     while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {

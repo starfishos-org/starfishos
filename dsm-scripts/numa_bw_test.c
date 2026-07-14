@@ -15,7 +15,7 @@ static double diff_ns(const struct timespec *a, const struct timespec *b)
     return (b->tv_sec - a->tv_sec) * 1e9 + (b->tv_nsec - a->tv_nsec);
 }
 
-// 在指定 NUMA node 上分配内存并构造指针 chasing 访问，返回 GB/s
+// Allocate memory on the given NUMA node and build a pointer-chasing walk; return GB/s
 double test_node(int node, size_t size_bytes, int cpu)
 {
     if (numa_available() < 0) {
@@ -23,7 +23,7 @@ double test_node(int node, size_t size_bytes, int cpu)
         exit(1);
     }
 
-    // 绑核（可选，但建议）
+    // Pin to CPU (optional, but recommended)
     cpu_set_t set;
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
@@ -31,7 +31,7 @@ double test_node(int node, size_t size_bytes, int cpu)
         perror("sched_setaffinity");
     }
 
-    // 在 node 上分配
+    // Allocate on the node
     void *buf = numa_alloc_onnode(size_bytes, node);
     if (!buf) {
         perror("numa_alloc_onnode");
@@ -41,7 +41,7 @@ double test_node(int node, size_t size_bytes, int cpu)
     struct timespec t0, t1;
     volatile uint64_t *next = (volatile uint64_t *)buf;
 
-    // 以 cache line 粒度切分，构造节点数量
+    // Split at cache-line granularity and build the node count
     const size_t line_size = 64;
     const size_t elems_per_line = line_size / sizeof(uint64_t);
     size_t node_count = size_bytes / line_size;
@@ -49,12 +49,12 @@ double test_node(int node, size_t size_bytes, int cpu)
         node_count = 2;
     }
 
-    // 初始化为顺序索引
+    // Initialize as sequential indices
     for (size_t i = 0; i < node_count; ++i) {
         next[i * elems_per_line] = (uint64_t)i;
     }
 
-    // 打乱顺序，形成随机访问，避免 stride + 预取
+    // Shuffle to form random access and avoid stride + prefetch
     for (size_t i = node_count - 1; i > 0; --i) {
         size_t j = (size_t)rand() % (i + 1);
         uint64_t tmp = next[i * elems_per_line];
@@ -62,7 +62,7 @@ double test_node(int node, size_t size_bytes, int cpu)
         next[j * elems_per_line] = tmp;
     }
 
-    // 把打乱后的索引串成环：next[pos_k] = pos_{k+1}
+    // Link shuffled indices into a ring: next[pos_k] = pos_{k+1}
     uint64_t first_pos = (uint64_t)(next[0] * elems_per_line);
     uint64_t prev_pos = first_pos;
     for (size_t k = 1; k < node_count; ++k) {
@@ -72,13 +72,13 @@ double test_node(int node, size_t size_bytes, int cpu)
     }
     next[prev_pos] = first_pos;
 
-    // 预热：走一圈
+    // Warm-up: walk one lap
     volatile uint64_t cur = first_pos;
     // for (size_t k = 0; k < node_count; ++k) {
     //     cur = next[cur];
     // }
 
-    // 正式测量：多圈指针 chasing，访问依赖于上一次 load，难以被预取
+    // Timed measurement: multi-lap pointer chasing; each access depends on the prior load (hard to prefetch)
     const size_t rounds = 8;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (size_t r = 0; r < rounds; ++r) {
@@ -110,15 +110,15 @@ int main(int argc, char **argv)
     int maxnode = numa_max_node();
     printf("max NUMA node: %d\n", maxnode);
 
-    // 默认 1GB，可以通过参数修改
+    // Default 1GB; can be overridden via argv
     size_t size_bytes = (size_t)1 << 30;
     if (argc >= 2) {
         size_bytes = strtoull(argv[1], NULL, 0);
     }
 
-    // 这里简单假设 cpu = node 对应
+    // Simple assumption: cpu == node
     for (int node = 0; node <= maxnode; ++node) {
-        int cpu = node;  // 按需改成你想绑的 CPU
+        int cpu = node;  // Change to the CPU you want to pin to
         test_node(node, size_bytes, cpu);
     }
 
