@@ -6,14 +6,9 @@ OUT_DIR="${OUT_DIR:-$SCRIPT_DIR}"
 MODE="${MODE:-all}"
 
 if [ -z "${MLC_BIN:-}" ]; then
-    for candidate in \
-        /home/wfn/MLC-Linux/mlc \
-        /home/wfn/shm-pcc-sdk/tests/basic/global_tests/mlc; do
-        if [ -x "$candidate" ]; then
-            MLC_BIN="$candidate"
-            break
-        fi
-    done
+    if command -v mlc >/dev/null 2>&1; then
+        MLC_BIN="$(command -v mlc)"
+    fi
 fi
 
 if [ -z "${MLC_BIN:-}" ] || [ ! -x "$MLC_BIN" ]; then

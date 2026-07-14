@@ -29,15 +29,14 @@ Raw logs go to `msi-logs/`; parsed results are `msi_samples.csv` and
 
 ## Intel MLC bandwidth
 
-The wrapper automatically discovers the installed MLC binary at
-`/home/wfn/MLC-Linux/mlc` or
-`/home/wfn/shm-pcc-sdk/tests/basic/global_tests/mlc`:
+The wrapper looks for `mlc` on `PATH`, or uses `MLC_BIN` if set:
 
 ```bash
-./artifact-evaluation/0-basic/run_mlc.sh
+MLC_BIN=/path/to/mlc ./artifact-evaluation/0-basic/run_mlc.sh
 ```
 
 It runs both `--bandwidth_matrix` and `--peak_injection_bandwidth`. Set
-`MODE=matrix` or `MODE=peak` to run one mode, `MLC_BIN` to select another MLC
-installation, and `OUT_DIR` to change the output directory. `-e` is used so MLC
-does not attempt to modify hardware prefetcher state.
+`MODE=matrix` or `MODE=peak` to run one mode, and `OUT_DIR` to change the
+output directory. If MLC is missing, the script skips by default
+(`ALLOW_MLC_SKIP=1`); set `ALLOW_MLC_SKIP=0` to fail instead. `-e` is used so
+MLC does not attempt to modify hardware prefetcher state.
