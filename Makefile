@@ -50,10 +50,9 @@ r2-perf: perf-config r2
 r4-perf: perf-config r4
 
 prepare:
-	./scripts/download_datasets.sh
-	./dsm-scripts/config_memdev.sh cxl-new
-	python3 ./dsm-scripts/prepare_hostfs.py
-	./dsm-scripts/prepare_cxlfs_dev.sh
+	# Same host env as AE (datasets + NUMA/CXL/hostfs/CXLFS + ivshmem doorbell),
+	# then first full OS build. Do not skip: emulate.sh needs the 8 NUMA files.
+	./artifact-evaluation/prepare.sh ensure
 	./scripts/quick-build.sh
 
 prepare-cxlfs:

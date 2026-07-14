@@ -46,9 +46,16 @@ artificial_evaluation/*/result/
 
 log
 
-user/demos/phoenix-2.0/data/linear_regression_datafiles/*
-user/demos/phoenix-2.0/data/matrix_datafiles/*
-user/demos/phoenix-2.0/data/word_count_datafiles/*
+# Large Phoenix inputs (HF download → datasets/, then hardlinked by
+# scripts/download_datasets.sh). Keep word_10MB.txt tracked in the submodule.
+user/demos/phoenix-2.0/data/linear_regression_datafiles/key_file_*.txt
+user/demos/phoenix-2.0/data/matrix_datafiles/matrix_file_*.txt
+user/demos/phoenix-2.0/data/word_count_datafiles/word_50MB.txt
+user/demos/phoenix-2.0/data/word_count_datafiles/word_100MB.txt
+test-on-linux/phoenix/data/linear_regression_datafiles/key_file_*.txt
+test-on-linux/phoenix/data/matrix_datafiles/matrix_file_*.txt
+test-on-linux/phoenix/data/word_count_datafiles/word_50MB.txt
+test-on-linux/phoenix/data/word_count_datafiles/word_100MB.txt
 third_party/
 .cache
 chcore-ckpt-logs

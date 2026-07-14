@@ -36,8 +36,11 @@ check_required_submodules() {
     fi
 }
 
-# Phoenix data files live under datasets/ (gitignored) and are symlinked from
-# the phoenix submodule. twitter-2010.bin (~11 GiB) is only needed for Gemini.
+# Phoenix data files live under datasets/ (gitignored). download_datasets.sh
+# also hardlinks/copies them into user/demos/phoenix-2.0/data/… (and
+# test-on-linux/phoenix when that submodule is present) so phoenix-copy-data
+# can rsync real files into the ramdisk. twitter-2010.bin (~11 GiB) is only
+# needed for Gemini.
 download_datasets() {
     echo "=== Downloading benchmark datasets (if missing) ==="
     # Default: skip the large graph; set SKIP_GRAPH_DATASET=0 for Gemini /
@@ -129,7 +132,9 @@ case "$MODE" in
     recreate)
         echo "=== Recreating global AE backing files ==="
         ./dsm-scripts/config_memdev.sh new-all
-        ./dsm-scripts/prepare_cxlfs_dev.sh
+        # Force CXLFS rebuild: prepare_cxlfs_dev.sh ensure would skip an
+        # existing /dev/shm/ivshmem-cxlfs-$USER left over from a prior run.
+        ./dsm-scripts/prepare_cxlfs_dev.sh recreate
         ;;
     *)
         echo "Usage: $0 [ensure|recreate]" >&2

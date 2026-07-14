@@ -28,9 +28,12 @@ python3 artifact-evaluation/run_all.py
 Defaults:
 - `run_all.py` with no args runs the **ready** set (`ipc-cdf`, `memory-allocator`,
   `state-partition`, `recover-fs`), not the full paper list.
-- `prepare.sh` downloads Phoenix datasets under `datasets/` (gitignored). The
-  large Gemini graph (`twitter-2010.bin`, ~11 GiB) is **skipped by default**;
-  set `SKIP_GRAPH_DATASET=0` when you need Gemini / auto-scale graph runs.
+- `prepare.sh` downloads Phoenix datasets under `datasets/` (gitignored) and
+  hardlinks/copies them into `user/demos/phoenix-2.0/data/…` (and
+  `test-on-linux/phoenix` when present) so the first OS build can rsync real
+  files into the ramdisk. The large Gemini graph (`twitter-2010.bin`, ~11 GiB)
+  is **skipped by default**; set `SKIP_GRAPH_DATASET=0` when you need Gemini /
+  auto-scale graph runs.
 
 Optional full paper / extras:
 

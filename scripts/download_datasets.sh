@@ -2,10 +2,11 @@
 # Download large benchmark datasets (phoenix data files, GeminiGraph twitter-2010
 # graph) from the public HF dataset mirror into <repo-root>/datasets/.
 #
-# These files are gitignored and referenced by symlinks from
-# test-on-linux/phoenix/data/... and user/demos/phoenix-2.0/data/..., and by
-# dsm-scripts/prepare_hostfs.py (twitter-2010.bin). Run standalone or via
-# `make prepare`.
+# Phoenix consumers (user/demos/phoenix-2.0 and test-on-linux/phoenix) expect
+# the large inputs under data/*_datafiles/. Submodule tips may already ship
+# relative symlinks into datasets/; this script always refreshes those links
+# with hardlinks (or copies) so phoenix-copy-data's `rsync -a` copies real
+# file content into the ramdisk instead of dangling guest symlinks.
 #
 # Env vars:
 #   SKIP_GRAPH_DATASET=1   skip twitter-2010.bin (11GB, only needed for GeminiGraph)
@@ -57,3 +58,77 @@ for entry in $files; do
 done
 
 echo "All datasets present in $DATASETS_DIR"
+
+# Place each Phoenix input where demos / Linux Ideal builds expect it.
+# Prefer hardlinks so rsync -a (phoenix-copy-data) copies real bytes into the
+# ramdisk; fall back to a plain copy when hardlink is impossible.
+link_dataset() {
+    local src="$1"
+    local dest="$2"
+    mkdir -p "$(dirname "$dest")"
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+        # Already a hardlink to the same inode, or an identical regular file.
+        if [ -f "$dest" ] && [ ! -L "$dest" ] \
+            && [ "$(stat -c%i "$src" 2>/dev/null || stat -f%i "$src")" = \
+                 "$(stat -c%i "$dest" 2>/dev/null || stat -f%i "$dest")" ]; then
+            return 0
+        fi
+        rm -f "$dest"
+    fi
+    if ln "$src" "$dest" 2>/dev/null; then
+        echo "linked: $dest -> $src (hardlink)"
+    else
+        cp -f "$src" "$dest"
+        echo "copied: $dest <- $src"
+    fi
+}
+
+ensure_phoenix_dataset_links() {
+    local roots=()
+    local root name dest
+
+    if [ -d "$REPO_ROOT/user/demos/phoenix-2.0/data" ]; then
+        roots+=("$REPO_ROOT/user/demos/phoenix-2.0")
+    fi
+    if [ -d "$REPO_ROOT/test-on-linux/phoenix/data" ]; then
+        roots+=("$REPO_ROOT/test-on-linux/phoenix")
+    fi
+    if [ "${#roots[@]}" -eq 0 ]; then
+        echo "note: phoenix data dirs not present yet; skip consumer links" \
+            "(run git submodule update --init --recursive first)."
+        return 0
+    fi
+
+    echo "=== Linking Phoenix datasets into demo data dirs ==="
+    for root in "${roots[@]}"; do
+        for name in matrix_file_A.txt matrix_file_B.txt; do
+            link_dataset "$DATASETS_DIR/$name" \
+                "$root/data/matrix_datafiles/$name"
+        done
+        for name in key_file_50MB.txt key_file_100MB.txt key_file_500MB.txt; do
+            link_dataset "$DATASETS_DIR/$name" \
+                "$root/data/linear_regression_datafiles/$name"
+        done
+        for name in word_50MB.txt word_100MB.txt; do
+            link_dataset "$DATASETS_DIR/$name" \
+                "$root/data/word_count_datafiles/$name"
+        done
+    done
+
+    # Fail fast if a required consumer path still does not resolve.
+    for root in "${roots[@]}"; do
+        for dest in \
+            "$root/data/matrix_datafiles/matrix_file_A.txt" \
+            "$root/data/matrix_datafiles/matrix_file_B.txt" \
+            "$root/data/linear_regression_datafiles/key_file_100MB.txt" \
+            "$root/data/word_count_datafiles/word_100MB.txt"
+        do
+            if [ ! -f "$dest" ]; then
+                echo "error: missing Phoenix dataset consumer path: $dest" >&2
+                exit 1
+            fi
+        done
+    done
+}
+
+ensure_phoenix_dataset_links

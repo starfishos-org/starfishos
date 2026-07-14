@@ -59,10 +59,15 @@ The default build uses the Docker builder image configured in [chbuild](chbuild)
 git submodule update --init --recursive   # required (rpmalloc / phoenix / dbx1000 / GeminiGraph, …)
 bash artifact-evaluation/install-host-deps.sh   # once per host; then re-login
 docker pull promisivia/treesls_chcore_builder:v2.3
-make prepare        # datasets + emulated memory + first build
+make prepare        # AE prepare (datasets + NUMA/CXL/hostfs/CXLFS + ivshmem) + first build
 make build          # incremental build
 make r4             # boot a cluster of 4 QEMU/KVM machines
 ```
+
+`make prepare` runs `artifact-evaluation/prepare.sh ensure` (including the eight
+NUMA `/dev/shm/numa*.?-$USER` backing files and the ivshmem doorbell server)
+before `scripts/quick-build.sh`. Skipping it leaves `make r4` unable to boot
+when `USE_DEV_AS_DRAM=1`.
 
 Demo submodules are public under
 [github.com/starfishos-org](https://github.com/starfishos-org) (HTTPS in
