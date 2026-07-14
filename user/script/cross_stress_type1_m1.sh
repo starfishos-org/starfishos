@@ -1,2 +1,2 @@
-write dbx1000_bind_cpu.txt 16-23
-rundb.bin -t8 -r1 -w0 -z0.6 &
+write matrix_multiply_bind_cpu.txt 12-23
+matrix_multiply.bin -l 2000 -r 2000 -c 0 -t 8 &

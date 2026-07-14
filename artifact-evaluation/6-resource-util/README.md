@@ -1,4 +1,4 @@
-# 9 — Resource utilization / co-location (paper Fig real)
+# 6 — Resource utilization / co-location (paper Fig real)
 
 Reproduces `real.eps`: 12 applications, each measured under three conditions
 and normalized to its own single-run.
@@ -15,8 +15,9 @@ String Match, KMeans (Phoenix), GeminiGraph, Redis, Memcached, CNN.
 
 The co-location pairs are already encoded in
 `user/script/single_stress_type{1..6}.sh` (traditional, one machine) and
-`user/script/cross_stress_type{1..4}_m{0,1}.sh` (StarfishOS, two machines),
-and are driven manually by `dsm-scripts/tests/real/{dram,cxl}.sh`. `run.sh`
+`user/script/cross_stress_type{1..6}_m{0,1}.sh` (StarfishOS, two machines;
+same pairs, one app per machine), and are driven manually by
+`dsm-scripts/tests/real/{dram,cxl}.sh`. `run.sh`
 wraps that in the AE harness, captures per-condition logs, then
 `plot.py` extracts each app's metric into `results/real.csv` (same
 schema as `p3os-paper/eval/real.csv`) and draws the figure.
@@ -31,7 +32,7 @@ schema as `p3os-paper/eval/real.csv`) and draws the figure.
 
 ```bash
 ./artifact-evaluation/prepare.sh                 # once
-./artifact-evaluation/9-resource-util/run.sh
+./artifact-evaluation/6-resource-util/run.sh
 ```
 
 Output: `out/<timestamp>/figures/real.{eps,pdf,png}`.
@@ -52,12 +53,8 @@ python3 artifact-evaluation/6-resource-util/plot.py \
 
 ## Status / caveats
 
-Plotting is done and validated. **Data collection is scaffolded but not yet
-validated against a live co-location run**:
-
-- the single-run baselines are left as a documented gap in `run.sh` (each app
-  needs its own invocation + completion marker);
-- the stress/p3os runs reuse the existing stress scripts, but the mapping from
-  each per-stress-type log to a per-application `<bench>_<cond>.log`, and the
-  per-app metric extractors in `plot.py`, must be confirmed against
-  real application output before the numbers are trustworthy.
+`run.sh` now (1) runs per-app **single** baselines into `<bench>_single.log`,
+(2) demuxes stress/p3os type bundles into `<bench>_{stress,p3os}.log`, and
+(3) calls `plot.py --log-dir`. Plotting skips benches missing any of the three
+conditions. Cross scripts cover all six paper pairs (types 1–6); **live
+co-location numbers are still unvalidated** against a full run.

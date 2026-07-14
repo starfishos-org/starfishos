@@ -1,2 +1,2 @@
-write kmeans_bind_cpu.txt 16-23
-kmeans.bin -p 100000 -t 8 &
+write pca_bind_cpu.txt 12-23
+pca.bin -c 1000 -r 1000 -t 8 &

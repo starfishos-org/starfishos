@@ -43,9 +43,10 @@ check_required_submodules() {
 # needed for Gemini.
 download_datasets() {
     echo "=== Downloading benchmark datasets (if missing) ==="
-    # Default: skip the large graph; set SKIP_GRAPH_DATASET=0 for Gemini /
-    # auto-scale gemini runs (or run scripts/download_datasets.sh yourself).
-    SKIP_GRAPH_DATASET="${SKIP_GRAPH_DATASET:-1}" \
+    # Default: fetch twitter-2010.bin (~11 GiB) so auto-scale / Gemini one-click
+    # runs have /host/twitter-2010.bin after prepare_hostfs. Set
+    # SKIP_GRAPH_DATASET=1 to skip the large graph on hosts that do not need it.
+    SKIP_GRAPH_DATASET="${SKIP_GRAPH_DATASET:-0}" \
         ./scripts/download_datasets.sh
 }
 

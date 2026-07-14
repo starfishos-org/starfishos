@@ -184,8 +184,12 @@ def plot_cmd(name: str) -> Optional[List[str]]:
 
     log_dir = out / "logs"
     if name == "auto-scale":
+        # Prefer collecting from sweep logs (writes results/ then plots). Fall
+        # back to already-materialized data files when logs are absent.
         results = out / "results"
         cmd = base + ["--out-dir", str(out)]
+        if log_dir.is_dir() and any(log_dir.glob("*_N*.log")):
+            return cmd + ["--log-dir", str(log_dir)]
         for flag, fname in (
             ("--matrix-data", "4000size.txt"),
             ("--db1000-data", "db1000-p3os-tigon.csv"),

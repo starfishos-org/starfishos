@@ -99,6 +99,10 @@ EXTRACTORS = {
 
 
 def collect(log_dir: Path):
+    """Collect metrics from <bench>_<cond>.log, with stress/p3os type-log fallback."""
+    # Ensure demuxed names exist when only machine*-{stress,p3os}-typeN.log remain.
+    _demux_type_logs(log_dir)
+
     rows = []
     for bench in BENCHES:
         for cond in CONDS:
@@ -112,6 +116,46 @@ def collect(log_dir: Path):
                 continue
             rows.append((f"{bench}-{cond}", val))
     return rows
+
+
+# Stress-type -> benches (matches user/script/single_stress_typeN.sh).
+STRESS_TYPE_BENCHES = {
+    1: ["leveldb", "matrix"],
+    2: ["dbx1000", "word-count"],
+    3: ["linear-regression", "redis"],
+    4: ["memcached", "pca"],
+    5: ["cnn", "kmeans"],
+    6: ["string-match", "gemini"],
+}
+
+# Cross-type -> (bench, machine) for p3os demux (one app per machine).
+CROSS_TYPE_BENCH_MACHINES = {
+    1: [("leveldb", 0), ("matrix", 1)],
+    2: [("dbx1000", 0), ("word-count", 1)],
+    3: [("redis", 0), ("linear-regression", 1)],
+    4: [("memcached", 0), ("pca", 1)],
+    5: [("kmeans", 0), ("cnn", 1)],
+    6: [("string-match", 0), ("gemini", 1)],
+}
+
+
+def _copy_if_absent(src: Path, dst: Path):
+    if dst.exists() or not src.exists():
+        return
+    dst.write_bytes(src.read_bytes())
+    print(f"[demux] {src.name} -> {dst.name}")
+
+
+def _demux_type_logs(log_dir: Path):
+    """Materialize <bench>_<cond>.log from archived stress/p3os type bundles."""
+    for typ, benches in STRESS_TYPE_BENCHES.items():
+        src = log_dir / f"machine0-stress-type{typ}.log"
+        for bench in benches:
+            _copy_if_absent(src, log_dir / f"{bench}_stress.log")
+    for typ, pairs in CROSS_TYPE_BENCH_MACHINES.items():
+        for bench, mach in pairs:
+            src = log_dir / f"machine{mach}-p3os-type{typ}.log"
+            _copy_if_absent(src, log_dir / f"{bench}_p3os.log")
 
 
 def write_csv(rows, csv_path: Path):
@@ -168,6 +212,18 @@ def draw(csv_path: Path, fig_dir: Path):
     data[["name", "type"]] = data["benchmark"].str.rsplit("-", n=1, expand=True)
     plot_data = data.pivot(index="name", columns="type", values="value")
 
+    # Drop benches missing any of the three conditions so normalization stays defined.
+    for col in CONDS:
+        if col not in plot_data.columns:
+            plot_data[col] = float("nan")
+    complete = plot_data.dropna(subset=CONDS)
+    dropped = sorted(set(plot_data.index) - set(complete.index))
+    if dropped:
+        print(f"[WARN] skipping incomplete benches (need single/stress/p3os): {dropped}")
+    if complete.empty:
+        raise SystemExit("No benchmark has all three conditions; nothing to plot")
+    plot_data = complete
+
     nd = plot_data.copy()
     nd["p3os"] = nd["p3os"] / nd["single"]
     nd["stress"] = nd["stress"] / nd["single"]
@@ -180,7 +236,9 @@ def draw(csv_path: Path, fig_dir: Path):
     for item in ["dbx1000", "word-count", "string-match", "gemini"]:
         if item in nd.index:
             nd.loc[item, "stress"] = 1.0
-    nd = nd.reindex(sorted_items)
+    # Keep paper order for benches that are present.
+    ordered = [b for b in sorted_items if b in nd.index]
+    nd = nd.reindex(ordered)
 
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True

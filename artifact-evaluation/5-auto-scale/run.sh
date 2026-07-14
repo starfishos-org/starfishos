@@ -24,13 +24,13 @@
 # ## result-line extraction below are derived from dsm_config.cmake and the
 # ## existing test scripts, not from an executed multi-machine sweep. Validate
 # ## before trusting the numbers. The PLOTTING path IS validated: it reproduces
-# ## all three figures from the paper's data files (see README / parse_and_plot).
+# ## all three figures from the paper's data files (see README / plot.py).
 # ## External baselines must be produced separately and merged in.
 # ###########################################################################
 #
 # Usage (from repo root):
 #   ./artifact-evaluation/prepare.sh          # once
-#   ./artifact-evaluation/6-auto-scale/run.sh
+#   ./artifact-evaluation/5-auto-scale/run.sh
 #
 # Env overrides:
 #   APPS="matrix db1000 gemini"   MACHINES="1 2 4 6 8"
@@ -74,9 +74,10 @@ app_cmd() {
 # app -> completion marker printed once the workload has reported its result.
 app_marker() {
     case "$1" in
-        matrix) echo "inter library:" ;;
+        # matrix_multiply prints library: / finalize:, not "inter library:"
+        matrix) echo "finalize:" ;;
         db1000) echo "thp=" ;;
-        gemini) echo "exec_time" ;;
+        gemini) echo "exec_time=" ;;
     esac
 }
 
@@ -120,25 +121,18 @@ for app in $APPS; do
     done
 done
 
-# NOTE: converting the per-run logs into the data-file formats that
-# plot.py consumes (matrix RESULT: lines, db1000 CSV, gemini CSV) and
-# merging the external baselines is left as a validated-run step. Once the data
-# files exist under $RESULTS, draw with:
+# Convert archived sweep logs into the data files plot.py consumes, then draw.
 echo ""
-echo "=== Plotting (from data files under $RESULTS, if present) ==="
-plot_args=()
-[ -f "$RESULTS/4000size.txt" ] && plot_args+=(--matrix-data "$RESULTS/4000size.txt")
-[ -f "$RESULTS/db1000-p3os-tigon.csv" ] && plot_args+=(--db1000-data "$RESULTS/db1000-p3os-tigon.csv")
-[ -f "$RESULTS/gemini-data.log" ] && plot_args+=(--gemini-data "$RESULTS/gemini-data.log")
-if [ "${#plot_args[@]}" -gt 0 ]; then
-    python3 "$AE_DIR/plot.py" --out-dir "$OUT_DIR" "${plot_args[@]}"
+echo "=== Collecting results + plotting (from $AE_LOG_DIR) ==="
+if ls "$AE_LOG_DIR"/*_N*.log >/dev/null 2>&1; then
+    python3 "$AE_DIR/plot.py" --out-dir "$OUT_DIR" --log-dir "$AE_LOG_DIR"
 else
-    echo "[AE] No data files under $RESULTS yet. To verify the plotters against"
-    echo "[AE] the paper data:"
+    echo "[AE] No sweep logs under $AE_LOG_DIR; nothing to plot." >&2
+    echo "[AE] To verify plotters against paper data:"
     echo "[AE]   python3 $AE_DIR/plot.py --out-dir $OUT_DIR \\"
-    echo "[AE]     --matrix-data $AE_REPO_ROOT/../p3os-paper/eval/mapreduce/4000size.txt \\"
-    echo "[AE]     --db1000-data $AE_REPO_ROOT/../p3os-paper/eval/db1000/db1000-p3os-tigon.csv \\"
-    echo "[AE]     --gemini-data $AE_REPO_ROOT/../p3os-paper/eval/gemini_graph/data.log"
+    echo "[AE]     --matrix-data <path>/4000size.txt \\"
+    echo "[AE]     --db1000-data <path>/db1000-p3os-tigon.csv \\"
+    echo "[AE]     --gemini-data <path>/data.log"
 fi
 
 echo ""

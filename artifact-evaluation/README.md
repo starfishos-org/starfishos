@@ -32,8 +32,8 @@ Defaults:
   hardlinks/copies them into `user/demos/phoenix-2.0/data/…` (and
   `test-on-linux/phoenix` when present) so the first OS build can rsync real
   files into the ramdisk. The large Gemini graph (`twitter-2010.bin`, ~11 GiB)
-  is **skipped by default**; set `SKIP_GRAPH_DATASET=0` when you need Gemini /
-  auto-scale graph runs.
+  is **fetched by default** so auto-scale / Gemini runs can use
+  `/host/twitter-2010.bin`. Set `SKIP_GRAPH_DATASET=1` to skip it.
 
 Optional full paper / extras:
 
@@ -166,7 +166,8 @@ python3 artifact-evaluation/run_all.py paper              # full paper list
 | `process-migration` | `process-migration-data-*` | stub (skipped) |
 
 ¹ Plotting is validated against paper data; the live QEMU collection path may
-need extra demos, `test-on-linux/` baselines, and `SKIP_GRAPH_DATASET=0`.
+need extra demos and `test-on-linux/` baselines. Graph dataset download is on
+by default (`SKIP_GRAPH_DATASET=1` to skip ~11 GiB twitter-2010.bin).
 See each directory's README.
 
 Application-level Linux Ideal / Distributed ports for paper auto-scale curves
@@ -180,7 +181,7 @@ test-on-linux`). See `test-on-linux/README.md`.
 ```bash
 ./artifact-evaluation/prepare.sh
 ./artifact-evaluation/prepare.sh recreate
-SKIP_GRAPH_DATASET=0 ./artifact-evaluation/prepare.sh   # also fetch twitter-2010.bin
+SKIP_GRAPH_DATASET=1 ./artifact-evaluation/prepare.sh   # skip ~11 GiB twitter-2010.bin
 ./scripts/download_datasets.sh                           # datasets only
 ```
 

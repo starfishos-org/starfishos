@@ -1,4 +1,4 @@
-# 6 — Auto-scaling applications (paper Fig auto-scale)
+# 5 — Auto-scaling applications (paper Fig auto-scale)
 
 Reproduces three figures, each throughput/runtime vs machine count (1–8):
 
@@ -63,8 +63,8 @@ python3 artifact-evaluation/5-auto-scale/plot.py --out-dir /tmp/as-check \
 
 ## Status / caveats
 
-Plotting is done and validated. **Data collection is scaffolded but not yet
-validated against a live sweep**: the Mixed/CXL config mapping, per-app
-multi-machine invocation, completion markers, and the conversion of run logs
-into the data-file formats above must be confirmed against an executed sweep,
-and the external Linux/Tigon baselines produced separately and merged in.
+Plotting is done and validated. **Live sweep → results → plot is wired**:
+`run.sh` archives `${app}_{Mixed|CXL}_N${n}.log`, and `plot.py --log-dir`
+converts them into the data files above before drawing. External Linux/Tigon
+baselines still need to be produced separately and merged in. Validate markers
+and multi-machine aggregation against a live sweep before trusting numbers.
