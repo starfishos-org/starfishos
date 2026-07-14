@@ -136,7 +136,10 @@ for cfg in $CONFIGS; do
         logfile="$AE_LOG_DIR/${bench}_${cfg}.log"
         echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
         if [ "$bench" = "dbx1000" ]; then
-            AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines"
+            if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines"; then
+                ae_record_error "boot failed for $bench under $cfg"
+                continue
+            fi
             ae_send_command 0 "write dbx1000_bind_cpu.txt $DBX_BIND_LIST"
             sleep 2
             ae_send_command 0 "rundb.bin"
@@ -146,7 +149,10 @@ for cfg in $CONFIGS; do
             # bound to 0-10,12-23); on 1 machine threads bound to CPUs >= 12
             # never run and the app hangs at its barrier. Use the original
             # single-machine parameters (8 threads, CPUs 0-11) instead.
-            ae_boot_cluster "$cfg_machines"
+            if ! ae_boot_cluster "$cfg_machines"; then
+                ae_record_error "boot failed for $bench under $cfg"
+                continue
+            fi
             if [ "$cfg_machines" -eq 1 ]; then
                 ae_send_command 0 "write matrix_multiply_bind_cpu.txt 0-11"
                 sleep 2
@@ -156,7 +162,10 @@ for cfg in $CONFIGS; do
             fi
             bench_timeout="$TIMEOUT"
         else
-            ae_boot_cluster "$cfg_machines"
+            if ! ae_boot_cluster "$cfg_machines"; then
+                ae_record_error "boot failed for $bench under $cfg"
+                continue
+            fi
             ae_send_command 0 "source run_${bench}.sh"
             bench_timeout="$TIMEOUT"
         fi

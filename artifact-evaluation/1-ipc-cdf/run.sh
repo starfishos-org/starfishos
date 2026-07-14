@@ -60,8 +60,8 @@ build_chcore() {
         return 0
     fi
 
-    echo "=== chbuild failed; retrying with quick-build.sh ===" >&2
-    if ! ./quick-build.sh; then
+    echo "=== chbuild failed; retrying with scripts/quick-build.sh ===" >&2
+    if ! ./scripts/quick-build.sh; then
         rm -f "$config_snapshot"
         return 1
     fi
@@ -270,14 +270,21 @@ else
     build_chcore
 fi
 
-run_mode 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty"
-run_mode 0 direct "polling_client.bin -d -t 1 -m direct"
-run_mode 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty"
-run_mode 1 cross "polling_client.bin -s 0 -t 1 -m cross"
-run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t"
-run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t"
+# Continue across modes so partial logs still reach plot.py, but remember
+# failures so this script (and run_all.py) exit non-zero.
+failed=0
+run_mode 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
+run_mode 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
+run_mode 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
+run_mode 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
+run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
+run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
 
 echo "=== Parsing logs and generating figures ==="
 python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
 
 echo "Artifact output: $OUT_DIR"
+if [ "$failed" -ne 0 ]; then
+    echo "One or more IPC modes failed; see $LOG_DIR" >&2
+    exit 1
+fi
