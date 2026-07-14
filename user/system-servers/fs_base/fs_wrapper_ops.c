@@ -246,6 +246,9 @@ int fs_wrapper_read(ipc_msg_t *ipc_msg, struct fs_request *fr)
 
 	ret = 0;
 	fd = fr->read.fd;
+	if (fd_type_invalid(fd, true)) {
+		return -EBADF;
+	}
 	buf = (void *)fr;
 	fs_debug_trace_fswrapper("entry_id=%d\n", fd);
 
@@ -431,6 +434,9 @@ int fs_wrapper_pread(ipc_msg_t *ipc_msg, struct fs_request *fr)
 
 	ret = 0;
 	fd = fr->pread.fd;
+	if (fd_type_invalid(fd, true)) {
+		return -EBADF;
+	}
 	buf = (void *)fr;
 	fs_debug_trace_fswrapper("entry_id=%d\n", fd);
 
@@ -504,6 +510,9 @@ int fs_wrapper_pwrite(ipc_msg_t *ipc_msg, struct fs_request *fr)
 
 	ret = 0;
 	fd = fr->pwrite.fd;
+	if (fd_type_invalid(fd, true)) {
+		return -EBADF;
+	}
 	buf = (void *)fr + sizeof(struct fs_request);
 	fs_debug_trace_fswrapper("entry_id=%d\n", fd);
 
@@ -578,6 +587,9 @@ int fs_wrapper_write(ipc_msg_t *ipc_msg, struct fs_request *fr)
 
 	ret = 0;
 	fd = fr->write.fd;
+	if (fd_type_invalid(fd, true)) {
+		return -EBADF;
+	}
 	buf = (void *)fr + sizeof(struct fs_request);
 	fs_debug_trace_fswrapper("entry_id=%d\n", fd);
 
@@ -646,6 +658,9 @@ int fs_wrapper_lseek(ipc_msg_t *ipc_msg, struct fs_request *fr)
 	off_t target_off;
 
 	fd = fr->lseek.fd;
+	if (fd_type_invalid(fd, true)) {
+		return -EBADF;
+	}
 	offset = fr->lseek.offset;
 	whence = fr->lseek.whence;
 
@@ -748,9 +763,12 @@ int fs_wrapper_unlink(ipc_msg_t *ipc_msg, struct fs_request *fr)
 			page_cache_delete_pages_of_inode(vnode->page_cache);
 	}
 
-	vnode = get_fs_vnode_by_id(st.st_ino);
-	if (vnode && vnode->refcnt != 0) {
-		// printf("Warning: unlink while vnode refcnt != 0\n");
+	/* st is only valid when page cache is enabled (populated above). */
+	if (using_page_cache) {
+		vnode = get_fs_vnode_by_id(st.st_ino);
+		if (vnode && vnode->refcnt != 0) {
+			// printf("Warning: unlink while vnode refcnt != 0\n");
+		}
 	}
 
 	ret = server_ops.unlink(path, flags);
@@ -898,8 +916,13 @@ int fs_wrapper_fsync(ipc_msg_t *ipc_msg, struct fs_request *fr)
 	int fd = fr->fsync.fd;
 
 	BUG_ON(fd == AT_FDROOT);
+	/* POSIX allows fsync on a directory fd (e.g. leveldb syncs the db dir
+	 * after writing a manifest); accept both regular files and dirs. */
+	if (fd_type_invalid(fd, true) && fd_type_invalid(fd, false)) {
+		return -EBADF;
+	}
 
-	if (using_page_cache) {
+	if (using_page_cache && server_entrys[fd]->vnode->type == FS_NODE_REG) {
 		vnode = server_entrys[fd]->vnode;
 		ret = page_cache_flush_pages_of_inode(vnode->page_cache);
 	}
@@ -1058,6 +1081,9 @@ int fs_wrapper_fcntl(u64 client_badge, ipc_msg_t *ipc_msg, struct fs_request *fr
 	void* operator;
 	int ret = 0;
 
+	if (fd_type_invalid(fr->fcntl.fd, true)
+	    && fd_type_invalid(fr->fcntl.fd, false))
+		return -EBADF;
 	if ((entry = server_entrys[fr->fcntl.fd]) == NULL)
 		return -EBADF;
 

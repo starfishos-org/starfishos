@@ -1110,7 +1110,9 @@ vaddr_t tmpfs_get_page_addr(void *operator, size_t offset)
 /*
  * Recursively snapshot all directories and files under `dir` into the p-log.
  * `path` is the absolute path of `dir` (empty string for root).
+ * Currently unused: checkpoint-on-fsync is disabled (see tmpfs_fsync).
  */
+__attribute__((unused))
 static void plog_snapshot_dir(struct inode *dir, const char *path)
 {
 	int b;
@@ -1173,10 +1175,15 @@ static void plog_log_file_content(const char *path, struct inode *inode)
 
 static int tmpfs_fsync(void)
 {
-	/* Checkpoint: reset log then re-emit the full current FS state. */
-	plog_truncate();
-	if (tmpfs_root)
-		plog_snapshot_dir(tmpfs_root, "");
+	/*
+	 * The checkpoint-on-fsync design (plog_truncate + full-FS
+	 * plog_snapshot_dir) cannot work: the snapshot re-reads the whole
+	 * tmpfs (hundreds of MB incl. all binaries) in 4KB chunks into a
+	 * 1MB p-log, so it always overflows after the first 1MB while
+	 * still paying the full walk — one fsync takes minutes and floods
+	 * the console. tmpfs data is already durable in memory as far as
+	 * fsync semantics go here; keep fsync O(1).
+	 */
 	return 0;
 }
 

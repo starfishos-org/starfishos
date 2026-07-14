@@ -134,9 +134,14 @@ static struct plog_entry *plog_append_raw(uint32_t entry_len)
 	uint64_t end = tail + entry_len;
 
 	if (end > PLOG_SHM_SIZE) {
-		plog_error("P-log full (tail=%lu, need=%u, capacity=%lu)\n",
-		           (unsigned long)tail, entry_len,
-		           (unsigned long)g_plog->capacity);
+		/* Rate-limit: once full, every append fails — logging each
+		 * failure floods the console and throttles the whole fs. */
+		static uint64_t full_count = 0;
+		if ((full_count++ & 0xffff) == 0)
+			plog_error("P-log full (tail=%lu, need=%u, capacity=%lu, dropped=%lu)\n",
+			           (unsigned long)tail, entry_len,
+			           (unsigned long)g_plog->capacity,
+			           (unsigned long)full_count - 1);
 		return NULL;
 	}
 
