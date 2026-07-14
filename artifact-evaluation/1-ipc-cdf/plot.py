@@ -14,6 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 MODE_ORDER = ["cross_empty", "cross", "cross_empty_4t", "cross_4t"]
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def cpu_freq_hz(log: Path) -> float:
@@ -228,7 +229,7 @@ def plot_cdf(fig_dir: Path, machine0: dict[str, list[tuple[int, float]]], machin
     axes[0].set_ylabel("CDF")
     axes[1].legend(loc="lower right", frameon=False)
     fig.tight_layout()
-    fig.savefig(fig_dir / "ipc_cdf.pdf", dpi=300, bbox_inches="tight")
+    fig.savefig(fig_dir / "ipc_cdf.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -285,14 +286,24 @@ def plot_breakdown(fig_dir: Path, machine0_rows: list[dict[str, object]], machin
     ax.grid(True, axis="y", linestyle=":", alpha=0.6)
     ax.legend(ncol=2, frameon=False, loc="upper left")
     fig.tight_layout()
-    fig.savefig(fig_dir / "ipc_read_breakdown.pdf", dpi=300, bbox_inches="tight")
+    fig.savefig(fig_dir / "ipc_read_breakdown.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--log-dir", required=True, type=Path)
-    parser.add_argument("--out-dir", required=True, type=Path)
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=SCRIPT_DIR / "logs",
+        help="IPC log directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=SCRIPT_DIR,
+        help="output directory (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     machine0_log = args.log_dir / "machine0.log"
@@ -300,26 +311,23 @@ def main() -> None:
     if not machine0_log.is_file() or not machine1_log.is_file():
         raise FileNotFoundError("expected machine0.log and machine1.log under --log-dir")
 
-    results_dir = args.out_dir / "results"
-    figures_dir = args.out_dir / "figures"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = parse_summary(machine0_log) + parse_summary(machine1_log)
     write_csv(
-        results_dir / "summary.csv",
+        args.out_dir / "summary.csv",
         summary_rows,
         ["machine", "mode", "total", "threads", "p50_us", "p75_us", "p90_us", "p99_us", "max_us", "source_unit"],
     )
 
     cdf0 = parse_cdf(machine0_log)
     cdf1 = parse_cdf(machine1_log)
-    export_cdf(results_dir / "cdf.csv", cdf0, cdf1)
+    export_cdf(args.out_dir / "cdf.csv", cdf0, cdf1)
 
     bd0 = breakdown_rows(machine0_log)
     bd1 = breakdown_rows(machine1_log)
     write_csv(
-        results_dir / "breakdown.csv",
+        args.out_dir / "breakdown.csv",
         bd0 + bd1,
         ["machine", "mode", "samples", "total_us", "alloc_us", "enqueue_us", "wait_us"],
     )
@@ -338,10 +346,10 @@ def main() -> None:
         }
         srv_flat.append(row)
         srv_for_plot[mode] = {"dequeue_us": row["dequeue_us"], "handle_us": row["handle_us"]}
-    write_csv(results_dir / "server_timing.csv", srv_flat, ["machine", "mode", "samples", "dequeue_us", "handle_us"])
+    write_csv(args.out_dir / "server_timing.csv", srv_flat, ["machine", "mode", "samples", "dequeue_us", "handle_us"])
 
-    plot_cdf(figures_dir, cdf0, cdf1)
-    plot_breakdown(figures_dir, bd0, bd1, srv_for_plot)
+    plot_cdf(args.out_dir, cdf0, cdf1)
+    plot_breakdown(args.out_dir, bd0, bd1, srv_for_plot)
     print(f"Wrote results to {args.out_dir}")
 
 

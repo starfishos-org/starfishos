@@ -95,6 +95,8 @@ void usys_set_excepted_connected_client_num(int expected_num);
 void usys_set_dyn_args(u64, u64);
 
 int usys_pcie_control(u64);
+long usys_ivshmem_msi_bench(u64 target_machine, u64 target_local_cpu,
+                            u64 samples);
 
 int usys_cfork_prepare(char *pname, u64 pname_len);
 int usys_cfork_ckpt(char *pname, u64 pname_len);

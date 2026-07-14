@@ -20,6 +20,7 @@
 #include <irq/timer.h>
 #include <irq/irq.h>
 #include <drivers/pci.h>
+#include <drivers/ivshmem.h>
 #include <ipc/futex.h>
 #include <mm/shm.h>
 #include <mm/page_table_func.h>
@@ -883,6 +884,7 @@ const void *syscall_table[NR_SYSCALL] = {
 
         /* PCIe BUS */
         [SYS_pcie_control] = sys_pcie_control,
+        [SYS_ivshmem_msi_bench] = sys_ivshmem_msi_bench,
 
 /* Virtualization */
 #ifdef CHCORE_KERNEL_VIRT

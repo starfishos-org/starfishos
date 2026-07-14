@@ -16,7 +16,7 @@ usage change as the cross-warehouse ratio varies.
 
 ```bash
 ./artifact-evaluation/prepare.sh                          # once, global
-./artifact-evaluation/dbx1000-cross-warehouse/run.sh
+./artifact-evaluation/5-dbx1000-cross-warehouse/run.sh
 ```
 
 Runtime: ~1–3 hours (3 ratios × 1 build × one 8-machine QEMU cluster run;
@@ -49,9 +49,9 @@ All modified files (`config.h`, `kernel/CMakeLists.txt`, `.config`,
 ## Re-parse an existing run
 
 ```bash
-python3 artifact-evaluation/dbx1000-cross-warehouse/parse_and_plot.py \
-  --log-dir artifact-evaluation/dbx1000-cross-warehouse/out/<ts>/logs \
-  --out-dir artifact-evaluation/dbx1000-cross-warehouse/out/<ts> \
+python3 artifact-evaluation/5-dbx1000-cross-warehouse/parse_and_plot.py \
+  --log-dir artifact-evaluation/5-dbx1000-cross-warehouse/out/<ts>/logs \
+  --out-dir artifact-evaluation/5-dbx1000-cross-warehouse/out/<ts> \
   --num-machines 8 --ratios 15 50 80
 ```
 

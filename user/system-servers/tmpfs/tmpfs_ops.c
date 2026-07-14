@@ -1108,48 +1108,6 @@ vaddr_t tmpfs_get_page_addr(void *operator, size_t offset)
 #endif
 
 /*
- * Recursively snapshot all directories and files under `dir` into the p-log.
- * `path` is the absolute path of `dir` (empty string for root).
- * Currently unused: checkpoint-on-fsync is disabled (see tmpfs_fsync).
- */
-__attribute__((unused))
-static void plog_snapshot_dir(struct inode *dir, const char *path)
-{
-	int b;
-	struct dentry *iter;
-	char child_path[PLOG_MAX_PATH];
-	char buf[PLOG_MAX_DATA];
-
-	for_each_in_htable(iter, b, node, &dir->dentries) {
-		int n = snprintf(child_path, sizeof(child_path), "%s/%s",
-		                 path, iter->name.str);
-		if (n <= 0 || n >= (int)sizeof(child_path))
-			continue;
-
-		if (iter->inode->type == FS_DIR) {
-			plog_append_mkdir(child_path, iter->inode->mode);
-			plog_snapshot_dir(iter->inode, child_path);
-		} else {
-			plog_append_creat(child_path, iter->inode->mode);
-			uint64_t off = 0;
-			size_t total = iter->inode->size;
-			while (off < total) {
-				size_t chunk = total - off;
-				if (chunk > PLOG_MAX_DATA)
-					chunk = PLOG_MAX_DATA;
-				ssize_t got = tfs_file_read(iter->inode, off,
-				                            buf, chunk);
-				if (got <= 0)
-					break;
-				plog_append_write(child_path, off, buf,
-				                  (uint32_t)got);
-				off += got;
-			}
-		}
-	}
-}
-
-/*
  * Log the content of a regular file at `path` with inode `inode`.
  * Used after rename to ensure the destination file is captured in the p-log.
  */
@@ -1175,15 +1133,9 @@ static void plog_log_file_content(const char *path, struct inode *inode)
 
 static int tmpfs_fsync(void)
 {
-	/*
-	 * The checkpoint-on-fsync design (plog_truncate + full-FS
-	 * plog_snapshot_dir) cannot work: the snapshot re-reads the whole
-	 * tmpfs (hundreds of MB incl. all binaries) in 4KB chunks into a
-	 * 1MB p-log, so it always overflows after the first 1MB while
-	 * still paying the full walk — one fsync takes minutes and floods
-	 * the console. tmpfs data is already durable in memory as far as
-	 * fsync semantics go here; keep fsync O(1).
-	 */
+	/* The filesystem data and metadata already reside in CXL. */
+	plog_checkpoint(tmpfs_root, tmpfs_root_dent);
+	plog_truncate();
 	return 0;
 }
 

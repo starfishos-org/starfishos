@@ -17,7 +17,7 @@
 #define PAGE_SIZE 4096
 #endif
 
-#define PLOG_SHM_SIZE      (PAGE_SIZE * 256UL) /* 1 MB */
+#define PLOG_SHM_SIZE      (PAGE_SIZE * 1024UL) /* 4 MB */
 #define PLOG_MAGIC         0x504C4F47U         /* "PLOG" */
 #define PLOG_MAX_PATH      256
 #define PLOG_MAX_DATA      PAGE_SIZE
@@ -58,6 +58,9 @@ struct plog_header {
 	uint64_t seq_counter;      /* next sequence number */
 	uint32_t owner_machine;    /* machine that owns this p-log */
 	uint32_t _pad;
+	/* Entry points to the CXL-resident tmpfs object graph at checkpoint. */
+	uint64_t checkpoint_root;
+	uint64_t checkpoint_root_dent;
 } __attribute__((aligned(64)));
 
 /* P-log entry (variable size due to write data) */
@@ -111,6 +114,10 @@ int plog_replay(struct plog_header *hdr);
  * All prior entries are considered durable; the log is reset for reuse.
  */
 void plog_truncate(void);
+
+void plog_checkpoint(void *root, void *root_dent);
+int plog_get_checkpoint(const struct plog_header *hdr,
+			void **root, void **root_dent);
 
 /* Track inode -> path mapping (for write logging). */
 void plog_track_inode(void *inode, const char *path);

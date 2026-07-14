@@ -25,10 +25,10 @@ fi
 
 dsm_ready() {
   echo "DSM machine $1 is joining..."
-  tmux select-window -t $1
+  local target="$session_name:$1"
 
   while true; do
-      tmux capture-pane -pS -1000 | grep -q "DSM] machine $1 "
+      tmux capture-pane -t "$target" -pS -1000 | grep -q "DSM] machine $1 "
       
       if [ $? -eq 0 ]; then
           break
@@ -41,10 +41,10 @@ dsm_ready() {
 
 kernel_ready() {
   echo "Kernel $1 is creating..."
-  tmux select-window -t $1
+  local target="$session_name:$1"
 
   while true; do
-      tmux capture-pane -pS -1000 | grep -q "$welcome_str"
+      tmux capture-pane -t "$target" -pS -1000 | grep -q "$welcome_str"
       
       if [ $? -eq 0 ]; then
           break
@@ -63,13 +63,14 @@ echo "num_windows: $num_windows"
 echo "program: $program"
 echo "MACHINE_NUM: $num_windows"
 ## Create a Tmux session "mywork" in a window "window0" started in the background.
-tmux new -d -s $session_name -n 0 "MACHINE_NUM=$num_windows ./build/simulate.sh 0 | tee exec_log.log"
+tmux new -d -s $session_name -n 0 \
+    "CPU_NUM=${CPU_NUM:-12} MACHINE_NUM=$num_windows ./build/simulate.sh 0 | tee exec_log.log"
 sleep 1
 dsm_ready 0
-kernel_ready 0
 
 for ((i=1; i<$num_windows; i++)); do
-    tmux new-window -n $i "MACHINE_NUM=$num_windows ./build/simulate.sh $i"
+    tmux new-window -t "$session_name" -n $i \
+        "CPU_NUM=${CPU_NUM:-12} MACHINE_NUM=$num_windows ./build/simulate.sh $i"
     sleep 1
     dsm_ready $i
 done

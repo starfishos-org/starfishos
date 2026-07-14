@@ -19,7 +19,7 @@
 #
 # Usage (from repo root):
 #   ./artifact-evaluation/prepare.sh          # once
-#   ./artifact-evaluation/state-partition/run.sh
+#   ./artifact-evaluation/4-state-partition/run.sh
 #
 # Env overrides:
 #   BENCHS="leveldb dbx1000 pca matrix_multiply linear_regression word_count"
@@ -29,7 +29,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-AE_DIR="$AE_REPO_ROOT/artifact-evaluation/state-partition"
+AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"

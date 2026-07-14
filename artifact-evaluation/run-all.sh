@@ -5,14 +5,18 @@
 #
 # Usage (from repo root):
 #   ./artifact-evaluation/run-all.sh                # everything
-#   ./artifact-evaluation/run-all.sh ipc-cdf ipc-cdf-8m   # a subset
+#   ./artifact-evaluation/run-all.sh state-partition   # a subset
+#
+# This orchestrates the two multi-config sweep experiments that share
+# common.sh (each rebuilds ChCore across several configs). The self-
+# contained numbered evaluations (0-basic, 1-ipc-cdf, 2-sched-notify-
+# latency, 3-memory-allocator, 7-recover-fs) have their own entry points
+# and are run individually — see this directory's README.
 #
 # Experiments (in run order):
-#   ipc-cdf                 Fig 11 (2 machines)
-#   ipc-cdf-8m              Fig 11 reviewer variant (8 machines)
-#   allocator-throughput    Fig 12
-#   state-partition         Fig 13
+#   state-partition         Fig 13 (4-state-partition)
 #   dbx1000-cross-warehouse reviewer-requested cross-warehouse sweep
+#                           (5-dbx1000-cross-warehouse)
 #
 # Each experiment rebuilds ChCore with its own configs (and restores them),
 # so they must run one at a time — this script enforces that. A failing
@@ -28,7 +32,7 @@ TOP_OUT="$AE_ROOT/out/$TS"
 FIG_DIR="$TOP_OUT/figures"
 LOG_DIR="$TOP_OUT/logs"
 
-ALL_EXPERIMENTS=(ipc-cdf ipc-cdf-8m allocator-throughput state-partition dbx1000-cross-warehouse)
+ALL_EXPERIMENTS=(state-partition dbx1000-cross-warehouse)
 EXPERIMENTS=("${@:-}")
 if [ "${#EXPERIMENTS[@]}" -eq 0 ] || [ -z "${EXPERIMENTS[0]}" ]; then
     EXPERIMENTS=("${ALL_EXPERIMENTS[@]}")
@@ -44,11 +48,8 @@ run_one() {
     # Per-experiment wall-clock budget (seconds); a stuck experiment is
     # killed and reported as TIMEOUT instead of blocking the whole AE run.
     case "$name" in
-        ipc-cdf)                 dir="ipc-cdf";                 budget="${BUDGET_IPC:-5400}" ;;
-        ipc-cdf-8m)              dir="ipc-cdf"; cmd_env="NUM_MACHINES=8"; budget="${BUDGET_IPC_8M:-7200}" ;;
-        allocator-throughput)    dir="allocator-throughput";    budget="${BUDGET_ALLOCATOR:-14400}" ;;
-        state-partition)         dir="state-partition";         budget="${BUDGET_STATE:-21600}" ;;
-        dbx1000-cross-warehouse) dir="dbx1000-cross-warehouse"; budget="${BUDGET_CROSSWH:-14400}" ;;
+        state-partition)         dir="4-state-partition";         budget="${BUDGET_STATE:-21600}" ;;
+        dbx1000-cross-warehouse) dir="5-dbx1000-cross-warehouse"; budget="${BUDGET_CROSSWH:-14400}" ;;
         *) echo "Unknown experiment: $name" >&2; STATUS[$name]="unknown"; return 1 ;;
     esac
 

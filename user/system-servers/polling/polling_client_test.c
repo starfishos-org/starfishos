@@ -4,17 +4,11 @@
 
 #include <chcore/memory.h>
 #include <chcore/syscall.h>
-#include <chcore/launcher.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <sys/shm.h>
-#include <sys/wait.h>
-
-/* SHM key used to share wta[] between parent and worker processes */
-#define WTA_SHM_KEY 0xC1E01
 
 /* ---- Timing configuration ----
  * Timing is always collected for CDF (cycles). Use flags to control output:
@@ -278,7 +272,6 @@ struct args {
     int empty;        /* 1 = POLLING_REQ_EMPTY only (no FS read), implies polling */
     int write_mode;   /* 1 = write 4KiB instead of read */
     const char *mode; /* "direct" / "local" / "cross" (for output tags) */
-    int worker_id;    /* >= 0: running as child worker with this index */
 };
 
 void print_usage()
@@ -300,7 +293,6 @@ void parse_args(int argc, char *argv[], struct args *args)
     args->empty = 0;
     args->write_mode = 0;
     args->mode = "polling";
-    args->worker_id = -1;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) {
             args->direct = 1;
@@ -314,8 +306,6 @@ void parse_args(int argc, char *argv[], struct args *args)
             args->num_threads = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
             args->mode = argv[++i];
-        } else if (strcmp(argv[i], "-W") == 0 && i + 1 < argc) {
-            args->worker_id = atoi(argv[++i]);
         } else {
             print_usage();
             exit(1);
@@ -401,40 +391,13 @@ int main(int argc, char *argv[])
     parse_args(argc, argv, &args);
 
     int nt = args.num_threads;
-    /*
-     * Size the wta[] shm segment for the max supported thread count, not
-     * nt: shmctl(IPC_RMID) is unsupported so the segment created by the
-     * first run is reused by every later run in the same boot (see the
-     * IPC_EXCL fallback below), including runs with a larger -t.
-     */
-#define WTA_MAX_THREADS 96
-    size_t wta_shm_size = sizeof(struct worker_thread_arg) * WTA_MAX_THREADS;
-
-    /* ----- Worker mode: child process spawned by parent ----- */
-    if (args.worker_id >= 0) {
-        struct polling_shm_region *shm = NULL;
-        if (!args.direct) {
-            shm = map_polling_shm(args.shm_id);
-            if (!shm) return -1;
-        }
-
-        int wta_shmid = shmget(WTA_SHM_KEY, wta_shm_size, IPC_CREAT);
-        struct worker_thread_arg *wta =
-            (struct worker_thread_arg *)shmat(wta_shmid, 0, 0);
-        wta[args.worker_id].shm = shm;
-
-        select_fn(&args)(&wta[args.worker_id]);
-        return 0;
-    }
-
-    /* ----- Parent mode ----- */
     struct polling_shm_region *shm = NULL;
     if (!args.direct) {
         shm = map_polling_shm(args.shm_id);
         if (!shm) return -1;
     }
 
-    printf("[client] mode=%s shm_id=%d procs=%d direct=%d empty=%d write=%d breakdown=%d\n",
+    printf("[client] mode=%s shm_id=%d threads=%d direct=%d empty=%d write=%d breakdown=%d\n",
            args.mode, args.shm_id, nt, args.direct, args.empty,
            args.write_mode, ENABLE_BREAKDOWN);
 
@@ -463,47 +426,19 @@ int main(int argc, char *argv[])
     printf("[client] file created, sleeping 1s...\n");
     sleep(1);
 
-    /*
-     * Create shared wta[] for result collection across processes.
-     * shmctl(IPC_RMID) is unsupported, so after the first run in a boot
-     * the segment persists: fall back to attaching the existing one.
-     */
-    int wta_shmid = shmget(WTA_SHM_KEY, wta_shm_size, IPC_CREAT | IPC_EXCL);
-    if (wta_shmid < 0)
-        wta_shmid = shmget(WTA_SHM_KEY, wta_shm_size, IPC_CREAT);
-    if (wta_shmid < 0) {
-        printf("shmget for wta[] failed\n");
-        return -1;
-    }
+    pthread_t *tid = (pthread_t *)malloc(sizeof(pthread_t) * nt);
     struct worker_thread_arg *wta =
-        (struct worker_thread_arg *)shmat(wta_shmid, 0, 0);
-    if (wta == (void *)-1) {
-        printf("shmat for wta[] failed\n");
-        return -1;
-    }
+        (struct worker_thread_arg *)malloc(sizeof(struct worker_thread_arg) * nt);
     for (int i = 0; i < nt; i++) {
+        wta[i].shm = shm;
         wta[i].tid = i;
         wta[i].count = 0;
         wta[i].mode_tag = args.mode;
-    }
-
-    /* Spawn worker processes: re-launch this binary with -W <i> appended */
-    pid_t *pids = (pid_t *)malloc(sizeof(pid_t) * nt);
-    for (int i = 0; i < nt; i++) {
-        char wi_str[16];
-        snprintf(wi_str, sizeof(wi_str), "%d", i);
-        char **child_argv = (char **)malloc(sizeof(char *) * (argc + 3));
-        for (int j = 0; j < argc; j++)
-            child_argv[j] = argv[j];
-        child_argv[argc]     = "-W";
-        child_argv[argc + 1] = wi_str;
-        child_argv[argc + 2] = NULL;
-        pids[i] = chcore_new_process(argc + 2, child_argv, 0, 0);
-        free(child_argv);
+        pthread_create(&tid[i], NULL, select_fn(&args), &wta[i]);
     }
 
     for (int i = 0; i < nt; i++)
-        waitpid(pids[i], NULL, 0);
+        pthread_join(tid[i], NULL);
 
     print_results(wta, nt, args.mode);
 
@@ -511,8 +446,7 @@ int main(int argc, char *argv[])
         polling_print_debug_info(shm);
     printf("polling_client: done\n");
 
-    free(pids);
-    shmdt(wta);
-    shmctl(wta_shmid, IPC_RMID, 0);
+    free(tid);
+    free(wta);
     return 0;
 }

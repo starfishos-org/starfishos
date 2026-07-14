@@ -18,7 +18,7 @@
 #
 # Usage (from repo root):
 #   ./artifact-evaluation/prepare.sh          # once
-#   ./artifact-evaluation/dbx1000-cross-warehouse/run.sh
+#   ./artifact-evaluation/5-dbx1000-cross-warehouse/run.sh
 #
 # Env overrides:
 #   RATIOS="15 50 80"     cross-warehouse percentages to sweep
@@ -31,7 +31,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-AE_DIR="$AE_REPO_ROOT/artifact-evaluation/dbx1000-cross-warehouse"
+AE_DIR="$AE_REPO_ROOT/artifact-evaluation/5-dbx1000-cross-warehouse"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"

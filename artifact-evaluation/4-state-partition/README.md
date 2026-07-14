@@ -8,7 +8,7 @@ configurations, normalized to the *Private* (all-DRAM, ideal) setup.
 
 ```bash
 ./artifact-evaluation/prepare.sh                  # once, global
-./artifact-evaluation/state-partition/run.sh
+./artifact-evaluation/4-state-partition/run.sh
 ```
 
 Runtime: ~2–3 hours with defaults (4 configs × 1 build each × 6 benches ×
@@ -45,9 +45,9 @@ Throughput benches normalize as `v / v_private`; time benches as
 ## Re-parse an existing run
 
 ```bash
-python3 artifact-evaluation/state-partition/parse_and_plot.py \
-  --log-dir artifact-evaluation/state-partition/out/<ts>/logs \
-  --out-dir artifact-evaluation/state-partition/out/<ts>
+python3 artifact-evaluation/4-state-partition/parse_and_plot.py \
+  --log-dir artifact-evaluation/4-state-partition/out/<ts>/logs \
+  --out-dir artifact-evaluation/4-state-partition/out/<ts>
 ```
 
 ## Env knobs

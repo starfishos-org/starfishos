@@ -124,6 +124,13 @@ void main(u64 mbmagic, paddr_t mbaddr)
     enable_smp_cores();
     kdebug("[ChCore] boot smp\n");
 
+#ifdef DSM_ENABLED
+    /* The per-CPU MSI-X destinations require all local APIC IDs to have been
+     * initialized by enable_smp_cores(). */
+    if (ivshmem_configure_cpu_msix_vectors() != 0)
+        kwarn("[IVSHMEM] Direct scheduler MSI unavailable; using tick fallback\n");
+#endif
+
     init_fpu_owner_locks();
     kdebug("[ChCore] init fpu owner locks\n");
 

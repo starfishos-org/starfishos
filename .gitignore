@@ -60,3 +60,4 @@ logs/
 # under log/<benchmark>/ per CLAUDE.md File Placement Rules)
 /*.log
 /*.csv
+/deleted/

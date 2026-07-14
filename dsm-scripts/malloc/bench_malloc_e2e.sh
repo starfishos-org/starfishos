@@ -6,7 +6,7 @@
 # Each user bench thread count = 1 fresh QEMU session (avoids rpmalloc state pollution).
 # All logs archived under LOG_DIR (default: logs/malloc/).
 #
-# Usage: ./dsm-scripts/bench_malloc_e2e.sh [output.csv]
+# Usage: ./dsm-scripts/malloc/bench_malloc_e2e.sh [output.csv]
 #
 # Env vars:
 #   NRUNS=3            number of repeat runs per config
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DSM_CONFIG="$ROOT_DIR/kernel/dsm_config.cmake"
 CSV_OUT="${1:-$ROOT_DIR/bench_malloc_results.csv}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs/malloc}"
@@ -32,9 +32,10 @@ USER_BENCH_THREADS="${USER_BENCH_THREADS:-1 2 4 8 16 32 64 96}"
 USER_BENCH_FIXED_ARGS="0 0 0 10 100 1000 16 256"
 USER_BENCH_DONE="throughput(ops/s):"
 USER_BENCH_TIMEOUT="${USER_BENCH_TIMEOUT:-600}"
+KERNEL_BENCH_TIMEOUT="${KERNEL_BENCH_TIMEOUT:-900}"
 
 KERNEL_TEST_CMD="test_malloc"
-KERNEL_TEST_DONE="malloc succ!"
+KERNEL_TEST_DONE="kernel tests done"
 
 mkdir -p "$LOG_DIR"
 
@@ -45,8 +46,18 @@ set_cmake_var() {
     sed -i "s/^set(${var} .*)$/set(${var} \"${val}\")/" "$DSM_CONFIG"
 }
 
-save_config()    { cp "$DSM_CONFIG" "$LOG_DIR/dsm_config.cmake.bak"; }
-restore_config() { cp "$LOG_DIR/dsm_config.cmake.bak" "$DSM_CONFIG"; }
+CONFIG_SAVED=0
+save_config() {
+    cp "$DSM_CONFIG" "$LOG_DIR/dsm_config.cmake.bak"
+    CONFIG_SAVED=1
+}
+restore_config() {
+    if [ "$CONFIG_SAVED" = "1" ]; then
+        cp "$LOG_DIR/dsm_config.cmake.bak" "$DSM_CONFIG"
+        CONFIG_SAVED=0
+    fi
+}
+trap restore_config EXIT
 
 wait_in_log() {
     local logfile="$1" pattern="$2" timeout="${3:-300}"
@@ -65,7 +76,10 @@ wait_in_log() {
 # Returns 0 on success, 1 on timeout.
 run_qemu_session() {
     local logfile="$1" cmd="$2" done_str="$3" timeout="${4:-600}"
-    local matchfile="${logfile%.log}.match"
+    # simulate_ncluster.sh writes the matched completion line to its second
+    # argument. The E2E runner already archives the full guest log, so a
+    # separate per-run .match checkpoint is redundant.
+    local matchfile="/dev/null"
 
     rm -f "$ROOT_DIR/exec_log0.log" "$ROOT_DIR/exec_log.log"
 
@@ -101,34 +115,62 @@ run_qemu_session() {
 
 # ── build + run ───────────────────────────────────────────────────────────
 
-build_and_run() {
+build_current_config() {
     local label="$1"
+    local config_snapshot
 
     echo "========================================"
     echo "[E2E] Building config: $label"
     echo "========================================"
-    local build_ok=0
-    (cd "$ROOT_DIR" && ./scripts/quick-build.sh) 2>&1 | tail -10 && build_ok=1 || build_ok=0
-    if [ "$build_ok" -eq 0 ]; then
-        echo "[E2E] BUILD FAILED for config: $label — skipping all runs." >&2
+    config_snapshot="$(mktemp)"
+    cp "$ROOT_DIR/.config" "$config_snapshot"
+
+    if (cd "$ROOT_DIR" && ./chbuild clean && ./chbuild build) 2>&1 | tail -10; then
+        rm -f "$config_snapshot"
         return 0
     fi
 
+    echo "[E2E] chbuild failed; retrying with quick-build.sh" >&2
+    if ! (cd "$ROOT_DIR" && ./quick-build.sh) 2>&1 | tail -10; then
+        rm -f "$config_snapshot"
+        echo "[E2E] QUICK BUILD FAILED for config: $label" >&2
+        return 1
+    fi
+
+    # quick-build.sh runs defconfig, so restore the allocator's CPU/test
+    # selection and rebuild the affected targets before running benchmarks.
+    cp "$config_snapshot" "$ROOT_DIR/.config"
+    rm -f "$config_snapshot"
+    if ! (cd "$ROOT_DIR" && ./chbuild build) 2>&1 | tail -10; then
+        echo "[E2E] BUILD FAILED after restoring config: $label" >&2
+        return 1
+    fi
+}
+
+run_kernel_benchmarks() {
+    local label="$1"
     for run in $(seq 1 "$NRUNS"); do
         local abs_run=$(( run + RUN_OFFSET ))
         echo ""
-        echo "[E2E] === Config=$label  Run=$abs_run/$NRUNS ==="
+        echo "[E2E] === Kernel config=$label  Run=$abs_run/$NRUNS ==="
 
-        # ── kernel test ──
         local klog="$LOG_DIR/${label}_run${abs_run}_kernel.log"
         echo "[E2E]   kernel test → $(basename "$klog")"
-        if run_qemu_session "$klog" "$KERNEL_TEST_CMD" "$KERNEL_TEST_DONE" 300; then
+        if run_qemu_session "$klog" "$KERNEL_TEST_CMD" "$KERNEL_TEST_DONE" \
+                "$KERNEL_BENCH_TIMEOUT"; then
             echo "[E2E]   kernel test done."
         else
             echo "[E2E]   kernel test TIMEOUT/FAIL — log saved, continuing." >&2
         fi
+    done
+}
 
-        # ── user bench: one fresh QEMU per thread count ──
+run_user_benchmarks() {
+    local label="$1"
+    for run in $(seq 1 "$NRUNS"); do
+        local abs_run=$(( run + RUN_OFFSET ))
+        echo ""
+        echo "[E2E] === User config=$label  Run=$abs_run/$NRUNS ==="
         for threads in $USER_BENCH_THREADS; do
             local ulog="$LOG_DIR/${label}_run${abs_run}_user_t${threads}.log"
             echo "[E2E]   user bench threads=$threads → $(basename "$ulog")"
@@ -143,6 +185,13 @@ build_and_run() {
             fi
         done
     done
+}
+
+build_and_run() {
+    local label="$1"
+    build_current_config "$label"
+    run_kernel_benchmarks "$label"
+    run_user_benchmarks "$label"
 }
 
 # ── parse log files → CSV rows ────────────────────────────────────────────
@@ -245,6 +294,7 @@ PYEOF
 
 # ── main ──────────────────────────────────────────────────────────────────
 
+bench_malloc_main() {
 echo "[E2E] Log directory : $LOG_DIR"
 echo "[E2E] CSV output    : $CSV_OUT"
 echo "[E2E] Runs          : $NRUNS  (offset=$RUN_OFFSET)"
@@ -261,18 +311,18 @@ else
 fi
 
 # Config 1: LLFree + CR=ON
-# set_cmake_var DSM_CXL_LF_BUDDY ON
-# set_cmake_var SLAB_CRASH_RECOVERY ON
-# build_and_run "llfree_cr_on"
+set_cmake_var DSM_CXL_LF_BUDDY ON
+set_cmake_var SLAB_CRASH_RECOVERY ON
+build_and_run "llfree_cr_on"
 
 # Config 2: LLFree + CR=OFF
 set_cmake_var DSM_CXL_LF_BUDDY ON
-set_cmake_var SLAB_CRASH_RECOVERY ON
+set_cmake_var SLAB_CRASH_RECOVERY OFF
 build_and_run "llfree_cr_off"
 
 # Config 3: Buddy + CR=OFF
 set_cmake_var DSM_CXL_LF_BUDDY OFF
-set_cmake_var SLAB_CRASH_RECOVERY ON
+set_cmake_var SLAB_CRASH_RECOVERY OFF
 build_and_run "buddy_cr_off"
 
 echo "[E2E] Restoring original config ..."
@@ -303,3 +353,8 @@ echo "Preview (first 20 rows):"
 head -21 "$CSV_OUT" | column -t -s,
 echo "..."
 echo "Total data rows: $(( $(wc -l < "$CSV_OUT") - 1 ))"
+}
+
+if [ "${BENCH_MALLOC_LIB_ONLY:-0}" != "1" ]; then
+    bench_malloc_main
+fi

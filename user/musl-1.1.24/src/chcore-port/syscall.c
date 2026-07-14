@@ -404,6 +404,15 @@ int usys_pcie_control(u64 req_buf) {
 	return chcore_syscall1(CHCORE_SYS_pcie_control, req_buf);
 }
 
+long usys_ivshmem_msi_bench(u64 target_machine, u64 target_local_cpu,
+                            u64 samples)
+{
+    return chcore_syscall3(CHCORE_SYS_ivshmem_msi_bench,
+                           target_machine,
+                           target_local_cpu,
+                           samples);
+}
+
 int usys_get_machine_id()
 {
 	return (int)chcore_syscall0(CHCORE_SYS_get_machine_id);

@@ -134,6 +134,19 @@ int init_tmpfs(char *mount_path)
 	return 0;
 }
 
+/* Attach a replacement server to a checkpointed tmpfs object graph in CXL. */
+static int attach_tmpfs(void *root, void *root_dent)
+{
+	tmpfs_root = root;
+	tmpfs_root_dent = root_dent;
+	init_id_manager(&fidman, MAX_NR_FID_RECORDS, DEFAULT_INIT_ID);
+	assert(alloc_id(&fidman) == 0);
+	init_fs_wrapper();
+	using_page_cache = false;
+	mounted = true;
+	return 0;
+}
+
 extern char __binary_ramdisk_cpio_start;
 
 int restart_tmpfs(char *mount_path)
@@ -171,14 +184,21 @@ int recover_tmpfs(int crashed_machine_id)
 
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 
-	/* 1. Init empty tmpfs */
-	init_tmpfs("/");
-
-	/* 2. Map and replay crashed machine's p-log */
+	/* 1. Map the crashed machine's CXL-resident p-log. */
 	struct plog_header *remote_plog = plog_map_remote(crashed_machine_id);
 	if (!remote_plog) {
 		error("[tmpfs] Failed to map remote p-log\n");
 		return -1;
+	}
+
+	/* 2. Start from the CXL checkpoint and replay only its log tail. */
+	void *checkpoint_root, *checkpoint_root_dent;
+	if (plog_get_checkpoint(remote_plog, &checkpoint_root,
+				&checkpoint_root_dent) == 0) {
+		attach_tmpfs(checkpoint_root, checkpoint_root_dent);
+		info("[tmpfs] Attached CXL filesystem checkpoint\n");
+	} else {
+		init_tmpfs("/");
 	}
 
 	clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -192,6 +212,8 @@ int recover_tmpfs(int crashed_machine_id)
 	/* 3. Init own p-log */
 	int mid = usys_get_machine_id();
 	plog_init(mid);
+	plog_checkpoint(tmpfs_root, tmpfs_root_dent);
+	plog_truncate();
 
 	/* 4. Register as IPC server */
 	info("[tmpfs] Registering as IPC server...\n");
@@ -235,6 +257,8 @@ int main(int argc, char *argv[], char *envp[])
 	plog_init(mid);
 
 	tfs_load_image((char *)&__binary_ramdisk_cpio_start);
+	plog_checkpoint(tmpfs_root, tmpfs_root_dent);
+	plog_truncate();
 
 	/* tmpfs polling thread disabled — polling.srv is the sole SHM consumer.
 	 * Code preserved in tmpfs_polling.c for potential future use. */

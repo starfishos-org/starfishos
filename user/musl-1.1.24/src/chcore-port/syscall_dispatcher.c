@@ -677,8 +677,8 @@ pid_t chcore_waitpid(pid_t pid, int *status, int options, int d)
 	/* This ipc_call returns the pid. */
 	ret = ipc_call(procmgr_ipc_struct, ipc_msg);
 	assert(ret);
-	if (ret > 0 && status != NULL) {
-		/* Get the actual exit status; waitpid(pid, NULL, 0) is legal. */
+	if (ret > 0 && status) {
+		/* Get the actual exit status. */
 		reply_pr = (struct proc_request *)ipc_get_msg_data(ipc_msg);
 		*status = reply_pr->exitstatus;
 	}

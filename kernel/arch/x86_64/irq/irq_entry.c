@@ -219,9 +219,10 @@ void handle_irq(int irqno)
         // kinfo("CPU %d: receive IPI on TLB.\n", smp_get_cpu_id());
         handle_ipi();
         arch_ack_irq();
-        if (current_resched_flag == true) {
-            current_resched_flag = false;
-            sched();
+        if (__atomic_exchange_n(&current_resched_flag,
+                                false,
+                                __ATOMIC_ACQUIRE)) {
+            sched_force_reschedule();
             eret_to_thread(switch_context());
 
             /* should never return */
@@ -235,6 +236,15 @@ void handle_irq(int irqno)
         /* The handler itself will check for NULL pointers */
         ivshmem_msix_handler();
         arch_ack_irq();
+#ifdef DSM_ENABLED
+        /* Scheduler doorbells are routed directly to the CPU owning this
+         * shared queue.  Drain it immediately instead of waiting for a tick. */
+        if (rr_sched_remote_queue_pending()) {
+            sched_force_reschedule();
+            eret_to_thread(switch_context());
+            BUG_ON(1);
+        }
+#endif
         return;
 
     case IRQ_IPI_RESET_SCHED:
