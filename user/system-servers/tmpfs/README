@@ -1,5 +1,25 @@
-# A temporary in memory fs
+# CXLFS service
 
+The service keeps exactly one authoritative filesystem image in a fixed
+per-machine slice of a dedicated CXL-like QEMU ivshmem device.  The device is
+backed by `/dev/shm/ivshmem-cxlfs-$USER`; its eight fixed 1 GiB slices are
+addressed by machine id and are not managed by the application CXL or DRAM
+allocators.  The device contains a disk format: two superblock slots,
+inode/block bitmaps, a fixed inode table, directory records, and 4 KiB data and
+indirect blocks.  Every persistent reference is an inode or block number.
 
-The implementation is young, simple and naive, and we have moved it to user
-space.
+`struct inode`, dentries, hash/radix indices, vnode/fd tables, and reference
+counts are private runtime state.  Mount recursively rebuilds them from the CXL
+directory records; file contents are read and written directly in the CXL
+image.  Overwrites allocate and flush a new data block before switching the
+inode block number and publishing the alternate superblock generation.
+
+The separate 4 MiB p-log contains only redo operations newer than the last
+checkpoint.  `fsync` (and log-capacity rollover) publishes and flushes the CXL
+superblock first and truncates the p-log last.  Recovery mounts the stable image,
+rebuilds volatile indices, and replays the untruncated redo tail.  No process
+virtual address is part of either persistent format.
+
+Create the device once with `./dsm-scripts/prepare_cxlfs_dev.sh`.  Subsequent
+launches require the existing 8 GiB device and never recreate, resize, or clear
+it.  `CXLFS_DEV` can override the device path; its size remains fixed at 8 GiB.

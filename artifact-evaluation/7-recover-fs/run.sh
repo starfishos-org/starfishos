@@ -11,17 +11,22 @@ NUM_MACHINES=2
 TIMEOUT="${TIMEOUT:-600}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
+BOOT_ONLY="${BOOT_ONLY:-0}"
 DB_PATH="${DB_PATH:-/tmp/leveldb_recovery}"
 # Each LevelDB value is logged by tmpfs.  The p-log checkpoints CXL-resident
 # tmpfs state and truncates automatically at its 4 MiB capacity.
 FILL_NUM="${FILL_NUM:-128}"
-READ_NUM="${READ_NUM:-1000}"
-THREADS="${THREADS:-8}"
+# Match the single-thread, warmed random-read case used for the recovery
+# throughput curve. A longer sample avoids startup/outlier-dominated rates.
+READ_NUM="${READ_NUM:-10000}"
+THREADS="${THREADS:-1}"
+CPUS_PER_MACHINE="${CPUS_PER_MACHINE:-12}"
+RECOVERY_MACHINE="${RECOVERY_MACHINE:-1}"
 CRASH_DELAY="${CRASH_DELAY:-3}"
 DETECTOR_INTERVAL="${DETECTOR_INTERVAL:-0.01}"
 LOG_POLL_INTERVAL="${LOG_POLL_INTERVAL:-0.05}"
-# Pass this explicitly to each tmux pane.  The current recovery image is built
-# with device-backed DRAM enabled, so its valid default is 1.
+# Pass this explicitly to each tmux pane.  CXLFS has a dedicated ivshmem
+# device, while each machine keeps using its own device-backed DRAM region.
 USE_DEV_AS_DRAM="${USE_DEV_AS_DRAM:-1}"
 
 mkdir -p "$OUT_DIR" "$LOG_DIR"
@@ -116,10 +121,16 @@ trap cleanup EXIT
 check_global_prepare() {
     local resources=(
         "/dev/shm/ivshmem-$USER" "/dev/shm/ivshmem-hostfs-$USER"
-        "/tmp/ivshmem-doorbell-$USER"
-        "/dev/shm/numa0.0-$USER" "/dev/shm/numa0.1-$USER"
-        "/dev/shm/numa1.0-$USER" "/dev/shm/numa1.1-$USER"
+        "/dev/shm/ivshmem-cxlfs-$USER"
     )
+    if [ "$USE_DEV_AS_DRAM" = "1" ]; then
+        resources+=(
+            "/dev/shm/numa0.0-$USER" "/dev/shm/numa0.1-$USER"
+            "/dev/shm/numa1.0-$USER" "/dev/shm/numa1.1-$USER"
+            "/dev/shm/numa2.0-$USER" "/dev/shm/numa2.1-$USER"
+            "/dev/shm/numa3.0-$USER" "/dev/shm/numa3.1-$USER"
+        )
+    fi
     local resource
     for resource in "${resources[@]}"; do
         if [ ! -e "$resource" ]; then
@@ -141,7 +152,7 @@ wait_for_log() {
             return 1
         fi
         if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -qE \
-            'General Protection Fault|#GP during early boot|Kernel panic|BUG: do_page_fault|Assertion failed:|invalid user access, killing process|Not a valid dynamic program'; then
+            'General Protection Fault|#GP during early boot|Kernel panic|^BUG:|Assertion failed:|invalid user access, killing process|Not a valid dynamic program'; then
             echo "Guest fault while waiting for $label" >&2
             tail -120 "$logfile" >&2 || true
             return 1
@@ -158,6 +169,25 @@ wait_for_log() {
         checks=$((checks + 1))
     done
     echo "Timed out waiting for $label ($pattern)" >&2
+    tail -120 "$logfile" >&2 || true
+    return 1
+}
+
+wait_for_log_count() {
+    local logfile="$1" pattern="$2" expected="$3" label="$4" start_line="${5:-1}"
+    local checks=0 max_checks count
+    max_checks="$(awk -v timeout="$TIMEOUT" -v interval="$LOG_POLL_INTERVAL" \
+        'BEGIN { printf "%d", timeout / interval }')"
+    while [ "$checks" -lt "$max_checks" ]; do
+        count="$(tail -n "+$start_line" "$logfile" 2>/dev/null | grep -cE "$pattern" || true)"
+        if [ "$count" -ge "$expected" ]; then
+            echo "$label"
+            return 0
+        fi
+        sleep "$LOG_POLL_INTERVAL"
+        checks=$((checks + 1))
+    done
+    echo "Timed out waiting for $label ($expected occurrences of $pattern)" >&2
     tail -120 "$logfile" >&2 || true
     return 1
 }
@@ -184,11 +214,12 @@ start_cluster() {
     : > "$LOG_DIR/machine1.log"
     launch_machine 0
     wait_for_log "$LOG_DIR/machine0.log" 'DSM] machine 0 ' 'machine 0 joined'
-    # The first guest initializes the shared CXL allocator.  Do not let the
-    # second guest attach midway through that initialization.
-    wait_for_log "$LOG_DIR/machine0.log" '^\$ ' 'machine 0 ready'
+    # With PHOENIX_SCHED_TIMING enabled, machine 0 now waits at the cross-node
+    # TSC barrier.  Start machine 1 after machine 0 has initialized/joined the
+    # DSM metadata, then wait for both guests to finish booting.
     launch_machine 1
     wait_for_log "$LOG_DIR/machine1.log" 'DSM] machine 1 ' 'machine 1 joined'
+    wait_for_log "$LOG_DIR/machine0.log" '^\$ ' 'machine 0 ready'
     wait_for_log "$LOG_DIR/machine1.log" '^\$ ' 'machine 1 ready'
     MACHINE0_QEMU_PID="$(qemu_pid_for_machine 0)"
     if [ -z "$MACHINE0_QEMU_PID" ]; then
@@ -229,6 +260,14 @@ benchmark_rate_ops() {
         awk '{ if ($1 > 0) printf "%.3f", 1000000 / $1; }'
 }
 
+benchmark_rate_ops_nth() {
+    local logfile="$1" benchmark="$2" occurrence="$3" start_line="${4:-1}"
+    tail -n "+$start_line" "$logfile" |
+        sed -nE "/${benchmark}[[:space:]]*:/ s/.*${benchmark}[[:space:]]*: *([0-9.]+) micros\/op.*/\1/p" |
+        sed -n "${occurrence}p" |
+        awk '{ if ($1 > 0) printf "%.3f", 1000000 / $1; }'
+}
+
 require_rate() {
     local name="$1" value="$2"
     if [ -z "$value" ]; then
@@ -238,9 +277,8 @@ require_rate() {
 }
 
 timeline_ms() {
-    # Keep the real pre-crash observation interval on the paper-style x axis.
-    awk -v lead="$CRASH_DELAY" -v elapsed="$1" \
-        'BEGIN { printf "%.3f", lead * 1000 + elapsed }'
+    # Recovery plots use the LevelDB/machine failure as t=0.
+    awk -v elapsed="$1" 'BEGIN { printf "%.3f", elapsed }'
 }
 
 cd "$REPO_ROOT"
@@ -254,6 +292,11 @@ echo "[AE] Log directory: $LOG_DIR"
 echo "[AE] DB: $DB_PATH; fill entries: $FILL_NUM; read entries: $READ_NUM"
 echo "[AE] USE_DEV_AS_DRAM: $USE_DEV_AS_DRAM"
 start_cluster
+
+if [ "$BOOT_ONLY" = "1" ]; then
+    echo '[AE] Boot-only CXLFS IPC validation passed on both machines.'
+    exit 0
+fi
 
 # Build the database and measure both write and read throughput before the
 # crash.  readrandom uses FILL_NUM as its key space and READ_NUM as its sample
@@ -294,13 +337,24 @@ wait_for_log "$m1_log" '^\[TIMING\] fs_recovery_total:' 'filesystem recovery com
 fs_end_ns="$(now_ns)"
 fs_total_ms="$(sed -nE 's/.*\[TIMING\] fs_recovery_total: ([0-9]+) ms.*/\1/p' "$m1_log" | tail -1)"
 plog_ms="$(sed -nE 's/.*\[TIMING\] plog_recovery: ([0-9]+) ms.*/\1/p' "$m1_log" | tail -1)"
+plog_entries="$(sed -nE 's/.*\[plog\] Replay done: ([0-9]+) entries, ([0-9]+) errors.*/\1/p' "$m1_log" | tail -1)"
+plog_errors="$(sed -nE 's/.*\[plog\] Replay done: ([0-9]+) entries, ([0-9]+) errors.*/\2/p' "$m1_log" | tail -1)"
 
 leveldb_line=$(($(wc -l < "$m1_log") + 1))
 leveldb_start_ns="$(now_ns)"
-tmux send-keys -t "$SESSION:1" "leveldb-dbbench.bin --benchmarks=readrandom,overwrite --use_existing_db=1 --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS" Enter
+recovery_cpu_offset=$((RECOVERY_MACHINE * CPUS_PER_MACHINE))
+tmux send-keys -t "$SESSION:1" "leveldb-dbbench.bin --benchmarks=readrandom,readrandom,overwrite --use_existing_db=1 --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS --thread_bind_cpu_offset=$recovery_cpu_offset" Enter
 wait_for_log "$m1_log" '\[TIMING\] leveldb_restart \(open existing db\):' 'LevelDB reopened on machine 1' "$leveldb_line"
 leveldb_ready_ns="$(now_ns)"
-wait_for_log "$m1_log" 'readrandom.*micros/op' 'machine 1 recovery read completed' "$leveldb_line"
+# Match LevelDB's standard db_bench sequence. Record both the first recovered
+# read pass and the warmed second pass so the figure uses measured ramp points.
+wait_for_log_count "$m1_log" '^readrandom[[:space:]]*:' 1 \
+    'machine 1 first recovery read completed' "$leveldb_line"
+post_read_warmup_end_ns="$(now_ns)"
+post_read_warmup_ops="$(benchmark_rate_ops_nth "$m1_log" readrandom 1 "$leveldb_line")"
+require_rate 'first post-recovery read' "$post_read_warmup_ops"
+wait_for_log_count "$m1_log" '^readrandom[[:space:]]*:' 2 \
+    'machine 1 warmed recovery read completed' "$leveldb_line"
 post_read_end_ns="$(now_ns)"
 leveldb_open_ms="$(sed -nE 's/.*\[TIMING\] leveldb_restart \(open existing db\): ([0-9]+) ms.*/\1/p' "$m1_log" | tail -1)"
 post_read_ops="$(benchmark_rate_ops "$m1_log" readrandom "$leveldb_line")"
@@ -318,16 +372,17 @@ kill_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$crash_end_ns")"
 detect_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$detect_end_ns")"
 fs_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$fs_end_ns")"
 leveldb_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$leveldb_ready_ns")"
+read_warmup_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_read_warmup_end_ns")"
 read_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_read_end_ns")"
 fill_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_fill_end_ns")"
 
 cat > "$OUT_DIR/recovery_detail.csv" <<CSV
-stage,measured_ms,guest_reported_ms,description
-kill_machine0,$kill_elapsed_ms,,Host issued tmux kill-window for machine 0 QEMU
-detect_machine0,$detect_elapsed_ms,,External host detector observed machine 0 QEMU exit
-restart_fs,$(elapsed_ms "$fs_start_ns" "$fs_end_ns"),${fs_total_ms:-},Machine 1 ran cxlfs.srv --recover 0 as a shell background service
-plog_replay,,${plog_ms:-},P-log replay reported by tmpfs
-restart_leveldb,$(elapsed_ms "$leveldb_start_ns" "$leveldb_ready_ns"),${leveldb_open_ms:-},Machine 1 reopened existing LevelDB database
+stage,measured_ms,guest_reported_ms,entry_count,error_count,description
+kill_machine0,$kill_elapsed_ms,,,,Host issued tmux kill-window for machine 0 QEMU
+detect_machine0,$detect_elapsed_ms,,,,External host detector observed machine 0 QEMU exit
+restart_fs,$(elapsed_ms "$fs_start_ns" "$fs_end_ns"),${fs_total_ms:-},,,Machine 1 ran cxlfs.srv --recover 0 as a shell background service
+plog_replay,,${plog_ms:-},${plog_entries:-},${plog_errors:-},P-log replay reported by tmpfs
+restart_leveldb,$(elapsed_ms "$leveldb_start_ns" "$leveldb_ready_ns"),${leveldb_open_ms:-},,,Machine 1 reopened existing LevelDB database
 CSV
 
 cat > "$OUT_DIR/throughput.csv" <<CSV
@@ -344,6 +399,8 @@ fs_recovered,$(timeline_ms "$fs_elapsed_ms"),fill,0
 fs_recovered,$(timeline_ms "$fs_elapsed_ms"),read,0
 leveldb_reopened,$(timeline_ms "$leveldb_elapsed_ms"),fill,0
 leveldb_reopened,$(timeline_ms "$leveldb_elapsed_ms"),read,0
+post_read_warmup,$(timeline_ms "$read_warmup_elapsed_ms"),fill,0
+post_read_warmup,$(timeline_ms "$read_warmup_elapsed_ms"),read,$post_read_warmup_ops
 post_read_completed,$(timeline_ms "$read_elapsed_ms"),fill,0
 post_read_completed,$(timeline_ms "$read_elapsed_ms"),read,$post_read_ops
 post_fill_completed,$(timeline_ms "$fill_elapsed_ms"),fill,$post_fill_ops
@@ -355,6 +412,7 @@ MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-$USER}" \
     --throughput "$OUT_DIR/throughput.csv" --out-dir "$OUT_DIR"
 
 echo "[AE] LevelDB DB::Open on machine 1: ${leveldb_open_ms:-unknown} ms"
+echo "[AE] P-log replay: ${plog_entries:-unknown} entries, ${plog_errors:-unknown} errors (${plog_ms:-unknown} ms)"
 echo "[AE] Fill throughput: pre=$pre_fill_ops ops/s post=$post_fill_ops ops/s"
-echo "[AE] Read throughput: pre=$pre_read_ops ops/s post=$post_read_ops ops/s"
+echo "[AE] Read throughput: pre=$pre_read_ops ops/s first-recovered=$post_read_warmup_ops ops/s peak=$post_read_ops ops/s"
 echo "[AE] Figure: $OUT_DIR/recovery-performance-single.png"

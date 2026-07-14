@@ -233,9 +233,10 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 
 	fr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
-	/* We only support concurrent READ, WRITE, BATCH_READ, and NOOP */
+	/* Read-only requests may run concurrently. */
 	if (fr->req != FS_REQ_READ && fr->req != FS_REQ_WRITE
-	    && fr->req != FS_REQ_BATCH_READ && fr->req != FS_REQ_NOOP) {
+	    && fr->req != FS_REQ_BATCH_READ
+	    && fr->req != FS_REQ_GET_FS_STATUS && fr->req != FS_REQ_NOOP) {
 		pthread_rwlock_wrlock(&fs_wrapper_meta_rwlock);
 	} else {
 		pthread_rwlock_rdlock(&fs_wrapper_meta_rwlock);
@@ -360,6 +361,10 @@ void fs_server_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 		break;
 	case FS_CHILD_FINISH_FORK:
 		ret = fs_finish_fork(ipc_msg, fr->fork.childBadge, fr->fork.parentBagde);
+		break;
+	case FS_REQ_GET_FS_STATUS:
+		ret = server_ops.get_status ? server_ops.get_status(&fr->status)
+					    : -ENOSYS;
 		break;
 	case FS_REQ_NOOP:
 		ret = 0;

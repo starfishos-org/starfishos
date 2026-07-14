@@ -54,6 +54,7 @@ ensure_backing_files() {
         echo "Initializing hostfs metadata and dataset contents."
         python3 ./dsm-scripts/prepare_hostfs.py
     fi
+    ./dsm-scripts/prepare_cxlfs_dev.sh
     python3 ./dsm-scripts/prepare_cxlmem.py
 }
 
@@ -65,6 +66,7 @@ case "$MODE" in
     recreate)
         echo "=== Recreating global AE backing files ==="
         ./dsm-scripts/config_memdev.sh new-all
+        ./dsm-scripts/prepare_cxlfs_dev.sh
         ;;
     *)
         echo "Usage: $0 [ensure|recreate]" >&2

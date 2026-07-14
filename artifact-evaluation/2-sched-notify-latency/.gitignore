@@ -1,3 +1,6 @@
 out/
 __pycache__/
 linux-results/
+logs/
+*.csv
+*.png

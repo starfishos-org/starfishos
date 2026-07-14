@@ -8,12 +8,48 @@
 #include <common/lock.h>
 #include <arch/sync.h>
 #include <common/mem_sync.h>
+#include <drivers/ivshmem.h>
 
 extern int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr, mem_t mm_type, mem_t object_mem_type);
 
+/*
+ * CXLFS BAR addresses belong to each VM's local PCI layout.  Keep the PMO
+ * descriptors kernel-local instead of publishing them through dsm_meta.
+ */
+static struct pmobject cxlfs_pmos[CLUSTER_MAX_MACHINE_NUM];
+static bool cxlfs_pmos_ready;
+
+static void cxlfs_shm_init(void)
+{
+    if (cxlfs_dev == NULL || cxlfs_dev->iosize <
+                                     CLUSTER_MAX_MACHINE_NUM * CXLFS_SHM_SIZE) {
+        kwarn("[SHM] CXLFS device is missing or too small\n");
+        return;
+    }
+
+    for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
+        paddr_t slice_start = cxlfs_dev->iopa + i * CXLFS_SHM_SIZE;
+        int ret = pmo_init(&cxlfs_pmos[i],
+                           PMO_DEVICE,
+                           CXLFS_SHM_SIZE,
+                           slice_start,
+                           __MT_SHARED__,
+                           __MT_SHARED__);
+        if (ret < 0) {
+            kwarn("[SHM] Failed to register CXLFS region for machine %d\n", i);
+            return;
+        }
+    }
+    cxlfs_pmos_ready = true;
+    kdebug("[SHM] Registered kernel-local CXLFS PMOs at BAR2 %llx\n",
+           cxlfs_dev->iopa);
+}
+
 void shm_init(void)
 {
+    cxlfs_shm_init();
+
     /* Only init on first machine */
     if (CUR_MACHINE_ID != 0) {
         return;
@@ -91,24 +127,45 @@ void shm_init(void)
             obj_free(new_pmo);
             continue;
         }
-        void *plog_data = (void *)phys_to_virt(new_pmo->start);
-        dsm_meta->shm_data[plog_id].data = plog_data;
+        /*
+         * A 4 MiB PMO_DATA uses the radix fallback and therefore has no
+         * contiguous pmo->start.  User space initializes/validates the p-log
+         * header after mapping; the kernel must not treat it as contiguous.
+         */
+        dsm_meta->shm_data[plog_id].data = NULL;
         dsm_meta->shm_data[plog_id].pmo = new_pmo;
-        memset(plog_data, 0, PLOG_SHM_SIZE);
         kdebug("[SHM] Initialized p-log region for machine %d (shm_id=%d)\n",
                i, plog_id);
     }
+
 }
 
 int sys_mmap_shm(u32 shm_id, void *addr)
 {
-    if (shm_id >= MAX_SHM_NUM) {
+    struct pmobject *pmo;
+    u64 size;
+
+    if (shm_id >= CXLFS_SHM_ID_BASE &&
+        shm_id < CXLFS_SHM_ID_BASE + CLUSTER_MAX_MACHINE_NUM) {
+        if (!cxlfs_pmos_ready) {
+            kwarn("CXLFS SHM is not initialized\n");
+            return -ENODEV;
+        }
+        size = CXLFS_SHM_SIZE;
+        pmo = &cxlfs_pmos[shm_id - CXLFS_SHM_ID_BASE];
+    } else if (shm_id >= MAX_SHM_NUM) {
         kwarn("Invalid shm id: %d\n", shm_id);
         return -EINVAL;
+    } else {
+        size = (shm_id >= PLOG_SHM_ID_BASE) ? PLOG_SHM_SIZE :
+                                              POLLING_SHM_SIZE;
+        pmo = dsm_meta->shm_data[shm_id].pmo;
     }
-    u64 size = (shm_id >= PLOG_SHM_ID_BASE) ? PLOG_SHM_SIZE : POLLING_SHM_SIZE;
+    if (pmo == NULL) {
+        kwarn("SHM region %d is not initialized\n", shm_id);
+        return -ENODEV;
+    }
     int ret = 0;
-    struct pmobject *pmo = dsm_meta->shm_data[shm_id].pmo;
     struct vmspace *vmspace =
             obj_get(current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
     if (vmspace == NULL) {

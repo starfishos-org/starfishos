@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <fs_vnode.h>
 #include "defs.h"
+#include "cxlfs.h"
 
 int path_init(struct path *path)
 {
@@ -145,8 +146,10 @@ struct inode *new_inode(void)
 
 	inode->refcnt = 0;
 	inode->nlinks = 0;
+	inode->disk_ino = 0;
 	inode->type = 0;
 	inode->size = 0;
+	inode->mode = 0;
 	inode->aarray.valid = false;
 
 	return inode;
@@ -286,7 +289,7 @@ int del_dent(struct dentry *dent)
 }
 
 int tfs_mknod(struct inode *dir, const char *name, size_t len, u64 file_type,
-	      const char *symlink, struct dentry **dent)
+	      mode_t mode, const char *symlink, struct dentry **dent)
 {
 	struct inode *inode;
 	int err;
@@ -313,6 +316,26 @@ int tfs_mknod(struct inode *dir, const char *name, size_t len, u64 file_type,
 	if (CHCORE_IS_ERR(inode))
 		return CHCORE_PTR_ERR(inode);
 
+	inode->mode = 0;
+	if (cxlfs_is_mounted() && !cxlfs_is_restoring()) {
+		u64 disk_ino = 0;
+		err = cxlfs_create_node(dir->disk_ino, name, len, file_type,
+					 mode, &disk_ino);
+		if (err)
+			return err;
+		inode->disk_ino = disk_ino;
+		inode->mode = mode;
+		/* new_symlink staged bytes before it had a disk inode. */
+		if (file_type == FS_SYM && symlink) {
+			size_t link_len = strlen(symlink);
+			if (cxlfs_write(disk_ino, 0, symlink, link_len) !=
+			    (ssize_t)link_len)
+				return -ENOSPC;
+			radix_free(&inode->data);
+			init_radix_w_deleter(&inode->data, free);
+		}
+	}
+
 	err = add_new_dent(dir, name, len, inode, dent);
 	/* It could be complex to reclaim dir with "." and "..". */
 	assert(!err);
@@ -333,7 +356,8 @@ int tfs_creat(struct inode *dir, const char *name, size_t len, mode_t mode,
 	// TODO:
 	// error("mode is not handled in creating files\n");
 	assert(len > 0);
-	return tfs_mknod(dir, name, len, FS_REG, /* symlink */ NULL, dent);
+	return tfs_mknod(dir, name, len, FS_REG, mode,
+			 /* symlink */ NULL, dent);
 }
 
 int tfs_mkdir(struct inode *dir, const char *name, size_t len, mode_t mode,
@@ -343,12 +367,45 @@ int tfs_mkdir(struct inode *dir, const char *name, size_t len, mode_t mode,
 	// error("mode is not handled in creating files\n");
 	debug("name=%s\n", name);
 	assert(len > 0);
-	return tfs_mknod(dir, name, len, FS_DIR, /* symlink */ NULL, dent);
+	return tfs_mknod(dir, name, len, FS_DIR, mode,
+			 /* symlink */ NULL, dent);
+}
+
+int tfs_attach_disk_node(struct inode *dir, const char *name, size_t len,
+			 u64 disk_ino, u64 type, mode_t mode, size_t size,
+			 struct inode **inode_out)
+{
+	struct inode *inode;
+	if (type == FS_DIR)
+		inode = new_dir(dir);
+	else
+		inode = new_reg();
+	if (CHCORE_IS_ERR(inode))
+		return CHCORE_PTR_ERR(inode);
+	if (type == FS_SYM)
+		inode->type = FS_SYM;
+	inode->disk_ino = disk_ino;
+	inode->mode = mode;
+	if (type != FS_DIR)
+		inode->size = size;
+	int ret = add_new_dent(dir, name, len, inode, NULL);
+	if (ret)
+		return ret;
+	if (inode_out)
+		*inode_out = inode;
+	put_inode(inode);
+	return 0;
 }
 
 int tfs_truncate(struct inode *inode, size_t size)
 {
 	assert(inode->type == FS_REG);
+	if (inode->disk_ino) {
+		int ret = cxlfs_truncate(inode->disk_ino, size);
+		if (!ret)
+			inode->size = size;
+		return ret;
+	}
 
 	u64 page_no, page_off;
 	void *page;
@@ -395,6 +452,12 @@ int tfs_truncate(struct inode *inode, size_t size)
 int tfs_allocate(struct inode *inode, off_t offset, off_t len, int keep_size)
 {
 	assert(inode->type == FS_DIR || inode->type == FS_REG);
+	if (inode->disk_ino) {
+		int ret = cxlfs_allocate(inode->disk_ino, offset, len, keep_size);
+		if (!ret && !keep_size && (size_t)(offset + len) > inode->size)
+			inode->size = offset + len;
+		return ret;
+	}
 
 	u64 page_no;
 	u64 cur_off = offset;
@@ -483,6 +546,19 @@ ssize_t tfs_file_write(struct inode *inode, off_t offset, const char *data,
 		       size_t size)
 {
 	BUG_ON(inode->type == FS_DIR);
+	if (inode->disk_ino) {
+		ssize_t ret = cxlfs_write(inode->disk_ino, offset, data, size);
+		if (ret > 0) {
+			u64 first = offset / PAGE_SIZE;
+			u64 last = (offset + ret - 1) / PAGE_SIZE;
+			for (u64 page_no = first; page_no <= last; ++page_no)
+				if (radix_get(&inode->data, page_no))
+					radix_del(&inode->data, page_no, 1);
+			if ((size_t)(offset + ret) > inode->size)
+				inode->size = offset + ret;
+		}
+		return ret;
+	}
 
 	u64 page_no, page_off;
 	u64 cur_off = offset;
@@ -540,6 +616,8 @@ ssize_t tfs_file_read(struct inode *inode, off_t offset, char *buff,
 		      size_t size)
 {
 	BUG_ON(inode->type == FS_DIR);
+	if (inode->disk_ino)
+		return cxlfs_read(inode->disk_ino, offset, buff, size);
 
 	u64 page_no, page_off;
 	u64 cur_off = offset;

@@ -35,7 +35,7 @@ int readelf_from_kernel_cpio(const char *filename, struct user_elf *user_elf)
 }
 
 const char *fsm_srv = "/fsm.srv";
-const char *tmpfs_srv = "/tmpfs.srv";
+const char *tmpfs_srv = "/cxlfs.srv";
 
 #include <chcore/uapi/thread.h>
 

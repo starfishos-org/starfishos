@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
@@ -66,6 +67,7 @@ enum fs_req_type {
 	FS_REQ_BATCH_READ, /* Batch multiple reads in one IPC */
 
 	FS_CHILD_FINISH_FORK,
+	FS_REQ_GET_FS_STATUS,
 	FS_REQ_NOOP,
 
 #ifdef IPC_PERF_ENABLED
@@ -74,6 +76,25 @@ enum fs_req_type {
 
 	FS_REQ_MAX,
 
+};
+
+#define FS_SERVER_STATUS_MAGIC 0x46535354U /* "FSST" */
+
+enum fs_backend_type {
+	FS_BACKEND_UNKNOWN = 0,
+	FS_BACKEND_CXLFS = 1,
+};
+
+struct fs_server_status {
+	uint32_t magic;
+	uint32_t backend;
+	uint32_t mounted;
+	uint32_t data_valid;
+	int32_t owner_machine;
+	uint32_t fresh;
+	uint64_t generation;
+	uint64_t root_ino;
+	uint64_t data_checksum;
 };
 
 /* Client send fsm_req to FSM */
@@ -221,6 +242,7 @@ struct fs_request {
 			unsigned long parentBagde; // for finish_fork
 			unsigned long childBadge;
 		} fork;
+		struct fs_server_status status;
         };
 };
 

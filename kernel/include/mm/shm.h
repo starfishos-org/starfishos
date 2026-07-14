@@ -18,6 +18,11 @@
 #define PLOG_SHM_SIZE     (PAGE_SIZE * 1024UL) /* 4MB per p-log */
 #define PLOG_SHM_ID_BASE  CLUSTER_MAX_MACHINE_NUM
 #define PLOG_SHM_ID(mid)  (PLOG_SHM_ID_BASE + (mid))
+
+/* Dedicated persistent CXLFS device: one fixed 1 GiB slice per machine. */
+#define CXLFS_SHM_SIZE     (1UL << 30)
+#define CXLFS_SHM_ID_BASE  (2 * CLUSTER_MAX_MACHINE_NUM)
+#define CXLFS_SHM_ID(mid)  (CXLFS_SHM_ID_BASE + (mid))
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)
 #define POLLING_FS_READ_BUF_SIZE  (PAGE_SIZE)
 #define FS_REQ_PATH_BUF_LEN 256

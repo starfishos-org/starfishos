@@ -70,11 +70,14 @@ int del_dent(struct dentry *dent);
 
 
 int tfs_mknod(struct inode *dir, const char *name, size_t len, u64 file_type,
-	      const char *symlink, struct dentry **dent);
+	      mode_t mode, const char *symlink, struct dentry **dent);
 int tfs_creat(struct inode *dir, const char *name, size_t len, mode_t mode,
 	      struct dentry **dent);
 int tfs_mkdir(struct inode *dir, const char *name, size_t len, mode_t mode,
 	      struct dentry **dent);
+int tfs_attach_disk_node(struct inode *dir, const char *name, size_t len,
+			 u64 disk_ino, u64 type, mode_t mode, size_t size,
+			 struct inode **inode_out);
 
 int tfs_truncate(struct inode *inode, size_t size);
 int tfs_allocate(struct inode *inode, off_t offset, off_t len, int keep_size);
@@ -233,5 +236,3 @@ static inline int put_dent(struct dentry *d)
 		return del_dent(d);
 	return 0;
 }
-
-
