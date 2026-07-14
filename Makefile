@@ -50,6 +50,7 @@ r2-perf: perf-config r2
 r4-perf: perf-config r4
 
 prepare:
+	./scripts/download_datasets.sh
 	./dsm-scripts/config_memdev.sh cxl-new
 	python3 ./dsm-scripts/prepare_hostfs.py
 	./dsm-scripts/prepare_cxlfs_dev.sh
