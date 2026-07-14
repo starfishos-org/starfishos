@@ -4,7 +4,7 @@ Starfish makes a CXL pod look like one machine to an existing shared-memory appl
 
 ![From single-machine kernels and message-passing SSI designs to CXL shared-memory SSI](assets/architecture-comparison.png)
 
-*Figure 1. The motivation for Starfish: CXL makes coherent shared-memory coordination available across machines. The complete Starfish architecture diagram is available as [PDF](assets/starfish-architecture.pdf).* 
+*Figure 1. The motivation for Starfish: CXL makes coherent shared-memory coordination available across machines. The complete Starfish architecture diagram is available as ![Architecture Diagram](assets/starfishos-arch.png).* 
 
 ## Execution model
 

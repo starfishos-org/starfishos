@@ -31,7 +31,7 @@ Allocation distinguishes private DRAM from shared CXL. CXL can use a lock-free b
 
 `DSM_CXL_LF_BUDDY` and `SLAB_CRASH_RECOVERY` select the main allocator variants. `artifact-evaluation/3-memory-allocator/` builds the needed configurations.
 
-The corresponding paper diagram is included as [cxl-memory-allocator.pdf](assets/cxl-memory-allocator.pdf); it is useful when following the buddy/slab split in the source tree.
+![CXL Memory Allocator](assets/cxl-memory-allocator.png)
 
 ## Partial-failure handling
 

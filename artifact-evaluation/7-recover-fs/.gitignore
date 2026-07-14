@@ -1,1 +1,7 @@
+__pycache__/
+logs/
+*.csv
+*.png
+*.pdf
+*.eps
 out/
