@@ -43,6 +43,10 @@ struct slab_header {
 
     int order;
     unsigned short owner_cpu;
+    /* Machine whose per-CPU pool owns this slab (CXL slabs only; the
+     * pool lists and locks are machine-local, so only the owner may
+     * mutate this slab — other machines defer frees to the owner). */
+    unsigned short owner_machine;
     unsigned short total_free_cnt; /* MAX: 65536 */
     unsigned short current_free_cnt;
 };

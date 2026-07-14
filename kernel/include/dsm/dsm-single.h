@@ -177,6 +177,20 @@ typedef struct {
 #endif
 
     /**
+     * 4c. Per-machine deferred remote-free stacks for the CXL slab.
+     * The per-CPU CXL slab pools/locks are machine-local (DRAM), so a
+     * machine must never mutate another machine's slab lists. A machine
+     * freeing an object whose slab is owned by another machine pushes it
+     * onto the owner's stack here (lock-free Treiber stack; the link is
+     * stored in the freed slot itself). The owner drains its stack on
+     * its own alloc/free path. Each head sits on its own cache line.
+     */
+    struct {
+        void *volatile head;
+        char pad[56];
+    } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM];
+
+    /**
      * 5. shared queue for scheduler (using durable_queue structure)
      */
     struct durable_queue shared_queue[CLUSTER_MAX_CPU_NUM];

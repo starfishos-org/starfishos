@@ -100,7 +100,14 @@ llfree_result_t llfree_init(llfree_t *self, size_t frames, uint8_t init, llfree_
 	trees_init(&self->trees, frames, meta.trees, init_fn, &self->lower, tiering->default_tier);
 
 	self->local = (local_t *)meta.local;
-	ll_local_init(self->local, tiering);
+	/*
+	 * LLFREE_INIT_NONE attaches to an llfree instance another machine is
+	 * actively using (shared CXL memory). The per-core local slots there
+	 * hold live tree reservations — re-initializing them would wipe those
+	 * reservations and desync the tree accounting.
+	 */
+	if (init != LLFREE_INIT_NONE)
+		ll_local_init(self->local, tiering);
 
 	self->policy = tiering->policy;
 	self->num_tiers = (uint8_t)tiering->num_tiers;

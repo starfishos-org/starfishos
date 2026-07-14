@@ -15,9 +15,33 @@
 #include <mm/kmalloc.h>
 #include <mm/llfree/llfree.h>
 #include <mm/mm.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 extern struct phys_mem_pool *global_cxl_mem[];
 extern int cxlmem_map_num;
+
+/*
+ * The llfree instance lives in shared CXL memory and is used by every
+ * machine in the cluster concurrently. Its per-core local slots assume a
+ * single owner per slot, so each machine must use its own slot range:
+ * size the slot array for the whole cluster and index it with a
+ * cluster-global core id (machine_id * PLAT_CPU_NUM + local cpu).
+ */
+#ifdef DSM_ENABLED
+#define LF_TOTAL_CORES ((size_t)CLUSTER_MAX_MACHINE_NUM * PLAT_CPU_NUM)
+static inline size_t lf_global_core(void)
+{
+	return (size_t)CUR_MACHINE_ID * PLAT_CPU_NUM + smp_get_cpu_id();
+}
+#else
+#define LF_TOTAL_CORES ((size_t)PLAT_CPU_NUM)
+static inline size_t lf_global_core(void)
+{
+	return (size_t)smp_get_cpu_id();
+}
+#endif
 
 #if defined(CHCORE_SLS) && defined(HYBRID_MEM)
 extern void destory_track_info(struct page *page);
@@ -208,7 +232,7 @@ static void init_buddy_lf_common(int cxl_pool_idx, struct phys_mem_pool *pool,
 	llfree_tiering_t tiering;
 	llfree_meta_t meta;
 	llfree_result_t res;
-	size_t locals = (size_t)PLAT_CPU_NUM;
+	size_t locals = LF_TOTAL_CORES;
 	int i;
 
 	BUG_ON(type != CXL_MEM_PAGE);
@@ -292,8 +316,7 @@ static struct page *lf_get_one_page(struct buddy_lf_ctx *ctx,
 	unsigned long page_idx;
 	struct page *page;
 
-	req = llfree_simple_request(ctx->locals, 0,
-				    (size_t)smp_get_cpu_id());
+	req = llfree_simple_request(ctx->locals, 0, lf_global_core());
 	res = llfree_get(ctx->llfree, ll_none(), req);
 	if (!llfree_is_ok(res))
 		return NULL;
@@ -349,8 +372,7 @@ static void pcp_drain(struct pcp_cache *pcp, struct buddy_lf_ctx *ctx,
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 		page->page_pair = 0;
 #endif
-		req = llfree_simple_request(ctx->locals, 0,
-					    (size_t)smp_get_cpu_id());
+		req = llfree_simple_request(ctx->locals, 0, lf_global_core());
 		res = llfree_put(ctx->llfree, idx, req);
 		BUG_ON(!llfree_is_ok(res));
 	}
@@ -397,7 +419,7 @@ struct page *buddy_lf_get_pages(struct phys_mem_pool *pool, int order)
 	}
 
 	req = llfree_simple_request(ctx->locals, (uint8_t)order,
-				   (size_t)smp_get_cpu_id());
+				   lf_global_core());
 	res = llfree_get(ctx->llfree, ll_none(), req);
 	if (!llfree_is_ok(res))
 		return NULL;
@@ -494,7 +516,7 @@ void buddy_lf_free_pages(struct phys_mem_pool *pool, struct page *page)
 #endif
 
 	req = llfree_simple_request(ctx->locals, (uint8_t)ord,
-				   (size_t)smp_get_cpu_id());
+				   lf_global_core());
 	res = llfree_put(ctx->llfree, idx, req);
 	BUG_ON(!llfree_is_ok(res));
 

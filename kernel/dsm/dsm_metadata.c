@@ -23,6 +23,11 @@ void dsm_add_machine()
         BUG("[DSM] machine id exceed\n");
     }
 
+    /* Guard all dsm_meta->local_meta[CUR_MACHINE_ID] accesses below. */
+    if (CUR_MACHINE_ID >= CLUSTER_MAX_MACHINE_NUM) {
+        BUG("[DSM] machine id exceed max allowed num\n");
+    }
+
     int init = CUR_MACHINE_ID == dsm_meta->cluster_machine_num;
 
     if (init) {

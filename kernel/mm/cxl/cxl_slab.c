@@ -2,6 +2,7 @@
 #include <common/types.h>
 #include <common/kprint.h>
 #include <common/lock.h>
+#include <arch/sync.h>
 #include <mm/kmalloc.h>
 #include <mm/slab.h>
 #include <mm/buddy.h>
@@ -45,6 +46,10 @@ struct slab_pointer cxl_slab_pool[PLAT_CPU_NUM][SLAB_PADDED_STRIDE];
 static struct lock cxl_slabs_locks[PLAT_CPU_NUM][SLAB_PADDED_STRIDE];
 
 #endif /* SLAB_CRASH_RECOVERY */
+
+#ifdef DSM_ENABLED
+static void cxl_slab_drain_remote_free(void);
+#endif
 
 #if CHECK_FREE_COUNT_IN_SLAB == ON
 static bool check_slot_free_count(struct slab_header *slab)
@@ -119,6 +124,11 @@ static struct slab_header *init_slab_cache(int order, int size, u32 owner_cpu)
     slab->free_list_head = (void *)slot;
     slab->order = order;
     slab->owner_cpu = owner_cpu;
+#ifdef DSM_ENABLED
+    slab->owner_machine = (unsigned short)CUR_MACHINE_ID;
+#else
+    slab->owner_machine = 0;
+#endif
     slab->total_free_cnt = cnt;
     slab->current_free_cnt = cnt;
 
@@ -280,6 +290,14 @@ void init_cxl_slab(void)
         cxl_cpu_logs[cpu_id].op = SLAB_OP_NONE;
 #endif
     }
+#ifdef DSM_ENABLED
+    /*
+     * Clear only our own remote-free stack: objects owned by this machine
+     * cannot exist before it boots, and other machines' stacks may hold
+     * live entries.
+     */
+    dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head = NULL;
+#endif
     kdebug("mm: finish initing slab allocators\n");
 }
 
@@ -289,6 +307,11 @@ void *alloc_in_cxl_slab(unsigned long size)
 
     BUG_ON(size > order_to_size(SLAB_MAX_ORDER));
 
+#ifdef DSM_ENABLED
+    /* Reclaim objects other machines freed into our slabs. */
+    cxl_slab_drain_remote_free();
+#endif
+
     order = (int)size_to_order(size);
     if (order < SLAB_MIN_ORDER)
         order = SLAB_MIN_ORDER;
@@ -296,7 +319,7 @@ void *alloc_in_cxl_slab(unsigned long size)
     return alloc_in_cxl_slab_impl(order);
 }
 
-void free_in_cxl_slab(void *addr)
+static void free_in_cxl_slab_local(void *addr)
 {
     struct page *page;
     struct slab_header *slab;
@@ -344,6 +367,66 @@ void free_in_cxl_slab(void *addr)
 #endif
 
     unlock(&cxl_slabs_locks[owner_cpu][order]);
+}
+
+#ifdef DSM_ENABLED
+/*
+ * Cross-machine frees: the per-CPU pools/locks above are machine-local,
+ * so a machine must never touch another machine's slab lists. Instead it
+ * pushes the object onto the owner machine's lock-free Treiber stack in
+ * dsm_meta (the link is stored in the freed slot itself); the owner
+ * drains the stack on its own alloc/free path, keeping every slab-list
+ * mutation under the owner's local locks.
+ */
+static void cxl_slab_remote_push(u32 owner_machine, void *addr)
+{
+    struct slab_slot_list *slot = (struct slab_slot_list *)addr;
+    void *volatile *headp = &dsm_meta->cxl_slab_remote_free[owner_machine].head;
+    void *old;
+
+    do {
+        old = *headp;
+        slot->next_free = old;
+    } while (compare_and_swap_64((s64 *)headp, (s64)old, (s64)slot)
+             != (s64)old);
+}
+
+static void cxl_slab_drain_remote_free(void)
+{
+    struct slab_slot_list *slot, *next;
+
+    if (dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head == NULL)
+        return;
+
+    slot = (struct slab_slot_list *)atomic_exchange_64(
+            (void *)&dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head, 0);
+    while (slot != NULL) {
+        next = (struct slab_slot_list *)slot->next_free;
+        free_in_cxl_slab_local(slot);
+        slot = next;
+    }
+}
+#endif /* DSM_ENABLED */
+
+void free_in_cxl_slab(void *addr)
+{
+#ifdef DSM_ENABLED
+    struct page *page;
+    struct slab_header *slab;
+
+    page = virt_to_page(addr);
+    BUG_ON(page == NULL);
+    slab = page->slab;
+
+    if ((int)slab->owner_machine != CUR_MACHINE_ID) {
+        BUG_ON(slab->owner_machine >= CLUSTER_MAX_MACHINE_NUM);
+        cxl_slab_remote_push(slab->owner_machine, addr);
+        return;
+    }
+
+    cxl_slab_drain_remote_free();
+#endif
+    free_in_cxl_slab_local(addr);
 }
 
 /* This interface is not marked as static because it is needed in the unit test.
