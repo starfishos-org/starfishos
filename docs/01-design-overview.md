@@ -43,7 +43,7 @@ The target model has private DRAM at every x86 machine and one coherent CXL memo
 - `/dev/shm/numa*-$USER`: optional device-backed local DRAM;
 - `/tmp/ivshmem-doorbell-$USER`: remote-interrupt socket.
 
-The default is one 12-vCPU guest and a 32 GiB CXL backing file. `MACHINE_NUM`, `CPU_NUM`, `CXL_SIZE`, and `USE_DEV_AS_DRAM` are launch-time overrides. `dsm-scripts/config_memdev.sh` creates/resets backing files; `artifact-evaluation/prepare.sh` performs complete evaluation setup.
+The default is one 12-vCPU guest and a 64 GiB CXL backing file. `MACHINE_NUM`, `CPU_NUM`, `CXL_SIZE`, and `USE_DEV_AS_DRAM` are launch-time overrides. `dsm-scripts/config_memdev.sh` creates/resets backing files; `artifact-evaluation/prepare.sh` performs complete evaluation setup.
 
 ## Boot and failure model
 

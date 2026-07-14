@@ -22,9 +22,8 @@ Applications obtain service capabilities through the process manager and use ord
 
 For tmpfs recovery:
 
-- [tmpfs/plog.c](../user/system-servers/tmpfs/plog.c): persistent-log append, checkpoint, replay;
-- [tmpfs/tmpfs.c](../user/system-servers/tmpfs/tmpfs.c): initialization, restart, `recover_tmpfs`;
-- [tmpfs/cxlfs.c](../user/system-servers/tmpfs/cxlfs.c): CXL-backed metadata/tree restoration;
+- [tmpfs/plog.c](../user/system-servers/tmpfs/plog.c): persistent-log append, checkpoint, remote map, and replay;
+- [tmpfs/tmpfs.c](../user/system-servers/tmpfs/tmpfs.c): initialization and `recover_tmpfs` (attach CXL checkpoint, replay log tail, re-register as IPC server);
 - [tmpfs/tmpfs_ops.c](../user/system-servers/tmpfs/tmpfs_ops.c): namespace operations and log integration.
 
 The end-to-end recovery test kills machine 0, runs `tmpfs.srv --recover 0` on machine 1, then reopens LevelDB. Run `./artifact-evaluation/7-recover-fs/run.sh` after preparation. This repairs the service; LevelDB's durable recovery remains application-owned.

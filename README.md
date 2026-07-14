@@ -30,6 +30,8 @@ On Ubuntu/Debian, install qemu-6.2 and required host-side tools with:
 bash artifact-evaluation/install-host-deps.sh
 ```
 
+The script enables Docker and adds the invoking user to the `docker` group; log out and back in before using Docker without `sudo`. It downloads the official QEMU 6.2.0 source package, builds the x86_64/KVM target and ivshmem server, then installs `/usr/local/bin/qemu-6.2-system-x86_64` and `/usr/local/qemu-6.2/bin/ivshmem-server`.
+
 ### Docker image
 
 We provide a Docker image for building the artifact. To pull the image, run:
@@ -55,7 +57,7 @@ make build          # build the artifact
 make r4             # boot a cluster of 4 QEMU/KVM machines
 ```
 
-The launcher defaults to 12 vCPUs per guest and a 32 GiB CXL backing file. Set `machine_num`, `cpu_num`, `dram_size`, and `cxl_size` in the repository-root [`chcore.ini`](chcore.ini) to change the persistent cluster configuration. Environment variables such as `MACHINE_NUM`, `CPU_NUM`, and `CXL_SIZE` override those values for a single launch. Per-NUMA backing-file sizes remain configured in [`dsm-scripts/numa_sizes.conf`](dsm-scripts/numa_sizes.conf).
+The launcher defaults to 12 vCPUs per guest and a 64 GiB CXL backing file. Set `machine_num`, `cpu_num`, `dram_size`, and `cxl_size` in the repository-root [`chcore.ini`](chcore.ini) to change the persistent cluster configuration. Environment variables such as `MACHINE_NUM`, `CPU_NUM`, and `CXL_SIZE` override those values for a single launch. Per-NUMA backing-file sizes remain configured in [`dsm-scripts/numa_sizes.conf`](dsm-scripts/numa_sizes.conf).
 
 
 ## Artifact evaluation

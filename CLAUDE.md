@@ -90,7 +90,7 @@ Capability-based microkernel. Key subsystems:
 
 - **`kernel/dsm/`** — DSM implementation. `dsm_metadata.c` manages the shared `dsm_meta` structure (placed at start of CXL shared memory). `dsm_migrate.c` handles process migration between machines. `dsm_tiering.c` implements memory tiering (promote/demote between DRAM and CXL). `dsm_objects/` has per-object-type DSM wrappers (`cap_group.c`, `thread.c`, `vmspace.c`, `pmobject.c`, `connection.c`, `notification.c`, `irq.c`, `page.c`).
 - **`kernel/mm/`** — Memory management: buddy allocator (`buddy.c`), slab (`slab.c`), `kmalloc.c`, vmregion (`vmregion.c`), page fault handler (`pgfault_handler.c`), shared memory (`shm.c`). DRAM-specific allocators in `dram_alloc.c` / `dram_slab.c`; CXL allocators in `mm/cxl/` (`cxl_alloc.c`, `cxl_slab.c`); reverse mapping for SLS in `mm/sls/rmap.c`. Page faults on CXL-backed pages trigger DSM migration (case 2.x logic).
-- **`kernel/ipc/`** — IPC connections (`connection.c`), futex (`futex.c`), notifications (`notification.c`). Cross-machine IPC is an active work area (see `docs/TODO.md`, `docs/ipc.md`, `docs/fs-ipc.md`).
+- **`kernel/ipc/`** — IPC connections (`connection.c`), futex (`futex.c`), notifications (`notification.c`). Cross-machine IPC remains an active work area; see `docs/02-kernel-space-modules.md` and `docs/03-collaborative-system-services.md`.
 - **`kernel/sched/`** — Scheduler with shared queue (`dsm_meta->shared_queue`) for cross-machine work stealing.
 - **`kernel/object/`** — Kernel objects: cap_group (process), thread, memory (PMO), connection, notification, etc.
 - **`kernel/arch/x86_64/`** — x86_64 port; `mm/page_table.c` handles multi-level page table management including CXL-aware fill.
@@ -132,8 +132,8 @@ The `dsm_meta` struct sits at the start of CXL SHM and is accessible from all ma
 | DSM 环境配置脚本 | `dsm-scripts/setup/` | `config_memdev.sh`, `start_ivshmem_server.sh` |
 | Benchmark expect 脚本 | `dsm-scripts/tests/` | `leveldb.exp`, `phoenix/pca.exp` |
 | 构建/格式化等通用辅助脚本 | `scripts/` | `quick-build.sh`, `codecal.sh` |
-| 项目文档、分析笔记 | `docs/` | `DEADLOCK_ANALYSIS.md`, `TODO.md` |
-| Artifact evaluation 相关 | `ae/` | `artificial_eval.md` |
+| 项目文档、设计指南 | `docs/` | `01-design-overview.md`, `05-implementation-map.md` |
+| Artifact evaluation 相关 | `artifact-evaluation/` | `README.md`, `run_all.py` |
 | 运行时/测试 log（`exec_log*.log`、benchmark 输出等） | `log/<测试名>/`（已 gitignore），按 benchmark 归类 | `log/dbx1000/`、`log/gemini/`、`log/matrix/`、`log/sweep_logs/<config>/exec_log0.log` |
 
 **根目录只保留**：`Makefile`、`CMakeLists.txt`、`chbuild`、`config.cmake`、`Dockerfile`、`LICENSE`、`README.md`、`CLAUDE.md`、`AGENTS.md` 等顶层配置/入口文件。

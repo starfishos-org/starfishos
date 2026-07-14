@@ -10,7 +10,7 @@ This guide follows the paper's order. Each chapter explains the mechanism first 
 | Cross-machine applications | [04 — Applications](04-cross-machine-applications.md) | `kernel/dsm/`, `user/demos/` |
 | Implementation cross-reference | [05 — Implementation map](05-implementation-map.md) | whole tree |
 
-Read the [repository README](../README.md) for build, Docker, and artifact quick-start instructions. Earlier documents were preserved in `deleted/legacy-docs/`; they are historical notes rather than the current architecture guide.
+Read the [repository README](../README.md) for build, Docker, and artifact quick-start instructions. Older TreeSLS / CXL investigation notes were removed when this guide was introduced; use the chapters below as the current architecture reference.
 
 ## Terms
 
