@@ -89,7 +89,9 @@ class Experiment:
 EXPERIMENTS: Dict[str, Experiment] = {
     "basic": Experiment(
         "basic", "0-basic", "ready", 3600,
-        "setup table (MLC/MSI)", "CSV/logs (no paper figure)", is_paper=False,
+        "setup Table 1 (MLC) + MSI transport",
+        "msi_*.csv; mlc_*.log (host Linux MLC)",
+        is_paper=False,
     ),
     "ipc-cdf": Experiment(
         "ipc-cdf", "1-ipc-cdf", "ready", 10800,
@@ -97,7 +99,9 @@ EXPERIMENTS: Dict[str, Experiment] = {
     ),
     "sched-notify": Experiment(
         "sched-notify", "2-sched-notify-latency", "ready", 3600,
-        "(extra) sched/notify", "sched_notify_latency.png", is_paper=False,
+        "(extra) sched/notify + Linux host baseline",
+        "sched_notify_latency.png; linux-results/",
+        is_paper=False,
     ),
     "memory-allocator": Experiment(
         "memory-allocator", "3-memory-allocator", "ready", 28800,
@@ -113,22 +117,22 @@ EXPERIMENTS: Dict[str, Experiment] = {
         is_paper=False,
     ),
     "auto-scale": Experiment(
-        "auto-scale", "6-auto-scale", "stub", 28800,
+        "auto-scale", "6-auto-scale", "ready", 28800,
         "auto-scale-matrix / db1000 / gemini",
-        "TODO: auto-scale-matrix.eps, db1000.eps, gemini-chcore.eps",
+        "auto-scale-matrix.{eps,pdf,png}, db1000.*, gemini-chcore.*",
     ),
     "recover-fs": Experiment(
         "recover-fs", "7-recover-fs", "ready", 10800,
         "recovery-performance-single", "recovery-performance.{png,pdf}",
     ),
     "process-migration": Experiment(
-        "process-migration", "8-process-migration", "stub", 14400,
+        "process-migration", "8-process-migration", "ready", 14400,
         "process-migration",
-        "TODO: process-migration-data-large/small.eps",
+        "process-migration-data-large/small.{eps,pdf,png}",
     ),
     "resource-util": Experiment(
-        "resource-util", "9-resource-util", "stub", 21600,
-        "real.eps", "TODO: real.eps",
+        "resource-util", "9-resource-util", "ready", 21600,
+        "real.eps", "real.{eps,pdf,png}",
     ),
 }
 
@@ -337,7 +341,23 @@ def gather_figures(name: str, dest_root: Path, outdirs: Dict[str, Path]) -> None
         for fname in FIXED_DIR_FIGURES[name]:
             copy_file(ae_dir / fname)
         outdirs[name] = ae_dir
-    elif name in ("state-partition", "dbx1000-cross-warehouse"):
+        if name == "sched-notify":
+            linux_png = ae_dir / "linux-results" / "sched_notify_latency.png"
+            if linux_png.is_file():
+                shutil.copy2(linux_png, dest / "linux_sched_notify_latency.png")
+                copied += 1
+            for fname in ("samples.csv", "summary.csv"):
+                linux_csv = ae_dir / "linux-results" / fname
+                if linux_csv.is_file():
+                    shutil.copy2(linux_csv, dest / f"linux_{fname}")
+                    copied += 1
+    elif name in (
+        "state-partition",
+        "dbx1000-cross-warehouse",
+        "auto-scale",
+        "process-migration",
+        "resource-util",
+    ):
         latest = latest_out_dir(ae_dir)
         if latest is not None:
             outdirs[name] = latest
@@ -499,7 +519,15 @@ def run_one(
         if name == "basic":
             log(
                 f"[dry-run] would run: {AE_ROOT / exp.directory / 'run_msi.sh'} ; "
-                f"{AE_ROOT / exp.directory / 'run_mlc.sh'} (MLC optional)"
+                f"{AE_ROOT / exp.directory / 'run_mlc.sh'} "
+                f"(host Linux MLC / Table 1; ALLOW_MLC_SKIP="
+                f"{os.environ.get('ALLOW_MLC_SKIP', '1')})"
+            )
+        elif name == "sched-notify":
+            log(
+                f"[dry-run] would run: {script} ; "
+                f"{AE_ROOT / exp.directory / 'run_linux.sh'} "
+                f"(host Linux sched/notify baseline)  (timeout {budget}s)"
             )
         else:
             log(f"[dry-run] would run: {script}  (timeout {budget}s)")
@@ -507,6 +535,7 @@ def run_one(
 
     kill_ae_sessions()
     exp_log = log_dir / f"{name}.log"
+    notes: List[str] = []
 
     if name == "basic":
         rc = run_cmd(
@@ -514,17 +543,74 @@ def run_one(
             cwd=REPO_ROOT,
             log_path=exp_log,
         )
-        if rc == 0:
-            mlc = AE_ROOT / exp.directory / "run_mlc.sh"
+        mlc = AE_ROOT / exp.directory / "run_mlc.sh"
+        if not mlc.is_file():
+            notes.append("MLC-MISSING-SCRIPT")
+            log(f"[run-all] WARNING: missing {mlc}")
+        else:
+            allow_skip = os.environ.get("ALLOW_MLC_SKIP", "1")
+            log(
+                f"[run-all] host Linux MLC (Table 1): {mlc} "
+                f"(ALLOW_MLC_SKIP={allow_skip})"
+            )
             with exp_log.open("a", encoding="utf-8") as handle:
-                subprocess.run(
+                mlc_rc = subprocess.run(
                     [str(mlc)],
                     cwd=str(REPO_ROOT),
                     stdout=handle,
                     stderr=subprocess.STDOUT,
-                    env={**os.environ, "ALLOW_MLC_SKIP": "1"},
+                    env={**os.environ, "ALLOW_MLC_SKIP": allow_skip},
                     check=False,
+                ).returncode
+            ae_dir = AE_ROOT / exp.directory
+            mlc_logs = [
+                ae_dir / "mlc_bandwidth_matrix.log",
+                ae_dir / "mlc_peak_bandwidth.log",
+            ]
+            if mlc_rc != 0:
+                notes.append(f"MLC-FAILED(rc={mlc_rc})")
+                log(f"[run-all] MLC failed with rc={mlc_rc}")
+                if rc == 0:
+                    rc = mlc_rc
+            elif any(p.is_file() and p.stat().st_size > 0 for p in mlc_logs):
+                notes.append("MLC-OK")
+                log("[run-all] MLC completed; logs under 0-basic/")
+            else:
+                notes.append("MLC-SKIPPED")
+                log(
+                    "[run-all] MLC skipped (no mlc on PATH; "
+                    "set MLC_BIN=/path/to/mlc or ALLOW_MLC_SKIP=0 to fail)"
                 )
+    elif name == "sched-notify":
+        rc = run_cmd(
+            ["timeout", "--kill-after=60", str(budget), str(script)],
+            cwd=REPO_ROOT,
+            log_path=exp_log,
+        )
+        linux = AE_ROOT / exp.directory / "run_linux.sh"
+        if not linux.is_file():
+            notes.append("LINUX-MISSING-SCRIPT")
+            log(f"[run-all] WARNING: missing {linux}")
+        else:
+            # Host Linux baseline does not need QEMU; share the remaining
+            # budget (or a 10-minute floor) so one-click always covers it.
+            linux_budget = max(600, budget // 4)
+            log(
+                f"[run-all] host Linux sched/notify baseline: {linux} "
+                f"(timeout {linux_budget}s)"
+            )
+            linux_rc = run_cmd(
+                ["timeout", "--kill-after=60", str(linux_budget), str(linux)],
+                cwd=REPO_ROOT,
+                log_path=exp_log,
+            )
+            if linux_rc == 0:
+                notes.append("LINUX-OK")
+            else:
+                notes.append(f"LINUX-FAILED(rc={linux_rc})")
+                log(f"[run-all] Linux sched/notify baseline failed rc={linux_rc}")
+                if rc == 0:
+                    rc = linux_rc
     else:
         rc = run_cmd(
             ["timeout", "--kill-after=60", str(budget), str(script)],
@@ -532,20 +618,21 @@ def run_one(
             log_path=exp_log,
         )
 
+    suffix = f"[{','.join(notes)}]" if notes else ""
     if rc == 0:
-        status[name] = "OK"
+        status[name] = f"OK{suffix}"
         if do_gather:
             gather_figures(name, fig_dir, outdirs)
     elif rc in (124, 137):
-        status[name] = f"TIMEOUT({budget}s)"
+        status[name] = f"TIMEOUT({budget}s){suffix}"
         log(f"[run-all][TIMEOUT] {name} exceeded {budget}s")
         kill_ae_sessions()
     elif rc == 2:
-        status[name] = "FAILED(step-timeouts)"
+        status[name] = f"FAILED(step-timeouts){suffix}"
         if do_gather:
             gather_figures(name, fig_dir, outdirs)
     else:
-        status[name] = f"FAILED(rc={rc})"
+        status[name] = f"FAILED(rc={rc}){suffix}"
         log(f"[run-all] {name} FAILED; last 20 log lines:")
         try:
             lines = exp_log.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -778,10 +865,27 @@ def main(argv: Optional[List[str]] = None) -> int:
                 write_todo_placeholder(name, fig_dir)
             elif args.do_run:
                 status[name] = "DRY_RUN"
-                log(
-                    f"[dry-run] would run: "
-                    f"{AE_ROOT / EXPERIMENTS[name].directory / 'run.sh'}"
-                )
+                exp = EXPERIMENTS[name]
+                if name == "basic":
+                    log(
+                        f"[dry-run] would run: "
+                        f"{AE_ROOT / exp.directory / 'run_msi.sh'} ; "
+                        f"{AE_ROOT / exp.directory / 'run_mlc.sh'} "
+                        f"(host Linux MLC / Table 1; ALLOW_MLC_SKIP="
+                        f"{os.environ.get('ALLOW_MLC_SKIP', '1')})"
+                    )
+                elif name == "sched-notify":
+                    log(
+                        f"[dry-run] would run: "
+                        f"{AE_ROOT / exp.directory / 'run.sh'} ; "
+                        f"{AE_ROOT / exp.directory / 'run_linux.sh'} "
+                        f"(host Linux sched/notify baseline)"
+                    )
+                else:
+                    log(
+                        f"[dry-run] would run: "
+                        f"{AE_ROOT / exp.directory / 'run.sh'}"
+                    )
             elif args.do_gather:
                 status[name] = "DRY_RUN"
                 log(f"[dry-run] would gather figures for {name}")
@@ -849,7 +953,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 ready_total += 1
             continue
         ready_total += 1
-        if st == "OK":
+        if st == "OK" or st.startswith("OK["):
             ready_ok += 1
         else:
             overall = 1

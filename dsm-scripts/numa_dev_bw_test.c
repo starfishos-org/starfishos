@@ -1,6 +1,6 @@
 /*
  * Test bandwidth of NUMA device files created by config_memdev.sh
- * (numa0.0, numa0.1, numa1.0, ... numa3.1 under /mnt/huge1G，1G 大页 hugetlbfs)
+ * (numa0.0, numa0.1, numa1.0, ... numa3.1 under /mnt/huge1G, 1G hugepage hugetlbfs)
  *
  * Compile: gcc -O2 -o numa_dev_bw_test numa_dev_bw_test.c
  * Run:     ./numa_dev_bw_test [test_size_mb] [bind_cpu]

@@ -45,7 +45,6 @@ artificial_evaluation/*.csv
 artificial_evaluation/*/result/
 
 log
-test-on-linux
 
 user/demos/phoenix-2.0/data/linear_regression_datafiles/*
 user/demos/phoenix-2.0/data/matrix_datafiles/*

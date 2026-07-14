@@ -31,7 +31,7 @@ static inline void __rb_change_child(struct rb_root *root,
 }
 
 /*
- * Reference: 邓俊辉. 数据结构: C++ 语言版. 清华大学出版社
+ * Reference: Dengjunhui. Data Structures: C++ Language Edition. Tsinghua University Press
  * All double rotation variants (zip-zap, zap-zip, zip-zip, zap-zap...)
  * can be unified to following connect34 operations. Because those
  * operations are aimed at rebalancing three unbalanced nodes to the

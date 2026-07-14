@@ -112,7 +112,12 @@ starts immediately before an `eventfd` write and ends after the destination
 waiter returns to user mode. This is a local cross-core reference; it is not a
 Linux cross-machine transport measurement.
 
+One-click `run_all.py` runs this automatically after the ChCore/QEMU
+`run.sh` when the `sched-notify` experiment is selected:
+
 ```bash
+python3 artifact-evaluation/run_all.py --experiments-only sched-notify
+# or standalone:
 ./artifact-evaluation/2-sched-notify-latency/run_linux.sh
 ```
 
@@ -125,9 +130,11 @@ SOURCE_CPU=0 REMOTE_CPU=12 SAMPLES=1000 NRUNS=3 \
 ```
 
 Linux logs, CSV summaries, and the figure are written to `linux-results/` in
-this directory by default. Set `OUT_DIR` to override it. The test uses
-`CLOCK_MONOTONIC_RAW`, pins the source observer and destination waiter to
-different CPUs, and does not require root privileges.
+this directory by default. Set `OUT_DIR` to override it. Gather copies the
+Linux figure as `linux_sched_notify_latency.png` under
+`out/<ts>/figures/sched-notify/`. The test uses `CLOCK_MONOTONIC_RAW`, pins
+the source observer and destination waiter to different CPUs, and does not
+require root privileges.
 
 ## Outputs
 

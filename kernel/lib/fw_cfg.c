@@ -22,10 +22,10 @@ int FW_CPU_NUM = 0;
 
 // fw_cfg directory entry format (big-endian fields)
 struct fw_cfg_file {
-    u32 size;   // 文件大小
-    u16 select; // selector 编号
+    u32 size;   // file size
+    u16 select; // selector number
     u16 reserved;
-    char name[56];   // 文件名（不一定以 \0 结束）
+    char name[56];   // file name (may not be \0-terminated)
 } __attribute__((packed));
 
 // I/O helpers
@@ -50,7 +50,7 @@ static inline u32 be32_to_cpu(u32 val) {
            ((val << 24) & 0xff000000);
 }
 
-// 从 fw_cfg 读取数据
+// Read data from fw_cfg
 void fw_cfg_read(u16 selector, void *buf, size_t len) {
     outw(FW_CFG_PORT_SELECT, selector);
     u8 *p = buf;
@@ -59,25 +59,25 @@ void fw_cfg_read(u16 selector, void *buf, size_t len) {
     }
 }
 
-// 查找指定 name 的 fw_cfg 项并读取
+// Find the fw_cfg entry with the given name and read it
 int fw_cfg_read_file(const char *target_name, void *buf, size_t buf_size) {
     u32 count;
 
-    // 1. 读取目录项数量
+    // 1. Read the number of directory entries
     outw(FW_CFG_PORT_SELECT, FW_CFG_FILE_DIR);
     count = inb(FW_CFG_PORT_DATA) << 24;
     count |= inb(FW_CFG_PORT_DATA) << 16;
     count |= inb(FW_CFG_PORT_DATA) << 8;
     count |= inb(FW_CFG_PORT_DATA);
 
-    // 2. 遍历目录
+    // 2. Walk the directory
     for (u32 i = 0; i < count; i++) {
         struct fw_cfg_file entry;
         for (size_t b = 0; b < sizeof(entry); b++) {
             ((u8*)&entry)[b] = inb(FW_CFG_PORT_DATA);
         }
 
-        // 确保 name 是 \0 结尾
+        // Ensure name is \0-terminated
         char name_str[57] = {0};
         memcpy(name_str, entry.name, 56);
 
@@ -89,7 +89,7 @@ int fw_cfg_read_file(const char *target_name, void *buf, size_t buf_size) {
                 file_size = buf_size - 1;
 
             fw_cfg_read(selector, buf, file_size);
-            ((char*)buf)[file_size] = '\0'; // 作为字符串用时确保结束符
+            ((char*)buf)[file_size] = '\0'; // ensure terminator when used as a string
             return file_size;
         }
     }

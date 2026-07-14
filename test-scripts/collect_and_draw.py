@@ -15,7 +15,7 @@ for case in cases:
     with open(file_path, 'r') as file:
       log_content = file.read()
 
-      # 使用正则表达式提取 'library:' 后的数字
+      # Extract the number after 'library:' with a regex
       match = re.search(r'library:\s*(\d+)', log_content)
       if match:
           library_number = int(match.group(1))

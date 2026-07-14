@@ -27,16 +27,22 @@ with `quick-build.sh` by default; use `SKIP_BUILD=1` only for a matching image.
 Raw logs go to `msi-logs/`; parsed results are `msi_samples.csv` and
 `msi_summary.csv` in this directory by default.
 
-## Intel MLC bandwidth
+## Intel MLC bandwidth (paper Table 1 / host Linux)
+
+Host-side DRAM/CXL bandwidth for the evaluation setup table. One-click
+`run_all.py` always invokes this after MSI when running the `basic` experiment.
 
 The wrapper looks for `mlc` on `PATH`, or uses `MLC_BIN` if set:
 
 ```bash
 MLC_BIN=/path/to/mlc ./artifact-evaluation/0-basic/run_mlc.sh
+# or via one-click:
+python3 artifact-evaluation/run_all.py --experiments-only basic
 ```
 
 It runs both `--bandwidth_matrix` and `--peak_injection_bandwidth`. Set
 `MODE=matrix` or `MODE=peak` to run one mode, and `OUT_DIR` to change the
 output directory. If MLC is missing, the script skips by default
 (`ALLOW_MLC_SKIP=1`); set `ALLOW_MLC_SKIP=0` to fail instead. `-e` is used so
-MLC does not attempt to modify hardware prefetcher state.
+MLC does not attempt to modify hardware prefetcher state. One-click reports
+`OK[MLC-OK]`, `OK[MLC-SKIPPED]`, or `FAILED(...MLC-FAILED...)` in the status.

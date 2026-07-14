@@ -3,14 +3,14 @@
 mode=$1
 memNumaNode=4
 size=64 # 64GB shared memory
-numa_size=16 # 默认每个 numax.x 的大小（GB），可被 numa_sizes.conf 覆盖
+numa_size=16 # Default size of each numax.x (GB); can be overridden by numa_sizes.conf
 
-# CXL 相关大块 ivshmem 仍放在 /mnt/cxlshm
+# Large CXL-related ivshmem still lives under /mnt/cxlshm
 base_dir="/dev/shm"
 devName="$base_dir/ivshmem-$USER"
 hostfsDevName="$base_dir/ivshmem-hostfs-$USER"
 
-# 单个 NUMA 设备文件 numax.x 改放在 /dev/shm 下
+# Per-NUMA device files numax.x are placed under /dev/shm
 numa_base_dir="/dev/shm"
 hostfsSize=16
 
@@ -52,7 +52,7 @@ if [ -f "$ini_loader" ]; then
   fi
 fi
 
-# 如果存在 per-numa 配置，则加载
+# Load per-NUMA config if present
 numa_sizes_conf="$(dirname "$0")/numa_sizes.conf"
 if [ -f "$numa_sizes_conf" ]; then
   # shellcheck source=/dev/null
@@ -78,10 +78,10 @@ new_numa() {
   done
   echo "Old NUMA Device Files Removed"
   
-  # create 8 NUMA device files, size 可按 numax.x 单独配置
+  # Create 8 NUMA device files; size can be set per numax.x
   for i in {0..7}; do
     dev_path=${numa_devs[$i]}
-    # 取得该 numax.x 的大小（GB），优先使用 NUMA_SIZES[i]，否则回退到全局 numa_size
+    # Size (GB) for this numax.x: prefer NUMA_SIZES[i], else fall back to global numa_size
     per_numa_size="${NUMA_SIZES[$i]}"
     if [ -z "$per_numa_size" ]; then
       per_numa_size=$numa_size

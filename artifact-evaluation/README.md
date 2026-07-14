@@ -53,111 +53,130 @@ docker build -t promisivia/treesls_chcore_builder:v2.3 .
 
 ---
 
-## One-click（唯一入口）
+## One-click (sole entry point)
 
 ```bash
 python3 artifact-evaluation/run_all.py
-# 等价：
+# Equivalent:
 ./artifact-evaluation/run_all.py
-./artifact-evaluation/run-all.sh          # 薄封装，转调 run_all.py
+./artifact-evaluation/run-all.sh          # thin wrapper; calls run_all.py
 ```
 
-clone 之后一般**只需要这一条**。首次运行会自动：
+After cloning, this is usually **the only command you need**. On the first run it automatically:
 
-| 步骤 | 行为 | 何时执行 |
+| Step | Behavior | When it runs |
 | --- | --- | --- |
-| `prepare.sh` | CXL / 8×NUMA / hostfs / ivshmem doorbell | 每次（已存在则跳过重建） |
-| first-time OS build | `scripts/quick-build.sh`（= `make prepare` 的编译步） | **仅当**缺少 `.config` 或 `build/kernel.img` |
-| 论文实验 | 各目录 `run.sh` 测完画图，汇总到 `out/<ts>/figures/` | 每次 |
-| TODO 占位 | 未实现的论文图写 `TODO.md` / `FIGURES.md` | 每次 |
+| `prepare.sh` | CXL / 8×NUMA / hostfs / ivshmem doorbell | Every time (skips rebuild if already present) |
+| first-time OS build | `scripts/quick-build.sh` (= compile step of `make prepare`) | **Only when** `.config` or `build/kernel.img` is missing |
+| Paper experiments | Each directory's `run.sh` runs tests and plots; figures gathered under `out/<ts>/figures/` | Every time |
+| TODO placeholders | Unimplemented paper figures written to `TODO.md` / `FIGURES.md` | Every time |
 
 ```bash
-python3 artifact-evaluation/run_all.py --dry-run          # 只看计划
-python3 artifact-evaluation/run_all.py --list             # 列出实验
-python3 artifact-evaluation/run_all.py --prepare-only     # 只做环境准备
+python3 artifact-evaluation/run_all.py --dry-run          # print plan only
+python3 artifact-evaluation/run_all.py --list             # list experiments
+python3 artifact-evaluation/run_all.py --prepare-only     # environment prepare only
 python3 artifact-evaluation/run_all.py --prepare-only --prepare-mode recreate
-python3 artifact-evaluation/run_all.py --build-only       # 只做首次/强制编译
+python3 artifact-evaluation/run_all.py --build-only       # first-time / forced build only
 python3 artifact-evaluation/run_all.py --experiments-only ready
-python3 artifact-evaluation/run_all.py --gather-only      # 只汇总已有图
-python3 artifact-evaluation/run_all.py --force-base-build # 强制重编译后全跑
+python3 artifact-evaluation/run_all.py --gather-only      # gather existing figures only
+python3 artifact-evaluation/run_all.py --force-base-build # force rebuild then run all
 ```
 
-### 阶段参数
+### Stage options
 
-| 参数 | 作用 |
+| Option | Effect |
 | --- | --- |
-| `--prepare-only` | 只跑 `prepare.sh` 后退出 |
-| `--build-only` | 只做 OS 首次/强制编译后退出 |
-| `--gather-only` | 只从各实验目录收图，不开 QEMU |
-| `--experiments-only` | 跳过 prepare + build，只跑实验 |
-| `--prepare` / `--no-prepare` | 开关 prepare（默认开） |
-| `--prepare-mode ensure\|recreate` | `ensure` 幂等（默认）；`recreate` 重建 backing files |
-| `--build` / `--no-build` | 开关首次 OS 编译检查（默认开） |
-| `--force-base-build` | 强制 `quick-build.sh` |
-| `--run` / `--no-run` | 开关实验 QEMU |
-| `--gather` / `--no-gather` | 开关收图 |
-| `--budget SECS` | 覆盖所有 ready 实验的超时 |
-| `--out DIR` | 指定输出目录 |
+| `--prepare-only` | Run `prepare.sh` only, then exit |
+| `--build-only` | Do first-time / forced OS build only, then exit |
+| `--gather-only` | Collect figures from experiment dirs only; do not start QEMU |
+| `--experiments-only` | Skip prepare + build; run experiments only |
+| `--prepare` / `--no-prepare` | Toggle prepare (on by default) |
+| `--prepare-mode ensure\|recreate` | `ensure` is idempotent (default); `recreate` rebuilds backing files |
+| `--build` / `--no-build` | Toggle first-time OS build check (on by default) |
+| `--force-base-build` | Force `quick-build.sh` |
+| `--run` / `--no-run` | Toggle experiment QEMU runs |
+| `--gather` / `--no-gather` | Toggle figure gathering |
+| `--budget SECS` | Override timeout for all ready experiments |
+| `--out DIR` | Set output directory |
 
-### 论文图状态
+### Paper figure status
 
-| 实验 | 论文图 | 状态 |
+| Experiment | Paper figure | Status |
 | --- | --- | --- |
 | `1-ipc-cdf` | IPC CDF + breakdown | ready |
 | `3-memory-allocator` | `fig00-allocator-all` | ready |
 | `4-state-partition` | `state_partition` | ready |
-| `6-auto-scale` | `auto-scale-matrix` / `db1000` / `gemini-chcore` | **TODO** |
-| `8-process-migration` | `process-migration-data-*` | **TODO** |
-| `9-resource-util` | `real.eps` | **TODO** |
+| `6-auto-scale` | `auto-scale-matrix` / `db1000` / `gemini-chcore` | ready¹ |
+| `8-process-migration` | `process-migration-data-*` | ready |
+| `9-resource-util` | `real.eps` | ready¹ |
 | `7-recover-fs` | `recovery-performance-single` | ready |
 
-缺图清单：[`TODO-FIGURES.md`](TODO-FIGURES.md)。
+¹ Plotting is validated (reproduces the paper figure from the paper's own data);
+the QEMU data-collection path is scaffolded but not yet validated against a live
+run — see each directory's README "Status / caveats". `6-auto-scale` and
+`9-resource-util` additionally need external Linux/Tigon baselines (`test-on-linux/`)
+and extra demos enabled.
 
-### 可选模式
+### Optional modes
 
 ```bash
-python3 artifact-evaluation/run_all.py ready     # 只跑已实现的 4 个
-python3 artifact-evaluation/run_all.py all       # 论文 + extras
-python3 artifact-evaluation/run_all.py ipc-cdf   # 指定子集
+python3 artifact-evaluation/run_all.py ready     # run the implemented paper experiments only
+python3 artifact-evaluation/run_all.py all       # paper + extras
+python3 artifact-evaluation/run_all.py ipc-cdf   # named subset
 ```
 
-| 参数 / Env | Meaning |
+| Option / Env | Meaning |
 | --- | --- |
-| `--dry-run` / `DRY_RUN=1` | 只打印计划 |
-| `--prepare-only` | 只 prepare |
-| `--prepare-mode` / `PREPARE_MODE` | `ensure`（默认）或 `recreate` |
-| `--no-prepare` / `SKIP_PREPARE=1` | 跳过 prepare |
-| `--build-only` | 只 OS build |
-| `--no-build` / `SKIP_BASE_BUILD=1` | 跳过 OS build 检查 |
-| `--force-base-build` / `FORCE_BASE_BUILD=1` | 强制 `quick-build.sh` |
-| `--experiments-only` | 跳过 prepare+build，只跑实验 |
-| `--gather-only` | 只收图 |
-| `--budget SECS` | 全局实验超时 |
-| `--out DIR` | 输出目录 |
-| `BUDGET_<NAME>=secs` | 单实验超时覆盖 |
+| `--dry-run` / `DRY_RUN=1` | Print plan only |
+| `--prepare-only` | Prepare only |
+| `--prepare-mode` / `PREPARE_MODE` | `ensure` (default) or `recreate` |
+| `--no-prepare` / `SKIP_PREPARE=1` | Skip prepare |
+| `--build-only` | OS build only |
+| `--no-build` / `SKIP_BASE_BUILD=1` | Skip OS build check |
+| `--force-base-build` / `FORCE_BASE_BUILD=1` | Force `quick-build.sh` |
+| `--experiments-only` | Skip prepare+build; run experiments only |
+| `--gather-only` | Gather figures only |
+| `--budget SECS` | Global experiment timeout |
+| `--out DIR` | Output directory |
+| `BUDGET_<NAME>=secs` | Per-experiment timeout override |
 
-实现：编排在 [`run_all.py`](run_all.py)；各实验的 QEMU 流程仍在对应目录的 `run.sh` / `plot.py`。
+Implementation: orchestration lives in [`run_all.py`](run_all.py); each experiment's QEMU flow remains in that directory's `run.sh` / `plot.py`.
+
+**Plots must match the paper**: paper figures are drawn by [`paper-plots/`](paper-plots/) (vendored from `p3os-paper/eval/`); each experiment's `plot.py` / `parse_and_plot.py` only parses logs, exports paper-format CSV, then calls `paper-plots`. Do not invent a separate AE plotting style.
 
 ---
 
-## 底层准备脚本（通常不必单独跑）
+## Low-level prepare scripts (usually not run separately)
 
 ```bash
 ./artifact-evaluation/prepare.sh
 ./artifact-evaluation/prepare.sh recreate
 ```
 
-## 单实验入口
+## Per-experiment entry points
 
 ```bash
 ./artifact-evaluation/1-ipc-cdf/run.sh
 ./artifact-evaluation/2-sched-notify-latency/run.sh
+./artifact-evaluation/2-sched-notify-latency/run_linux.sh   # host Linux baseline (also run by one-click)
+./artifact-evaluation/0-basic/run_msi.sh
+./artifact-evaluation/0-basic/run_mlc.sh                    # host MLC / Table 1 (also run by one-click)
 ./artifact-evaluation/3-memory-allocator/run.sh
 ./artifact-evaluation/4-state-partition/run.sh
 ./artifact-evaluation/5-dbx1000-cross-warehouse/run.sh
 ./artifact-evaluation/7-recover-fs/run.sh
-# TODO stubs: 6-auto-scale / 8-process-migration / 9-resource-util
+./artifact-evaluation/6-auto-scale/run.sh
+./artifact-evaluation/8-process-migration/run.sh
+./artifact-evaluation/9-resource-util/run.sh
 ```
+
+Host Linux baselines included in one-click extras (`run_all.py all` or named
+experiments): `basic` runs MSI then MLC (`ALLOW_MLC_SKIP=1` by default if
+`mlc` is absent); `sched-notify` runs ChCore then `run_linux.sh`.
+
+Application-level Linux Ideal / Distributed ports for paper auto-scale curves
+live under `test-on-linux/` (git submodules; `git submodule update --init
+test-on-linux`). See `test-on-linux/README.md`.
 
 Each subdirectory has a README describing its workload, configuration matrix,
 environment overrides, raw logs, and figure-regeneration command. Generated

@@ -78,7 +78,7 @@ gib=$(( 1024 * 1024 * 1024 ))
 total_mem_size_gib=$(( (total_mem_size_bytes + gib - 1) / gib ))
 total_mem_size_qemu="${total_mem_size_gib}G"
 cxlfs_dev_size_bytes=$(size_to_bytes "$cxlfs_dev_size")
-numa_size=16G # 默认大小，仅在对应文件不存在时兜底
+numa_size=16G # default size; used only when the corresponding file does not exist
 plat_cpu_name=$cpu_num
 # ivshmem_dev="/dev/dax0.0,align=2M"
 # align=2M: refer https://docs.pmem.io/persistent-memory/getting-started-guide/creating-development-environments/virtualization/qemu#nvdimm-io-alignment
@@ -101,9 +101,9 @@ echo $port >$basedir/gdb-port-$vm_id
 
 cxl_backend_file="/dev/shm/ivshmem-$USER"
 
-# NUMA 设备文件改放在 /dev/shm，保持与 dsm-scripts/config_memdev.sh 一致
+# Place NUMA device files under /dev/shm, consistent with dsm-scripts/config_memdev.sh
 numa_memdev_dir="/dev/shm"
-# Create 8 CXL device file paths（顺序需与 dsm-scripts/numa_sizes.conf 中 NUMA_SIZES 对应）
+# Create 8 CXL device file paths (order must match NUMA_SIZES in dsm-scripts/numa_sizes.conf)
 numa_devs=(
 	"$numa_memdev_dir/numa0.0-$USER"
 	"$numa_memdev_dir/numa0.1-$USER"
@@ -118,15 +118,15 @@ numa_devs=(
 # Build QEMU command; optional 8x NUMA ivshmem-plain for guest local DRAM
 qemu_cmd="@qemu@ -gdb tcp::$port"
 
-# 与 CMake kernel USE_DEV_AS_DRAM 一致（@qemu_use_dev_as_dram@）；未 export 时按编译配置默认开启/关闭。
-# 仍可显式设置 USE_DEV_AS_DRAM=0 跳过 NUMA 设备（仅当内核未使用 USE_DEV_AS_DRAM 时才有意义）。
+# Match CMake kernel USE_DEV_AS_DRAM (@qemu_use_dev_as_dram@); if unset, follow the build default on/off.
+# You can still set USE_DEV_AS_DRAM=0 to skip NUMA devices (only meaningful when the kernel does not use USE_DEV_AS_DRAM).
 : "${USE_DEV_AS_DRAM:=@qemu_use_dev_as_dram@}"
 if [ "${USE_DEV_AS_DRAM}" = "1" ]; then
 	for i in {0..7}; do
 		dev_path=${numa_devs[$i]}
 		if [ ! -f "$dev_path" ]; then
-			echo "[FATAL] USE_DEV_AS_DRAM=1 需要 8 个 NUMA backing 文件，缺失: $dev_path" >&2
-			echo "请先运行: dsm-scripts/config_memdev.sh new_numa" >&2
+			echo "[FATAL] USE_DEV_AS_DRAM=1 requires 8 NUMA backing files; missing: $dev_path" >&2
+			echo "Please run first: dsm-scripts/config_memdev.sh new_numa" >&2
 			exit 1
 		fi
 		per_numa_size_bytes=$(stat -c%s "$dev_path")
@@ -143,7 +143,7 @@ if [ "${USE_DEV_AS_DRAM}" = "1" ]; then
 	done
 fi
 
-# 读取 cxl shared mem 文件和 hostfs 文件的真实大小（须与 QEMU size= 一致）
+# Read actual sizes of CXL shared-mem and hostfs files (must match QEMU size=)
 if [ -f "$ivshmem_dev" ]; then
 	cxl_size_bytes=$(stat -c%s "$ivshmem_dev")
 	if [ "${cxl_size_bytes:-0}" -eq 0 ] && command -v truncate >/dev/null 2>&1; then
@@ -199,8 +199,8 @@ if [ -f "$ivshmem_hostfs_dev" ] && command -v truncate >/dev/null 2>&1; then
 	hostfs_size_bytes=$np
 fi
 
-# DSM IVSHMEM（CMake 在 qemu_options 里包含 ivshmem-plain 时置 @qemu_emulate_ivshmem_plain@=1）：
-# 直接用 stat/truncate 对齐后的字节数拼接参数，不再对占位串做 sed。
+# DSM IVSHMEM (CMake sets @qemu_emulate_ivshmem_plain@=1 when qemu_options includes ivshmem-plain):
+# Build options from the post-stat/truncate byte sizes directly; do not sed placeholder strings.
 if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 	qemu_options_updated="--enable-kvm -M q35 -name chcore-$vm_id -m $total_mem_size_qemu \
 -object memory-backend-file,size=${cxl_size_bytes},share=on,mem-path=$ivshmem_dev,id=hostmem \
@@ -216,12 +216,12 @@ if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 -fw_cfg name=opt/chcore/bootargs,string=machine_id=$vm_id,,machine_num=$machine_num,,cpu_num=$cpu_num,,tmp_size=$tmp_size,,dram_size=$dram_size"
 else
 	qemu_options_updated="@qemu_options@"
-	# 非 IVSHMEM 布局仍使用 CMake 生成的 @qemu_options@（SLS/CXL 等）。
+	# Non-IVSHMEM layouts still use CMake-generated @qemu_options@ (SLS/CXL, etc.).
 	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#-m [^ ]\\+#-m $total_mem_size_qemu#g")
 	qemu_options_updated=$(echo "$qemu_options_updated" | sed "s#\\(name=opt/chcore/bootargs,string=machine_id=$vm_id\\)#\\1,,machine_num=$machine_num,,cpu_num=$cpu_num,,tmp_size=$tmp_size,,dram_size=$dram_size#g")
 fi
 
-# Add remaining QEMU options (includes ivshmem configuration，已按实际大小修正)
+# Add remaining QEMU options (includes ivshmem configuration, corrected to actual sizes)
 qemu_cmd="$qemu_cmd $qemu_options_updated"
 
 log_dir="$project_root/logs"

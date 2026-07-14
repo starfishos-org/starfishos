@@ -10,5 +10,5 @@ int mkdir_p(const char *path)
     if (ret != 0) {
         return ret;
     }
-    return 0; // 成功
+    return 0; // success
 }

@@ -77,7 +77,7 @@ fi
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 sleep 1
 
-# 清理 host 页缓存，避免旧 QEMU 实例的残留页导致性能下降
+# Drop host page cache so residual pages from old QEMU instances do not hurt performance
 sync
 echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true
 

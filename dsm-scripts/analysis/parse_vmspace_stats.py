@@ -394,16 +394,16 @@ def parse_log_file(log_file):
         print(f"Initial CXL pages: {cxl_pages} ({format_size(cxl_pages)})")
         return process_name, pages, vmrs
     
-    # Parse first stats section，从第一个分隔线开始
+    # Parse first stats section, starting from the first separator
     print(f"Found {len(stats_starts)} VMSPACE STATS sections (raw separators). Parsing first section...")
     first_name, first_pages, first_vmrs, first_end = parse_single_stats_section(lines, stats_starts[0])
 
-    # 第二段不要直接用 stats_starts[1]，而是从 first_end 之后寻找真正“下一段”的起点
+    # Do not use stats_starts[1] directly; find the real start of the next section after first_end
     second_start_candidates = [i for i in stats_starts if i > first_end]
     if not second_start_candidates:
-        # 没有找到真正的第二段，只用第一段结果
+        # No real second section found; use only the first section result
         print("Warning: Could not find a second complete VMSPACE STATS section after the first one.")
-        # 保持与多段逻辑的返回格式一致：返回第一段的 pages / vmrs
+        # Keep return format consistent with multi-section logic: return first section pages / vmrs
         process_name, pages, vmrs, _ = parse_single_stats_section(lines, stats_starts[0])
         cxl_pages = count_cxl_pages(pages)
         print(f"Initial CXL pages: {cxl_pages} ({format_size(cxl_pages)})")
