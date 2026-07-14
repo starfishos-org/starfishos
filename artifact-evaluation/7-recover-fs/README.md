@@ -22,13 +22,14 @@ already includes `leveldb-dbbench.bin` and the tmpfs recovery instrumentation.
 Generated CSV files and figures are written directly to
 `artifact-evaluation/7-recover-fs/` using stable names:
 
-- `recovery_detail.csv`: host wall-clock stage durations and guest-reported
-  filesystem/p-log/LevelDB DB::Open times;
+- `recovery_detail.csv`: host wall-clock stage durations, guest-reported
+  filesystem/p-log/LevelDB DB::Open times, and p-log replay entry/error counts;
 - `throughput.csv`: actual pre-crash and post-recovery Read/Fill db_bench
   measurements in long format (`event,elapsed_ms,workload,ops_per_sec`);
-- `recovery-performance-single.png`, `.pdf`, and `.eps`: the paper-compatible
-  11 x 3.2 inch recovery figure. Compatibility copies without `-single` are
-  also emitted as PNG/PDF.
+- `recovery-performance-single.png`, `.pdf`, and `.eps`: the crash-relative
+  11 x 3.2 inch recovery figure. It plots recovered read throughput from the
+  LevelDB failure at `t=0`; compatibility copies without `-single` are also
+  emitted as PNG/PDF.
 
 Raw QEMU and detector logs are written separately to `logs/` as
 `machine0.log`, `machine1.log`, and `machine0-detector.log`. Every run
@@ -37,14 +38,17 @@ overwrites these files, so `logs/` keeps only the latest run.
 Useful overrides include `FILL_NUM`, `READ_NUM`, `THREADS`, `CRASH_DELAY`,
 `TIMEOUT`, `OUT_DIR`, `LOG_DIR`, `USE_DEV_AS_DRAM`, and `KEEP_QEMU=1`.
 `OUT_DIR` changes the CSV/figure destination, while `LOG_DIR` changes the raw
-log destination. The evaluation defaults `USE_DEV_AS_DRAM=1` for the current
-device-backed-DRAM build and passes it directly to each QEMU launch. It also
+log destination. The evaluation defaults `USE_DEV_AS_DRAM=0`: ordinary guest
+DRAM uses QEMU RAM, while CXLFS uses its dedicated 8 GiB ivshmem device. It also
 restarts the test's ivshmem doorbell server to reset stale peer IDs. The
 database path defaults to `/tmp/leveldb_recovery`.
 
 `FILL_NUM` defaults to 128 and defines the populated/read key space.
-`READ_NUM` defaults to 1000 and controls the number of random read samples per
-db_bench thread (8000 samples with the default eight threads).
+`READ_NUM` defaults to 10000 and `THREADS` defaults to 1. The recovery curve
+uses the second of two `readrandom` passes: the first warms the recovered SST
+and block cache, while the second reports steady-state single-thread read
+throughput. `fillbatch` only populates the database before the crash and is not
+used as the recovered-read throughput.
 The p-log is a 4 MiB uncommitted redo tail; committed CXL filesystem state is
 checkpointed and the tail is truncated automatically. The test does not keep
 or restore a second tmpfs image and does not reset the log before crashing.

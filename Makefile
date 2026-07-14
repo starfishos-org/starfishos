@@ -2,7 +2,7 @@ IP = '0x0'
 P = 'libc.so'
 T = 12
 
-.PHONY: build build-all
+.PHONY: build build-all prepare-cxlfs
 
 help:
 	@echo "make b: build the system without cleaning"
@@ -52,7 +52,11 @@ r4-perf: perf-config r4
 prepare:
 	./dsm-scripts/config_memdev.sh cxl-new
 	python3 ./dsm-scripts/prepare_hostfs.py
+	./dsm-scripts/prepare_cxlfs_dev.sh
 	./scripts/quick-build.sh
+
+prepare-cxlfs:
+	./dsm-scripts/prepare_cxlfs_dev.sh
 
 c: clean
 clean:

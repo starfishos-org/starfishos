@@ -31,16 +31,16 @@ int init_fsm(void)
 	/* Initialize */
 	init_utils();
 
-	ret = fsm_mount_fs("/tmpfs.srv", "/");
+	ret = fsm_mount_fs("/cxlfs.srv", "/");
 	if (ret < 0) {
-		error("failed to mount tmpfs, ret %d\n", ret);
+		error("failed to mount default CXLFS, ret %d\n", ret);
 		usys_exit(-1);
 	}
 
 	return 0;
 }
 
-static int boot_tmpfs()
+static int get_cxlfs_cap()
 {
 	struct proc_request pr;
 	ipc_msg_t *ipc_msg;
@@ -48,7 +48,7 @@ static int boot_tmpfs()
 
 	ipc_msg = ipc_create_msg(procmgr_ipc_struct, sizeof(struct proc_request), 0);
 	pr.req = PROC_REQ_GET_SERVER_CAP;
-	pr.server_id = SERVER_TMPFS;
+	pr.server_id = SERVER_CXLFS;
 
 	ipc_set_msg_data(ipc_msg, &pr, 0, sizeof(pr));
 	ret = ipc_call(procmgr_ipc_struct, ipc_msg);
@@ -61,6 +61,42 @@ static int boot_tmpfs()
 out:
 	ipc_destroy_msg(ipc_msg);
 	return ret;
+}
+
+static int verify_cxlfs_server(ipc_struct_t *ipc_struct, int fs_cap)
+{
+	ipc_msg_t *msg = ipc_create_msg(ipc_struct,
+					 sizeof(struct fs_request), 0);
+	if (!msg)
+		return -ENOMEM;
+	struct fs_request *fr =
+		(struct fs_request *)ipc_get_msg_data(msg);
+	memset(fr, 0, sizeof(*fr));
+	fr->req = FS_REQ_GET_FS_STATUS;
+	int ret = ipc_call(ipc_struct, msg);
+	struct fs_server_status status = fr->status;
+	ipc_destroy_msg(msg);
+	if (ret < 0)
+		return ret;
+	if (status.magic != FS_SERVER_STATUS_MAGIC ||
+	    status.backend != FS_BACKEND_CXLFS || !status.mounted ||
+	    !status.data_valid || status.generation == 0 ||
+	    status.root_ino == 0 || status.data_checksum == 0 ||
+	    status.owner_machine != usys_get_machine_id()) {
+		error("[FSM] Invalid CXLFS status: cap=%d magic=%x backend=%u "
+		      "mounted=%u data=%u owner=%d generation=%lu root=%lu\n",
+		      fs_cap, status.magic, status.backend, status.mounted,
+		      status.data_valid, status.owner_machine,
+		      (unsigned long)status.generation,
+		      (unsigned long)status.root_ino);
+		return -EIO;
+	}
+	info("[FSM] Default CXLFS verified: cap=%d owner=%d generation=%lu "
+	     "root=%lu data=ok checksum=%lx fresh=%u\n",
+	     fs_cap, status.owner_machine, (unsigned long)status.generation,
+	     (unsigned long)status.root_ino,
+	     (unsigned long)status.data_checksum, status.fresh);
+	return 0;
 }
 
 int fsm_mount_fs(const char *path, const char *mount_point)
@@ -85,15 +121,15 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 		goto out;
 	}
 
-	if (strcmp(path, "/tmpfs.srv") == 0) {
-		/* @fs_cap is 0 -> means launch TMPFS */
+	if (strcmp(path, "/cxlfs.srv") == 0) {
+		/* The default CXLFS process is launched and owned by procmgr. */
 		info("Mounting fs from local binary: %s...\n", path);
 
-		fs_cap = boot_tmpfs();
-		info("Mounting TMPFS, cap = %d\n", fs_cap);
+		fs_cap = get_cxlfs_cap();
+		info("Mounting CXLFS, cap = %d\n", fs_cap);
 
 		if (fs_cap <= 0) {
-			info("Fails to launch TMPFS, which returns %d\n", ret);
+			info("Failed to obtain CXLFS cap %d\n", fs_cap);
 			goto out;
 		}
 
@@ -109,7 +145,7 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 		}
 		usys_register_fs_server(fs_cap);
 
-		info("TMPFS is up, with cap = %d\n", fs_cap);
+		info("CXLFS process cap acquired: %d\n", fs_cap);
 	} else {
 		fs_cap = mount_storage_device(path);
 		pthread_rwlock_wrlock(&mount_point_infos_rwlock);
@@ -124,6 +160,14 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 		BUG_ON(remove_mount_point(mp_node->path) != 0);
 		pthread_rwlock_unlock(&mount_point_infos_rwlock);
 		goto out;
+	}
+	if (!strcmp(path, "/cxlfs.srv")) {
+		ret = verify_cxlfs_server(mp_node->_fs_ipc_struct, fs_cap);
+		if (ret < 0) {
+			BUG_ON(remove_mount_point(mp_node->path) != 0);
+			pthread_rwlock_unlock(&mount_point_infos_rwlock);
+			goto out;
+		}
 	}
 
 	strlcpy(mp_node->path, mount_point, sizeof(mp_node->path));
@@ -261,6 +305,10 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				if (fsm_req->mount_path_len == 1)
 					fsm_req->mount_path_len = 0;
 				fsm_req->new_cap_flag = 1;
+				if (strstr(fsm_req->path, "leveldb_recovery"))
+					info("[FSM_TRACE] path=%s badge=%lx cap=%d mount=%d new=1\n",
+					     fsm_req->path, client_badge,
+					     mpinfo->fs_cap, mount_id);
 
 				// Return with cap
 				pthread_rwlock_unlock(&mount_point_infos_rwlock);
@@ -277,6 +325,10 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				if (fsm_req->mount_path_len == 1)
 					fsm_req->mount_path_len = 0;
 				fsm_req->new_cap_flag = 0;
+				if (strstr(fsm_req->path, "leveldb_recovery"))
+					info("[FSM_TRACE] path=%s badge=%lx cap=%d mount=%d new=0\n",
+					     fsm_req->path, client_badge,
+					     mpinfo->fs_cap, mount_id);
 
 				pthread_rwlock_unlock(&mount_point_infos_rwlock);
 				ipc_return(ipc_msg, 0);
@@ -314,7 +366,20 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 		}
 		case FSM_REQ_REPLACE_FS: {
 			/* Recovery: replace mount point with new FS instance */
-			int new_cap = ipc_get_msg_cap(ipc_msg, 0);
+			int new_cap = ipc_msg->cap_slot_number > 0
+				? ipc_get_msg_cap(ipc_msg, 0) : -EINVAL;
+			/*
+			 * A shell-launched recovery server cannot transfer a cap to
+			 * its own main thread.  Procmgr owns that cap and publishes it
+			 * as the current CXLFS server when the process is launched.
+			 */
+			if (new_cap <= 0)
+				new_cap = get_cxlfs_cap();
+			if (new_cap <= 0) {
+				error("[FSM] REPLACE_FS: no replacement server cap\n");
+				ret = -1;
+				break;
+			}
 			pthread_rwlock_wrlock(&mount_point_infos_rwlock);
 			struct mount_point_info_node *mp =
 				get_mount_point(fsm_req->mount_path,
@@ -323,6 +388,7 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				mp->fs_cap = new_cap;
 				mp->_fs_ipc_struct = ipc_register_client(new_cap);
 				mp->target_machine_id = fsm_req->target_machine_id;
+				usys_register_fs_server(new_cap);
 				info("[FSM] Replaced FS for %s (new_cap=%d, mid=%d)\n",
 				     mp->path, new_cap, mp->target_machine_id);
 				ret = 0;

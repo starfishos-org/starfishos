@@ -25,6 +25,8 @@ dram_size=${DRAM_SIZE:-32G}
 machine_num=${MACHINE_NUM:-1}
 cpu_num=${CPU_NUM:-12}
 cxl_size=${CXL_SIZE:-64G}
+cxlfs_dev_size=8G
+cxlfs_dev=${CXLFS_DEV:-$memdev_dir/ivshmem-cxlfs-$USER}
 
 ini_loader="$project_root/scripts/common/load_chcore_ini.sh"
 if [ -f "$ini_loader" ]; then
@@ -75,6 +77,7 @@ total_mem_size_bytes=$(( tmp_size_bytes + dram_size_bytes ))
 gib=$(( 1024 * 1024 * 1024 ))
 total_mem_size_gib=$(( (total_mem_size_bytes + gib - 1) / gib ))
 total_mem_size_qemu="${total_mem_size_gib}G"
+cxlfs_dev_size_bytes=$(size_to_bytes "$cxlfs_dev_size")
 numa_size=16G # 默认大小，仅在对应文件不存在时兜底
 plat_cpu_name=$cpu_num
 # ivshmem_dev="/dev/dax0.0,align=2M"
@@ -167,6 +170,19 @@ else
 	hostfs_size_bytes=$(( ${hostfs_size%G} * 1024 * 1024 * 1024 ))
 fi
 
+# CXLFS has its own CXL-like ivshmem device.  VM startup never creates,
+# truncates, or clears it: its bytes are the authoritative filesystem image.
+if [ ! -f "$cxlfs_dev" ]; then
+	echo "[FATAL] CXLFS ivshmem device 不存在: $cxlfs_dev" >&2
+	echo "请先运行: ./dsm-scripts/prepare_cxlfs_dev.sh" >&2
+	exit 1
+fi
+cxlfs_dev_file_size=$(stat -c%s "$cxlfs_dev")
+if [ "$cxlfs_dev_file_size" -ne "$cxlfs_dev_size_bytes" ]; then
+	echo "[FATAL] CXLFS ivshmem device 尺寸错误: $cxlfs_dev ($cxlfs_dev_file_size, expected $cxlfs_dev_size_bytes)" >&2
+	exit 1
+fi
+
 if [ -f "$ivshmem_dev" ] && command -v truncate >/dev/null 2>&1; then
 	np=$(round_up_pow2 "$cxl_size_bytes")
 	if [ "$np" -ne "$cxl_size_bytes" ]; then
@@ -191,6 +207,8 @@ if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 -device ivshmem-plain,memdev=hostmem \
 -object memory-backend-file,size=${hostfs_size_bytes},share=on,mem-path=$ivshmem_hostfs_dev,id=hostfsmem \
 -device ivshmem-plain,memdev=hostfsmem \
+-object memory-backend-file,size=${cxlfs_dev_size_bytes},share=on,mem-path=$cxlfs_dev,id=cxlfsmem \
+-device ivshmem-plain,memdev=cxlfsmem \
 -chardev socket,path=/tmp/ivshmem-doorbell-$USER,id=doorbell_chardev \
 -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
 -cpu host -smp $plat_cpu_name -serial mon:stdio -nographic \
@@ -206,5 +224,7 @@ fi
 # Add remaining QEMU options (includes ivshmem configuration，已按实际大小修正)
 qemu_cmd="$qemu_cmd $qemu_options_updated"
 
-$basedir/../scripts/qemu/qemu_wrapper.sh $vm_id $qemu_cmd | tee exec_log$vm_id.log
+log_dir="$project_root/logs"
+mkdir -p "$log_dir"
+$basedir/../scripts/qemu/qemu_wrapper.sh $vm_id $qemu_cmd | tee "$log_dir/exec_log$vm_id.log"
 # @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log

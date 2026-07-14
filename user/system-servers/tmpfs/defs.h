@@ -58,6 +58,8 @@ struct dentry {
 struct inode {
 	int refcnt; /* Volatile reference. */
 	int nlinks; /* Links */
+	/* Stable inode number in the CXL disk image; never a virtual address. */
+	u64 disk_ino;
 	u64 type;
 	size_t size; // FIXME(TCZ): this field should be coupled with data union
 		     // member, e.g., should be accessed by means like

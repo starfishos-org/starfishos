@@ -15,7 +15,7 @@ macro(_procmgr_incbin _target_name _binary_name _binary_path)
 endmacro()
 
 _procmgr_incbin(fsm.srv fsm_elf ${build_user_dir}/system-servers/fsm/fsm.srv)
-_procmgr_incbin(tmpfs.srv tmpfs_elf ${build_user_dir}/system-servers/tmpfs/tmpfs.srv)
+_procmgr_incbin(tmpfs.srv cxlfs_elf ${build_user_dir}/system-servers/tmpfs/cxlfs.srv)
 
 target_link_options(procmgr.srv PRIVATE -T
                     ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld)

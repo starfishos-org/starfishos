@@ -138,6 +138,7 @@ static bool external_thread_bind_cpu = false;
 static std::string thread_bind_cpu_list_filename = "";
 
 static std::vector<int> thread_bind_cpu_list = std::vector<int>();
+static int thread_bind_cpu_offset = 0;
 
 inline void set_cpu_affinity(int cpu_id) {
   cpu_set_t mask;
@@ -648,7 +649,8 @@ class Benchmark {
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;
     if (external_thread_bind_cpu) {
-      set_cpu_affinity(thread_bind_cpu_list[arg->thread->tid]);
+      set_cpu_affinity(thread_bind_cpu_list[arg->thread->tid] +
+                       thread_bind_cpu_offset);
     }
     
     {
@@ -1158,6 +1160,8 @@ int main(int argc, char** argv) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
       FLAGS_threads = n;
+    } else if (sscanf(argv[i], "--thread_bind_cpu_offset=%d%c", &n, &junk) == 1) {
+      thread_bind_cpu_offset = n;
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {

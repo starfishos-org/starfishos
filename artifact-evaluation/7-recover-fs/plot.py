@@ -54,27 +54,33 @@ def main():
     by_key = {(row["event"], row["workload"]): row for row in points}
     detail_by_stage = {row["stage"]: row for row in detail}
     for event in (
-        "pre_crash",
         "crash_started",
         "machine0_killed",
         "machine0_detected",
         "fs_recovered",
         "leveldb_reopened",
         "post_read_completed",
-        "post_fill_completed",
     ):
-        for workload in ("fill", "read"):
-            if (event, workload) not in by_key:
-                raise ValueError(f"missing throughput point: {event}/{workload}")
+        if (event, "read") not in by_key:
+            raise ValueError(f"missing throughput point: {event}/read")
 
-    crash_s = as_float(by_key[("crash_started", "read")]["elapsed_ms"]) / 1000.0
-    detect_s = as_float(by_key[("machine0_detected", "read")]["elapsed_ms"]) / 1000.0
-    fs_s = as_float(by_key[("fs_recovered", "read")]["elapsed_ms"]) / 1000.0
-    leveldb_s = as_float(by_key[("leveldb_reopened", "read")]["elapsed_ms"]) / 1000.0
+    # Accept both old CSVs (which included the pre-crash delay) and new CSVs
+    # (which are already crash-relative), but always draw the crash at t=0.
+    crash_ms = as_float(by_key[("crash_started", "read")]["elapsed_ms"])
+
+    def event_s(event):
+        elapsed_ms = as_float(by_key[(event, "read")]["elapsed_ms"])
+        return max(0.0, (elapsed_ms - crash_ms) / 1000.0)
+
+    crash_s = 0.0
+    detect_s = event_s("machine0_detected")
+    fs_s = event_s("fs_recovered")
+    leveldb_s = event_s("leveldb_reopened")
+    read_done_s = event_s("post_read_completed")
+    has_warmup = ("post_read_warmup", "read") in by_key
 
     colormap = plt.colormaps["tab20"]
     blue = colormap(0)
-    orange = colormap(2)
     red = colormap(4)
     green = colormap(6)
     stage_colors = [blue, green, red]
@@ -101,36 +107,38 @@ def main():
     axis.axvline(leveldb_s, color=red, linestyle="-", linewidth=1.4, zorder=4)
 
     event_order = [
-        "pre_crash",
         "crash_started",
         "machine0_killed",
         "machine0_detected",
         "fs_recovered",
         "leveldb_reopened",
-        "post_read_completed",
-        "post_fill_completed",
     ]
-    line_specs = (("read", "Read", blue), ("fill", "Fill", orange))
-    all_rates = []
-    for workload, label, color in line_specs:
-        selected = [by_key[(event, workload)] for event in event_order]
-        time_s = [as_float(row["elapsed_ms"]) / 1000.0 for row in selected]
-        rates = [as_float(row["ops_per_sec"]) / 1000.0 for row in selected]
-        all_rates.extend(rates)
-        axis.step(
-            time_s,
-            rates,
-            where="post",
-            label=label,
-            color=color,
-            linewidth=2.0,
-            zorder=3,
-        )
+    if has_warmup:
+        event_order.append("post_read_warmup")
+    event_order.append("post_read_completed")
+    selected = [by_key[(event, "read")] for event in event_order]
+    time_s = [event_s(event) for event in event_order]
+    rates = [as_float(row["ops_per_sec"]) / 1000.0 for row in selected]
+    axis.plot(
+        time_s,
+        rates,
+        label="Recovered Read",
+        color=blue,
+        linewidth=2.4,
+        zorder=3,
+    )
+    axis.scatter(
+        time_s[-(2 if has_warmup else 1):],
+        rates[-(2 if has_warmup else 1):],
+        color=blue,
+        s=26,
+        zorder=4,
+    )
 
-    ymax = max(all_rates) if all_rates else 1.0
+    ymax = max(rates) if rates else 1.0
     ymax = max(ymax, 1.0)
     axis.annotate(
-        "LevelDB Start",
+        "LevelDB Restarted",
         xy=(leveldb_s, ymax * 0.04),
         xytext=(max(leveldb_s - 0.08, 0), ymax * 0.24),
         ha="right",
@@ -176,13 +184,14 @@ def main():
         inset.set_ylim(-1.0, 1.0)
         inset.axis("off")
 
-    xmax = max(as_float(row["elapsed_ms"]) for row in points) / 1000.0
-    axis.set_xlim(0, max(xmax * 1.03, crash_s + 0.2))
+    xmax = max(read_done_s, leveldb_s + 0.2)
+    axis.set_xlim(0, xmax * 1.03)
     axis.set_ylim(0, ymax * 1.12)
     axis.set_ylabel("THP (kops/s)", fontsize=23, labelpad=2)
     axis.set_xlabel("Time (s)", fontsize=23)
-    axis.xaxis.set_major_locator(mticker.MultipleLocator(1))
-    axis.xaxis.set_major_formatter(mticker.FormatStrFormatter("%d"))
+    tick_step = 0.25 if xmax < 2.0 else 1.0
+    axis.xaxis.set_major_locator(mticker.MultipleLocator(tick_step))
+    axis.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.2g"))
     axis.grid(True, linestyle="--", alpha=1.0, zorder=0)
     axis.legend(
         frameon=False,

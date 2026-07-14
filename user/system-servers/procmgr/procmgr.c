@@ -85,6 +85,18 @@ static void handle_newproc(ipc_msg_t *ipc_msg, u64 client_badge,
         if (proc_node == NULL) {
                 ipc_return(ipc_msg, -1);
         } else {
+                /*
+                 * A recovery CXLFS is launched from the surviving machine's
+                 * shell.  Publish its main-thread cap so FSM can atomically
+                 * replace the dead root filesystem server.
+                 */
+                if (input_argc >= 3
+                    && strcmp(input_argv[0], "/cxlfs.srv") == 0
+                    && strcmp(input_argv[1], "--recover") == 0) {
+                        set_cxlfs_cap(proc_node->proc_mt_cap);
+                        info("Published recovery CXLFS cap=%d for machine %s\n",
+                             proc_node->proc_mt_cap, input_argv[2]);
+                }
                 ipc_return(ipc_msg, proc_node->pid);
         }
 }
@@ -265,12 +277,45 @@ static int init_procmgr(void)
 void procmgr_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 {
         struct proc_request *pr;
+        u64 ipc_pa = 0;
 
         debug("new request from client_badge: 0x%lx\n", client_badge);
 
         if (ipc_msg->data_len < 4) {
-                error("FSM: no operation num\n");
-                usys_exit(-1);
+                usys_get_phys_addr(ipc_msg, &ipc_pa);
+                error("[IPC_TRACE] short procmgr message va=%p pa=0x%lx "
+                      "len=%lu caps=%lu data_off=0x%lx caps_off=0x%lx "
+                      "badge=0x%lx\n",
+                      ipc_msg,
+                      ipc_pa,
+                      ipc_msg->data_len,
+                      ipc_msg->cap_slot_number,
+                      ipc_msg->data_offset,
+                      ipc_msg->cap_slots_offset,
+                      client_badge);
+                ipc_return(ipc_msg, -EINVAL);
+                return;
+        }
+
+        if (ipc_msg->data_offset < sizeof(*ipc_msg)
+            || ipc_msg->data_offset > IPC_PER_SHM_SIZE
+            || ipc_msg->data_len > IPC_PER_SHM_SIZE
+            || ipc_msg->data_offset + ipc_msg->data_len
+                       > IPC_PER_SHM_SIZE
+            || ipc_msg->cap_slots_offset > IPC_PER_SHM_SIZE) {
+                usys_get_phys_addr(ipc_msg, &ipc_pa);
+                error("[IPC_TRACE] invalid procmgr message va=%p pa=0x%lx "
+                      "len=%lu caps=%lu data_off=0x%lx caps_off=0x%lx "
+                      "badge=0x%lx\n",
+                      ipc_msg,
+                      ipc_pa,
+                      ipc_msg->data_len,
+                      ipc_msg->cap_slot_number,
+                      ipc_msg->data_offset,
+                      ipc_msg->cap_slots_offset,
+                      client_badge);
+                ipc_return(ipc_msg, -EINVAL);
+                return;
         }
 
         pr = (struct proc_request *)ipc_get_msg_data(ipc_msg);
@@ -345,23 +390,26 @@ extern int __procmgr_server_cap;
 void boot_default_servers(void)
 {
         char *srv_path;
-        int tmpfs_cap;
+        int cxlfs_cap;
         struct proc_node *proc_node;
 
         /* Do not modify the order of creating system servers */
         printf("User Init: booting fs server (FSMGR and real FS) \n");
 
-        srv_path = "/tmpfs.srv";
+        srv_path = "/cxlfs.srv";
         proc_node = procmgr_launch_basic_server(
-                1, &srv_path, "tmpfs", true, INIT_BADGE);
-        tmpfs_cap = proc_node->proc_mt_cap;
+                1, &srv_path, "cxlfs", true, INIT_BADGE);
+        cxlfs_cap = proc_node->proc_mt_cap;
         /*
-         * We set the cap of tmpfs before starting fsm to ensure that tmpfs is
+         * Publish the process cap before starting FSM. FSM will connect to the
+         * service and query FS_REQ_GET_FS_STATUS, which blocks until CXLFS has
+         * mounted and registered its IPC handler.
          * available after fsm is started.
          */
-        set_tmpfs_cap(tmpfs_cap);
+        set_cxlfs_cap(cxlfs_cap);
+        printf("[procmgr] CXLFS process launched: cap=%d\n", cxlfs_cap);
 
-        /* FSM gets badge 2 and tmpfs uses the fixed badge (10) for it */
+        /* FSM gets badge 2 and CXLFS uses the fixed badge (10) for it */
         srv_path = "/fsm.srv";
         proc_node = procmgr_launch_basic_server(
                 1, &srv_path, "fsm", true, INIT_BADGE);

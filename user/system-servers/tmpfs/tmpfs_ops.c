@@ -25,6 +25,7 @@
 #include <fs_vnode.h>
 #include "tmpfs.h"
 #include "plog.h"
+#include "cxlfs.h"
 
 #define DIRENT_NAME_MAX 256
 
@@ -34,6 +35,9 @@ int __fs_openat_callback(int retcode, struct tmpfs_walk_path *walk, void *data)
 	int flags = ((struct openat_callback_args *)data)->flags;
 	mode_t mode = ((struct openat_callback_args *)data)->mode;
 	if (flags & O_CREAT) {
+		const char *path = ((struct openat_callback_args *)data)->path;
+		if (!plog_is_replaying() && plog_append_creat(path, mode) < 0)
+			return -ENOSPC;
 		return tfs_creat(path_last_inode(&walk->path_record),
 				 walk->leaf, strlen(walk->leaf),
 				 mode, &(walk->target_dent));
@@ -54,10 +58,10 @@ int tmpfs_open(char *path, int flags, int mode, ino_t *vnode_id, size_t *vnode_s
 
 	callback_data.flags = flags;
 	callback_data.mode = mode;
+	callback_data.path = path;
 	walk.not_found_callback = __fs_openat_callback;
 	walk.callback_data = &callback_data;
 	walk.follow_symlink = flags & O_NOFOLLOW ? 0 : 1;
-
 	err = handle_xxxat(AT_FDROOT, &walk);
 	if (err)
 		goto error;
@@ -65,9 +69,6 @@ int tmpfs_open(char *path, int flags, int mode, ino_t *vnode_id, size_t *vnode_s
 	/* ref tmpfs inode */
 	get_inode(walk.target);
 
-	/* P-log: log creat if O_CREAT and track inode->path */
-	if (flags & O_CREAT)
-		plog_append_creat(path, mode);
 	plog_track_inode(walk.target, path);
 
 	/**
@@ -112,13 +113,11 @@ ssize_t tmpfs_write(void *operator, off_t offset, size_t size, const char *buf)
 	struct inode *inode = (struct inode *)operator;
 	ssize_t ret = 0;
 	if (inode) {
+		const char *path = plog_get_inode_path(inode);
+		if (path && !plog_is_replaying() &&
+		    plog_append_write(path, offset, buf, size) < 0)
+			return -ENOSPC;
 		ret = tfs_file_write(inode, offset, buf, size);
-		/* P-log: log successful writes */
-		if (ret > 0) {
-			const char *path = plog_get_inode_path(inode);
-			if (path)
-				plog_append_write(path, offset, buf, ret);
-		}
 	}
 	return ret;
 }
@@ -160,7 +159,6 @@ int __fs_creat(const char *path, mode_t mode)
 		err = -EISDIR;
 		goto error;
 	}
-
 	err = tfs_namex(&leaf, &path_record,
 			/* mkdir_p */ 0,
 			/* follow_symlink */ 1);
@@ -168,6 +166,10 @@ int __fs_creat(const char *path, mode_t mode)
 		goto error;
 
 	dirat = path_last_inode(&path_record);
+	if (!plog_is_replaying() && plog_append_creat(path, mode) < 0) {
+		err = -ENOSPC;
+		goto error;
+	}
 	err = tfs_creat(dirat, leaf, strlen(leaf),
 			mode, NULL);
 	if (err)
@@ -215,6 +217,15 @@ int __tmpfs_unlink(enum fs_req_type req, const char *path, int flags)
 		err = -ENOTDIR;
 		goto error;
 	}
+	if (!plog_is_replaying() &&
+	    plog_append_unlink(path, req == FS_REQ_RMDIR) < 0) {
+		err = -ENOSPC;
+		goto error;
+	}
+	err = cxlfs_unlink_node(path_last_inode(&walk.path_record)->disk_ino,
+				walk.leaf, strlen(walk.leaf));
+	if (err)
+		goto error;
 
 	err = tfs_remove(path_last_inode(&walk.path_record),
 			 walk.leaf, strlen(walk.leaf));
@@ -279,11 +290,13 @@ int tmpfs_mkdir(const char *path, mode_t mode)
 	 * walk->target is the target file inode.
 	 */
 
+	if (!plog_is_replaying() && plog_append_mkdir(path, mode) < 0) {
+		err = -ENOSPC;
+		goto error;
+	}
 	err = tfs_mkdir(parent, walk.leaf, strlen(walk.leaf), mode, NULL);
 	if (err)
 		goto error;
-
-	plog_append_mkdir(path, mode);
 	err = 0;
 
 error:
@@ -304,8 +317,6 @@ error:
 	return err;
 }
 
-static void plog_log_file_content(const char *path, struct inode *inode);  /* defined below */
-
 int tmpfs_rename(const char *oldpath, const char *newpath)
 {
 	struct tmpfs_walk_path walk_old, walk_new;
@@ -324,6 +335,8 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 	}
 	dent_old = *walk_old.leaf == '\0' ?
 		path_last_dent(&walk_old.path_record) : walk_old.target_dent;
+	u64 old_parent_ino = path_last_inode(&walk_old.path_record)->disk_ino;
+	const char *old_leaf = walk_old.leaf;
 
 	/* check . and .. in the final component */
 	if (!strcmp(".", walk_old.leaf) || !strcmp("..", walk_old.leaf))
@@ -344,6 +357,8 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 		return err;
 	}
 	new_exists = err != -ENOENT;
+	u64 new_parent_ino = path_last_inode(&walk_new.path_record)->disk_ino;
+	const char *new_leaf = walk_new.leaf;
 
 	/* check old is not a ancestor of new */
 	/* TODO(HYQ): when touch symlink? */
@@ -380,10 +395,26 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 		if (dent_new->inode->type == FS_DIR &&
 		    !htable_empty(&dent_new->inode->dentries))
 			return -ENOTEMPTY;
+		if (!plog_is_replaying() &&
+		    plog_append_rename(oldpath, newpath) < 0)
+			return -ENOSPC;
+		err = cxlfs_rename_node(old_parent_ino, old_leaf, strlen(old_leaf),
+					new_parent_ino, new_leaf, strlen(new_leaf));
+		if (err)
+			return err;
 
 		inode_to_remove = dent_new->inode;
-		dent_new->inode = dent_old->inode;
+		/* The destination dentry acquires its own reference before the old
+		 * source dentry drops its reference below. */
+		dent_new->inode = get_inode(dent_old->inode);
 	} else {
+		if (!plog_is_replaying() &&
+		    plog_append_rename(oldpath, newpath) < 0)
+			return -ENOSPC;
+		err = cxlfs_rename_node(old_parent_ino, old_leaf, strlen(old_leaf),
+					new_parent_ino, new_leaf, strlen(new_leaf));
+		if (err)
+			return err;
 		tmp_dent = new_dent(dent_old->inode, walk_new.leaf,
 				    strlen(walk_new.leaf));
 		if (CHCORE_IS_ERR(tmp_dent)) {
@@ -412,12 +443,7 @@ int tmpfs_rename(const char *oldpath, const char *newpath)
 	// free dentry
 	free(dent_old);
 
-	/*
-	 * Log the destination file's full content to the p-log.
-	 * LevelDB updates CURRENT and MANIFEST via atomic rename, so we must
-	 * capture the result here — it won't be covered by any prior WRITE log.
-	 */
-	plog_log_file_content(newpath, moved_inode);
+	plog_track_inode(moved_inode, newpath);
 
 	return 0;
 }
@@ -510,6 +536,10 @@ int tmpfs_ftruncate(void *operator, size_t len)
 	if (inode->type != FS_REG)
 		return -EINVAL;
 
+	const char *path = plog_get_inode_path(inode);
+	if (path && !plog_is_replaying() &&
+	    plog_append_truncate(path, len) < 0)
+		return -ENOSPC;
 	return tfs_truncate(inode, len);
 }
 
@@ -774,7 +804,7 @@ int __fs_symlinkat_callback(int retcode, struct tmpfs_walk_path *walk, void *dat
 {
 	return tfs_mknod(path_last_inode(&walk->path_record),
 			 walk->leaf, strlen(walk->leaf), FS_SYM,
-			 data, &(walk->target_dent));
+			 0777, data, &(walk->target_dent));
 }
 
 int __fs_symlinkat(ipc_msg_t *ipc_msg, struct fs_request *fr)
@@ -1029,6 +1059,11 @@ int __fs_fallocate(struct fs_request *fr)
 		     FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_ZERO_RANGE |
 		     FALLOC_FL_INSERT_RANGE))
 		return -EOPNOTSUPP;
+	/* These transforms still operate on the old volatile radix layout. */
+	if (inode->disk_ino &&
+	    (mode & (FALLOC_FL_PUNCH_HOLE | FALLOC_FL_COLLAPSE_RANGE |
+		     FALLOC_FL_ZERO_RANGE | FALLOC_FL_INSERT_RANGE)))
+		return -EOPNOTSUPP;
 
 	if (mode & FALLOC_FL_PUNCH_HOLE)
 		return __fs_punch_hole(inode, offset, len);
@@ -1102,41 +1137,50 @@ vaddr_t tmpfs_get_page_addr(void *operator, size_t offset)
 	inode = (struct inode *)operator;
 	page_no = offset / PAGE_SIZE;
 	page = radix_get(&inode->data, page_no);
+	if (!page && inode->disk_ino) {
+		/* fmap requires a normal tmpfs page that user_fault_map can copy or
+		 * map.  The CXL block remains authoritative; this DRAM page is only
+		 * a disposable projection rebuilt after recovery. */
+		page = aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+		if (!page)
+			return 0;
+		memset(page, 0, PAGE_SIZE);
+		ssize_t nr = cxlfs_read(inode->disk_ino, page_no * PAGE_SIZE,
+					 page, PAGE_SIZE);
+		if (nr < 0 || radix_add(&inode->data, page_no, page)) {
+			free(page);
+			return 0;
+		}
+	}
 
 	return (vaddr_t)page;
 }
 #endif
 
-/*
- * Log the content of a regular file at `path` with inode `inode`.
- * Used after rename to ensure the destination file is captured in the p-log.
- */
-static void plog_log_file_content(const char *path, struct inode *inode)
-{
-	if (!inode || inode->type != FS_REG)
-		return;
-	char buf[PLOG_MAX_DATA];
-	plog_append_creat(path, inode->mode);
-	uint64_t off = 0;
-	size_t total = inode->size;
-	while (off < total) {
-		size_t chunk = total - off;
-		if (chunk > PLOG_MAX_DATA)
-			chunk = PLOG_MAX_DATA;
-		ssize_t got = tfs_file_read(inode, off, buf, chunk);
-		if (got <= 0)
-			break;
-		plog_append_write(path, off, buf, (uint32_t)got);
-		off += got;
-	}
-}
-
 static int tmpfs_fsync(void)
 {
-	/* The filesystem data and metadata already reside in CXL. */
-	plog_checkpoint(tmpfs_root, tmpfs_root_dent);
-	plog_truncate();
-	return 0;
+	/*
+	 * Publish the stable CXLFS state, but retain the redo tail across fsync.
+	 * plog_append_raw() checkpoints and truncates only when the 4 MiB log is
+	 * full; initialization/recovery may also establish a new empty epoch.
+	 */
+	return plog_checkpoint();
+}
+
+static int tmpfs_get_status(struct fs_server_status *status)
+{
+	memset(status, 0, sizeof(*status));
+	status->magic = FS_SERVER_STATUS_MAGIC;
+	status->backend = FS_BACKEND_CXLFS;
+	status->mounted = cxlfs_is_mounted();
+	status->data_valid = cxlfs_boot_data_validated;
+	status->owner_machine = cxlfs_machine();
+	status->fresh = cxlfs_mount_was_fresh;
+	status->generation = cxlfs_generation();
+	status->root_ino = cxlfs_root_ino();
+	status->data_checksum = cxlfs_boot_data_checksum;
+	return status->mounted && status->data_valid && status->generation &&
+	       status->root_ino && status->data_checksum ? 0 : -EIO;
 }
 
 struct fs_server_ops server_ops = {
@@ -1163,6 +1207,7 @@ struct fs_server_ops server_ops = {
 	.fallocate = tmpfs_fallocate,
 	.fcntl = tmpfs_fcntl,
 	.fsync = tmpfs_fsync,
+	.get_status = tmpfs_get_status,
 #ifdef CHCORE_ENABLE_FMAP
 	.fmap_get_page_addr = tmpfs_get_page_addr,
 #endif

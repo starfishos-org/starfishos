@@ -5,6 +5,7 @@
 
 #include "plog.h"
 #include "tmpfs.h"
+#include "cxlfs.h"
 
 #define PLOG_PREFIX "[plog]"
 #define plog_info(fmt, ...)  printf(PLOG_PREFIX " " fmt, ##__VA_ARGS__)
@@ -12,6 +13,21 @@
 
 /* Global p-log header for the current machine */
 static struct plog_header *g_plog = NULL;
+static int g_replaying;
+
+static void plog_flush_range(const volatile void *addr, size_t len)
+{
+	uintptr_t p = (uintptr_t)addr & ~63UL;
+	uintptr_t end = ((uintptr_t)addr + len + 63UL) & ~63UL;
+	for (; p < end; p += 64)
+		__asm__ volatile("clwb (%0)" :: "r"((void *)p) : "memory");
+	__asm__ volatile("sfence" ::: "memory");
+}
+
+int plog_is_replaying(void)
+{
+	return g_replaying;
+}
 
 /*
  * Simple inode-to-path tracking for write logging.
@@ -81,15 +97,18 @@ struct plog_header *plog_init(int machine_id)
 	struct plog_header *hdr = (struct plog_header *)addr;
 
 	/* Initialize if fresh */
-	if (hdr->magic != PLOG_MAGIC) {
+	if (hdr->magic != PLOG_MAGIC ||
+	    hdr->format_version != PLOG_FORMAT_VERSION) {
 		memset(hdr, 0, sizeof(*hdr));
 		hdr->magic = PLOG_MAGIC;
+		hdr->format_version = PLOG_FORMAT_VERSION;
 		hdr->capacity = PLOG_SHM_SIZE - sizeof(struct plog_header);
 		hdr->tail = sizeof(struct plog_header);
+		hdr->checkpoint_tail = sizeof(struct plog_header);
 		hdr->seq_counter = 0;
 		hdr->owner_machine = machine_id;
 		hdr->state = PLOG_ACTIVE;
-		PLOG_FLUSH(hdr);
+		plog_flush_range(hdr, sizeof(*hdr));
 		plog_info("Initialized p-log for machine %d (capacity=%lu)\n",
 		          machine_id, (unsigned long)hdr->capacity);
 	} else {
@@ -97,17 +116,27 @@ struct plog_header *plog_init(int machine_id)
 		if (hdr->capacity != PLOG_SHM_SIZE - sizeof(*hdr)) {
 			memset(hdr, 0, sizeof(*hdr));
 			hdr->magic = PLOG_MAGIC;
+			hdr->format_version = PLOG_FORMAT_VERSION;
 			hdr->capacity = PLOG_SHM_SIZE - sizeof(*hdr);
 			hdr->tail = sizeof(struct plog_header);
+			hdr->checkpoint_tail = sizeof(struct plog_header);
 			hdr->owner_machine = machine_id;
 		}
 		hdr->state = PLOG_ACTIVE;
-		PLOG_FLUSH(&hdr->state);
+		plog_flush_range(&hdr->state, sizeof(hdr->state));
 		plog_info("Reconnected to p-log for machine %d (tail=%lu)\n",
 		          machine_id, (unsigned long)hdr->tail);
 	}
 
 	g_plog = hdr;
+	if (cxlfs_is_mounted()) {
+		hdr->fs_machine = cxlfs_machine();
+		hdr->checkpoint_root_ino = cxlfs_root_ino();
+		plog_flush_range(&hdr->fs_machine,
+				 sizeof(hdr->fs_machine) + sizeof(hdr->checkpoint_tail) +
+				 sizeof(hdr->checkpoint_generation) +
+				 sizeof(hdr->checkpoint_root_ino));
+	}
 	return hdr;
 }
 
@@ -119,14 +148,17 @@ struct plog_header *plog_map_remote(int remote_machine_id)
 		return NULL;
 
 	struct plog_header *hdr = (struct plog_header *)addr;
-	if (hdr->magic != PLOG_MAGIC) {
+	if (hdr->magic != PLOG_MAGIC ||
+	    hdr->format_version != PLOG_FORMAT_VERSION) {
 		plog_error("Remote p-log machine %d: bad magic 0x%x\n",
 		           remote_machine_id, hdr->magic);
 		return NULL;
 	}
 
-	plog_info("Mapped remote p-log for machine %d (tail=%lu, entries)\n",
-	          remote_machine_id, (unsigned long)hdr->tail);
+	plog_info("Mapped remote p-log for machine %d "
+	          "(tail_bytes=%lu, checkpoint_tail=%u)\n",
+	          remote_machine_id, (unsigned long)hdr->tail,
+	          hdr->checkpoint_tail);
 	return hdr;
 }
 
@@ -142,8 +174,9 @@ static struct plog_entry *plog_append_raw(uint32_t entry_len)
 	uint64_t end = tail + entry_len;
 
 	if (end > PLOG_SHM_SIZE) {
-		/* The operation is already applied to CXL by tmpfs at this point. */
-		plog_checkpoint(tmpfs_root, tmpfs_root_dent);
+		/* Publish the stable CXL root before discarding the redo prefix. */
+		if (plog_checkpoint() < 0)
+			return NULL;
 		plog_truncate();
 		tail = g_plog->tail;
 		end = tail + entry_len;
@@ -163,13 +196,13 @@ static struct plog_entry *plog_append_raw(uint32_t entry_len)
 static void plog_commit(struct plog_entry *entry)
 {
 	/* Flush entry data */
-	PLOG_FLUSH(entry);
+	plog_flush_range(entry, entry->entry_len);
 
 	/* Update tail atomically */
 	uint64_t new_tail = (uint64_t)((char *)entry - (char *)g_plog)
 	                    + entry->entry_len;
 	g_plog->tail = new_tail;
-	PLOG_FLUSH(&g_plog->tail);
+	plog_flush_range(&g_plog->tail, sizeof(g_plog->tail));
 }
 
 int plog_append_creat(const char *path, int mode)
@@ -216,6 +249,43 @@ int plog_append_write(const char *path, uint64_t offset,
 	e->write.data_len = data_len;
 	memcpy(e->write.data, data, data_len);
 
+	plog_commit(e);
+	return 0;
+}
+
+int plog_append_unlink(const char *path, int is_dir)
+{
+	struct plog_entry *e = plog_append_raw(PLOG_ENTRY_BASE_SIZE);
+	if (!e) return -1;
+	e->op = is_dir ? PLOG_OP_RMDIR : PLOG_OP_UNLINK;
+	strncpy(e->path, path, PLOG_MAX_PATH - 1);
+	e->path[PLOG_MAX_PATH - 1] = '\0';
+	e->creat.mode = 0;
+	plog_commit(e);
+	return 0;
+}
+
+int plog_append_rename(const char *oldpath, const char *newpath)
+{
+	struct plog_entry *e = plog_append_raw(PLOG_ENTRY_RENAME_SIZE);
+	if (!e) return -1;
+	e->op = PLOG_OP_RENAME;
+	strncpy(e->path, oldpath, PLOG_MAX_PATH - 1);
+	e->path[PLOG_MAX_PATH - 1] = '\0';
+	strncpy(e->rename.new_path, newpath, PLOG_MAX_PATH - 1);
+	e->rename.new_path[PLOG_MAX_PATH - 1] = '\0';
+	plog_commit(e);
+	return 0;
+}
+
+int plog_append_truncate(const char *path, uint64_t size)
+{
+	struct plog_entry *e = plog_append_raw(PLOG_ENTRY_TRUNCATE_SIZE);
+	if (!e) return -1;
+	e->op = PLOG_OP_TRUNCATE;
+	strncpy(e->path, path, PLOG_MAX_PATH - 1);
+	e->path[PLOG_MAX_PATH - 1] = '\0';
+	e->truncate.size = size;
 	plog_commit(e);
 	return 0;
 }
@@ -303,30 +373,57 @@ void plog_truncate(void)
 		return;
 
 	g_plog->tail = sizeof(struct plog_header);
+	g_plog->checkpoint_tail = sizeof(struct plog_header);
 	g_plog->seq_counter = 0;
-	PLOG_FLUSH(g_plog);
-	plog_info("P-log truncated (checkpoint after fsync)\n");
+	plog_flush_range(g_plog, sizeof(*g_plog));
+	plog_info("P-log truncated after checkpoint\n");
 }
 
-void plog_checkpoint(void *root, void *root_dent)
+int plog_checkpoint(void)
 {
 	if (!g_plog)
-		return;
-
-	g_plog->checkpoint_root = (uint64_t)(uintptr_t)root;
-	g_plog->checkpoint_root_dent = (uint64_t)(uintptr_t)root_dent;
-	PLOG_FLUSH(&g_plog->checkpoint_root);
-	PLOG_FLUSH(&g_plog->checkpoint_root_dent);
+		return -ENODEV;
+	int ret = cxlfs_sync();
+	if (ret < 0)
+		return ret;
+	g_plog->fs_machine = cxlfs_machine();
+	g_plog->checkpoint_tail = g_plog->tail;
+	g_plog->checkpoint_generation = cxlfs_generation();
+	g_plog->checkpoint_root_ino = cxlfs_root_ino();
+	plog_flush_range(&g_plog->fs_machine,
+			 sizeof(g_plog->fs_machine) + sizeof(g_plog->checkpoint_tail) +
+			 sizeof(g_plog->checkpoint_generation) +
+			 sizeof(g_plog->checkpoint_root_ino));
+	return 0;
 }
 
-int plog_get_checkpoint(const struct plog_header *hdr,
-			void **root, void **root_dent)
+int plog_fs_machine(const struct plog_header *hdr)
 {
-	if (!hdr || !hdr->checkpoint_root || !hdr->checkpoint_root_dent)
+	if (!hdr || hdr->magic != PLOG_MAGIC ||
+	    hdr->format_version != PLOG_FORMAT_VERSION ||
+	    hdr->fs_machine >= CLUSTER_MAX_MACHINE_NUM)
 		return -1;
-	*root = (void *)(uintptr_t)hdr->checkpoint_root;
-	*root_dent = (void *)(uintptr_t)hdr->checkpoint_root_dent;
-	return 0;
+	return hdr->fs_machine;
+}
+
+/*
+ * The generic fs wrapper implements replace-style rename as an unlink of the
+ * destination immediately followed by the backend rename.  Treat that pair
+ * as one redo transaction: replaying the unlink alone would delete an already
+ * committed rename, after which the source name no longer exists.
+ */
+static int next_entry_renames_to(struct plog_header *hdr, uint64_t next_pos,
+				 uint64_t tail, const char *path)
+{
+	if (next_pos >= tail)
+		return 0;
+	struct plog_entry *next =
+		(struct plog_entry *)((char *)hdr + next_pos);
+	if (next->entry_len < PLOG_ENTRY_RENAME_SIZE ||
+	    next_pos + next->entry_len > tail || next->op != PLOG_OP_RENAME ||
+	    !memchr(next->rename.new_path, '\0', sizeof(next->rename.new_path)))
+		return 0;
+	return !strcmp(next->rename.new_path, path);
 }
 
 int plog_replay(struct plog_header *hdr)
@@ -337,15 +434,28 @@ int plog_replay(struct plog_header *hdr)
 	}
 
 	uint64_t tail = hdr->tail;
-	uint64_t pos = sizeof(struct plog_header);
+	uint64_t pos = hdr->checkpoint_tail;
 	int count = 0, errors = 0;
+	if (tail < sizeof(struct plog_header) || tail > PLOG_SHM_SIZE) {
+		plog_error("Invalid p-log tail %lu\n", (unsigned long)tail);
+		return -1;
+	}
+	if (pos < sizeof(struct plog_header) || pos > tail) {
+		plog_error("Invalid checkpoint tail %lu (tail=%lu)\n",
+		           (unsigned long)pos, (unsigned long)tail);
+		return -1;
+	}
+	g_replaying = 1;
 
-	plog_info("Replaying p-log (tail=%lu)...\n", (unsigned long)tail);
+	plog_info("Replaying p-log bytes [%lu, %lu)...\n",
+	          (unsigned long)pos, (unsigned long)tail);
 
 	while (pos < tail) {
 		struct plog_entry *e = (struct plog_entry *)((char *)hdr + pos);
 
-		if (e->entry_len == 0 || pos + e->entry_len > tail) {
+		if (e->entry_len < PLOG_ENTRY_BASE_SIZE ||
+		    pos + e->entry_len > tail ||
+		    !memchr(e->path, '\0', sizeof(e->path))) {
 			plog_error("Corrupt entry at offset %lu\n",
 			           (unsigned long)pos);
 			break;
@@ -377,6 +487,13 @@ int plog_replay(struct plog_header *hdr)
 			break;
 		}
 		case PLOG_OP_WRITE: {
+			if (e->entry_len < PLOG_ENTRY_WRITE_HDR ||
+			    e->write.data_len > e->entry_len - PLOG_ENTRY_WRITE_HDR) {
+				plog_error("  Corrupt WRITE at offset %lu\n",
+					   (unsigned long)pos);
+				errors++;
+				break;
+			}
 			plog_info("  replay[%lu]: WRITE %s off=%lu len=%u\n",
 			          (unsigned long)e->seq, e->path,
 			          (unsigned long)e->write.offset,
@@ -384,6 +501,50 @@ int plog_replay(struct plog_header *hdr)
 			int ret = replay_write(e->path, e->write.offset,
 			                       e->write.data, e->write.data_len);
 			if (ret) errors++;
+			break;
+		}
+		case PLOG_OP_UNLINK:
+		case PLOG_OP_RMDIR: {
+			if (next_entry_renames_to(hdr, pos + e->entry_len,
+						 tail, e->path)) {
+				plog_info("  replay[%lu]: skip rename pre-unlink %s\n",
+					  (unsigned long)e->seq, e->path);
+				break;
+			}
+			plog_info("  replay[%lu]: %s %s\n",
+				  (unsigned long)e->seq,
+				  e->op == PLOG_OP_RMDIR ? "RMDIR" : "UNLINK",
+				  e->path);
+			int ret = e->op == PLOG_OP_RMDIR ?
+				tmpfs_rmdir(e->path, 0) : tmpfs_unlink(e->path, 0);
+			if (ret && ret != -ENOENT)
+				errors++;
+			break;
+		}
+		case PLOG_OP_RENAME: {
+			plog_info("  replay[%lu]: RENAME %s -> %s\n",
+				  (unsigned long)e->seq, e->path,
+				  e->rename.new_path);
+			int ret = tmpfs_rename(e->path, e->rename.new_path);
+			/* Already-renamed operations are idempotently complete. */
+			if (ret && ret != -ENOENT)
+				errors++;
+			break;
+		}
+		case PLOG_OP_TRUNCATE: {
+			struct tmpfs_walk_path walk = {
+				.path = e->path,
+				.path_len = strlen(e->path),
+				.not_found_callback = NULL,
+				.follow_symlink = 1,
+			};
+			int ret = handle_xxxat(AT_FDROOT, &walk);
+			if (!ret) {
+				ret = tfs_truncate(walk.target, e->truncate.size);
+				path_fini(&walk.path_record);
+			}
+			if (ret && ret != -ENOENT)
+				errors++;
 			break;
 		}
 		default:
@@ -396,6 +557,7 @@ int plog_replay(struct plog_header *hdr)
 		count++;
 	}
 
+	g_replaying = 0;
 	plog_info("Replay done: %d entries, %d errors\n", count, errors);
 	return errors ? -1 : 0;
 }

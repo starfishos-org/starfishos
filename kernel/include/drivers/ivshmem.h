@@ -81,6 +81,7 @@ extern u8 kvm_ivshmem_dev_num;
 extern struct kvm_ivshmem_device *doorbell_dev;
 extern struct kvm_ivshmem_device *hostfs_dev;
 extern struct kvm_ivshmem_device *cxl_shm_dev;
+extern struct kvm_ivshmem_device *cxlfs_dev;
 
 /* Array for 8 CXL devices (numa0.0 to numa3.1) - stores physical address and size */
 #define MAX_CXL_DEVICES 8

@@ -89,6 +89,7 @@ struct fs_server_ops {
 
 	/* Called after fsync/fdatasync; NULL means no-op. */
 	int (*fsync) (void);
+	int (*get_status) (struct fs_server_status *status);
 
 #ifdef CHCORE_ENABLE_FMAP
 	vaddr_t (*fmap_get_page_addr)(void *operator, size_t offset);

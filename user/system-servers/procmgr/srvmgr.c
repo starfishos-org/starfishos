@@ -51,16 +51,16 @@ static void boot_server(char *srv_name, char *srv_path, int *srv_cap_p)
 			     ->proc_mt_cap;
 }
 
-void set_tmpfs_cap(int cap)
+void set_cxlfs_cap(int cap)
 {
-	sys_servers[SERVER_TMPFS] = cap;
+	sys_servers[SERVER_CXLFS] = cap;
 }
 
 extern char __binary_fsm_elf_start;
 extern char __binary_fsm_elf_size;
 
-extern char __binary_tmpfs_elf_start;
-extern char __binary_tmpfs_elf_size;
+extern char __binary_cxlfs_elf_start;
+extern char __binary_cxlfs_elf_size;
 
 /* Return proc_node of new process */
 static struct proc_node *do_launch_process(int input_argc, char **input_argv,
@@ -167,14 +167,14 @@ struct proc_node *procmgr_launch_process(int input_argc, char **input_argv,
 
         pthread_mutex_lock(&read_elf_lock);
         ret = readelf_from_fs(input_argv[0], &user_elf, is_cross_machine);
-        if (ret < 0 && strcmp(input_argv[0], "/tmpfs.srv") == 0) {
-                /* tmpfs.srv is embedded in procmgr, not stored in the FS */
+        if (ret < 0 && strcmp(input_argv[0], "/cxlfs.srv") == 0) {
+                /* cxlfs.srv is embedded in procmgr, not stored in the FS */
                 ret = readelf_from_vaddr(&user_elf,
-                                         (size_t)*(u64 *)&__binary_tmpfs_elf_size,
-                                         &__binary_tmpfs_elf_start,
+                                         (size_t)*(u64 *)&__binary_cxlfs_elf_size,
+                                         &__binary_cxlfs_elf_start,
                                          is_cross_machine);
                 if (ret >= 0)
-                        memcpy(user_elf.path, "/tmpfs.srv", sizeof("/tmpfs.srv"));
+                        memcpy(user_elf.path, "/cxlfs.srv", sizeof("/cxlfs.srv"));
         }
         pthread_mutex_unlock(&read_elf_lock);
 
@@ -214,13 +214,13 @@ struct proc_node *procmgr_launch_basic_server(int input_argc, char **input_argv,
         struct user_elf user_elf;
         int is_cross_machine = false;
 
-        if (strcmp(input_argv[0], "/tmpfs.srv") == 0) {
+        if (strcmp(input_argv[0], "/cxlfs.srv") == 0) {
                 pthread_mutex_lock(&read_elf_lock);
                 ret = readelf_from_vaddr(&user_elf,
-                                         (size_t)*(u64 *)&__binary_tmpfs_elf_size,
-                                         &__binary_tmpfs_elf_start,
+                                         (size_t)*(u64 *)&__binary_cxlfs_elf_size,
+                                         &__binary_cxlfs_elf_start,
                                          is_cross_machine);
-                memcpy(user_elf.path, "/tmpfs.srv", sizeof("/tmpfs.srv"));
+                memcpy(user_elf.path, "/cxlfs.srv", sizeof("/cxlfs.srv"));
                 pthread_mutex_unlock(&read_elf_lock);
         } else if (strcmp(input_argv[0], "/fsm.srv") == 0) {
                 pthread_mutex_lock(&read_elf_lock);
@@ -282,8 +282,8 @@ void handle_get_server_cap(ipc_msg_t *ipc_msg, struct proc_request *pr)
 	/* Server not booted */
 	else {
 		switch (pr->server_id) {
-		case SERVER_TMPFS:
-			printf("Tmpfs does not start up now.\n");
+		case SERVER_CXLFS:
+			printf("CXLFS does not start up now.\n");
 			BUG_ON(1);
 			goto out;
 		case SERVER_SYSTEMV_SHMMGR:

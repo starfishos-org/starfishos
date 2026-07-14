@@ -82,6 +82,8 @@ struct hostfs_file_info {
 struct kvm_ivshmem_device *hostfs_dev;
 // cxl shm device (for shared memory)
 struct kvm_ivshmem_device *cxl_shm_dev;
+// dedicated persistent CXLFS device
+struct kvm_ivshmem_device *cxlfs_dev;
 // doorbell device (for MSI notification)
 struct kvm_ivshmem_device *doorbell_dev;
 
@@ -90,7 +92,7 @@ struct kvm_ivshmem_device *doorbell_dev;
 u64 dram_devices_map[MAX_IVSHMEM_DEV][2];
 
 // ivshmem device lists
-// Support: 8 CXL devices + 1 shared memory + 1 doorbell + 1 hostfs = 11 devices
+// Support: 8 DRAM devices + shared memory + hostfs + CXLFS + doorbell
 #define MAX_IVSHMEM_DEV_LIST 12
 u8 kvm_ivshmem_dev_num = 0;
 struct kvm_ivshmem_device kvm_ivshmem_dev_list[MAX_IVSHMEM_DEV_LIST];
@@ -439,6 +441,10 @@ static int ivshmem_pci_probe(struct pci_dev *pdev)
         } else if (strncmp(header->magic, "cxlmem", 6) == 0) {
             cxl_shm_dev = dev;
             pci_info("[IVSHMEM] [%d] magic \"match cxlmem\" (shared memory device)\n", kvm_ivshmem_dev_num);
+        } else if (*(u64 *)header->magic == 0x43584c4653313031ULL) {
+            cxlfs_dev = dev;
+            pci_info("[IVSHMEM] [%d] magic \"match CXLFS101\" (persistent filesystem device)\n",
+                     kvm_ivshmem_dev_num);
         } else if (strncmp(header->magic, "numa", 4) == 0) {
             /* Parse numaX.Y format: numa0.0, numa1.0, ..., numa3.1 */
             int numa_node, numa_dev;

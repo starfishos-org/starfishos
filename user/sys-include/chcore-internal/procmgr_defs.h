@@ -26,7 +26,9 @@ enum PROC_REQ {
 };
 
 enum CONFIGURABLE_SERVER {
-	SERVER_TMPFS = 1,
+	SERVER_CXLFS = 1,
+	/* Source compatibility for code not yet migrated to the CXLFS name. */
+	SERVER_TMPFS = SERVER_CXLFS,
 	SERVER_SYSTEMV_SHMMGR,
 	SERVER_HDMI_DRIVER,
 	SERVER_SD_CARD,
