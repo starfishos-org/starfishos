@@ -55,6 +55,7 @@ mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
 
 WELCOME="Welcome to ChCore shell!"
 
+ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
 ae_ensure_base_build || exit 1
 

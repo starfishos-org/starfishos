@@ -74,8 +74,9 @@ if [[ "$BUILD" == "true" ]]; then
 fi
 
 # ---- cleanup ----
-tmux kill-session -t "$SESSION" 2>/dev/null || true
-sleep 1
+# shellcheck source=../artifact-evaluation/common.sh
+source "$REPO_DIR/artifact-evaluation/common.sh"
+ae_ensure_clean_tmux
 
 # Drop host page cache so residual pages from old QEMU instances do not hurt performance
 sync

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$REPO_ROOT/artifact-evaluation/common.sh"
 AE_DIR="$REPO_ROOT/artifact-evaluation/1-ipc-cdf"
 # Keep the latest artifact in one predictable location.  Each invocation
 # truncates these two logs before booting, rather than accumulating per-run
@@ -36,8 +37,8 @@ restore_sources() {
 
 cleanup() {
     restore_sources
-    if [ "$KEEP_QEMU" != "1" ] && tmux has-session -t "$SESSION" 2>/dev/null; then
-        tmux kill-session -t "$SESSION" || true
+    if [ "$KEEP_QEMU" != "1" ]; then
+        ae_stop_tmux_and_reap "$SESSION" || true
     fi
 }
 trap cleanup EXIT
@@ -102,6 +103,37 @@ guest_faulted() {
         'BUG: do_page_fault|CMD: /polling_client\.bin'
 }
 
+send_client_command() {
+    local machine="$1" command="$2" logfile="$3"
+    local prev_sz=-1 cur_sz quiet=0 waited=0 try sent
+
+    # Serial output can still be draining when the shell banner appears.
+    while [ "$quiet" -lt 2 ] && [ "$waited" -lt 60 ]; do
+        cur_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
+        if [ "$cur_sz" = "$prev_sz" ]; then
+            quiet=$((quiet + 1))
+        else
+            quiet=0
+        fi
+        prev_sz="$cur_sz"
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    for try in 1 2 3; do
+        tmux send-keys -t "$SESSION:$machine" "" Enter
+        sleep 1
+        tmux send-keys -t "$SESSION:$machine" "$command" Enter
+        sleep 3
+        sent="$(grep -acF "$command" "$logfile" 2>/dev/null || true)"
+        if [ "${sent:-0}" -gt 0 ]; then
+            return 0
+        fi
+        echo "Command not echoed on machine $machine (try $try); resending" >&2
+    done
+    return 1
+}
+
 run_client() {
     local machine="$1"
     local mode="$2"
@@ -116,7 +148,11 @@ run_client() {
     before="$(done_count "$logfile")"
     first_line=$(($(wc -l < "$logfile") + 1))
     echo "=== Running $mode on machine $machine ==="
-    tmux send-keys -t "$SESSION:$machine" "$command" Enter
+    send_client_command "$machine" "$command" "$logfile" || {
+        echo "Guest shell did not receive command for $mode" >&2
+        tail -80 "$logfile" >&2 || true
+        return 1
+    }
 
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
         if [ "$command_seen" = "0" ] &&
@@ -186,9 +222,7 @@ reset_dsm_metadata() {
 }
 
 stop_cluster() {
-    if tmux has-session -t "$SESSION" 2>/dev/null; then
-        tmux kill-session -t "$SESSION"
-    fi
+    ae_stop_tmux_and_reap "$SESSION"
 }
 
 start_cluster() {
@@ -198,7 +232,11 @@ start_cluster() {
     local machine0_start
     local machine1_start
 
-    stop_cluster
+    stop_cluster || return 1
+    if ae_has_chcore_qemu; then
+        echo "Refusing to boot $mode: leftover ChCore QEMU still running" >&2
+        return 1
+    fi
     reset_dsm_metadata
 
     echo "=== Booting two QEMU machines for $mode ==="
@@ -230,7 +268,7 @@ run_mode() {
 
 cd "$REPO_ROOT"
 
-source "$REPO_ROOT/artifact-evaluation/common.sh"
+ae_ensure_clean_tmux
 
 check_global_prepare
 

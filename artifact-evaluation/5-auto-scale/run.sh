@@ -80,6 +80,7 @@ app_marker() {
     esac
 }
 
+ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
 ae_save_build_configs
 trap 'ae_restore_build_configs; ae_kill_cluster' EXIT

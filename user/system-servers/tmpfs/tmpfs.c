@@ -407,8 +407,7 @@ int main(int argc, char *argv[], char *envp[])
 	} else {
 		if (cxlfs_restore_tree(tmpfs_root) < 0)
 			return -1;
-		/* A normal restart also consumes any untruncated redo tail. */
-		plog_replay(local_plog);
+		/* P-log replay is only performed in --recover mode (recover-fs). */
 	}
 	int verify_ret = verify_cxlfs_boot_data(
 		(char *)&__binary_ramdisk_cpio_start);

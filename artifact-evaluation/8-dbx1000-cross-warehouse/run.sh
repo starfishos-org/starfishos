@@ -98,6 +98,7 @@ bind_cpu_list() {
 }
 
 cd "$AE_REPO_ROOT"
+ae_ensure_clean_tmux
 ae_check_global_prepare
 ae_save_build_configs
 

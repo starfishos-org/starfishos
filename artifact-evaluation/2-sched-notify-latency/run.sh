@@ -142,6 +142,7 @@ run_once() {
 
 cd "$REPO_ROOT"
 source "$REPO_ROOT/artifact-evaluation/common.sh"
+ae_ensure_clean_tmux
 check_global_prepare
 enable_microbench_config
 

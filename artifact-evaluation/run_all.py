@@ -10,9 +10,12 @@ Flow:
   1. ``artifact-evaluation/prepare.sh`` (unless ``--no-prepare``)
   2. First-time OS build via ``common.sh`` / ``quick-build.sh`` (unless ``--no-build``)
   3. For each selected experiment: ``timeout … artifact-evaluation/<dir>/run.sh``
+  4. Then plot / parse figures via each directory's ``plot.py`` (or ``plot.sh``)
 
-Each experiment owns build, QEMU, plotting, and output paths. This script does
-not copy figures or reimplement experiment logic.
+Each experiment owns build, QEMU, and output paths. ``run_all.py`` always
+attempts plotting after ``run.sh`` so partial logs still produce figures when
+a run times out or ``run.sh`` exits before its own plot step. Use
+``--plot-only`` to re-plot from existing logs without re-running QEMU.
 
 Examples::
 
@@ -137,6 +140,66 @@ def run_script(name: str) -> Path:
     return exp_dir(name) / "run.sh"
 
 
+def latest_out_dir(ae_dir: Path) -> Optional[Path]:
+    """Newest artifact-evaluation/<dir>/out/<timestamp> from a prior sweep."""
+    out_root = ae_dir / "out"
+    if not out_root.is_dir():
+        return None
+    candidates = [p for p in out_root.iterdir() if p.is_dir()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def plot_cmd(name: str) -> Optional[List[str]]:
+    """Build the plot/parse command for an experiment (None if no plotter)."""
+    ae_dir = exp_dir(name)
+    plot_sh = ae_dir / "plot.sh"
+    if plot_sh.is_file():
+        return ["bash", str(plot_sh)]
+
+    plot_py = ae_dir / "plot.py"
+    parse_msi = ae_dir / "parse_msi.py"
+
+    if name == "basic":
+        return ["python3", str(parse_msi)] if parse_msi.is_file() else None
+    if not plot_py.is_file():
+        return None
+
+    user = os.environ.get("USER", "user")
+    mplconfig = os.environ.get("MPLCONFIGDIR", f"/tmp/matplotlib-{user}")
+    if name in ("memory-allocator", "recover-fs"):
+        base = ["env", f"MPLCONFIGDIR={mplconfig}", "python3", str(plot_py)]
+    else:
+        base = ["python3", str(plot_py)]
+
+    if name in ("ipc-cdf", "sched-notify", "memory-allocator", "recover-fs"):
+        return base
+
+    out = latest_out_dir(ae_dir)
+    if out is None:
+        return None
+
+    log_dir = out / "logs"
+    if name == "auto-scale":
+        results = out / "results"
+        cmd = base + ["--out-dir", str(out)]
+        for flag, fname in (
+            ("--matrix-data", "4000size.txt"),
+            ("--db1000-data", "db1000-p3os-tigon.csv"),
+            ("--gemini-data", "gemini-data.log"),
+        ):
+            path = results / fname
+            if path.is_file():
+                cmd += [flag, str(path)]
+        return cmd if len(cmd) > 4 else None
+
+    if name in ("state-partition", "resource-util", "dbx1000-cross-warehouse"):
+        return base + ["--log-dir", str(log_dir), "--out-dir", str(out)]
+
+    return base
+
+
 def budget_for(exp: Experiment, global_budget: Optional[int]) -> int:
     key = f"BUDGET_{exp.name.upper().replace('-', '_')}"
     raw = os.environ.get(key)
@@ -166,14 +229,14 @@ def resolve_names(mode_args: List[str]) -> List[str]:
 
 
 def kill_ae_sessions() -> None:
-    user = os.environ.get("USER", "user")
-    for tmpl in AE_SESSIONS:
-        subprocess.run(
-            ["tmux", "kill-session", "-t", tmpl.format(user=user)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+    subprocess.run(
+        [
+            "bash", "-c",
+            f'source "{AE_ROOT}/common.sh" && ae_ensure_clean_tmux',
+        ],
+        cwd=str(REPO_ROOT),
+        check=False,
+    )
 
 
 def run_cmd(cmd: List[str], *, cwd: Path = REPO_ROOT) -> int:
@@ -254,6 +317,35 @@ def run_experiment(
     return f"FAILED(rc={rc})"
 
 
+def run_plot(name: str, *, dry_run: bool) -> str:
+    exp = EXPERIMENTS[name]
+    ae_dir = exp_dir(name)
+    cmd = plot_cmd(name)
+
+    log("")
+    log(f"--- [{time.strftime('%H:%M:%S')}] plot {name} ---")
+
+    if exp.status == "stub":
+        log(f"[plot] SKIP stub experiment: {name}")
+        return "TODO(stub)"
+
+    if cmd is None:
+        log(f"[plot] no plotter or no inputs for {name} (skip)")
+        return "NO_INPUT"
+
+    log(f"[plot] cmd: {' '.join(cmd)}")
+
+    if dry_run:
+        return "DRY_RUN"
+
+    rc = run_cmd(cmd)
+    if rc == 0:
+        log(f"[plot] OK -> {ae_dir}")
+        return "OK"
+    log(f"[plot] FAILED(rc={rc}) for {name}")
+    return f"FAILED(rc={rc})"
+
+
 def env_flag(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -278,9 +370,21 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     stages.add_argument("--prepare-only", action="store_true")
     stages.add_argument("--build-only", action="store_true")
     stages.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Re-plot from existing logs; skip prepare, build, and run.sh",
+    )
+    stages.add_argument(
         "--gather-only",
         action="store_true",
-        help="No-op: outputs already live in each experiment directory",
+        help="Alias for --plot-only",
+    )
+
+    parser.add_argument(
+        "--plot", dest="do_plot", action="store_true", default=None,
+    )
+    parser.add_argument(
+        "--no-plot", dest="do_plot", action="store_false",
     )
     stages.add_argument(
         "--experiments-only",
@@ -334,8 +438,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     elif args.build_only:
         args.do_prepare = False if args.do_prepare is None else args.do_prepare
         args.do_build, args.do_run = True, False
-    elif args.gather_only:
+    elif args.plot_only or args.gather_only:
         args.do_prepare, args.do_build, args.do_run = False, False, False
+        args.do_plot = True
     elif args.experiments_only:
         args.do_prepare, args.do_build = False, False
         if args.do_run is None:
@@ -347,6 +452,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             args.do_build = not env_flag("SKIP_BASE_BUILD")
         if args.do_run is None:
             args.do_run = True
+        if args.do_plot is None:
+            args.do_plot = True
+
+    if args.do_plot is None:
+        args.do_plot = not (args.prepare_only or args.build_only)
 
     return args
 
@@ -371,16 +481,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     log(f"=== experiments: {' '.join(names)} ===")
     log(
         f"=== stages: prepare={args.do_prepare}({args.prepare_mode}) "
-        f"build={args.do_build} run={args.do_run} "
+        f"build={args.do_build} run={args.do_run} plot={args.do_plot} "
         f"dry_run={args.dry_run} force_build={args.force_base_build} ==="
     )
 
-    if args.gather_only and not args.dry_run:
-        log("=== gather-only: nothing to do (each run.sh writes under its own directory) ===")
-        for name in names:
-            exp = EXPERIMENTS[name]
-            log(f"  {name}: {exp_dir(name)}")
-        return 0
+    if (args.plot_only or args.gather_only) and not args.dry_run:
+        log("=== plot-only: re-plot from existing logs (no QEMU) ===")
 
     if args.dry_run:
         if args.do_prepare:
@@ -404,6 +510,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 0
 
     status: Dict[str, str] = {}
+    plot_status: Dict[str, str] = {}
     overall = 0
 
     if args.do_run:
@@ -417,6 +524,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             st = status[name]
             if st not in ("OK", "DRY_RUN", "TODO(stub)") and not st.startswith("TODO"):
                 overall = 1
+            if args.do_plot:
+                plot_status[name] = run_plot(name, dry_run=args.dry_run)
+                pst = plot_status[name]
+                if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
+                    overall = 1
     elif args.dry_run:
         for name in names:
             status[name] = run_experiment(
@@ -424,6 +536,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 budget=budget_for(EXPERIMENTS[name], args.budget),
                 dry_run=True,
             )
+            if args.do_plot:
+                plot_status[name] = run_plot(name, dry_run=True)
+    elif args.do_plot:
+        for name in names:
+            plot_status[name] = run_plot(name, dry_run=args.dry_run)
+            pst = plot_status[name]
+            if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
+                overall = 1
 
     log("")
     log("#" * 60)
@@ -432,12 +552,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ready_ok = ready_total = 0
     for name in names:
         st = status.get(name, "skipped")
-        log(f"{name:<26} {st:<24} {exp_dir(name)}")
-        if st in ("DRY_RUN", "TODO(stub)", "skipped"):
-            continue
-        ready_total += 1
-        if st == "OK":
-            ready_ok += 1
+        pst = plot_status.get(name, "skipped" if args.do_plot else "-")
+        log(f"{name:<26} run={st:<20} plot={pst:<16} {exp_dir(name)}")
+        if st not in ("DRY_RUN", "TODO(stub)", "skipped"):
+            ready_total += 1
+            if st == "OK":
+                ready_ok += 1
 
     log(f"Ready experiments OK: {ready_ok} / {ready_total}")
     return overall

@@ -65,7 +65,7 @@ After cloning, this is usually **the only command you need**. On the first run i
 | --- | --- | --- |
 | `prepare.sh` | CXL / 8×NUMA / hostfs / ivshmem doorbell | Every time (skips rebuild if already present) |
 | first-time OS build | `scripts/quick-build.sh` (= compile step of `make prepare`) | **Only when** `.config` or `build/kernel.img` is missing |
-| Paper experiments | Each directory's `run.sh` runs tests and plots; outputs stay in that directory | Every time |
+| Paper experiments | Each directory's `run.sh` runs tests; `run_all.py` plots after each run | Every time |
 | TODO stubs | Skipped when `run.sh` is missing (`process-migration`) | Every time |
 
 ```bash
@@ -75,6 +75,8 @@ python3 artifact-evaluation/run_all.py --prepare-only     # environment prepare 
 python3 artifact-evaluation/run_all.py --prepare-only --prepare-mode recreate
 python3 artifact-evaluation/run_all.py --build-only       # first-time / forced build only
 python3 artifact-evaluation/run_all.py --experiments-only ready
+python3 artifact-evaluation/run_all.py --plot-only ipc-cdf   # re-plot without QEMU
+python3 artifact-evaluation/run_all.py --no-plot ready       # run only, skip figures
 python3 artifact-evaluation/run_all.py --force-base-build # force rebuild then run all
 ```
 

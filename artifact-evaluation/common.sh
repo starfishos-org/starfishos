@@ -10,7 +10,9 @@
 #   ae_boot_cluster N            - boot an N-machine cluster in tmux
 #   ae_send_command M "cmd"      - send a shell command to machine M
 #   ae_wait_in_log M "pat" T     - wait for pattern in machine M's log
-#   ae_kill_cluster              - tear down the tmux session
+#   ae_kill_cluster              - tear down the tmux session + reap stray QEMU
+#   ae_stop_tmux_and_reap [sess] - kill one tmux session + reap stray QEMU
+#   ae_ensure_clean_tmux         - kill all AE/QEMU tmux sessions + stray QEMU
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
 #   ae_save_build_configs / ae_restore_build_configs
@@ -311,7 +313,7 @@ ae_boot_cluster() {
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
 
-    ae_kill_cluster
+    ae_ensure_clean_tmux
 
     echo "=== Resetting DSM metadata ==="
     (cd "$AE_REPO_ROOT" && make clean-dsm-meta >/dev/null)
@@ -374,9 +376,7 @@ ae_send_command() {
 }
 
 ae_kill_cluster() {
-    if tmux has-session -t "$AE_SESSION" 2>/dev/null; then
-        tmux kill-session -t "$AE_SESSION"
-    fi
+    ae_stop_tmux_and_reap "$AE_SESSION"
 }
 
 # Kill every known AE / benchmark tmux session so a timed-out experiment
@@ -391,8 +391,82 @@ ae_kill_all_ae_sessions() {
         "${USER}-msi-basic-ae" \
         "${USER}-qemu"
     do
-        tmux kill-session -t "$s" 2>/dev/null || true
+        if tmux has-session -t "$s" 2>/dev/null; then
+            echo "[AE] killing tmux session $s"
+            tmux kill-session -t "$s" 2>/dev/null || true
+        fi
     done
+}
+
+# True when any ChCore guest QEMU (-name chcore-*) is still running.
+ae_has_chcore_qemu() {
+    ps -u "$USER" -o args= 2>/dev/null \
+        | grep -qE 'qemu-6.2-system-x86_64.*-name chcore-'
+}
+
+# Reap ChCore QEMU instances that outlived their tmux pane (e.g. after
+# timeout or manual tmux kill).  Match only our guests (-name chcore-*).
+# Optional signal: TERM (default) or KILL.
+ae_reap_leftover_qemu() {
+    local signal="${1:-TERM}" pid
+    while read -r pid; do
+        [ -n "$pid" ] || continue
+        echo "[AE] reaping leftover ChCore QEMU pid $pid ($signal)"
+        kill "-$signal" "$pid" 2>/dev/null || true
+    done < <(ps -u "$USER" -o pid=,args= 2>/dev/null \
+        | grep -E 'qemu-6.2-system-x86_64.*-name chcore-' \
+        | awk '{print $1}')
+    sleep 1
+}
+
+# Block until no ChCore QEMU remains, escalating to SIGKILL if needed.
+ae_wait_qemu_gone() {
+    local timeout="${1:-30}" elapsed=0
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        ae_has_chcore_qemu || return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    echo "[AE] QEMU still running after ${timeout}s; reaping" >&2
+    ae_reap_leftover_qemu TERM
+    elapsed=0
+    while [ "$elapsed" -lt 10 ]; do
+        ae_has_chcore_qemu || return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    ae_reap_leftover_qemu KILL
+    sleep 1
+    if ae_has_chcore_qemu; then
+        echo "[AE] ERROR: leftover ChCore QEMU could not be reaped" >&2
+        return 1
+    fi
+    return 0
+}
+
+# Kill one tmux session and reap any QEMU it left behind.  Use between
+# per-mode reboots (ipc-cdf) as well as normal ae_kill_cluster teardown.
+ae_stop_tmux_and_reap() {
+    local session="${1:-$AE_SESSION}"
+
+    if tmux has-session -t "$session" 2>/dev/null; then
+        echo "[AE] killing tmux session $session"
+        tmux kill-session -t "$session" 2>/dev/null || true
+        sleep 1
+    fi
+    ae_reap_leftover_qemu TERM
+    ae_wait_qemu_gone "${AE_QEMU_REAP_TIMEOUT:-30}"
+}
+
+# Call before booting QEMU so a prior run cannot hold ivshmem or the session
+# name.  Safe to invoke at script entry and again inside ae_boot_cluster.
+ae_ensure_clean_tmux() {
+    echo "=== Ensuring clean tmux / QEMU state ==="
+    ae_kill_all_ae_sessions
+    ae_reap_leftover_qemu
 }
 
 # First-time OS prepare (equivalent to `make prepare`'s build step).

@@ -40,6 +40,7 @@ cp "$PROJECT_CONFIG" "$PROJECT_CONFIG_BACKUP"
 cp "$PROJECT_INI" "$PROJECT_INI_BACKUP"
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+ae_ensure_clean_tmux
 ae_check_global_prepare
 
 cd "$REPO_ROOT"

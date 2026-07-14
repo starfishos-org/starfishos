@@ -262,6 +262,7 @@ timeline_ms() {
 
 cd "$REPO_ROOT"
 source "$REPO_ROOT/artifact-evaluation/common.sh"
+ae_ensure_clean_tmux
 check_global_prepare
 if [ "$SKIP_BUILD" != "1" ]; then
     ae_build_with_config_restore \

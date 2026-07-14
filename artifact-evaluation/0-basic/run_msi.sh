@@ -70,6 +70,8 @@ check_prepare() {
 }
 
 cd "$REPO_ROOT"
+source "$REPO_ROOT/artifact-evaluation/common.sh"
+ae_ensure_clean_tmux
 check_prepare
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="
