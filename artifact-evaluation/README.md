@@ -106,17 +106,21 @@ python3 artifact-evaluation/run_all.py --force-base-build # force rebuild then r
 | `1-ipc-cdf` | IPC CDF + breakdown | ready |
 | `3-memory-allocator` | `fig00-allocator-all` | ready |
 | `4-state-partition` | `state_partition` | ready |
-| `6-auto-scale` | `auto-scale-matrix` / `db1000` / `gemini-chcore` | **TODO** |
-| `8-process-migration` | `process-migration-data-*` | **TODO** |
-| `9-resource-util` | `real.eps` | **TODO** |
+| `6-auto-scale` | `auto-scale-matrix` / `db1000` / `gemini-chcore` | ready¹ |
+| `8-process-migration` | `process-migration-data-*` | ready |
+| `9-resource-util` | `real.eps` | ready¹ |
 | `7-recover-fs` | `recovery-performance-single` | ready |
 
-Missing-figure checklist: [`TODO-FIGURES.md`](TODO-FIGURES.md).
+¹ Plotting is validated (reproduces the paper figure from the paper's own data);
+the QEMU data-collection path is scaffolded but not yet validated against a live
+run — see each directory's README "Status / caveats". `6-auto-scale` and
+`9-resource-util` additionally need external Linux/Tigon baselines (`test-on-linux/`)
+and extra demos enabled.
 
 ### Optional modes
 
 ```bash
-python3 artifact-evaluation/run_all.py ready     # run the 4 implemented experiments only
+python3 artifact-evaluation/run_all.py ready     # run the implemented paper experiments only
 python3 artifact-evaluation/run_all.py all       # paper + extras
 python3 artifact-evaluation/run_all.py ipc-cdf   # named subset
 ```
@@ -161,7 +165,9 @@ Implementation: orchestration lives in [`run_all.py`](run_all.py); each experime
 ./artifact-evaluation/4-state-partition/run.sh
 ./artifact-evaluation/5-dbx1000-cross-warehouse/run.sh
 ./artifact-evaluation/7-recover-fs/run.sh
-# TODO stubs: 6-auto-scale / 8-process-migration / 9-resource-util
+./artifact-evaluation/6-auto-scale/run.sh
+./artifact-evaluation/8-process-migration/run.sh
+./artifact-evaluation/9-resource-util/run.sh
 ```
 
 Host Linux baselines included in one-click extras (`run_all.py all` or named

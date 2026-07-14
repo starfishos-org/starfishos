@@ -117,22 +117,22 @@ EXPERIMENTS: Dict[str, Experiment] = {
         is_paper=False,
     ),
     "auto-scale": Experiment(
-        "auto-scale", "6-auto-scale", "stub", 28800,
+        "auto-scale", "6-auto-scale", "ready", 28800,
         "auto-scale-matrix / db1000 / gemini",
-        "TODO: auto-scale-matrix.eps, db1000.eps, gemini-chcore.eps",
+        "auto-scale-matrix.{eps,pdf,png}, db1000.*, gemini-chcore.*",
     ),
     "recover-fs": Experiment(
         "recover-fs", "7-recover-fs", "ready", 10800,
         "recovery-performance-single", "recovery-performance.{png,pdf}",
     ),
     "process-migration": Experiment(
-        "process-migration", "8-process-migration", "stub", 14400,
+        "process-migration", "8-process-migration", "ready", 14400,
         "process-migration",
-        "TODO: process-migration-data-large/small.eps",
+        "process-migration-data-large/small.{eps,pdf,png}",
     ),
     "resource-util": Experiment(
-        "resource-util", "9-resource-util", "stub", 21600,
-        "real.eps", "TODO: real.eps",
+        "resource-util", "9-resource-util", "ready", 21600,
+        "real.eps", "real.{eps,pdf,png}",
     ),
 }
 
@@ -351,7 +351,13 @@ def gather_figures(name: str, dest_root: Path, outdirs: Dict[str, Path]) -> None
                 if linux_csv.is_file():
                     shutil.copy2(linux_csv, dest / f"linux_{fname}")
                     copied += 1
-    elif name in ("state-partition", "dbx1000-cross-warehouse"):
+    elif name in (
+        "state-partition",
+        "dbx1000-cross-warehouse",
+        "auto-scale",
+        "process-migration",
+        "resource-util",
+    ):
         latest = latest_out_dir(ae_dir)
         if latest is not None:
             outdirs[name] = latest
