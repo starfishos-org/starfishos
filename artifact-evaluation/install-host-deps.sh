@@ -42,6 +42,8 @@ $SUDO apt-get install -y \
     pkg-config \
     python3 \
     python3-matplotlib \
+    python3-numpy \
+    python3-pandas \
     python3-pip \
     tmux \
     xz-utils \
@@ -51,16 +53,30 @@ if command -v systemctl >/dev/null 2>&1; then
     $SUDO systemctl enable --now docker
 fi
 
+need_relogin=0
 if [ "${EUID}" -ne 0 ] && ! id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
     $SUDO usermod -aG docker "$USER"
-    echo "Added $USER to the docker group; log out and back in before running Docker without sudo."
+    echo "Added $USER to the docker group."
+    need_relogin=1
 fi
 
-echo "Installed Docker, numactl, tmux, Python 3, matplotlib, and QEMU build dependencies."
-
-if [ ! -e /dev/kvm ]; then
+if [ -e /dev/kvm ]; then
+    if getent group kvm >/dev/null 2>&1; then
+        if [ "${EUID}" -ne 0 ] && ! id -nG "$USER" | tr ' ' '\n' | grep -qx kvm; then
+            $SUDO usermod -aG kvm "$USER"
+            echo "Added $USER to the kvm group (required for /dev/kvm)."
+            need_relogin=1
+        fi
+    fi
+else
     echo "WARNING: /dev/kvm is absent; enable hardware virtualization and KVM before running the artifact." >&2
 fi
+
+if [ "$need_relogin" -eq 1 ]; then
+    echo "Log out and back in (or re-login via ssh) before running Docker/QEMU without sudo."
+fi
+
+echo "Installed Docker, numactl, tmux, Python 3, matplotlib/numpy/pandas, and QEMU build dependencies."
 
 QEMU_VERSION=6.2.0
 QEMU_PREFIX=/usr/local/qemu-6.2

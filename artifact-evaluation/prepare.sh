@@ -7,6 +7,65 @@ SERVER_PID_FILE="/tmp/ivshmem-server-$USER.pid"
 
 cd "$REPO_ROOT"
 
+# Required demo / library submodules (default ON in user/demos/config.cmake).
+# Empty gitlinks after a plain `git clone` will break the first OS build.
+check_required_submodules() {
+    local path missing=0
+    local required=(
+        "user/libraries/rpmalloc"
+        "user/demos/phoenix-2.0"
+        "user/demos/dbx1000"
+        "user/demos/GeminiGraph"
+    )
+
+    echo "=== Checking required git submodules ==="
+    for path in "${required[@]}"; do
+        if [ ! -e "$path/CMakeLists.txt" ]; then
+            echo "Missing submodule content: $path" >&2
+            missing=1
+        fi
+    done
+    if [ "$missing" -ne 0 ]; then
+        echo >&2
+        echo "Run from the repository root:" >&2
+        echo "  git submodule update --init --recursive" >&2
+        echo >&2
+        echo "Note: demo URLs are under https://github.com/starfishos-org/." >&2
+        echo "A network fetch is required before the first build can succeed." >&2
+        exit 1
+    fi
+}
+
+# Phoenix data files live under datasets/ (gitignored) and are symlinked from
+# the phoenix submodule. twitter-2010.bin (~11 GiB) is only needed for Gemini.
+download_datasets() {
+    echo "=== Downloading benchmark datasets (if missing) ==="
+    # Default: skip the large graph; set SKIP_GRAPH_DATASET=0 for Gemini /
+    # auto-scale gemini runs (or run scripts/download_datasets.sh yourself).
+    SKIP_GRAPH_DATASET="${SKIP_GRAPH_DATASET:-1}" \
+        ./scripts/download_datasets.sh
+}
+
+warn_host_layout() {
+    if [ ! -d /sys/devices/system/node/node4 ]; then
+        echo "WARNING: NUMA node 4 not found." >&2
+        echo "  config_memdev.sh binds the CXL ivshmem file with" >&2
+        echo "  numactl --membind=4; allocation may fail on this host." >&2
+        echo "  Edit memNumaNode in dsm-scripts/config_memdev.sh if needed." >&2
+    fi
+
+    # Rough capacity check: 8x16G NUMA + 64G CXL + 16G hostfs + 8G CXLFS ≈ 216G
+    if [ -d /dev/shm ]; then
+        local avail_kb
+        avail_kb="$(df -k /dev/shm 2>/dev/null | awk 'NR==2 {print $4}')"
+        if [ -n "${avail_kb:-}" ] && [ "$avail_kb" -lt $((200 * 1024 * 1024)) ]; then
+            echo "WARNING: /dev/shm has less than ~200 GiB free" \
+                "($((avail_kb / 1024 / 1024)) GiB reported)." >&2
+            echo "  Default AE backing files need about 216 GiB under /dev/shm." >&2
+        fi
+    fi
+}
+
 ensure_backing_files() {
     local cxl_file="/dev/shm/ivshmem-$USER"
     local hostfs_file="/dev/shm/ivshmem-hostfs-$USER"
@@ -57,6 +116,10 @@ ensure_backing_files() {
     ./dsm-scripts/prepare_cxlfs_dev.sh
     python3 ./dsm-scripts/prepare_cxlmem.py
 }
+
+check_required_submodules
+download_datasets
+warn_host_layout
 
 case "$MODE" in
     ensure)

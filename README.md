@@ -30,7 +30,12 @@ On Ubuntu/Debian, install qemu-6.2 and required host-side tools with:
 bash artifact-evaluation/install-host-deps.sh
 ```
 
-The script enables Docker and adds the invoking user to the `docker` group; log out and back in before using Docker without `sudo`. It downloads the official QEMU 6.2.0 source package, builds the x86_64/KVM target and ivshmem server, then installs `/usr/local/bin/qemu-6.2-system-x86_64` and `/usr/local/qemu-6.2/bin/ivshmem-server`.
+The script enables Docker and adds the invoking user to the `docker` and `kvm`
+groups; log out and back in before using Docker or `/dev/kvm` without `sudo`.
+It also installs plotting packages (`matplotlib`, `numpy`, `pandas`), downloads
+the official QEMU 6.2.0 source package, builds the x86_64/KVM target and
+ivshmem server, then installs `/usr/local/bin/qemu-6.2-system-x86_64` and
+`/usr/local/qemu-6.2/bin/ivshmem-server`.
 
 ### Docker image
 
@@ -51,18 +56,31 @@ docker build -t promisivia/treesls_chcore_builder:v2.3 .
 The default build uses the Docker builder image configured in [chbuild](chbuild).
 
 ```bash
-git submodule update --init --recursive
-make prepare        # first checkout only: create emulated memory and build
-make build          # build the artifact
+git submodule update --init --recursive   # required (rpmalloc / phoenix / dbx1000 / GeminiGraph, …)
+bash artifact-evaluation/install-host-deps.sh   # once per host; then re-login
+docker pull promisivia/treesls_chcore_builder:v2.3
+make prepare        # datasets + emulated memory + first build
+make build          # incremental build
 make r4             # boot a cluster of 4 QEMU/KVM machines
 ```
+
+Demo submodules are public under
+[github.com/starfishos-org](https://github.com/starfishos-org) (HTTPS in
+`.gitmodules`).
 
 The launcher defaults to 12 vCPUs per guest and a 64 GiB CXL backing file. Set `machine_num`, `cpu_num`, `dram_size`, and `cxl_size` in the repository-root [`chcore.ini`](chcore.ini) to change the persistent cluster configuration. Environment variables such as `MACHINE_NUM`, `CPU_NUM`, and `CXL_SIZE` override those values for a single launch. Per-NUMA backing-file sizes remain configured in [`dsm-scripts/numa_sizes.conf`](dsm-scripts/numa_sizes.conf).
 
 
 ## Artifact evaluation
 
-Read [artifact-evaluation/README.md](artifact-evaluation/README.md) before running an experiment; each subdirectory documents its inputs, overrides, outputs, and plot regeneration.
+Follow the **From a fresh clone** section in
+[artifact-evaluation/README.md](artifact-evaluation/README.md), then:
+
+```bash
+python3 artifact-evaluation/run_all.py    # default: validated ready experiments
+```
+
+Each subdirectory documents its inputs, overrides, outputs, and plot regeneration.
 
 ## Repository layout
 

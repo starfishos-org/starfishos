@@ -1,42 +1,48 @@
 [submodule "user/demos/phoenix"]
 	path = user/demos/phoenix-2.0
-	url = git@github.com:starfishos-org/phoenix.git
+	url = https://github.com/starfishos-org/phoenix.git
 	branch = phoenix-2.0
 [submodule "user/demos/dbx1000"]
 	path = user/demos/dbx1000
-	url = git@github.com:starfishos-org/dbx1000.git
+	url = https://github.com/starfishos-org/dbx1000.git
 	branch = chcore
 [submodule "user/libraries/rpmalloc"]
 	path = user/libraries/rpmalloc
-	url = git@github.com:starfishos-org/rpmalloc.git
+	url = https://github.com/starfishos-org/rpmalloc.git
 	branch = sosp26-submission
 [submodule "user/demos/GeminiGraph"]
 	path = user/demos/GeminiGraph
-	url = git@github.com:starfishos-org/GeminiGraph.git
+	url = https://github.com/starfishos-org/GeminiGraph.git
 	branch = sosp26-submission
 
 # Linux baselines for paper Ideal / Distributed curves (AE auto-scale, etc.)
 [submodule "test-on-linux/phoenix"]
 	path = test-on-linux/phoenix
-	url = git@github.com:starfishos-org/phoenix.git
+	url = https://github.com/starfishos-org/phoenix.git
 	branch = cmake-debug
 [submodule "test-on-linux/dbx1000"]
 	path = test-on-linux/dbx1000
-	url = git@github.com:starfishos-org/dbx1000.git
+	url = https://github.com/starfishos-org/dbx1000.git
 	branch = master
 [submodule "test-on-linux/GeminiGraph"]
 	path = test-on-linux/GeminiGraph
-	url = git@github.com:starfishos-org/GeminiGraph.git
-	branch = sosp26-submission
+	url = https://github.com/starfishos-org/GeminiGraph-linux.git
+	branch = atom
 [submodule "test-on-linux/ggraph-distri"]
 	path = test-on-linux/ggraph-distri
-	url = https://github.com/thu-pacman/GeminiGraph.git
+	url = https://github.com/starfishos-org/GeminiGraph-distri.git
 	branch = master
 [submodule "test-on-linux/leveldb"]
 	path = test-on-linux/leveldb
-	url = git@github.com:starfishos-org/leveldb.git
+	url = https://github.com/starfishos-org/leveldb.git
 	branch = dev
 [submodule "test-on-linux/linux-kernel-test"]
 	path = test-on-linux/linux-kernel-test
-	url = git@github.com:starfishos-org/linux-tests.git
+	url = https://github.com/starfishos-org/linux-tests.git
 	branch = main
+
+# --- unused by current AE; keep for later ---
+# [submodule "user/demos/ligra"]
+# 	path = user/demos/ligra
+# 	url = https://github.com/starfishos-org/...
+# 	branch = master

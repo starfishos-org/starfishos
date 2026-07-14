@@ -19,14 +19,15 @@ git submodule update --init --recursive test-on-linux
 | `GeminiGraph/` | Ideal (LINUX-DRAM) single-node GeminiGraph |
 | `ggraph-distri/` | Distributed / Linux-MPI multi-node GeminiGraph |
 | `leveldb/` | Linux LevelDB baseline (when needed) |
-| `linux-kernel-test/` | Host Linux microbenchmarks (`nvsys/FITS/linux-tests`) |
+| `linux-kernel-test/` | Host Linux microbenchmarks ([starfishos-org/linux-tests](https://github.com/starfishos-org/linux-tests)) |
 
 Sched/notify host Linux microbench for AE lives separately at
 `artifact-evaluation/2-sched-notify-latency/run_linux.sh` (not a submodule).
 
 ## Notes
 
+- Submodule URLs are public HTTPS under
+  [github.com/starfishos-org](https://github.com/starfishos-org)
+  (`GeminiGraph/` → `GeminiGraph-linux`, `ggraph-distri/` → `GeminiGraph-distri`).
 - ChCore app ports stay under `user/demos/` (different branches/remotes).
-- AE `6-auto-scale` is still a stub; wire runners here when implementing Ideal.
-- Local-only dirs from chcore-cxl (e.g. `mapreduce/`, `fxmark/`, `lmbench`)
-  are not vendored here; keep them outside the repo or add later if needed.
+- AE `5-auto-scale` still needs Ideal/Distributed numbers merged from these trees.

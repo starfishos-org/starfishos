@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """One-click artifact evaluation — thin wrapper over per-experiment run.sh.
 
-From the repository root::
+From the repository root (after submodule init + install-host-deps)::
 
-    python3 artifact-evaluation/run_all.py
+    python3 artifact-evaluation/run_all.py          # default: ready experiments
     ./artifact-evaluation/run-all.sh
 
 Flow:
   1. ``artifact-evaluation/prepare.sh`` (unless ``--no-prepare``)
+     — submodule check, dataset download, ivshmem / hostfs / doorbell
   2. First-time OS build via ``common.sh`` / ``quick-build.sh`` (unless ``--no-build``)
   3. For each selected experiment: ``timeout … artifact-evaluation/<dir>/run.sh``
   4. Then plot / parse figures via each directory's ``plot.py`` (or ``plot.sh``)
@@ -22,7 +23,8 @@ Examples::
     ./artifact-evaluation/run_all.py --prepare-only
     ./artifact-evaluation/run_all.py --build-only --force-base-build
     ./artifact-evaluation/run_all.py --no-prepare --no-build ipc-cdf
-    ./artifact-evaluation/run_all.py --experiments-only ready
+    ./artifact-evaluation/run_all.py --experiments-only
+    ./artifact-evaluation/run_all.py paper          # full paper set (includes stubs / unvalidated)
     ./artifact-evaluation/run_all.py --dry-run
     ./artifact-evaluation/run_all.py --list
 """
@@ -211,9 +213,12 @@ def budget_for(exp: Experiment, global_budget: Optional[int]) -> int:
 
 
 def resolve_names(mode_args: List[str]) -> List[str]:
-    if not mode_args or mode_args == ["paper"]:
-        return list(PAPER_ORDER)
+    # Default is the validated ready set so a fresh-clone one-click path can succeed.
+    if not mode_args or mode_args == ["ready"]:
+        return list(READY_PAPER)
     head = mode_args[0]
+    if head == "paper":
+        return list(PAPER_ORDER)
     if head == "ready":
         return list(READY_PAPER)
     if head == "extra":
@@ -362,8 +367,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "mode",
         nargs="*",
-        default=["paper"],
-        help="paper (default) | ready | all | extra | experiment names",
+        default=["ready"],
+        help="ready (default) | paper | all | extra | experiment names",
     )
 
     stages = parser.add_argument_group("stage shortcuts")
@@ -477,7 +482,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     names = resolve_names(args.mode)
 
     log("=== One-click AE: artifact-evaluation/run_all.py ===")
-    log(f"=== mode: {' '.join(args.mode) or 'paper'} ===")
+    log(f"=== mode: {' '.join(args.mode) or 'ready'} ===")
     log(f"=== experiments: {' '.join(names)} ===")
     log(
         f"=== stages: prepare={args.do_prepare}({args.prepare_mode}) "
