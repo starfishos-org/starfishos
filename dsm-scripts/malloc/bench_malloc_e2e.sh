@@ -125,7 +125,8 @@ build_current_config() {
     config_snapshot="$(mktemp)"
     cp "$ROOT_DIR/.config" "$config_snapshot"
 
-    if (cd "$ROOT_DIR" && ./chbuild clean && ./chbuild build) 2>&1 | tail -10; then
+    if (cd "$ROOT_DIR" && ./scripts/chbuild-with-fallback.sh --no-fallback clean build) \
+            2>&1 | tail -10; then
         rm -f "$config_snapshot"
         return 0
     fi
@@ -141,7 +142,7 @@ build_current_config() {
     # selection and rebuild the affected targets before running benchmarks.
     cp "$config_snapshot" "$ROOT_DIR/.config"
     rm -f "$config_snapshot"
-    if ! (cd "$ROOT_DIR" && ./chbuild build) 2>&1 | tail -10; then
+    if ! (cd "$ROOT_DIR" && ./scripts/chbuild-with-fallback.sh build) 2>&1 | tail -10; then
         echo "[E2E] BUILD FAILED after restoring config: $label" >&2
         return 1
     fi

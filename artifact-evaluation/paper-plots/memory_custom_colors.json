@@ -1,5 +1,0 @@
-{
-  "_comment": "CXL 基线蓝、我们（LLfree/Log-ON 等）红或品牌色；改 hex 后重新运行 plot_from_logs.py / rpmalloc.py",
-  "cxl_blue": "#1f77b4",
-  "ours_red": "#d62728"
-}

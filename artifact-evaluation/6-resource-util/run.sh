@@ -31,14 +31,14 @@
 # ##   1. confirm which application's output lands in which log and how each
 # ##      one is demuxed into a <bench>_<cond>.log (metrics differ per app);
 # ##   2. confirm the completion markers (COND_MARKER);
-# ##   3. cross-check parse_and_plot.py's EXTRACTORS against real app output.
+# ##   3. cross-check plot.py's EXTRACTORS against real app output.
 # ## The plotting path IS validated: it reproduces real.eps from the paper CSV.
 # ###########################################################################
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-AE_DIR="$AE_REPO_ROOT/artifact-evaluation/9-resource-util"
+AE_DIR="$AE_REPO_ROOT/artifact-evaluation/6-resource-util"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
@@ -100,11 +100,11 @@ done
 
 echo ""
 echo "=== Parsing + plotting real (resource-util) ==="
-echo "[AE] NOTE: parse_and_plot.py expects <bench>_<cond>.log; the raw logs"
+echo "[AE] NOTE: plot.py expects <bench>_<cond>.log; the raw logs"
 echo "[AE]       above are per-stress-type and must be demuxed per application."
 echo "[AE]       Until that demux is validated, re-plot from the paper CSV:"
-echo "[AE]   python3 $AE_DIR/parse_and_plot.py --csv $AE_REPO_ROOT/../p3os-paper/eval/real.csv --out-dir $OUT_DIR"
-python3 "$AE_DIR/parse_and_plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" || {
+echo "[AE]   python3 $AE_DIR/plot.py --csv $AE_REPO_ROOT/../p3os-paper/eval/real.csv --out-dir $OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" || {
     echo "[AE] log-based plot incomplete (expected until demux is validated)."
 }
 

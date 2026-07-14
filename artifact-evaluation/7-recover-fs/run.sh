@@ -229,27 +229,6 @@ start_cluster() {
     echo "[AE] External detector will watch machine 0 QEMU PID $MACHINE0_QEMU_PID"
 }
 
-build_chcore() {
-    local config_snapshot
-    config_snapshot="$(mktemp)"
-    cp "$REPO_ROOT/.config" "$config_snapshot"
-
-    echo '=== Building LevelDB recovery artifact ==='
-    if ./chbuild build; then
-        rm -f "$config_snapshot"
-        return 0
-    fi
-    echo '=== chbuild failed; retrying with scripts/quick-build.sh ===' >&2
-    if ! ./scripts/quick-build.sh; then
-        rm -f "$config_snapshot"
-        return 1
-    fi
-    cp "$config_snapshot" "$REPO_ROOT/.config"
-    rm -f "$config_snapshot"
-    ./chbuild build
-    test -x "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
-}
-
 benchmark_rate_ops() {
     # db_bench prints: "<benchmark> : X micros/op". Select the requested
     # benchmark from this invocation and convert it to ops/s.
@@ -282,9 +261,11 @@ timeline_ms() {
 }
 
 cd "$REPO_ROOT"
+source "$REPO_ROOT/artifact-evaluation/common.sh"
 check_global_prepare
 if [ "$SKIP_BUILD" != "1" ]; then
-    build_chcore
+    ae_build_with_config_restore \
+        "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
 fi
 
 echo "[AE] Result directory: $OUT_DIR"

@@ -118,23 +118,89 @@ ae_restore_build_configs() {
     fi
 }
 
+# Run chbuild via scripts/chbuild-with-fallback.sh (quick-build on any failure).
+# Override AE_BUILD_TIMEOUT (seconds) for the per-step wall clock.
+ae_chbuild_with_fallback() {
+    local build_timeout="${AE_BUILD_TIMEOUT:-3600}"
+    local log="${AE_LOG_DIR:-/tmp}/build_$$.log"
+    mkdir -p "$(dirname "$log")"
+    export CHBUILD_TIMEOUT="$build_timeout"
+    export CHBUILD_LOG="$log"
+    export CHBUILD_PROGRESS=1
+
+    if "$AE_REPO_ROOT/scripts/chbuild-with-fallback.sh" "$@"; then
+        return 0
+    fi
+
+    local rc=$?
+    if [ "$rc" -eq 124 ]; then
+        ae_record_timeout "chbuild exceeded ${build_timeout}s (log: $log)"
+    else
+        echo "Build failed (rc=$rc); see $log" >&2
+        tail -30 "$log" >&2 || true
+    fi
+    return "$rc"
+}
+
 # Build with a hard timeout (a wedged docker/cmake would otherwise hang the
 # whole experiment). Override with AE_BUILD_TIMEOUT (seconds).
 ae_build() {
-    local build_timeout="${AE_BUILD_TIMEOUT:-3600}"
-    local log="${AE_LOG_DIR:-/tmp}/build_$$.log"
-    echo "=== Building ChCore (timeout ${build_timeout}s) ==="
-    (cd "$AE_REPO_ROOT" && timeout "$build_timeout" ./chbuild build) > "$log" 2>&1
-    local rc=$?
-    if [ "$rc" -eq 124 ]; then
-        ae_record_timeout "chbuild build exceeded ${build_timeout}s (log: $log)"
-        return 1
-    elif [ "$rc" -ne 0 ]; then
-        echo "Build failed (rc=$rc); see $log" >&2
-        tail -30 "$log" >&2
+    echo "=== Building ChCore (timeout ${AE_BUILD_TIMEOUT:-3600}s, live progress below) ==="
+    ae_chbuild_with_fallback build || return 1
+    echo "Build OK."
+}
+
+# Prefer incremental chbuild; on failure run quick-build.sh, restore .config from
+# a snapshot, optionally AE_BUILD_POST_RESTORE_HOOK, then rebuild (with fallback).
+# Optional first argument: executable that must exist after a successful build.
+ae_build_with_config_restore() {
+    local verify_bin="${1:-}"
+    local config_snapshot
+    config_snapshot="$(mktemp)"
+    cp "$AE_DOTCONFIG" "$config_snapshot"
+
+    _verify_binary() {
+        if [ -n "$verify_bin" ] && [ ! -x "$verify_bin" ]; then
+            echo "Expected binary missing: $verify_bin" >&2
+            return 1
+        fi
+        return 0
+    }
+
+    _try_incremental() {
+        ae_chbuild_with_fallback --no-fallback build && _verify_binary
+    }
+
+    _try_with_fallback() {
+        ae_chbuild_with_fallback build && _verify_binary
+    }
+
+    echo "=== Building ChCore (timeout ${AE_BUILD_TIMEOUT:-3600}s, live progress below) ==="
+    if _try_incremental; then
+        rm -f "$config_snapshot"
+        echo "Build OK."
+        return 0
+    fi
+
+    echo "=== Falling back to distclean + defconfig + build ===" >&2
+    if ! (cd "$AE_REPO_ROOT" && \
+          CHBUILD_PROGRESS=1 \
+          ./scripts/chbuild-with-fallback.sh --no-fallback \
+              distclean defconfig x86_64 build); then
+        rm -f "$config_snapshot"
         return 1
     fi
+
+    echo "=== Restoring artifact configuration after quick-build ==="
+    cp "$config_snapshot" "$AE_DOTCONFIG"
+    rm -f "$config_snapshot"
+    if [ -n "${AE_BUILD_POST_RESTORE_HOOK:-}" ]; then
+        eval "$AE_BUILD_POST_RESTORE_HOOK"
+    fi
+
+    _try_with_fallback || return 1
     echo "Build OK."
+    return 0
 }
 
 # ── QEMU cluster management ─────────────────────────────────────────────────

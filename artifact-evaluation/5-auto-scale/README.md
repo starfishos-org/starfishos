@@ -26,7 +26,7 @@ The other curves are **external baselines that this script does not run**:
 | Tigon (external DB) — DBx1000 | not vendored here | db1000 (tigon) |
 
 See `test-on-linux/README.md`. Their numbers are merged into the data files
-`parse_and_plot.py` consumes.
+`plot.py` consumes.
 
 ## Data-file formats (identical to `p3os-paper/eval/`)
 
@@ -40,7 +40,7 @@ See `test-on-linux/README.md`. Their numbers are merged into the data files
 
 ```bash
 ./artifact-evaluation/prepare.sh                 # once
-./artifact-evaluation/6-auto-scale/run.sh
+./artifact-evaluation/5-auto-scale/run.sh
 ```
 
 Output: `out/<timestamp>/figures/{auto-scale-matrix,db1000,gemini-chcore}.{eps,pdf,png}`.
@@ -55,7 +55,7 @@ db1000,gemini_graph}.py` and is validated — it reproduces all three figures
 from the paper's own data files:
 
 ```bash
-python3 artifact-evaluation/6-auto-scale/parse_and_plot.py --out-dir /tmp/as-check \
+python3 artifact-evaluation/5-auto-scale/plot.py --out-dir /tmp/as-check \
   --matrix-data /mnt/disk1/yjs/p3os-paper/eval/mapreduce/4000size.txt \
   --db1000-data /mnt/disk1/yjs/p3os-paper/eval/db1000/db1000-p3os-tigon.csv \
   --gemini-data /mnt/disk1/yjs/p3os-paper/eval/gemini_graph/data.log

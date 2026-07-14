@@ -28,7 +28,7 @@ set_flag "$RESP_SRC"   ENABLE_SRV_TIMING $BREAKDOWN
 
 cd "$REPO_ROOT"
 echo "=== Building ==="
-./chbuild build 2>&1 | grep -E "error:|Succeeded|Failed" | head -5
+./scripts/chbuild-with-fallback.sh build 2>&1 | grep -E "error:|Succeeded|Failed" | head -5
 
 session_name=$USER-qemu
 num_windows=2

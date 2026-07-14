@@ -70,7 +70,7 @@ wait_for_pattern() {
 
 # ---- optional build ----
 if [[ "$BUILD" == "true" ]]; then
-    ./chbuild build
+    ./scripts/chbuild-with-fallback.sh build
 fi
 
 # ---- cleanup ----

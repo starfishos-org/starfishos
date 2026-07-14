@@ -20,7 +20,7 @@ Outputs (under --out-dir)
 
 Verify the drawing offline against the paper's own data::
 
-  python3 parse_and_plot.py --csv /mnt/disk1/yjs/p3os-paper/eval/real.csv \
+  python3 plot.py --csv /mnt/disk1/yjs/p3os-paper/eval/real.csv \
                             --out-dir /tmp/real-check
 """
 from __future__ import annotations

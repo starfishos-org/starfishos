@@ -74,8 +74,8 @@ check_prepare
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="
 else
-    echo "=== Building MSI microbenchmark with scripts/quick-build.sh ==="
-    ./scripts/quick-build.sh
+    echo "=== Building MSI microbenchmark ==="
+    ./scripts/chbuild-with-fallback.sh build
 fi
 test -x "$REPO_ROOT/user/build/ramdisk/msi_latency_microbench.bin"
 

@@ -2,7 +2,7 @@
 
 # use ./simulayed_cluster build to build and start the program
 if [ "$1" == "build" ]; then
-	./chbuild build
+	./scripts/chbuild-with-fallback.sh build
 fi
 
 make clean-dsm

@@ -4,7 +4,7 @@ set -x
 
 # use ./simulate_8clusters.sh build to build and start the program
 if [ "$1" == "build" ]; then
-	./chbuild build
+	./scripts/chbuild-with-fallback.sh build
 fi
 
 make start-ivshmem-server

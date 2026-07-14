@@ -49,7 +49,7 @@ All modified files (`config.h`, `kernel/CMakeLists.txt`, `.config`,
 ## Re-parse an existing run
 
 ```bash
-python3 artifact-evaluation/5-dbx1000-cross-warehouse/parse_and_plot.py \
+python3 artifact-evaluation/8-dbx1000-cross-warehouse/plot.py \
   --log-dir artifact-evaluation/5-dbx1000-cross-warehouse/out/<ts>/logs \
   --out-dir artifact-evaluation/5-dbx1000-cross-warehouse/out/<ts> \
   --num-machines 8 --ratios 15 50 80

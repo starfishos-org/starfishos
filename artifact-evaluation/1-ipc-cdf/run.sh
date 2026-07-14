@@ -49,29 +49,6 @@ set_define() {
     sed -i "s/^#define ${flag} [01]/#define ${flag} ${value}/" "$file"
 }
 
-build_chcore() {
-    local config_snapshot
-    config_snapshot="$(mktemp)"
-    cp "$PROJECT_CONFIG" "$config_snapshot"
-
-    echo "=== Building ChCore ==="
-    if ./chbuild build; then
-        rm -f "$config_snapshot"
-        return 0
-    fi
-
-    echo "=== chbuild failed; retrying with scripts/quick-build.sh ===" >&2
-    if ! ./scripts/quick-build.sh; then
-        rm -f "$config_snapshot"
-        return 1
-    fi
-
-    echo "=== Restoring IPC artifact configuration after quick-build ==="
-    cp "$config_snapshot" "$PROJECT_CONFIG"
-    rm -f "$config_snapshot"
-    ./chbuild build
-}
-
 disable_kernel_tests() {
     if [ ! -f "$PROJECT_CONFIG" ]; then
         echo "Missing ChCore config: $PROJECT_CONFIG" >&2
@@ -253,6 +230,8 @@ run_mode() {
 
 cd "$REPO_ROOT"
 
+source "$REPO_ROOT/artifact-evaluation/common.sh"
+
 check_global_prepare
 
 : > "$LOG_DIR/machine0.log"
@@ -267,7 +246,7 @@ disable_kernel_tests
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="
 else
-    build_chcore
+    ae_build_with_config_restore
 fi
 
 # Continue across modes so partial logs still reach plot.py, but remember

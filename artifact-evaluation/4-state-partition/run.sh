@@ -186,7 +186,7 @@ ae_restore_build_configs
 
 echo ""
 echo "=== Parsing logs and generating figure ==="
-python3 "$AE_DIR/parse_and_plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR"
 
 echo "Artifact output: $OUT_DIR"
 ae_finish

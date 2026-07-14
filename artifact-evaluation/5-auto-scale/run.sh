@@ -39,7 +39,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-AE_DIR="$AE_REPO_ROOT/artifact-evaluation/6-auto-scale"
+AE_DIR="$AE_REPO_ROOT/artifact-evaluation/5-auto-scale"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
@@ -120,7 +120,7 @@ for app in $APPS; do
 done
 
 # NOTE: converting the per-run logs into the data-file formats that
-# parse_and_plot.py consumes (matrix RESULT: lines, db1000 CSV, gemini CSV) and
+# plot.py consumes (matrix RESULT: lines, db1000 CSV, gemini CSV) and
 # merging the external baselines is left as a validated-run step. Once the data
 # files exist under $RESULTS, draw with:
 echo ""
@@ -130,11 +130,11 @@ plot_args=()
 [ -f "$RESULTS/db1000-p3os-tigon.csv" ] && plot_args+=(--db1000-data "$RESULTS/db1000-p3os-tigon.csv")
 [ -f "$RESULTS/gemini-data.log" ] && plot_args+=(--gemini-data "$RESULTS/gemini-data.log")
 if [ "${#plot_args[@]}" -gt 0 ]; then
-    python3 "$AE_DIR/parse_and_plot.py" --out-dir "$OUT_DIR" "${plot_args[@]}"
+    python3 "$AE_DIR/plot.py" --out-dir "$OUT_DIR" "${plot_args[@]}"
 else
     echo "[AE] No data files under $RESULTS yet. To verify the plotters against"
     echo "[AE] the paper data:"
-    echo "[AE]   python3 $AE_DIR/parse_and_plot.py --out-dir $OUT_DIR \\"
+    echo "[AE]   python3 $AE_DIR/plot.py --out-dir $OUT_DIR \\"
     echo "[AE]     --matrix-data $AE_REPO_ROOT/../p3os-paper/eval/mapreduce/4000size.txt \\"
     echo "[AE]     --db1000-data $AE_REPO_ROOT/../p3os-paper/eval/db1000/db1000-p3os-tigon.csv \\"
     echo "[AE]     --gemini-data $AE_REPO_ROOT/../p3os-paper/eval/gemini_graph/data.log"

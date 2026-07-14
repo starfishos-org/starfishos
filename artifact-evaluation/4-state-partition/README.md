@@ -45,7 +45,7 @@ Throughput benches normalize as `v / v_private`; time benches as
 ## Re-parse an existing run
 
 ```bash
-python3 artifact-evaluation/4-state-partition/parse_and_plot.py \
+python3 artifact-evaluation/4-state-partition/plot.py \
   --log-dir artifact-evaluation/4-state-partition/out/<ts>/logs \
   --out-dir artifact-evaluation/4-state-partition/out/<ts>
 ```

@@ -5,7 +5,7 @@ mode=$3
 ./dsm-scripts/change_cpu_num.sh 32
 
 if [ "$mode" = "build" ]; then
-    ./chbuild build
+    ./scripts/chbuild-with-fallback.sh build
 elif [ "$mode" = "full-build" ]; then
     ./scripts/quick-build.sh
 else

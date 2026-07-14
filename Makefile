@@ -15,7 +15,7 @@ help:
 
 b: build
 build:
-	./chbuild build
+	./scripts/chbuild-with-fallback.sh build
 
 ba: build-all
 build-all:

@@ -31,7 +31,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-AE_DIR="$AE_REPO_ROOT/artifact-evaluation/5-dbx1000-cross-warehouse"
+AE_DIR="$AE_REPO_ROOT/artifact-evaluation/8-dbx1000-cross-warehouse"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
@@ -140,7 +140,7 @@ ae_restore_build_configs
 
 echo ""
 echo "=== Parsing logs and generating figures ==="
-python3 "$AE_DIR/parse_and_plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" \
+python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" \
     --num-machines "$NUM_MACHINES" --ratios $RATIOS
 
 echo "Artifact output: $OUT_DIR"

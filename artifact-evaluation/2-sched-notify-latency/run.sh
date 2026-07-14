@@ -72,33 +72,6 @@ check_global_prepare() {
     fi
 }
 
-build_chcore() {
-    # Prefer incremental chbuild so enable_microbench_config() is not wiped by
-    # quick-build's distclean+defconfig. Fall back to quick-build, then restore
-    # the sample-apps flags and rebuild.
-    local config_snapshot
-    config_snapshot="$(mktemp)"
-    cp "$PROJECT_CONFIG" "$config_snapshot"
-
-    echo "=== Building sched/notify microbenchmark ==="
-    if ./chbuild build && \
-       [ -x "$REPO_ROOT/user/build/ramdisk/sched_notify_microbench.bin" ]; then
-        rm -f "$config_snapshot"
-        return 0
-    fi
-
-    echo "=== chbuild failed or binary missing; retrying with scripts/quick-build.sh ===" >&2
-    if ! ./scripts/quick-build.sh; then
-        rm -f "$config_snapshot"
-        return 1
-    fi
-    cp "$config_snapshot" "$PROJECT_CONFIG"
-    rm -f "$config_snapshot"
-    enable_microbench_config
-    ./chbuild build
-    test -x "$REPO_ROOT/user/build/ramdisk/sched_notify_microbench.bin"
-}
-
 wait_for_log() {
     local logfile="$1" pattern="$2" label="$3" start_line="${4:-1}"
     local elapsed=0
@@ -168,6 +141,7 @@ run_once() {
 }
 
 cd "$REPO_ROOT"
+source "$REPO_ROOT/artifact-evaluation/common.sh"
 check_global_prepare
 enable_microbench_config
 
@@ -177,7 +151,9 @@ echo "=== Configuration: source_cpu=0 local_cpu=$LOCAL_CPU "\
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="
 else
-    build_chcore
+    AE_BUILD_POST_RESTORE_HOOK='enable_microbench_config'
+    ae_build_with_config_restore \
+        "$REPO_ROOT/user/build/ramdisk/sched_notify_microbench.bin"
 fi
 
 for run in $(seq 1 "$NRUNS"); do
@@ -187,3 +163,8 @@ done
 echo "=== Parsing samples and drawing figure ==="
 python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
 echo "Artifact output: $OUT_DIR"
+
+if [ -x "$AE_DIR/run_linux.sh" ]; then
+    echo "=== Host Linux sched/notify baseline ==="
+    "$AE_DIR/run_linux.sh"
+fi

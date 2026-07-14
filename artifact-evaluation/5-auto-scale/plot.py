@@ -18,7 +18,7 @@ Data-file formats (identical to p3os-paper/eval/):
 
 Draw from data files (verify against paper)::
 
-  python3 parse_and_plot.py --out-dir /tmp/as-check \
+  python3 plot.py --out-dir /tmp/as-check \
     --matrix-data /mnt/disk1/yjs/p3os-paper/eval/mapreduce/4000size.txt \
     --db1000-data /mnt/disk1/yjs/p3os-paper/eval/db1000/db1000-p3os-tigon.csv \
     --gemini-data /mnt/disk1/yjs/p3os-paper/eval/gemini_graph/data.log

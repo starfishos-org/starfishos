@@ -18,7 +18,7 @@ The co-location pairs are already encoded in
 `user/script/cross_stress_type{1..4}_m{0,1}.sh` (StarfishOS, two machines),
 and are driven manually by `dsm-scripts/tests/real/{dram,cxl}.sh`. `run.sh`
 wraps that in the AE harness, captures per-condition logs, then
-`parse_and_plot.py` extracts each app's metric into `results/real.csv` (same
+`plot.py` extracts each app's metric into `results/real.csv` (same
 schema as `p3os-paper/eval/real.csv`) and draws the figure.
 
 ## Prerequisites
@@ -45,7 +45,7 @@ The drawing logic is copied verbatim from `p3os-paper/eval/real.py` and is
 validated — it reproduces `real.eps` from the paper's own CSV:
 
 ```bash
-python3 artifact-evaluation/9-resource-util/parse_and_plot.py \
+python3 artifact-evaluation/6-resource-util/plot.py \
     --csv /mnt/disk1/yjs/p3os-paper/eval/real.csv \
     --out-dir /tmp/real-check
 ```
@@ -59,5 +59,5 @@ validated against a live co-location run**:
   needs its own invocation + completion marker);
 - the stress/p3os runs reuse the existing stress scripts, but the mapping from
   each per-stress-type log to a per-application `<bench>_<cond>.log`, and the
-  per-app metric extractors in `parse_and_plot.py`, must be confirmed against
+  per-app metric extractors in `plot.py`, must be confirmed against
   real application output before the numbers are trustworthy.
