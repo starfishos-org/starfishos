@@ -167,10 +167,11 @@ void copy_thread_ctx_to_dst(struct thread_ctx *src, struct thread_ctx *dst)
  * rr_sched_migrate_from_shared_queue -- check shared queue and migrate
  * scheduled thread to local queue
  */
-int rr_sched_migrate_from_shared_queue()
+static int rr_sched_migrate_from_shared_queue_internal(bool urgent)
 {
     u32 gcpuid = 0, lcpuid = 0;
     struct thread *thread;
+    struct list_head *urgent_tail = NULL;
     int ret = 0;
 
     /* Fast path: check if empty (no lock needed for lockless dq) */
@@ -214,8 +215,10 @@ int rr_sched_migrate_from_shared_queue()
 #ifdef PHOENIX_SCHED_TIMING
         {
             u64 arrive_tsc = dsm_tsc_to_m0(get_cycles());
-            printk("[SCHED_TIMING] SET_AFF_TO_SCHED tsc_delta=%llu\n",
-                   arrive_tsc - thread->thread_ctx->migrate_tsc);
+            /* Never print from this wake-up path: synchronous serial output
+             * is part of the measured end-to-end latency under QEMU. Keep the
+             * calculation available for debugger/perf-counter inspection. */
+            (void)(arrive_tsc - thread->thread_ctx->migrate_tsc);
         }
 #endif
 
@@ -226,6 +229,15 @@ int rr_sched_migrate_from_shared_queue()
 
         lock(&(rr_ready_queue_meta[lcpuid].queue_lock));
         ret = __rr_sched_enqueue(thread, lcpuid);
+        if (ret == 0 && urgent) {
+            /* Keep remote FIFO order, but place this wake batch ahead of
+             * unrelated local runnable work. */
+            list_del(&thread->ready_queue_node);
+            if (!urgent_tail)
+                urgent_tail = &rr_ready_queue_meta[lcpuid].queue_head;
+            list_add(&thread->ready_queue_node, urgent_tail);
+            urgent_tail = &thread->ready_queue_node;
+        }
         unlock(&(rr_ready_queue_meta[lcpuid].queue_lock));
 
         // u64 end = plat_get_mono_time();
@@ -239,6 +251,16 @@ int rr_sched_migrate_from_shared_queue()
 
     unlock(&(rr_cur_shared_queue.queue_lock));
     return ret;
+}
+
+int rr_sched_migrate_from_shared_queue(void)
+{
+    return rr_sched_migrate_from_shared_queue_internal(false);
+}
+
+int rr_sched_migrate_from_shared_queue_urgent(void)
+{
+    return rr_sched_migrate_from_shared_queue_internal(true);
 }
 
 bool rr_sched_remote_queue_pending(void)

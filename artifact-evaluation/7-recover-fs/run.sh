@@ -13,11 +13,16 @@ TIMEOUT="${TIMEOUT:-600}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
 DB_PATH="${DB_PATH:-/tmp/leveldb_recovery}"
-FILL_NUM="${FILL_NUM:-1000000}"
+# Each LevelDB value is logged by tmpfs.  Keep this below the 1 MiB p-log
+# capacity so the pre-crash database is both durable and recoverable.
+FILL_NUM="${FILL_NUM:-128}"
 READ_NUM="${READ_NUM:-100000}"
 THREADS="${THREADS:-8}"
 CRASH_DELAY="${CRASH_DELAY:-3}"
 DETECTOR_INTERVAL="${DETECTOR_INTERVAL:-0.01}"
+# Pass this explicitly to each tmux pane.  The current recovery image is built
+# with device-backed DRAM enabled, so its valid default is 1.
+USE_DEV_AS_DRAM="${USE_DEV_AS_DRAM:-1}"
 
 mkdir -p "$LOG_DIR"
 
@@ -25,9 +30,32 @@ now_ns() { date +%s%N; }
 elapsed_ms() { awk -v start="$1" -v end="$2" 'BEGIN { printf "%.3f", (end - start) / 1000000 }'; }
 
 qemu_pid_for_machine() {
-    local machine="$1" pid
-    pid="$(pgrep -f "qemu-6\.2-system-x86_64.*-name chcore-${machine}" | head -1 || true)"
-    [ -n "$pid" ] && printf '%s\n' "$pid"
+    local machine="$1" pane_pid qemu_pid
+    pane_pid="$(tmux display-message -p -t "$SESSION:$machine" '#{pane_pid}' 2>/dev/null || true)"
+    [ -n "$pane_pid" ] || return 0
+
+    find_qemu_descendant() {
+        local pid="$1" child found args
+        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        if [[ "$args" == *qemu-6.2-system-x86_64* ]]; then
+            printf '%s\n' "$pid"
+            return 0
+        fi
+        for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+            found="$(find_qemu_descendant "$child")"
+            if [ -n "$found" ]; then
+                printf '%s\n' "$found"
+                return 0
+            fi
+        done
+        return 0
+    }
+
+    qemu_pid="$(find_qemu_descendant "$pane_pid")"
+    if [ -n "$qemu_pid" ]; then
+        printf '%s\n' "$qemu_pid"
+    fi
+    return 0
 }
 
 start_machine_detector() {
@@ -101,6 +129,10 @@ wait_for_log() {
             tail -120 "$logfile" >&2 || true
             return 1
         fi
+        if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -q '\[plog\] P-log full'; then
+            echo "Persistent log filled while waiting for $label; reduce FILL_NUM." >&2
+            return 1
+        fi
         if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -qE "$pattern"; then
             echo "$label"
             return 0
@@ -116,7 +148,7 @@ wait_for_log() {
 launch_machine() {
     local machine="$1" logfile
     logfile="$LOG_DIR/machine${machine}.log"
-    local command="MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
+    local command="cd '$REPO_ROOT' && USE_DEV_AS_DRAM=$USE_DEV_AS_DRAM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
     if [ "$machine" -eq 0 ]; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"
     else
@@ -126,6 +158,10 @@ launch_machine() {
 
 start_cluster() {
     stop_cluster
+    # QEMU's peer ID is allocated by ivshmem-server.  Restart it for this
+    # self-contained evaluation so stale dead connections cannot hand a new
+    # guest an out-of-range peer ID and corrupt DSM state during boot.
+    make start-ivshmem-server
     make clean-dsm-meta
     : > "$LOG_DIR/machine0.log"
     : > "$LOG_DIR/machine1.log"
@@ -167,6 +203,7 @@ fi
 
 echo "[AE] Output directory: $OUT_DIR"
 echo "[AE] DB: $DB_PATH; fill entries: $FILL_NUM; read entries: $READ_NUM"
+echo "[AE] USE_DEV_AS_DRAM: $USE_DEV_AS_DRAM"
 start_cluster
 
 # Populate the persistent log, then keep a real LevelDB client active until

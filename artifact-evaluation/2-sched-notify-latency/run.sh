@@ -9,15 +9,13 @@ SESSION="${SESSION:-${USER}-sched-notify-ae}"
 NUM_MACHINES=2
 NRUNS="${NRUNS:-3}"
 SAMPLES="${SAMPLES:-8}"
+LOCAL_CPU="${LOCAL_CPU:-4}"
 REMOTE_CPU="${REMOTE_CPU:-12}"
 TIMEOUT="${TIMEOUT:-300}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
-DONE_PATTERN="${DONE_PATTERN:-^\[SCHED_NOTIFY_BENCH\] DONE}"
-FAILED_PATTERN="${FAILED_PATTERN:-^\[SCHED_NOTIFY_BENCH\] FAILED}"
-SKIP_PLOT="${SKIP_PLOT:-0}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
-COMMAND="${COMMAND:-sched_notify_microbench.bin $SAMPLES $REMOTE_CPU}"
+COMMAND="${COMMAND:-sched_notify_microbench.bin $SAMPLES $LOCAL_CPU $REMOTE_CPU}"
 
 mkdir -p "$LOG_DIR"
 CONFIG_BACKUP="$(mktemp)"
@@ -137,11 +135,11 @@ run_once() {
     first_line=$(($(wc -l < "$machine0_log") + 1))
     echo "=== Run $run/$NRUNS: $COMMAND ==="
     tmux send-keys -t "$SESSION:0" "$COMMAND" Enter
-    wait_for_log "$machine0_log" "$DONE_PATTERN" \
+    wait_for_log "$machine0_log" '^\[SCHED_NOTIFY_BENCH\] DONE' \
         "run $run microbenchmark completed" "$first_line"
 
     if tail -n "+$first_line" "$machine0_log" |
-       grep -q "$FAILED_PATTERN"; then
+       grep -q '^\[SCHED_NOTIFY_BENCH\] FAILED'; then
         echo "Run $run reported a benchmark failure" >&2
         return 1
     fi
@@ -151,6 +149,9 @@ run_once() {
 cd "$REPO_ROOT"
 check_global_prepare
 enable_microbench_config
+
+echo "=== Configuration: source_cpu=0 local_cpu=$LOCAL_CPU "\
+"cross_machine_cpu=$REMOTE_CPU samples=$SAMPLES runs=$NRUNS ==="
 
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="
@@ -162,8 +163,6 @@ for run in $(seq 1 "$NRUNS"); do
     run_once "$run"
 done
 
-if [ "$SKIP_PLOT" != "1" ]; then
-    echo "=== Parsing samples and drawing figure ==="
-    python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
-fi
+echo "=== Parsing samples and drawing figure ==="
+python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
 echo "Artifact output: $OUT_DIR"

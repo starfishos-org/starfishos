@@ -15,7 +15,7 @@
 #define POLLING_SHM_SIZE (PAGE_SIZE * 64UL)
 
 /* P-log SHM for Ananke-style FS recovery */
-#define PLOG_SHM_SIZE     (PAGE_SIZE * 256UL)  /* 1MB per p-log */
+#define PLOG_SHM_SIZE     (PAGE_SIZE * 1024UL) /* 4MB per p-log */
 #define PLOG_SHM_ID_BASE  CLUSTER_MAX_MACHINE_NUM
 #define PLOG_SHM_ID(mid)  (PLOG_SHM_ID_BASE + (mid))
 #define POLLING_FS_WRITE_BUF_SIZE (PAGE_SIZE)

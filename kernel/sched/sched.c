@@ -473,6 +473,28 @@ void sched_kick_cpu(u32 cpuid)
 }
 
 /*
+ * A reschedule IPI/MSI is an explicit request to reconsider the runnable
+ * queues now.  The normal RR fast path keeps a TS_RUNNING thread whose budget
+ * is non-zero and returns before checking the cross-machine shared queue.
+ * Expire that budget so an interrupt-driven kick cannot silently degrade into
+ * waiting for the next timer tick.
+ */
+void sched_force_reschedule(void)
+{
+#ifdef DSM_ENABLED
+    /* Put remotely published work on the local ready queue before rr_sched()
+     * requeues the interrupted thread.  Otherwise the old thread is placed
+     * ahead of the wakee and may consume another complete time slice. */
+    rr_sched_migrate_from_shared_queue_urgent();
+#endif
+    if (current_thread && current_thread->thread_ctx
+        && current_thread->thread_ctx->sc)
+        current_thread->thread_ctx->sc->budget = 0;
+
+    sched();
+}
+
+/*
  * A running thread cannot kick its destination CPU as soon as it is enqueued:
  * the destination could otherwise run it before the source CPU has completed
  * the context switch.  Such kicks are recorded in the source CPU's bitmap and

@@ -27,6 +27,8 @@ a full rebuild:
 After that, run any complete evaluation from the repository root:
 
 ```bash
+./artifact-evaluation/0-basic/run_msi.sh
+./artifact-evaluation/0-basic/run_mlc.sh
 ./artifact-evaluation/1-ipc-cdf/run.sh
 ./artifact-evaluation/2-sched-notify-latency/run.sh
 ./artifact-evaluation/3-memory-allocator/run.sh
@@ -61,8 +63,9 @@ configuration-specific builds.
 
 | Directory | Measurement | Main outputs |
 | --- | --- | --- |
+| `0-basic` | ivshmem MSI delivery latency and host Intel MLC bandwidth | MSI CSV summaries and MLC logs |
 | `1-ipc-cdf` | Direct and cross-machine IPC latency distributions | CSV summaries and CDF figures |
-| `2-sched-notify-latency` | Remote scheduling and notification wakeup latency | Per-sample CSV, summary CSV, latency figure |
+| `2-sched-notify-latency` | Local versus cross-machine scheduling and notification wakeup latency | Four-metric sample CSV, summary CSV, latency figure |
 | `3-memory-allocator` | Buddy, LLFree, and LLFree+CR allocator throughput | Throughput CSV and allocator scaling figures |
 | `7-recover-fs` | Kill machine 0, recover its tmpfs and reopen LevelDB on machine 1 | Recovery-stage CSVs and LevelDB recovery timeline |
 

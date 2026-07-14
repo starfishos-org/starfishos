@@ -27,10 +27,6 @@ struct pseudo_desc idtr = {sizeof(idt) - 1, (u64)idt};
 /* record irq is handled by kernel or user */
 u8 irq_handle_type[MAX_IRQ_NUM];
 
-#ifdef DSM_ENABLED
-static bool sched_msi_seen[PLAT_CPU_NUM];
-#endif
-
 /* kernel stack used when shutting down */
 char shutdown_kernel_stack[PLAT_CPU_NUM][CPU_STACK_SIZE];
 
@@ -226,7 +222,7 @@ void handle_irq(int irqno)
         if (__atomic_exchange_n(&current_resched_flag,
                                 false,
                                 __ATOMIC_ACQUIRE)) {
-            sched();
+            sched_force_reschedule();
             eret_to_thread(switch_context());
 
             /* should never return */
@@ -244,12 +240,7 @@ void handle_irq(int irqno)
         /* Scheduler doorbells are routed directly to the CPU owning this
          * shared queue.  Drain it immediately instead of waiting for a tick. */
         if (rr_sched_remote_queue_pending()) {
-            u32 cpu = smp_get_cpu_id();
-            if (!__atomic_exchange_n(&sched_msi_seen[cpu],
-                                     true,
-                                     __ATOMIC_RELAXED))
-                kinfo("[SCHED_MSI] first direct wake on local CPU %u\n", cpu);
-            sched();
+            sched_force_reschedule();
             eret_to_thread(switch_context());
             BUG_ON(1);
         }

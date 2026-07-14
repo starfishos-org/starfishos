@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse the dedicated sched/notify microbenchmark and draw its AE figure."""
+"""Summarize local/cross-machine sched/notify samples and draw the AE figure."""
 
 import argparse
 import csv
@@ -15,13 +15,25 @@ import matplotlib.pyplot as plt
 
 
 SAMPLE_RE = re.compile(
-    r"\[SCHED_NOTIFY_BENCH\] metric=(sched|notify) "
+    r"\[SCHED_NOTIFY_BENCH\] "
+    r"metric=(local_sched|local_notify|cross_sched|cross_notify|sched|notify) "
     r"sample=(\d+) latency_ns=(\d+)"
 )
 LABELS = {
+    "local_sched": "Local sched",
+    "cross_sched": "Cross-machine sched",
+    "local_notify": "Local notify",
+    "cross_notify": "Cross-machine notify",
     "sched": "Remote scheduling",
     "notify": "Remote notification",
 }
+CHCORE_METRICS = (
+    "local_sched",
+    "cross_sched",
+    "local_notify",
+    "cross_notify",
+)
+LEGACY_METRICS = ("sched", "notify")
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -56,7 +68,9 @@ def mean_std(values):
 
 def write_outputs(samples, out_dir: Path):
     with (out_dir / "samples.csv").open("w", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=samples[0].keys())
+        writer = csv.DictWriter(
+            output, fieldnames=samples[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(samples)
 
@@ -70,12 +84,13 @@ def write_outputs(samples, out_dir: Path):
     for (metric, _run), values in by_run.items():
         run_means[metric].append(sum(values) / len(values))
 
-    missing = set(LABELS) - set(run_means)
+    metrics = CHCORE_METRICS if set(run_means) & set(CHCORE_METRICS) else LEGACY_METRICS
+    missing = set(metrics) - set(run_means)
     if missing:
         raise ValueError(f"missing metrics: {', '.join(sorted(missing))}")
 
     summary = []
-    for metric in LABELS:
+    for metric in metrics:
         raw = [s["latency_ns"] for s in samples if s["metric"] == metric]
         means = run_means[metric]
         mean, run_std = mean_std(means)
@@ -92,7 +107,9 @@ def write_outputs(samples, out_dir: Path):
         )
 
     with (out_dir / "summary.csv").open("w", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=summary[0].keys())
+        writer = csv.DictWriter(
+            output, fieldnames=summary[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(summary)
 
@@ -101,7 +118,7 @@ def write_outputs(samples, out_dir: Path):
         range(len(summary)),
         [row["avg_ns"] / 1000 for row in summary],
         yerr=[row["run_std_ns"] / 1000 for row in summary],
-        color=["#4C78A8", "#F58518"],
+        color=["#4C78A8", "#E45756", "#72B7B2", "#F58518"][:len(summary)],
         capsize=5,
         width=0.62,
     )

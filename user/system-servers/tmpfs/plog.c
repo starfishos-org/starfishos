@@ -93,6 +93,14 @@ struct plog_header *plog_init(int machine_id)
 		plog_info("Initialized p-log for machine %d (capacity=%lu)\n",
 		          machine_id, (unsigned long)hdr->capacity);
 	} else {
+		/* Do not reuse an on-CXL header created with the old 1 MiB layout. */
+		if (hdr->capacity != PLOG_SHM_SIZE - sizeof(*hdr)) {
+			memset(hdr, 0, sizeof(*hdr));
+			hdr->magic = PLOG_MAGIC;
+			hdr->capacity = PLOG_SHM_SIZE - sizeof(*hdr);
+			hdr->tail = sizeof(struct plog_header);
+			hdr->owner_machine = machine_id;
+		}
 		hdr->state = PLOG_ACTIVE;
 		PLOG_FLUSH(&hdr->state);
 		plog_info("Reconnected to p-log for machine %d (tail=%lu)\n",
@@ -134,10 +142,16 @@ static struct plog_entry *plog_append_raw(uint32_t entry_len)
 	uint64_t end = tail + entry_len;
 
 	if (end > PLOG_SHM_SIZE) {
-		plog_error("P-log full (tail=%lu, need=%u, capacity=%lu)\n",
-		           (unsigned long)tail, entry_len,
-		           (unsigned long)g_plog->capacity);
-		return NULL;
+		/* The operation is already applied to CXL by tmpfs at this point. */
+		plog_checkpoint(tmpfs_root, tmpfs_root_dent);
+		plog_truncate();
+		tail = g_plog->tail;
+		end = tail + entry_len;
+		if (end > PLOG_SHM_SIZE) {
+			plog_error("P-log entry too large (need=%u, capacity=%lu)\n",
+			           entry_len, (unsigned long)g_plog->capacity);
+			return NULL;
+		}
 	}
 
 	struct plog_entry *entry = (struct plog_entry *)((char *)g_plog + tail);
@@ -292,6 +306,27 @@ void plog_truncate(void)
 	g_plog->seq_counter = 0;
 	PLOG_FLUSH(g_plog);
 	plog_info("P-log truncated (checkpoint after fsync)\n");
+}
+
+void plog_checkpoint(void *root, void *root_dent)
+{
+	if (!g_plog)
+		return;
+
+	g_plog->checkpoint_root = (uint64_t)(uintptr_t)root;
+	g_plog->checkpoint_root_dent = (uint64_t)(uintptr_t)root_dent;
+	PLOG_FLUSH(&g_plog->checkpoint_root);
+	PLOG_FLUSH(&g_plog->checkpoint_root_dent);
+}
+
+int plog_get_checkpoint(const struct plog_header *hdr,
+			void **root, void **root_dent)
+{
+	if (!hdr || !hdr->checkpoint_root || !hdr->checkpoint_root_dent)
+		return -1;
+	*root = (void *)(uintptr_t)hdr->checkpoint_root;
+	*root_dent = (void *)(uintptr_t)hdr->checkpoint_root_dent;
+	return 0;
 }
 
 int plog_replay(struct plog_header *hdr)

@@ -149,10 +149,13 @@ s32 get_cpubind(struct thread *thread);
 struct thread *find_runnable_thread(struct list_head *thread_list);
 void add_pending_resched(u32 cpuid);
 void sched_kick_cpu(u32 cpuid);
+void sched_force_reschedule(void);
 void flush_pending_resched_ipis(void);
 #ifdef DSM_ENABLED
 void sched_defer_remote_kick(u32 gcpuid);
 bool rr_sched_remote_queue_pending(void);
+int rr_sched_migrate_from_shared_queue(void);
+int rr_sched_migrate_from_shared_queue_urgent(void);
 #endif
 void wait_for_kernel_stack(struct thread *thread);
 

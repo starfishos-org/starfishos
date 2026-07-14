@@ -2,13 +2,22 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
 #include <time.h>
 
 #include <chcore/syscall.h>
 #include <chcore/type.h>
 
 #define DEFAULT_SAMPLES 50
+#define DEFAULT_LOCAL_CPU 4
 #define DEFAULT_REMOTE_CPU 12
+#define SHARED_STATE_SIZE  4096
+#define WORKER_STACK_SIZE  (1UL << 20)
+
+#ifndef MAP_FLAG_SHARED
+#define MAP_FLAG_SHARED 0x200000
+#endif
 
 struct sched_sample {
     volatile u64 start_ns;
@@ -34,6 +43,27 @@ static u64 mono_ns(void)
         return 0;
     }
     return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
+}
+
+static void *alloc_shared_region(size_t size)
+{
+    void *state = mmap(NULL,
+                       size,
+                       PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FLAG_SHARED,
+                       -1,
+                       0);
+
+    if (state == MAP_FAILED || state == NULL)
+        return NULL;
+    memset(state, 0, size);
+    return state;
+}
+
+static void free_shared_region(void *state, size_t size)
+{
+    if (state)
+        munmap(state, size);
 }
 
 static void wait_until_at_least(volatile int *value, int expected)
@@ -82,47 +112,70 @@ static void *sched_worker(void *opaque)
     return NULL;
 }
 
-static int run_sched_samples(int samples, int remote_cpu)
+static int run_sched_samples(int samples, int target_cpu, const char *metric)
 {
     int i;
+    const char *label = metric ? metric : "sched_warmup";
 
     for (i = 0; i < samples; ++i) {
         struct sched_sample *sample;
         pthread_t worker;
+        pthread_attr_t attr;
+        void *worker_stack;
         u64 end;
 
-        sample = calloc(1, sizeof(*sample));
+        sample = alloc_shared_region(SHARED_STATE_SIZE);
         if (!sample) {
             return -1;
         }
-        sample->remote_cpu = remote_cpu;
-        sample->affinity = -1;
-
-        if (pthread_create(&worker, NULL, sched_worker, sample) != 0) {
+        worker_stack = alloc_shared_region(WORKER_STACK_SIZE);
+        if (!worker_stack) {
+            free_shared_region(sample, SHARED_STATE_SIZE);
             return -1;
         }
+        sample->remote_cpu = target_cpu;
+        sample->affinity = -1;
+
+        if (pthread_attr_init(&attr) != 0) {
+            free_shared_region(worker_stack, WORKER_STACK_SIZE);
+            free_shared_region(sample, SHARED_STATE_SIZE);
+            return -1;
+        }
+        if (pthread_attr_setstack(&attr, worker_stack, WORKER_STACK_SIZE) != 0
+            || pthread_create(&worker, &attr, sched_worker, sample) != 0) {
+            pthread_attr_destroy(&attr);
+            free_shared_region(worker_stack, WORKER_STACK_SIZE);
+            free_shared_region(sample, SHARED_STATE_SIZE);
+            return -1;
+        }
+        pthread_attr_destroy(&attr);
         while (__atomic_load_n(&sample->start_ns, __ATOMIC_ACQUIRE) == 0) {
             usys_yield();
         }
         wait_until_at_least(&sample->done, 1);
         end = mono_ns();
 
-        if (sample->affinity != remote_cpu || end < sample->start_ns) {
-            printf("[SCHED_NOTIFY_BENCH] ERROR metric=sched sample=%d "
+        if (sample->affinity != target_cpu || end < sample->start_ns) {
+            printf("[SCHED_NOTIFY_BENCH] ERROR metric=%s sample=%d "
                    "affinity=%d expected=%d start=%lu end=%lu\n",
+                   label,
                    i,
                    sample->affinity,
-                   remote_cpu,
+                   target_cpu,
                    sample->start_ns,
                    end);
             return -1;
         }
-        printf("[SCHED_NOTIFY_BENCH] metric=sched sample=%d latency_ns=%lu\n",
-               i,
-               end - sample->start_ns);
+        if (metric) {
+            printf("[SCHED_NOTIFY_BENCH] metric=%s sample=%d latency_ns=%lu\n",
+                   metric,
+                   i,
+                   end - sample->start_ns);
+        }
         /* Reap the worker before reusing the sample state. */
         pthread_join(worker, NULL);
-        free(sample);
+        free_shared_region(worker_stack, WORKER_STACK_SIZE);
+        free_shared_region(sample, SHARED_STATE_SIZE);
     }
     return 0;
 }
@@ -155,18 +208,18 @@ static void *notify_waiter(void *opaque)
     return NULL;
 }
 
-static int run_notify_samples(int samples, int remote_cpu)
+static int run_notify_samples(int samples, int target_cpu, const char *metric)
 {
     struct notify_state *state;
     pthread_t waiter;
     int i;
 
-    state = calloc(1, sizeof(*state));
+    state = alloc_shared_region(SHARED_STATE_SIZE);
     if (!state) {
         return -1;
     }
     state->samples = samples;
-    state->remote_cpu = remote_cpu;
+    state->remote_cpu = target_cpu;
     state->notifc_cap = usys_create_notifc();
     if (state->notifc_cap < 0) {
         return -1;
@@ -176,6 +229,7 @@ static int run_notify_samples(int samples, int remote_cpu)
     }
     for (i = 1; i <= samples; ++i) {
         u64 start;
+        u64 notify_end;
         u64 end;
         int ret;
 
@@ -197,6 +251,7 @@ static int run_notify_samples(int samples, int remote_cpu)
         if (ret != 0) {
             return -1;
         }
+        notify_end = mono_ns();
         wait_until_at_least(&state->done, i);
         end = mono_ns();
 
@@ -204,22 +259,31 @@ static int run_notify_samples(int samples, int remote_cpu)
             || end < start) {
             return -1;
         }
-        printf("[SCHED_NOTIFY_BENCH] metric=notify sample=%d latency_ns=%lu\n",
+        printf("[SCHED_NOTIFY_BENCH] metric=%s sample=%d latency_ns=%lu "
+               "notify_syscall_ns=%lu remote_resume_ns=%lu\n",
+               metric,
                i - 1,
-               end - start);
+               end - start,
+               notify_end - start,
+               end - notify_end);
     }
     pthread_join(waiter, NULL);
-    free(state);
+    free_shared_region(state, SHARED_STATE_SIZE);
     return 0;
 }
 
 int main(int argc, char **argv)
 {
     int samples = argc > 1 ? atoi(argv[1]) : DEFAULT_SAMPLES;
-    int remote_cpu = argc > 2 ? atoi(argv[2]) : DEFAULT_REMOTE_CPU;
+    int local_cpu = argc > 2 ? atoi(argv[2]) : DEFAULT_LOCAL_CPU;
+    int remote_cpu = argc > 3 ? atoi(argv[3]) : DEFAULT_REMOTE_CPU;
 
-    if (samples <= 0 || remote_cpu < 0) {
-        fprintf(stderr, "usage: %s [samples] [remote-global-cpu]\n", argv[0]);
+    if (samples <= 0 || local_cpu <= 0 || remote_cpu < 0
+        || local_cpu == remote_cpu) {
+        fprintf(stderr,
+                "usage: %s [samples] [local-global-cpu] "
+                "[cross-machine-global-cpu]\n",
+                argv[0]);
         return 2;
     }
 
@@ -231,15 +295,33 @@ int main(int argc, char **argv)
     }
     usys_yield();
 
-    printf("[SCHED_NOTIFY_BENCH] BEGIN samples=%d remote_cpu=%d\n",
+    printf("[SCHED_NOTIFY_BENCH] BEGIN samples=%d local_cpu=%d "
+           "remote_cpu=%d\n",
            samples,
+           local_cpu,
            remote_cpu);
-    if (run_sched_samples(samples, remote_cpu) != 0) {
-        printf("[SCHED_NOTIFY_BENCH] FAILED phase=sched\n");
+    /* Warm each destination before collecting samples. In particular, the
+     * cross-machine warm-up establishes the process page table on machine 1;
+     * that one-time setup is not scheduler wake-up latency. */
+    if (run_sched_samples(1, local_cpu, NULL) != 0
+        || run_sched_samples(1, remote_cpu, NULL) != 0) {
+        printf("[SCHED_NOTIFY_BENCH] FAILED phase=sched_warmup\n");
         return 1;
     }
-    if (run_notify_samples(samples, remote_cpu) != 0) {
-        printf("[SCHED_NOTIFY_BENCH] FAILED phase=notify\n");
+    if (run_sched_samples(samples, local_cpu, "local_sched") != 0) {
+        printf("[SCHED_NOTIFY_BENCH] FAILED phase=local_sched\n");
+        return 1;
+    }
+    if (run_notify_samples(samples, local_cpu, "local_notify") != 0) {
+        printf("[SCHED_NOTIFY_BENCH] FAILED phase=local_notify\n");
+        return 1;
+    }
+    if (run_sched_samples(samples, remote_cpu, "cross_sched") != 0) {
+        printf("[SCHED_NOTIFY_BENCH] FAILED phase=cross_sched\n");
+        return 1;
+    }
+    if (run_notify_samples(samples, remote_cpu, "cross_notify") != 0) {
+        printf("[SCHED_NOTIFY_BENCH] FAILED phase=cross_notify\n");
         return 1;
     }
     printf("[SCHED_NOTIFY_BENCH] DONE\n");
