@@ -61,7 +61,7 @@ Download the docker image from Docker Hub for building the artifact:
 docker pull promisivia/treesls_chcore_builder:v2.3
 ```
 
-To build the image from scratch instead, run this command from the repository root:
+(Optional) If you want to build the image from scratch instead, run this command from the repository root:
 
 ```bash
 docker build -t promisivia/treesls_chcore_builder:v2.3 .
@@ -88,19 +88,8 @@ To regenerate figures from existing results without booting QEMU, run:
 python3 artifact-evaluation/1-ipc-cdf/plot.py
 python3 artifact-evaluation/2-sched-notify-latency/plot.py
 python3 artifact-evaluation/3-memory-allocator/plot.py
+python3 artifact-evaluation/7-recover-fs/plot.py
 ```
-
-All three figure entry points are named `plot.py`. IPC and sched/notify parse
-their raw QEMU logs inside `plot.py`. The allocator `run.sh` first converts its
-raw logs to `allocator_results.csv`, so its `plot.py` reads that CSV. Explicit
-input and output options are documented in each evaluation's README.
-
-Complete evaluations build by default. This is intentional: IPC temporarily
-enables instrumentation, sched/notify must include its microbenchmark, and the
-allocator test switches among several compile-time configurations. Do not set
-`SKIP_BUILD=1` unless an existing image is known to match the required source
-and configuration; the allocator evaluation always performs its required
-configuration-specific builds.
 
 ## Available evaluations
 
