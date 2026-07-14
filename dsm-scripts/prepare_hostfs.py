@@ -6,10 +6,12 @@ import sys
 
 base_dir = "/dev/shm"
 
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Paths of files to copy into shared memory
 source_file_list = [
     # '/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf',
-    '/mnt/disk1/wfn/twitter-2010/twitter-2010.bin',
+    os.path.join(repo_root, 'datasets', 'twitter-2010.bin'),
     # '/disk/xt/models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf',
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]
