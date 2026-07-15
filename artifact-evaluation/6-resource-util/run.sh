@@ -45,31 +45,10 @@ DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/dbx1000-config.h"
 
-# Autotools and the legacy Redis build write generated, tracked files directly
-# into their source trees.  Preserve the exact pre-run contents (including any
-# local user edits) and restore them from the EXIT trap after the ramdisk build.
-OPTIONAL_SOURCE_FILES=(
-    user/demos/memcached/Makefile
-    user/demos/memcached/doc/Makefile
-    user/demos/memcachetest/Makefile
-    user/demos/VeryTinyCnn/libjpeg/Makefile
-    user/demos/VeryTinyCnn/libjpeg/config.log
-    user/demos/VeryTinyCnn/libjpeg/config.status
-    user/demos/VeryTinyCnn/libjpeg/libtool
-    user/demos/VeryTinyCnn/data/filelists.txt
-    user/demos/redis-6.0.8/src/redis-test
-)
-for path in "${OPTIONAL_SOURCE_FILES[@]}"; do
-    if [ -e "$AE_REPO_ROOT/$path" ]; then
-        mkdir -p "$TMP_DIR/source-backup/$(dirname "$path")"
-        cp -a "$AE_REPO_ROOT/$path" "$TMP_DIR/source-backup/$path"
-    fi
-done
-
-# These legacy builds also create hundreds of ignored/untracked files in their
-# source trees.  Snapshot the exact pre-run set and contents so a fresh build
-# cannot reuse stale host objects and the EXIT trap can still restore caches or
-# local data that were already present before the experiment.
+# prepare_cnn.sh materializes ignored TinyCNN inputs in its source checkout.
+# Snapshot their exact pre-run contents so cleanup restores user-provided model
+# data and removes only files which were absent before this run.  The other
+# legacy demos now build from clean, Git-filtered copies outside their sources.
 snapshot_generated_tree() {
     local key="$1" git_root="$2"
     shift 2
@@ -106,11 +85,8 @@ restore_generated_tree() {
     return "$failed"
 }
 
-snapshot_generated_tree optional "$AE_REPO_ROOT" \
-    user/demos/memcached user/demos/memcachetest user/demos/redis-6.0.8/src
 snapshot_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
     include/CImg.h data image
-snapshot_generated_tree libjpeg "$AE_REPO_ROOT/user/demos/VeryTinyCnn/libjpeg" .
 
 # The 6 co-location groups (paper dram_groups / single_stress_typeN order).
 STRESS_TYPES="${STRESS_TYPES:-1 2 3 4 5 6}"
@@ -210,25 +186,13 @@ ae_check_global_prepare || exit 1
 ae_ensure_base_build
 ae_save_build_configs
 cleanup() {
-    local rc=$? cleanup_failed=0 source_failed=0 path
+    local rc=$? cleanup_failed=0 source_failed=0
     trap - EXIT
     ae_kill_cluster || cleanup_failed=1
     if [ -d "$TMP_DIR" ]; then
         cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG" || source_failed=1
-        for path in "${OPTIONAL_SOURCE_FILES[@]}"; do
-            if [ -e "$TMP_DIR/source-backup/$path" ]; then
-                cp -a "$TMP_DIR/source-backup/$path" "$AE_REPO_ROOT/$path" || source_failed=1
-            else
-                rm -f "$AE_REPO_ROOT/$path" || source_failed=1
-            fi
-        done
-        restore_generated_tree optional "$AE_REPO_ROOT" \
-            user/demos/memcached user/demos/memcachetest user/demos/redis-6.0.8/src \
-            || source_failed=1
         restore_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
             include/CImg.h data image || source_failed=1
-        restore_generated_tree libjpeg "$AE_REPO_ROOT/user/demos/VeryTinyCnn/libjpeg" . \
-            || source_failed=1
         if [ "$source_failed" -eq 0 ]; then
             rm -rf "$TMP_DIR"
         else
@@ -245,7 +209,6 @@ cleanup() {
 trap cleanup EXIT
 
 "$AE_DIR/prepare_cnn.sh"
-"$AE_DIR/prepare_optional_deps.sh"
 for demo in REDIS MEMCACHED MEMCACHETEST TINYCNN; do
     ae_set_demo_var "CHCORE_DEMOS_${demo}" ON
     ae_set_dotconfig "CHCORE_DEMOS_${demo}" BOOL ON

@@ -9,6 +9,22 @@ set(_demos_clean_targets)
 chcore_get_nproc(_nproc)
 
 set(OS CHCORE)
+set(_demos_materialize_git_tree
+    ${CMAKE_CURRENT_LIST_DIR}/../../scripts/materialize-git-tree.sh)
+
+# These legacy options can remain in an existing .config or CMake cache, but
+# their source checkouts and build integrations are not part of this tree.
+# Refuse an explicit ON instead of reporting a successful build with no output.
+if(CHCORE_DEMOS_LLAMACPP)
+  message(FATAL_ERROR
+    "CHCORE_DEMOS_LLAMACPP is ON, but the llama.cpp checkout/build support "
+    "is not included in this repository")
+endif()
+if(CHCORE_DEMOS_CPYTHON)
+  message(FATAL_ERROR
+    "CHCORE_DEMOS_CPYTHON is ON, but the CPython checkout/build support "
+    "is not included in this repository")
+endif()
 
 # Fail during configuration with an actionable message instead of letting a
 # later add_subdirectory(), make, or rsync fail inside an empty submodule path.
@@ -32,7 +48,7 @@ chcore_require_demo_checkout(CHCORE_DEMOS_PHOENIX phoenix-2.0 CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_DBX1000 dbx1000 CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_GEIMINIGRAPH GeminiGraph CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn CMakeLists.txt)
-chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn/libjpeg Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn/libjpeg configure)
 
 if(CHCORE_DEMOS_LIGRA)
   add_subdirectory(${src_demos_dir}/ligra)
@@ -48,9 +64,8 @@ if(CHCORE_DEMOS_REDIS)
 list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${REDIS_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${REDIS_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git ${REDIS_SOURCE_DIR}/ ${REDIS_BUILD_DIR}/
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${REDIS_SOURCE_DIR} ${REDIS_BUILD_DIR}
     COMMAND make -C ${REDIS_BUILD_DIR} -B MALLOC=libc CC=${MUSL_CC}
     COMMAND rsync -a ${REDIS_BUILD_DIR}/src/redis-cli ${build_ramdisk_dir}/redis-cli
     COMMAND rsync -a ${REDIS_BUILD_DIR}/src/redis-server ${build_ramdisk_dir}/redis-server
@@ -70,9 +85,8 @@ if(CHCORE_DEMOS_YCSB)
 list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     ycsb ALL
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${YCSB_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${YCSB_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git ${YCSB_SOURCE_DIR}/ ${YCSB_BUILD_DIR}/
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${YCSB_SOURCE_DIR} ${YCSB_BUILD_DIR}
     COMMAND ${CMAKE_COMMAND} -E env
             "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
             make -C ${YCSB_BUILD_DIR}/core CC=${MUSL_CC} CXX=${MUSL_CXX} -s
@@ -116,9 +130,8 @@ if(CHCORE_DEMOS_MEMCACHED)
   set(MEMCACHED_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/memcached)
 
   add_custom_target(memcached ALL
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHED_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${MEMCACHED_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git ${MEMCACHED_SOURCE_DIR}/ ${MEMCACHED_BUILD_DIR}/
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${MEMCACHED_SOURCE_DIR} ${MEMCACHED_BUILD_DIR}
     COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHED_BUILD_DIR} ./autogen.sh
     COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHED_BUILD_DIR}
             ${CMAKE_COMMAND} -E env CC=${MUSL_CC} AWK=awk
@@ -157,9 +170,8 @@ if(CHCORE_DEMOS_MEMCACHETEST)
 
   # 编译阶段
   add_custom_target(memcachetest ALL
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHETEST_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${MEMCACHETEST_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git ${MEMCACHETEST_SOURCE_DIR}/ ${MEMCACHETEST_BUILD_DIR}/
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${MEMCACHETEST_SOURCE_DIR} ${MEMCACHETEST_BUILD_DIR}
     COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHETEST_BUILD_DIR} autoreconf -fi
     COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHETEST_BUILD_DIR}
             ${CMAKE_COMMAND} -E env
@@ -213,9 +225,8 @@ if(CHCORE_DEMOS_SQLITE)
 list(APPEND _demos_clean_targets sqlite-clean)
   add_custom_target(
     sqlite ALL
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${SQLITE_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${SQLITE_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git ${SQLITE_SOURCE_DIR}/ ${SQLITE_BUILD_DIR}/
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${SQLITE_SOURCE_DIR} ${SQLITE_BUILD_DIR}
     COMMAND make -C ${SQLITE_BUILD_DIR} MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
     COMMAND rsync -a ${SQLITE_BUILD_DIR}/*.bin ${build_ramdisk_dir}/
     DEPENDS)
@@ -389,14 +400,16 @@ if (CHCORE_DEMOS_TINYCNN)
 
   add_custom_target(
     libjpeg-build
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${TINYCNN_LIBJPEG_BUILD_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${TINYCNN_LIBJPEG_BUILD_DIR}
-    COMMAND rsync -a --exclude=.git
-            ${TINYCNN_LIBJPEG_SOURCE_DIR}/ ${TINYCNN_LIBJPEG_BUILD_DIR}/
-    # The committed config.status is a fraction newer than the committed
-    # Makefile and would otherwise try to regenerate it with unavailable gawk.
-    COMMAND ${CMAKE_COMMAND} -E touch ${TINYCNN_LIBJPEG_BUILD_DIR}/Makefile
-    COMMAND make -C ${TINYCNN_LIBJPEG_BUILD_DIR} CC=${CMAKE_C_COMPILER}
+    COMMAND bash ${_demos_materialize_git_tree}
+            ${TINYCNN_LIBJPEG_SOURCE_DIR} ${TINYCNN_LIBJPEG_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E chdir ${TINYCNN_LIBJPEG_BUILD_DIR}
+            ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} AWK=awk
+            ./configure
+            --build=x86_64-pc-linux-gnu
+            --host=x86_64-linux-musl
+            --disable-shared
+            --enable-static
+    COMMAND make -C ${TINYCNN_LIBJPEG_BUILD_DIR}
   )
 
   add_library(libjpeg STATIC IMPORTED)
@@ -408,7 +421,7 @@ if (CHCORE_DEMOS_TINYCNN)
   target_link_libraries(tiny-cnn PRIVATE
                         libjpeg rpmalloc-static libc-static libstdc++-static)
   target_include_directories(tiny-cnn PRIVATE
-                             ${TINYCNN_LIBJPEG_SOURCE_DIR}
+                             ${TINYCNN_LIBJPEG_BUILD_DIR}
                              ${TINYCNN_SOURCE_DIR}/include)
   target_compile_definitions(tiny-cnn PRIVATE CHCORE cimg_display=0)
   target_compile_options(tiny-cnn PRIVATE -mavx2)

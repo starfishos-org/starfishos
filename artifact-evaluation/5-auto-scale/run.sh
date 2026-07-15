@@ -26,6 +26,7 @@
 #   RUN_BASELINES=1                BASELINE_STAGES=linux,matrix-tcp,tigon
 #   TIGON_DIR=/path/to/tigon       default: AE ../deps/tigon submodule
 #   TIGON_SETUP=1                  set 0 to reuse already-running Tigon VMs
+#   TIGON_IMAGE_ATTEMPTS=3         retry transient mkosi download failures
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"

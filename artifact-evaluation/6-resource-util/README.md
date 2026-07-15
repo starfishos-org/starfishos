@@ -27,6 +27,8 @@ schema as `p3os-paper/eval/real.csv`) and draws the figure.
 `run.sh` enables and rebuilds Redis, Memcached/Memcachetest, and TinyCNN
 automatically, then restores the original build configuration. TinyCNN is the
 historical pinned submodule and currently requires access to the IPADS GitLab.
+Legacy demos are materialized into clean out-of-tree build directories, so
+ignored host objects are neither reused nor written back into their submodules.
 `prepare_cnn.sh` creates deterministic zero-weight AlexNet data and an 8-image
 batch; this preserves the inference compute/memory path, while model accuracy
 is irrelevant to this performance-only figure.

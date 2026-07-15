@@ -9,12 +9,23 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path
+from statistics import median
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PAPER_TIGON_REV = "16f8007fa15bc853397b04e0747efc4f8c21ef25"
 MACHINES = [1, 2, 4, 6, 8]
+GEMINI_NUMERIC_REL_TOL = 5e-5
+GEMINI_HIGH_LATENCY_REL_TOL = 5e-2
+FLOAT_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+GEMINI_SAMPLE_RE = re.compile(
+    rf"^exec_time=({FLOAT_PATTERN})\(s\)\r?\n"
+    rf"pr_sum=({FLOAT_PATTERN})\r?\n"
+    rf"pr\[(\d+)\]=({FLOAT_PATTERN})$",
+    re.MULTILINE,
+)
 
 
 def run(cmd, *, cwd=None, log=None, env=None):
@@ -54,6 +65,97 @@ def append_result(path, app, series, n, value, unit):
         out.write(f"\nAE_RESULT app={app} series={series} n={n} value={value:.9f} unit={unit}\n")
 
 
+def parse_gemini_samples(text, label, expected_samples):
+    """Parse complete timing/checksum records without accepting partial runs."""
+    samples = [
+        (float(seconds), float(pr_sum), int(max_vertex), float(max_value))
+        for seconds, pr_sum, max_vertex, max_value
+        in GEMINI_SAMPLE_RE.findall(text)
+    ]
+    if len(samples) != expected_samples:
+        raise SystemExit(
+            f"expected {expected_samples} complete Gemini samples in {label}, "
+            f"found {len(samples)}"
+        )
+    return samples
+
+
+def _relative_deviation(value, reference):
+    if reference == 0:
+        return 0.0 if value == 0 else float("inf")
+    return abs(value - reference) / abs(reference)
+
+
+def analyze_gemini_samples(series, n, samples):
+    """Return the measured average and machine-readable quality annotations."""
+    # Every Gemini command emits one warmup before its measured samples.
+    measured = samples[1:]
+    if not measured:
+        raise SystemExit("Gemini output contains a warmup but no measured samples")
+    reference_time = median(sample[0] for sample in measured)
+    reference_sum = median(sample[1] for sample in measured)
+    reference_max = median(sample[3] for sample in measured)
+    reference_vertex = Counter(sample[2] for sample in measured).most_common(1)[0][0]
+    warnings = []
+    for sample_index, (seconds, pr_sum, max_vertex, max_value) in enumerate(
+        measured, start=1
+    ):
+        sum_deviation = _relative_deviation(pr_sum, reference_sum)
+        max_deviation = _relative_deviation(max_value, reference_max)
+        if (sum_deviation > GEMINI_NUMERIC_REL_TOL
+                or max_deviation > GEMINI_NUMERIC_REL_TOL
+                or max_vertex != reference_vertex):
+            warnings.append(
+                "AE_WARNING app=gemini "
+                f"series={series} n={n} sample={sample_index} "
+                "kind=numerical-divergence "
+                f"pr_sum_rel_dev={sum_deviation:.9g} "
+                f"pr_max_rel_dev={max_deviation:.9g} "
+                f"max_vertex={max_vertex} reference_max_vertex={reference_vertex}"
+            )
+        latency_deviation = _relative_deviation(seconds, reference_time)
+        if (seconds > reference_time
+                and latency_deviation > GEMINI_HIGH_LATENCY_REL_TOL):
+            warnings.append(
+                "AE_WARNING app=gemini "
+                f"series={series} n={n} sample={sample_index} "
+                "kind=high-latency "
+                f"exec_time={seconds:.9f} "
+                f"exec_time_rel_dev={latency_deviation:.9g}"
+            )
+
+    seconds = sum(sample[0] for sample in measured) / len(measured)
+    quality = (
+        "AE_QUALITY app=gemini "
+        f"series={series} n={n} measured={len(measured)} "
+        f"status={'warning' if warnings else 'ok'} "
+        f"warning_count={len(warnings)}"
+    )
+    return seconds, warnings, quality
+
+
+def _append_gemini_annotations(path, warnings, quality, result=None):
+    records = ["", *warnings, quality]
+    if result is not None:
+        series, n, seconds = result
+        records.append(
+            f"AE_RESULT app=gemini series={series} n={n} "
+            f"value={seconds:.9f} unit=s"
+        )
+    with path.open("a") as out:
+        out.write("\n".join(records) + "\n")
+    for warning in warnings:
+        print(f"[AE] WARNING: {warning}", flush=True)
+
+
+def append_gemini_result(path, series, n, samples):
+    """Record the full-sample average and machine-readable quality warnings."""
+    seconds, warnings, quality = analyze_gemini_samples(series, n, samples)
+    _append_gemini_annotations(
+        path, warnings, quality, result=(series, n, seconds)
+    )
+
+
 def result_exists(path: Path, app: str, series: str, n: int, unit: str) -> bool:
     """Return true only for a complete result matching the requested point."""
     if not path.is_file():
@@ -64,6 +166,39 @@ def result_exists(path: Path, app: str, series: str, n: int, unit: str) -> bool:
         re.MULTILINE,
     )
     return marker.search(path.read_text(errors="replace")) is not None
+
+
+def gemini_result_exists(path: Path, series: str, n: int,
+                         expected_samples: int) -> bool:
+    """Validate/backfill resumed Gemini results instead of trusting a marker."""
+    if not result_exists(path, "gemini", series, n, "s"):
+        return False
+    text = path.read_text(errors="replace")
+    try:
+        samples = parse_gemini_samples(text, path.name, expected_samples)
+    except SystemExit as exc:
+        print(f"[AE] WARNING: {exc}; rerunning {path.name}", flush=True)
+        return False
+
+    seconds, warnings, quality = analyze_gemini_samples(series, n, samples)
+    values = re.findall(
+        rf"^AE_RESULT app=gemini series={re.escape(series)} n={n} "
+        rf"value=({FLOAT_PATTERN}) unit=s$",
+        text,
+        re.MULTILINE,
+    )
+    tolerance = max(1e-9, abs(seconds) * 1e-12)
+    if not values or abs(float(values[-1]) - seconds) > tolerance:
+        print(
+            f"[AE] WARNING: stale Gemini average in {path.name}; rerunning it",
+            flush=True,
+        )
+        return False
+
+    if quality not in text.splitlines():
+        _append_gemini_annotations(path, warnings, quality)
+        print(f"[AE] Backfilled sample quality: {path.name}", flush=True)
+    return True
 
 
 def snapshot_generated_files(paths):
@@ -150,6 +285,120 @@ def restore_generated_files(snapshots):
         )
 
 
+def require_disjoint_paths(source: Path, destination: Path):
+    """Reject cleanup/build destinations that overlap a source checkout."""
+    source_resolved = source.resolve(strict=True)
+    destination_resolved = destination.resolve(strict=False)
+    if (source_resolved == destination_resolved
+            or source_resolved in destination_resolved.parents
+            or destination_resolved in source_resolved.parents):
+        raise SystemExit(
+            "source and generated build tree must be disjoint: "
+            f"{source} vs {destination}"
+        )
+
+
+def materialize_git_worktree(source: Path, destination: Path) -> Path:
+    """Copy current tracked/nonignored-untracked files into a clean build tree."""
+    require_disjoint_paths(source, destination)
+    proc = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others",
+         "--exclude-standard"],
+        cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if proc.returncode:
+        error = os.fsdecode(proc.stderr).strip()
+        raise SystemExit(f"cannot enumerate build inputs in {source}: {error}")
+
+    _remove_generated_path(destination)
+    destination.mkdir(parents=True)
+    for encoded in proc.stdout.split(b"\0"):
+        if not encoded:
+            continue
+        relative = Path(os.fsdecode(encoded))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise SystemExit(f"unsafe git worktree path in {source}: {relative}")
+        source_path = source / relative
+        try:
+            metadata = source_path.lstat()
+        except FileNotFoundError:
+            # git ls-files includes tracked paths deleted in the current tree.
+            continue
+        destination_path = destination / relative
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if stat.S_ISREG(metadata.st_mode):
+            shutil.copy2(source_path, destination_path)
+        elif stat.S_ISLNK(metadata.st_mode):
+            os.symlink(os.readlink(source_path), destination_path)
+        else:
+            raise SystemExit(
+                f"unsupported build input type in {source}: {relative}"
+            )
+    return destination
+
+
+TIGON_TRANSIENT_IMAGE_ERRORS = re.compile(
+    r"(?:Couldn't download packages|Temporary failure resolving|"
+    r"Could not resolve|Failed to fetch|Network is unreachable|"
+    r"Connection (?:failed|reset|timed out)|Hash Sum mismatch|"
+    r"TLS connection was non-properly terminated|HTTP[^\n]*(?:429|502|503|504))",
+    re.IGNORECASE,
+)
+
+
+def _prepare_tigon_image_keys(snapshots):
+    """Make generated SSH destinations replaceable without touching source keys."""
+    for path, kind, _contents, mode, _times in snapshots:
+        if kind == "file":
+            try:
+                path.chmod(mode | stat.S_IWUSR)
+            except OSError as exc:
+                raise SystemExit(
+                    f"cannot make generated Tigon SSH file writable: {path}: {exc}"
+                ) from exc
+        elif kind == "symlink":
+            # cp would follow an existing destination symlink and could overwrite
+            # a file outside mkosi.extra.  The original link is restored later.
+            _remove_generated_path(path)
+
+
+def build_tigon_image(tigon: Path, log_dir: Path, attempts: int = 3):
+    """Build Tigon's image, retrying transient downloads without checkout drift."""
+    if attempts < 1:
+        raise SystemExit("TIGON_IMAGE_ATTEMPTS must be at least 1")
+
+    ssh_dir = tigon / "emulation/image/mkosi.extra/root/.ssh"
+    key_snapshots = snapshot_generated_files(tuple(
+        ssh_dir / name for name in
+        ("authorized_keys", "id_rsa.pub", "id_rsa", "config")
+    ))
+    env = os.environ.copy()
+    env.setdefault("network_device", "")
+    try:
+        for attempt in range(1, attempts + 1):
+            # Reset any partial key copies from the previous attempt first.  In
+            # particular, make_vm_img.sh copies id_rsa as 0400 and cannot
+            # overwrite that file on a subsequent invocation.
+            restore_generated_files(key_snapshots)
+            _prepare_tigon_image_keys(key_snapshots)
+            log = log_dir / f"tigon-image-build-attempt{attempt}.log"
+            try:
+                run(["bash", "emulation/image/make_vm_img.sh"], cwd=tigon,
+                    log=log, env=env)
+                return
+            except SystemExit:
+                output = log.read_text(errors="replace") if log.is_file() else ""
+                if attempt == attempts or not TIGON_TRANSIENT_IMAGE_ERRORS.search(output):
+                    raise
+                print(
+                    f"[AE] Transient Tigon image download failure; retrying "
+                    f"({attempt + 1}/{attempts}) with the populated mkosi cache",
+                    flush=True,
+                )
+    finally:
+        restore_generated_files(key_snapshots)
+
+
 def collect_linux(log_dir: Path, graph: Path):
     expected = []
     for n in MACHINES:
@@ -159,48 +408,61 @@ def collect_linux(log_dir: Path, graph: Path):
             (log_dir / f"gemini_Ideal_N{n}.log", "gemini", "Ideal", n, "s"),
             (log_dir / f"gemini_Distributed_N{n}.log", "gemini", "Distributed", n, "s"),
         ))
-    if all(result_exists(*point) for point in expected):
+
+    def point_exists(path, app, series, n, unit):
+        if app == "gemini":
+            expected_samples = 4 if series == "Ideal" else 6
+            return gemini_result_exists(path, series, n, expected_samples)
+        return result_exists(path, app, series, n, unit)
+
+    if all(point_exists(*point) for point in expected):
         print("[AE] Reusing all completed Linux baseline results", flush=True)
         return
 
-    require_tools("cmake", "make", "mpicxx", "mpirun", "numactl")
+    require_tools("cmake", "git", "make", "mpicxx", "mpirun", "numactl")
     phoenix = ROOT / "test-on-linux/phoenix"
-    db = ROOT / "test-on-linux/dbx1000"
+    db_source = ROOT / "test-on-linux/dbx1000"
     gemini = ROOT / "test-on-linux/GeminiGraph"
     distributed = ROOT / "test-on-linux/ggraph-distri"
-    for tree in (phoenix, db, gemini, distributed):
+    for tree in (phoenix, db_source, gemini, distributed):
         if not tree.exists():
             raise SystemExit(f"missing Linux baseline submodule: {tree}")
     if not graph.is_file():
         raise SystemExit(f"missing twitter graph: {graph}; rerun prepare.sh without SKIP_GRAPH_DATASET=1")
 
-    matrix_bind = phoenix / "data/matrix_datafiles/matrix_multiply_bind_cpu.txt"
+    build_root = log_dir.parent / "linux-build"
+    phoenix_build = build_root / "phoenix"
+    gemini_build = build_root / "gemini"
+    db_build = build_root / "dbx1000"
+    for source_tree in (phoenix, db_source, gemini, distributed):
+        for generated_tree in (
+            build_root, phoenix_build, gemini_build, db_build,
+        ):
+            require_disjoint_paths(source_tree, generated_tree)
+    db = materialize_git_worktree(db_source, db_build)
     distributed_pagerank = distributed / "toolkits/pagerank"
-    generated_snapshots = snapshot_generated_files((
-        matrix_bind, distributed_pagerank,
-    ))
+    generated_snapshots = snapshot_generated_files((distributed_pagerank,))
     config = db / "config.h"
-    original = None
     try:
-        run(["cmake", "-S", str(phoenix), "-B", str(phoenix / "build"),
+        run(["cmake", "-S", str(phoenix), "-B", str(phoenix_build),
              "-DBREAKDOWN=ON",
              "-DCMAKE_C_FLAGS=-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"])
-        run(["cmake", "--build", str(phoenix / "build"),
+        run(["cmake", "--build", str(phoenix_build),
              "--target", "matrix_multiply", "-j"])
-        matrix = phoenix / "build/bin/matrix_multiply"
+        matrix = phoenix_build / "bin/matrix_multiply"
 
-        run(["cmake", "-S", str(gemini), "-B", str(gemini / "build")])
-        run(["cmake", "--build", str(gemini / "build"), "-j"])
+        run(["cmake", "-S", str(gemini), "-B", str(gemini_build)])
+        run(["cmake", "--build", str(gemini_build), "-j"])
         run(["make", "-j", "toolkits/pagerank"], cwd=distributed)
 
-        original = config.read_text()
-        configured = re.sub(r"(#define\s+WORKLOAD\s+)\w+", r"\1TPCC", original)
+        configured = config.read_text()
+        configured = re.sub(r"(#define\s+WORKLOAD\s+)\w+", r"\1TPCC", configured)
         configured = re.sub(r"(#define\s+NUM_WH\s+)\d+", r"\g<1>64", configured)
         config.write_text(configured)
-        run(["make", "clean"], cwd=db)
         run(["make", "-j"], cwd=db)
+        # The Linux target excludes the CHCORE binding-file path, and -c 0
+        # makes the existing matrix inputs read-only runtime data.
         matrix_data = phoenix / "data/matrix_datafiles"
-        matrix_bind.write_text("0-95\n")
         for n in MACHINES:
             app_threads = 8 * n
             graph_threads = 12 * n
@@ -226,18 +488,17 @@ def collect_linux(log_dir: Path, graph: Path):
                 append_result(path, "db1000", "Ideal", n, mops, "mops")
 
             path = log_dir / f"gemini_Ideal_N{n}.log"
-            if result_exists(path, "gemini", "Ideal", n, "s"):
+            if gemini_result_exists(path, "Ideal", n, 4):
                 print(f"[AE] Reusing completed result: {path.name}", flush=True)
             else:
-                text = run(["numactl", "--membind", "0", str(gemini / "build/pagerank"),
+                text = run(["numactl", "--membind", "0", str(gemini_build / "pagerank"),
                             str(graph), "41652230", "50", str(graph_threads),
                             str(graph_threads)], log=path)
-                times = [float(x) for x in re.findall(r"exec_time=([\d.]+)\(s\)", text)]
-                secs = average(times[1:] or times, path.name)
-                append_result(path, "gemini", "Ideal", n, secs, "s")
+                samples = parse_gemini_samples(text, path.name, 4)
+                append_gemini_result(path, "Ideal", n, samples)
 
             path = log_dir / f"gemini_Distributed_N{n}.log"
-            if result_exists(path, "gemini", "Distributed", n, "s"):
+            if gemini_result_exists(path, "Distributed", n, 6):
                 print(f"[AE] Reusing completed result: {path.name}", flush=True)
             else:
                 mpi_env = os.environ.copy()
@@ -246,15 +507,10 @@ def collect_linux(log_dir: Path, graph: Path):
                 text = run(["mpirun", "--map-by", "slot:PE=12", "--bind-to", "core",
                             "-np", str(n), str(distributed / "toolkits/pagerank"),
                             str(graph), "41652230", "50"], log=path, env=mpi_env)
-                times = [float(x) for x in re.findall(r"exec_time=([\d.]+)\(s\)", text)]
-                secs = average(times[1:] or times, path.name)
-                append_result(path, "gemini", "Distributed", n, secs, "s")
+                samples = parse_gemini_samples(text, path.name, 6)
+                append_gemini_result(path, "Distributed", n, samples)
     finally:
-        try:
-            if original is not None:
-                config.write_text(original)
-        finally:
-            restore_generated_files(generated_snapshots)
+        restore_generated_files(generated_snapshots)
 
 
 def collect_matrix_tcp(log_dir: Path):
@@ -336,8 +592,14 @@ def collect_tigon(log_dir: Path, tigon: Path, setup: bool):
         return
     ensure_tigon(tigon, log_dir)
     if setup:
+        try:
+            image_attempts = int(os.environ.get("TIGON_IMAGE_ATTEMPTS", "3"))
+        except ValueError as exc:
+            raise SystemExit("TIGON_IMAGE_ATTEMPTS must be an integer") from exc
+        if image_attempts < 1:
+            raise SystemExit("TIGON_IMAGE_ATTEMPTS must be at least 1")
         run(["bash", "scripts/setup.sh", "HOST"], cwd=tigon)
-        run(["bash", "emulation/image/make_vm_img.sh"], cwd=tigon)
+        build_tigon_image(tigon, log_dir, image_attempts)
         run(["sudo", "bash", "emulation/start_vms.sh", "--using-old-img", "--cxl",
              "0", "12", "8", "1", "1"], cwd=tigon)
         run(["bash", "scripts/setup.sh", "VMS", "8"], cwd=tigon)

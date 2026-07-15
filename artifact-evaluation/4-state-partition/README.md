@@ -64,6 +64,9 @@ python3 artifact-evaluation/4-state-partition/plot.py \
 `OUT_DIR`.
 
 The default run always collects the full 6 × 4 matrix. DBx1000 is rebuilt with
-the small one-warehouse configuration for this figure (override with
-`DBX_NUM_WH`, `DBX_WARMUP`, and `DBX_MAX_TXN`). Missing points are fatal by
-default; use `plot.py --allow-partial` only to inspect an interrupted sweep.
+`NUM_MACHINES` total warehouses (one per machine at the default two-machine
+scale), and that total remains fixed for the single-machine All-DRAM baseline
+so the working set is comparable. Override it with `DBX_NUM_WH`, which must be
+a positive multiple of `NUM_MACHINES`; `DBX_WARMUP` and `DBX_MAX_TXN` control
+the reduced run length. Missing points are fatal by default; use
+`plot.py --allow-partial` only to inspect an interrupted sweep.

@@ -87,9 +87,31 @@ wait_for_bench() {
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 DBX_TIMEOUT="${DBX_TIMEOUT:-3600}"
 DBX_DRAM_SIZE="${DBX_DRAM_SIZE:-24G}"
-DBX_NUM_WH="${DBX_NUM_WH:-1}"
+# Every multi-machine partition must own at least one warehouse.  Keep the
+# total warehouse count fixed across all four placements (including the
+# single-machine All_DRAM baseline) so their working sets remain comparable.
+DBX_NUM_WH="${DBX_NUM_WH:-$NUM_MACHINES}"
 DBX_WARMUP="${DBX_WARMUP:-10000}"
 DBX_MAX_TXN="${DBX_MAX_TXN:-10000}"
+
+if ! [[ "$NUM_MACHINES" =~ ^[1-9][0-9]*$ ]]; then
+    echo "NUM_MACHINES must be a positive integer: $NUM_MACHINES" >&2
+    exit 1
+fi
+if ! [[ "$DBX_NUM_WH" =~ ^[1-9][0-9]*$ ]]; then
+    echo "DBX_NUM_WH must be a positive integer: $DBX_NUM_WH" >&2
+    exit 1
+fi
+if [ "$DBX_NUM_WH" -lt "$NUM_MACHINES" ]; then
+    echo "DBX_NUM_WH ($DBX_NUM_WH) must be >= NUM_MACHINES ($NUM_MACHINES)" >&2
+    echo "DBx1000 requires at least one local warehouse per machine." >&2
+    exit 1
+fi
+if [ $((DBX_NUM_WH % NUM_MACHINES)) -ne 0 ]; then
+    echo "DBX_NUM_WH ($DBX_NUM_WH) must be divisible by NUM_MACHINES ($NUM_MACHINES)" >&2
+    echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
+    exit 1
+fi
 
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"

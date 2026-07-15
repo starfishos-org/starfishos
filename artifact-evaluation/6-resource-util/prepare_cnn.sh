@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CNN="$ROOT/user/demos/VeryTinyCnn"
 
-if [ ! -f "$CNN/CMakeLists.txt" ] || [ ! -f "$CNN/libjpeg/Makefile" ]; then
+if [ ! -f "$CNN/CMakeLists.txt" ] || [ ! -x "$CNN/libjpeg/configure" ]; then
     echo "TinyCNN submodule is missing. Run:" >&2
     echo "  git submodule update --init --recursive user/demos/VeryTinyCnn" >&2
     exit 1
@@ -41,6 +41,5 @@ cp "$CNN/libjpeg/testimgp.jpg" "$CNN/image/ae-input.jpg"
 for i in $(seq 1 8); do
     printf 'image/ae-input.jpg\t0\n' >> "$CNN/data/filelists.txt"
 done
-cut -f 1 "$CNN/data/filelists.txt" > "$CNN/data/raw_filelists.txt"
 
 echo "Prepared deterministic TinyCNN model + 8-image batch under $CNN/data"

@@ -51,9 +51,23 @@ with `TIGON_DIR=/path/to/tigon` when developing against another checkout.
 Output: `out/<timestamp>/figures/{auto-scale-matrix,db1000,gemini-chcore}.{eps,pdf,png}`
 plus the paper's shared `auto-scale-legend.{eps,pdf}`.
 
+Linux Gemini logs retain every raw timing and checksum record. The collector
+requires the complete warmup-plus-measurement set and appends an `AE_QUALITY`
+record. Numerically divergent or high-latency measured samples are additionally
+listed as `AE_WARNING` records but remain in the reported average. Detection is
+relative to the measured-sample median (relative tolerances `5e-5` for PageRank
+checksums and `5e-2` for high latency).
+
+Linux baseline build state is isolated under `out/<timestamp>/linux-build`.
+Phoenix and Gemini use out-of-source CMake trees. DBx1000 is built from a clean
+materialization of its current tracked and nonignored-untracked files, so local
+edits are honored while deleted files and ignored compiler caches stay deleted
+or excluded; its source checkout and existing build cache are never modified.
+
 Env overrides: `APPS` (`matrix db1000 gemini`), `MACHINES` (`1 2 4 6 8`),
 `CONFIGS` (`Mixed CXL`), `TIMEOUT`, `OUT_DIR`, `RUN_BASELINES` (default `1`),
 `BASELINE_STAGES` (`linux,matrix-tcp,tigon`), `TIGON_DIR`, `TIGON_SETUP`.
+`TIGON_IMAGE_ATTEMPTS` controls transient image-build retries (default `3`).
 
 The first Tigon run performs its upstream host/VM setup and therefore needs
 passwordless/non-interactive `sudo`, 8 VM capacity, and the hardware layout
