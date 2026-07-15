@@ -66,6 +66,21 @@ bench_done_pattern() {
     esac
 }
 
+# Phoenix applications are silent while their MapReduce phase is running.
+# CXL placement can stretch that phase beyond the generic 120-second serial
+# stall threshold, so use the experiment timeout for these completion markers.
+wait_for_bench() {
+    local bench="$1" pattern="$2" timeout="$3" label="$4"
+    case "$bench" in
+        pca|matrix_multiply|linear_regression|word_count)
+            AE_LOG_STALL_S=0 ae_wait_in_log 0 "$pattern" "$timeout" "$label"
+            ;;
+        *)
+            ae_wait_in_log 0 "$pattern" "$timeout" "$label"
+            ;;
+    esac
+}
+
 # dbx1000's vendored config is the 8-machine TPC-C setup; sync its
 # compile-time NUM_MACHINES to this experiment's cluster size and launch it
 # with threads bound across all machines (12 cores per machine).
@@ -82,20 +97,28 @@ cp "$DBX_CONFIG" "$TMP_DIR/config.h"
 dbx_bind_cpu_list() {
     local n="$1" i parts=()
     for i in $(seq 0 $((n - 1))); do
-        if [ "$i" -eq 0 ]; then
-            parts+=("0-8")
-        else
-            parts+=("$((i * 12))-$((i * 12 + 7))")
-        fi
+        parts+=("$((i * 12))-$((i * 12 + 7))")
     done
     (IFS=,; echo "${parts[*]}")
 }
 
 cleanup() {
-    ae_kill_cluster
-    cp "$TMP_DIR/config.h" "$DBX_CONFIG"
-    rm -rf "$TMP_DIR"
-    ae_restore_build_configs
+    local rc=$? cleanup_failed=0
+    trap - EXIT
+    ae_kill_cluster || cleanup_failed=1
+    if [ -d "$TMP_DIR" ]; then
+        if cp "$TMP_DIR/config.h" "$DBX_CONFIG"; then
+            rm -rf "$TMP_DIR"
+        else
+            echo "[AE] failed to restore DBx1000 config; backup retained at $TMP_DIR" >&2
+            cleanup_failed=1
+        fi
+    fi
+    ae_restore_build_configs || cleanup_failed=1
+    if [ "$rc" -eq 0 ] && [ "$cleanup_failed" -ne 0 ]; then
+        rc=1
+    fi
+    exit "$rc"
 }
 trap cleanup EXIT
 
@@ -176,7 +199,7 @@ for cfg in $CONFIGS; do
             ae_send_command 0 "source run_${bench}.sh"
             bench_timeout="$TIMEOUT"
         fi
-        if ae_wait_in_log 0 "$pattern" "$bench_timeout" "$bench done"; then
+        if wait_for_bench "$bench" "$pattern" "$bench_timeout" "$bench done"; then
             sleep 3   # let trailing output (e.g. summary lines) flush
             cp "$(ae_machine_log 0)" "$logfile"
         else

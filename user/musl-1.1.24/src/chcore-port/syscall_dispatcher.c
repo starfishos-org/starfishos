@@ -4,6 +4,7 @@
 #include <bits/alltypes.h>
 #include <bits/syscall.h>
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <sched.h>
@@ -92,7 +93,6 @@ int chcore_pid = 0;
  */
 extern int __xstatxx(int req, int fd, const char *path, int flags,
 		     void *statbuf, size_t bufsize);
-void dead(long n);
 
 /*
  * ChCore `envp` layout convention:
@@ -294,8 +294,8 @@ long __syscall0(long n)
 	}
 #endif
 	default:
-		dead(n);
-		return chcore_syscall0(n);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -370,8 +370,8 @@ long __syscall1(long n, long a)
 		return -1;
 	}
 	default:
-		dead(n);
-		return chcore_syscall1(n, a);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -506,8 +506,8 @@ long __syscall2(long n, long a, long b)
 		return -1;
 	}
 	default:
-		dead(n);
-		return chcore_syscall2(n, a, b);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -652,8 +652,8 @@ long __syscall3(long n, long a, long b, long c)
 		return -1;
 	}
 	default:
-		dead(n);
-		return chcore_syscall3(n, a, b, c);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -758,8 +758,8 @@ long __syscall4(long n, long a, long b, long c, long d)
 		return 0;
 	}
 	default:
-		dead(n);
-		// chcore_syscall4(n, a, b, c, d);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -796,8 +796,8 @@ long __syscall5(long n, long a, long b, long c, long d, long e)
 				 (unsigned long) d, (const void *)e);
 	}
 	default:
-		dead(n);
-		return chcore_syscall5(n, a, b, c, d, e);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
 }
 
@@ -947,15 +947,7 @@ long __syscall6(long n, long a, long b, long c, long d, long e, long f)
 		return 0;
 	}
 	default:
-		dead(n);
-		return chcore_syscall6(n, a, b, c, d, e, f);
+		warn("unsupported syscall %ld\n", n);
+		return -ENOSYS;
 	}
-}
-
-// TODO (tmac): should we set unimplemented syscall to "dead"?
-void dead(long n)
-{
-	printf("Unsupported syscall %d, bye.\n", n);
-	volatile int *addr = (int *)n;
-	*addr = 0;
 }

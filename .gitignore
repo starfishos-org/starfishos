@@ -70,4 +70,5 @@ logs/
 
 # Large AE datasets (download from HF/Zenodo, do not commit)
 /datasets/
+/.ae-deps/
 artifact-evaluation/FROM-SCRATCH-ISSUES.md

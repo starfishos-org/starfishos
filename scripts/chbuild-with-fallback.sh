@@ -43,19 +43,25 @@ _strip_ansi() {
 
 _run_chbuild_invocation() {
     local step="$1"
+    local step_args=("$step")
+    # chbuild's x86_64 defconfig is a two-argument invocation. Keep it as one
+    # logical fallback step so timeout and progress reporting still apply.
+    if [ "$step" = "x86_64" ]; then
+        step_args=(defconfig x86_64)
+    fi
     if [ "$LOCAL" = "1" ]; then
-        timeout "$TIMEOUT" "${_chbuild[@]}" "$step"
+        timeout "$TIMEOUT" "${_chbuild[@]}" "${step_args[@]}"
         return $?
     fi
     if command -v script >/dev/null 2>&1; then
         # chbuild defaults to docker; without a tty the docker CLI can hang after
         # the build finishes when stdout is piped for progress logging.
         script -qfec \
-            "timeout $TIMEOUT $(printf '%q ' "${_chbuild[@]}")$(printf '%q' "$step")" \
+            "timeout $TIMEOUT $(printf '%q ' "${_chbuild[@]}")$(printf '%q ' "${step_args[@]}")" \
             /dev/null
         return $?
     fi
-    timeout "$TIMEOUT" "${_chbuild[@]}" "$step"
+    timeout "$TIMEOUT" "${_chbuild[@]}" "${step_args[@]}"
 }
 
 _show_progress_line() {
@@ -119,37 +125,48 @@ _run_chbuild_step() {
     local step="$1"
 
     if [ -n "$LOG" ] && [ "${CHBUILD_QUIET:-0}" = "1" ]; then
-        if ! _run_chbuild_invocation "$step" >>"$LOG" 2>&1; then
-            return $?
+        if _run_chbuild_invocation "$step" >>"$LOG" 2>&1; then
+            return 0
+        else
+            local rc=$?
+            return "$rc"
         fi
-        return 0
     fi
 
     if [ "$PROGRESS" = "1" ]; then
-        if ! _run_step_with_inline_progress "$step"; then
-            return $?
+        if _run_step_with_inline_progress "$step"; then
+            return 0
+        else
+            local rc=$?
+            return "$rc"
         fi
-        return 0
     fi
 
     if [ -n "$LOG" ]; then
-        if ! _run_chbuild_invocation "$step" 2>&1 | tee "$LOG"; then
-            return $?
+        if _run_chbuild_invocation "$step" 2>&1 | tee "$LOG"; then
+            return 0
+        else
+            local rc=$?
+            return "$rc"
         fi
-        return 0
     fi
 
-    if ! _run_chbuild_invocation "$step"; then
-        return $?
+    if _run_chbuild_invocation "$step"; then
+        return 0
+    else
+        local rc=$?
+        return "$rc"
     fi
-    return 0
 }
 
 _run_chbuild_steps() {
     local step
     for step in "$@"; do
-        if ! _run_chbuild_step "$step"; then
-            return $?
+        if _run_chbuild_step "$step"; then
+            :
+        else
+            local rc=$?
+            return "$rc"
         fi
     done
     return 0
@@ -163,9 +180,9 @@ _emit_log_tail() {
 
 if _run_chbuild_steps "$@"; then
     exit 0
+else
+    rc=$?
 fi
-
-rc=$?
 _emit_log_tail
 
 if [ "$NO_FALLBACK" = "1" ]; then
@@ -177,4 +194,4 @@ echo "=== chbuild failed (rc=$rc); falling back to distclean + defconfig + build
 if [ -n "$LOG" ]; then
     export CHBUILD_LOG="${LOG%.log}_quickbuild.log"
 fi
-exec "$REPO_ROOT/scripts/chbuild-with-fallback.sh" --no-fallback distclean defconfig x86_64 build
+exec "$REPO_ROOT/scripts/chbuild-with-fallback.sh" --no-fallback distclean x86_64 build

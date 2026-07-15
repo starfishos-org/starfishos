@@ -17,10 +17,14 @@ ensure_required_submodules() {
         "user/demos/phoenix-2.0"
         "user/demos/dbx1000"
         "user/demos/GeminiGraph"
+        "user/demos/leveldb-1.23"
     )
     if [ "${AE_INCLUDE_OPTIONAL_PAPER:-0}" = "1" ]; then
         required+=(
             "user/demos/VeryTinyCnn"
+            "user/demos/memcached"
+            "user/demos/memcachetest"
+            "user/demos/redis-6.0.8"
             "test-on-linux/phoenix"
             "test-on-linux/dbx1000"
             "test-on-linux/GeminiGraph"
@@ -29,10 +33,20 @@ ensure_required_submodules() {
         )
     fi
 
+    submodule_marker() {
+        case "$1" in
+            user/demos/memcached|user/demos/memcachetest|user/demos/redis-6.0.8|test-on-linux/ggraph-distri)
+                echo "Makefile"
+                ;;
+            *)
+                echo "CMakeLists.txt"
+                ;;
+        esac
+    }
+
     echo "=== Ensuring required git submodules ==="
     for path in "${required[@]}"; do
-        marker="CMakeLists.txt"
-        [ "$path" = "test-on-linux/ggraph-distri" ] && marker="Makefile"
+        marker="$(submodule_marker "$path")"
         if [ ! -e "$path/$marker" ]; then
             missing=1
         fi
@@ -47,8 +61,7 @@ ensure_required_submodules() {
 
     missing=0
     for path in "${required[@]}"; do
-        marker="CMakeLists.txt"
-        [ "$path" = "test-on-linux/ggraph-distri" ] && marker="Makefile"
+        marker="$(submodule_marker "$path")"
         if [ ! -e "$path/$marker" ]; then
             echo "Missing submodule content: $path" >&2
             missing=1
@@ -57,9 +70,7 @@ ensure_required_submodules() {
     if [ "$missing" -ne 0 ]; then
         echo >&2
         echo "Retry from the repository root:" >&2
-        echo "  git submodule update --init --recursive -- \\" >&2
-        echo "    user/libraries/rpmalloc user/demos/phoenix-2.0 \\" >&2
-        echo "    user/demos/dbx1000 user/demos/GeminiGraph" >&2
+        echo "  git submodule update --init --recursive -- ${required[*]}" >&2
         echo "If one path has a partial checkout, deinitialize and remove only" >&2
         echo "that path and its .git/modules entry before retrying." >&2
         echo >&2

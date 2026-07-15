@@ -60,7 +60,9 @@ void hook_syscall(long n)
 /* Placeholder for system calls that are not implemented */
 void sys_null_placeholder(long arg)
 {
-    BUG("Invoke non-implemented syscall %lx\n", arg);
+    BUG("Invoke non-implemented ChCore syscall %lu (arg0=%lx)\n",
+        cpu_info[smp_get_cpu_id()].cur_syscall_no,
+        arg);
 }
 
 void sys_putc(char ch)

@@ -51,14 +51,8 @@ RUN git clone https://ghproxy.com//https://github.com/libevent/libevent.git && \
     make install
 
 # install hiredis (for YCSB-C) 
+RUN test -f /chos/user/demos/YCSB-C/redis/hiredis/Makefile || \
+    (echo "YCSB-C submodule is missing; run git submodule update --init --recursive before docker build" >&2 && false)
 WORKDIR /chos/user/demos/YCSB-C/redis/hiredis
 RUN make CC=/chos/user/musl-1.1.24/build/bin/musl-gcc -s && \
     make install 
-
-# install cpython (not test)
-WORKDIR /home
-RUN git clone https://github.com/python/cpython.git --branch=3.12 && \
-    cd cpython && \
-    ./configure --enable-optimizations && \
-    make -j12 && \
-    make install

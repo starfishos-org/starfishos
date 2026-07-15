@@ -171,10 +171,15 @@ ae_save_build_configs() {
 
 ae_restore_build_configs() {
     if [ -n "$AE_CONFIG_BACKUP_DIR" ] && [ -d "$AE_CONFIG_BACKUP_DIR" ]; then
-        cp "$AE_CONFIG_BACKUP_DIR/dsm_config.cmake" "$AE_DSM_CONFIG"
-        cp "$AE_CONFIG_BACKUP_DIR/demos-config.cmake" "$AE_DEMOS_CONFIG"
-        cp "$AE_CONFIG_BACKUP_DIR/dotconfig" "$AE_DOTCONFIG"
-        cp "$AE_CONFIG_BACKUP_DIR/chcore.ini" "$AE_CHCORE_INI"
+        local failed=0
+        cp "$AE_CONFIG_BACKUP_DIR/dsm_config.cmake" "$AE_DSM_CONFIG" || failed=1
+        cp "$AE_CONFIG_BACKUP_DIR/demos-config.cmake" "$AE_DEMOS_CONFIG" || failed=1
+        cp "$AE_CONFIG_BACKUP_DIR/dotconfig" "$AE_DOTCONFIG" || failed=1
+        cp "$AE_CONFIG_BACKUP_DIR/chcore.ini" "$AE_CHCORE_INI" || failed=1
+        if [ "$failed" -ne 0 ]; then
+            echo "[AE] failed to restore build configs; backup retained at $AE_CONFIG_BACKUP_DIR" >&2
+            return 1
+        fi
         rm -rf "$AE_CONFIG_BACKUP_DIR"
         AE_CONFIG_BACKUP_DIR=""
     fi
@@ -192,9 +197,9 @@ ae_chbuild_with_fallback() {
 
     if "$AE_REPO_ROOT/scripts/chbuild-with-fallback.sh" "$@"; then
         return 0
+    else
+        local rc=$?
     fi
-
-    local rc=$?
     if [ "$rc" -eq 124 ]; then
         ae_record_timeout "chbuild exceeded ${build_timeout}s (log: $log)"
     else
@@ -248,7 +253,7 @@ ae_build_with_config_restore() {
     if ! (cd "$AE_REPO_ROOT" && \
           CHBUILD_PROGRESS=1 \
           ./scripts/chbuild-with-fallback.sh --no-fallback \
-              distclean defconfig x86_64 build); then
+              distclean x86_64 build); then
         rm -f "$config_snapshot"
         return 1
     fi
@@ -356,8 +361,8 @@ ae_wait_in_log() {
             tail -40 "$logfile" >&2 || true
             return 3
         fi
-        if ! tmux has-session -t "$AE_SESSION" 2>/dev/null; then
-            ae_record_error "$label: tmux session $AE_SESSION died before success marker (log: $logfile)"
+        if ! tmux list-panes -t "$AE_SESSION:$machine" >/dev/null 2>&1; then
+            ae_record_error "$label: tmux window $AE_SESSION:$machine died before success marker (log: $logfile)"
             tail -40 "$logfile" >&2 || true
             return 3
         fi
@@ -384,6 +389,16 @@ ae_wait_in_log() {
     return 1
 }
 
+# The welcome banner and late boot messages share the serial console, so their
+# bytes can be interleaved even though the shell is already accepting input.
+# Accept either the banner or a real line-start shell prompt as readiness.
+ae_wait_for_shell() {
+    local machine="$1"
+    ae_wait_in_log "$machine" \
+        'Welcome to ChCore shell!\|^[$][[:space:]]*' \
+        "$AE_BOOT_TIMEOUT" "machine $machine shell ready"
+}
+
 # ae_boot_cluster <num_machines> [cpu_num]
 # Boots machines 0..N-1 in tmux windows, waits for DSM join + shell on all.
 # Extra simulate.sh env (e.g. DRAM_SIZE=24G) can be passed via AE_EXTRA_ENV.
@@ -391,6 +406,7 @@ _ae_boot_cluster_once() {
     local n="$1"
     local cpu_num="${2:-}"
     local i env_prefix="${AE_EXTRA_ENV:+$AE_EXTRA_ENV }"
+    local wait_shell_each="${AE_WAIT_SHELL_PER_MACHINE:-0}"
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
 
@@ -414,16 +430,24 @@ _ae_boot_cluster_once() {
     tmux new-session -d -s "$AE_SESSION" -n 0 \
         "cd '$AE_REPO_ROOT' && ${env_prefix}MACHINE_NUM=$n ./build/simulate.sh 0"
     ae_wait_in_log 0 "DSM] machine 0 " "$AE_BOOT_TIMEOUT" "DSM machine 0 joined" || return 1
+    if [ "$wait_shell_each" = "1" ]; then
+        ae_wait_for_shell 0 || return 1
+    fi
 
     for i in $(seq 1 $((n - 1))); do
         tmux new-window -t "$AE_SESSION" -n "$i" \
             "cd '$AE_REPO_ROOT' && ${env_prefix}MACHINE_NUM=$n ./build/simulate.sh $i"
         ae_wait_in_log "$i" "DSM] machine $i " "$AE_BOOT_TIMEOUT" "DSM machine $i joined" || return 1
+        if [ "$wait_shell_each" = "1" ]; then
+            ae_wait_for_shell "$i" || return 1
+        fi
     done
 
-    for i in $(seq 0 $((n - 1))); do
-        ae_wait_in_log "$i" "Welcome to ChCore shell!" "$AE_BOOT_TIMEOUT" "machine $i shell ready" || return 1
-    done
+    if [ "$wait_shell_each" != "1" ]; then
+        for i in $(seq 0 $((n - 1))); do
+            ae_wait_for_shell "$i" || return 1
+        done
+    fi
 }
 
 # Retry intermittent secondary-machine boot/shell stalls. Failures from a

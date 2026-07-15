@@ -56,7 +56,7 @@ docker build -t promisivia/treesls_chcore_builder:v2.3 .
 The default build uses the Docker builder image configured in [chbuild](chbuild).
 
 ```bash
-git submodule update --init --recursive   # required (rpmalloc / phoenix / dbx1000 / GeminiGraph, …)
+git submodule update --init --recursive   # required: libraries, demos, and Linux baselines
 bash artifact-evaluation/install-host-deps.sh   # once per host; then re-login
 docker pull promisivia/treesls_chcore_builder:v2.3
 make prepare        # AE prepare (datasets + NUMA/CXL/hostfs/CXLFS + ivshmem) + first build
@@ -64,14 +64,27 @@ make build          # incremental build
 make r4             # boot a cluster of 4 QEMU/KVM machines
 ```
 
+All configured submodules use public HTTPS URLs under
+`https://github.com/starfishos-org`. Initialize them before `docker build` as
+well as before the normal build; Docker copies the populated `user/` tree from
+the host build context. Demo entries use the `starfishos-test` branch for
+`git submodule update --remote`; normal checkouts remain pinned by the
+superproject's recorded commit.
+
+Each demo repository retains its pre-StarfishOS history and publishes the
+`starfishos-upstream-base` tag at the comparison baseline. For example:
+
+```bash
+git -C user/demos/redis-6.0.8 diff starfishos-upstream-base..HEAD
+```
+
+The annotated tag and the repository homepage record the corresponding
+upstream URL and version or commit.
+
 `make prepare` runs `artifact-evaluation/prepare.sh ensure` (including the eight
 NUMA `/dev/shm/numa*.?-$USER` backing files and the ivshmem doorbell server)
 before `scripts/quick-build.sh`. Skipping it leaves `make r4` unable to boot
 when `USE_DEV_AS_DRAM=1`.
-
-Demo submodules are public under
-[github.com/starfishos-org](https://github.com/starfishos-org) (HTTPS in
-`.gitmodules`).
 
 The launcher defaults to 12 vCPUs per guest and a 64 GiB CXL backing file. Set `machine_num`, `cpu_num`, `dram_size`, and `cxl_size` in the repository-root [`chcore.ini`](chcore.ini) to change the persistent cluster configuration. Environment variables such as `MACHINE_NUM`, `CPU_NUM`, and `CXL_SIZE` override those values for a single launch. Per-NUMA backing-file sizes remain configured in [`dsm-scripts/numa_sizes.conf`](dsm-scripts/numa_sizes.conf).
 

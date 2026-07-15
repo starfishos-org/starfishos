@@ -36,6 +36,8 @@ OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
 RESULTS="$OUT_DIR/results"
 TIMEOUT="${TIMEOUT:-1200}"
+DBX_WAREHOUSES_PER_MACHINE="${DBX_WAREHOUSES_PER_MACHINE:-8}"
+DBX_WARMUP_PER_MACHINE="${DBX_WARMUP_PER_MACHINE:-880000}"
 
 APPS="${APPS:-matrix db1000 gemini}"
 MACHINES="${MACHINES:-1 2 4 6 8}"
@@ -64,7 +66,7 @@ app_cmd() {
     case "$app" in
         matrix) echo "matrix_multiply.bin -l 4000 -r 4000 -t 8 -c 0 &" ;;
         db1000) echo "rundb.bin -t$((8 * n)) &" ;;
-        gemini) echo "pagerank /host/twitter-2010.bin 41652230 50 2 &" ;;
+        gemini) echo "pagerank /host/twitter-2010.bin 41652230 50 $n &" ;;
         *) echo "Unknown app: $1" >&2; return 1 ;;
     esac
 }
@@ -83,14 +85,26 @@ ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
 ae_save_build_configs
 cleanup() {
-    cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG"
-    rm -rf "$TMP_DIR"
-    ae_restore_build_configs
-    ae_kill_cluster
+    local rc=$? cleanup_failed=0
+    trap - EXIT
+    ae_kill_cluster || cleanup_failed=1
+    if [ -d "$TMP_DIR" ]; then
+        if cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG"; then
+            rm -rf "$TMP_DIR"
+        else
+            echo "[AE] failed to restore DBx1000 config; backup retained at $TMP_DIR" >&2
+            cleanup_failed=1
+        fi
+    fi
+    ae_restore_build_configs || cleanup_failed=1
+    if [ "$rc" -eq 0 ] && [ "$cleanup_failed" -ne 0 ]; then
+        rc=1
+    fi
+    exit "$rc"
 }
 trap cleanup EXIT
 
-dbx_bind_cpu_list() {
+worker_bind_cpu_list() {
     local n="$1" machine cpu values=()
     for machine in $(seq 0 $((n - 1))); do
         for cpu in $(seq 0 7); do
@@ -98,6 +112,15 @@ dbx_bind_cpu_list() {
         done
     done
     (IFS=,; echo "${values[*]}")
+}
+
+set_dbx_define() {
+    local name="$1" value="$2"
+    sed -i "s/^#define ${name}[[:space:]].*/#define ${name}\t\t\t\t${value}/" "$DBX_CONFIG"
+    grep -qE "^#define ${name}[[:space:]]+${value}([[:space:]]|$)" "$DBX_CONFIG" || {
+        echo "Failed to set DBx1000 ${name}=${value}" >&2
+        return 1
+    }
 }
 
 sweep_app_config() {
@@ -120,14 +143,29 @@ sweep_app_config() {
     for n in $MACHINES; do
         echo "### $app/$config: $n machine(s)"
         if [ "$app" = "db1000" ]; then
-            sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t\t$n/" "$DBX_CONFIG"
-            sed -i 's/^#define PERC_REMOTE_PAYMENT[[:space:]].*/#define PERC_REMOTE_PAYMENT\t\t15/' "$DBX_CONFIG"
-            sed -i 's/^#define PERC_REMOTE_NEW_ORDER[[:space:]].*/#define PERC_REMOTE_NEW_ORDER\t\t15/' "$DBX_CONFIG"
+            # config.h is the 8-machine point: 64 warehouses and 7,040,000
+            # warmup transactions.  Scale both with N so every machine keeps
+            # the same 8 warehouses and 880,000 warmup transactions.  Leaving
+            # the 8-machine totals in place for N=1/2 exhausts their 16-GiB
+            # local pools while prebuilding the TPC-C tables/query arrays.
+            set_dbx_define NUM_MACHINES "$n"
+            set_dbx_define NUM_WH "$((DBX_WAREHOUSES_PER_MACHINE * n))"
+            set_dbx_define WARMUP "$((DBX_WARMUP_PER_MACHINE * n))"
+            set_dbx_define PERC_REMOTE_PAYMENT 15
+            set_dbx_define PERC_REMOTE_NEW_ORDER 15
             ae_build || { echo "[AE] build failed for $app/$config/N=$n" >&2; return 1; }
         fi
-        ae_boot_cluster "$n" || { ae_kill_cluster; return 1; }
+        # Waiting for each guest's shell before launching the next prevents
+        # four or more QEMUs from entering late kernel/SMP initialization at
+        # once.  The concurrent launch path reproducibly strands machine 3.
+        AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n" || { ae_kill_cluster; return 1; }
         if [ "$app" = "db1000" ]; then
-            ae_send_command 0 "write dbx1000_bind_cpu.txt $(dbx_bind_cpu_list "$n")"
+            ae_send_command 0 "write dbx1000_bind_cpu.txt $(worker_bind_cpu_list "$n")"
+        elif [ "$app" = "gemini" ]; then
+            # Keep Gemini's global CPU namespace consistent with the cluster
+            # booted for this point.  The ramdisk default contains four
+            # machine segments and is therefore unsafe for N=1.
+            ae_send_command 0 "write gemini_bind_cpu.txt $(worker_bind_cpu_list "$n")"
         fi
         cmd="$(app_cmd "$app" "$n")"
         # Drive the workload on machine 0; the unmodified shared-memory app

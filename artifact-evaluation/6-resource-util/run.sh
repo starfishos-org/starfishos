@@ -45,6 +45,73 @@ DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/dbx1000-config.h"
 
+# Autotools and the legacy Redis build write generated, tracked files directly
+# into their source trees.  Preserve the exact pre-run contents (including any
+# local user edits) and restore them from the EXIT trap after the ramdisk build.
+OPTIONAL_SOURCE_FILES=(
+    user/demos/memcached/Makefile
+    user/demos/memcached/doc/Makefile
+    user/demos/memcachetest/Makefile
+    user/demos/VeryTinyCnn/libjpeg/Makefile
+    user/demos/VeryTinyCnn/libjpeg/config.log
+    user/demos/VeryTinyCnn/libjpeg/config.status
+    user/demos/VeryTinyCnn/libjpeg/libtool
+    user/demos/VeryTinyCnn/data/filelists.txt
+    user/demos/redis-6.0.8/src/redis-test
+)
+for path in "${OPTIONAL_SOURCE_FILES[@]}"; do
+    if [ -e "$AE_REPO_ROOT/$path" ]; then
+        mkdir -p "$TMP_DIR/source-backup/$(dirname "$path")"
+        cp -a "$AE_REPO_ROOT/$path" "$TMP_DIR/source-backup/$path"
+    fi
+done
+
+# These legacy builds also create hundreds of ignored/untracked files in their
+# source trees.  Snapshot the exact pre-run set and contents so a fresh build
+# cannot reuse stale host objects and the EXIT trap can still restore caches or
+# local data that were already present before the experiment.
+snapshot_generated_tree() {
+    local key="$1" git_root="$2"
+    shift 2
+    local manifest="$TMP_DIR/${key}-generated-before.nul"
+    local backup="$TMP_DIR/${key}-generated-backup" path
+    mkdir -p "$backup"
+    {
+        git -C "$git_root" ls-files -z --others --exclude-standard -- "$@"
+        git -C "$git_root" ls-files -z --others --ignored --exclude-standard -- "$@"
+    } | sort -zu > "$manifest"
+    while IFS= read -r -d '' path; do
+        mkdir -p "$backup/$(dirname "$path")"
+        cp -a "$git_root/$path" "$backup/$path"
+    done < "$manifest"
+}
+
+restore_generated_tree() {
+    local key="$1" git_root="$2"
+    shift 2
+    local manifest="$TMP_DIR/${key}-generated-before.nul"
+    local backup="$TMP_DIR/${key}-generated-backup"
+    local current="$TMP_DIR/${key}-generated-current.nul" path failed=0
+    {
+        git -C "$git_root" ls-files -z --others --exclude-standard -- "$@"
+        git -C "$git_root" ls-files -z --others --ignored --exclude-standard -- "$@"
+    } | sort -zu > "$current" || return 1
+    while IFS= read -r -d '' path; do
+        rm -f "$git_root/$path" || failed=1
+    done < "$current"
+    while IFS= read -r -d '' path; do
+        mkdir -p "$git_root/$(dirname "$path")" || failed=1
+        cp -a "$backup/$path" "$git_root/$path" || failed=1
+    done < "$manifest"
+    return "$failed"
+}
+
+snapshot_generated_tree optional "$AE_REPO_ROOT" \
+    user/demos/memcached user/demos/memcachetest user/demos/redis-6.0.8/src
+snapshot_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
+    include/CImg.h data image
+snapshot_generated_tree libjpeg "$AE_REPO_ROOT/user/demos/VeryTinyCnn/libjpeg" .
+
 # The 6 co-location groups (paper dram_groups / single_stress_typeN order).
 STRESS_TYPES="${STRESS_TYPES:-1 2 3 4 5 6}"
 CONDS="${CONDS:-single stress p3os}"
@@ -93,6 +160,21 @@ single_marker() {
     esac
 }
 
+# CPU-bound applications often produce no serial output between initialization
+# and their final metric.  For workloads observed doing so, rely on the full
+# experiment timeout instead of treating 120 seconds of silence as a hang.
+wait_for_bench() {
+    local machine="$1" bench="$2" marker="$3" label="$4"
+    case "$bench" in
+        matrix|linear-regression|pca|kmeans|cnn|gemini|memcached)
+            AE_LOG_STALL_S=0 ae_wait_in_log "$machine" "$marker" "$TIMEOUT" "$label"
+            ;;
+        *)
+            ae_wait_in_log "$machine" "$marker" "$TIMEOUT" "$label"
+            ;;
+    esac
+}
+
 # Launch one app on a ready 1-machine cluster (CPU binds safe for a single VM).
 run_single_app() {
     local bench="$1"
@@ -125,16 +207,45 @@ SINGLE_BENCHES="matrix leveldb linear-regression dbx1000 pca redis word-count me
 
 ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
+ae_ensure_base_build
 ae_save_build_configs
 cleanup() {
-    cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG"
-    rm -rf "$TMP_DIR"
-    ae_restore_build_configs
-    ae_kill_cluster
+    local rc=$? cleanup_failed=0 source_failed=0 path
+    trap - EXIT
+    ae_kill_cluster || cleanup_failed=1
+    if [ -d "$TMP_DIR" ]; then
+        cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG" || source_failed=1
+        for path in "${OPTIONAL_SOURCE_FILES[@]}"; do
+            if [ -e "$TMP_DIR/source-backup/$path" ]; then
+                cp -a "$TMP_DIR/source-backup/$path" "$AE_REPO_ROOT/$path" || source_failed=1
+            else
+                rm -f "$AE_REPO_ROOT/$path" || source_failed=1
+            fi
+        done
+        restore_generated_tree optional "$AE_REPO_ROOT" \
+            user/demos/memcached user/demos/memcachetest user/demos/redis-6.0.8/src \
+            || source_failed=1
+        restore_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
+            include/CImg.h data image || source_failed=1
+        restore_generated_tree libjpeg "$AE_REPO_ROOT/user/demos/VeryTinyCnn/libjpeg" . \
+            || source_failed=1
+        if [ "$source_failed" -eq 0 ]; then
+            rm -rf "$TMP_DIR"
+        else
+            echo "[AE] failed to restore optional source files; backup retained at $TMP_DIR" >&2
+            cleanup_failed=1
+        fi
+    fi
+    ae_restore_build_configs || cleanup_failed=1
+    if [ "$rc" -eq 0 ] && [ "$cleanup_failed" -ne 0 ]; then
+        rc=1
+    fi
+    exit "$rc"
 }
 trap cleanup EXIT
 
 "$AE_DIR/prepare_cnn.sh"
+"$AE_DIR/prepare_optional_deps.sh"
 for demo in REDIS MEMCACHED MEMCACHETEST TINYCNN; do
     ae_set_demo_var "CHCORE_DEMOS_${demo}" ON
     ae_set_dotconfig "CHCORE_DEMOS_${demo}" BOOL ON
@@ -167,14 +278,19 @@ link_bench_log() {
 }
 
 run_single_baselines() {
-    local bench marker
+    local bench marker wait_rc
     echo "### real: single baselines (one app per 1-machine boot)"
     for bench in $SINGLE_BENCHES; do
         marker="$(single_marker "$bench")"
         echo "### single: $bench"
         ae_boot_cluster 1 || { ae_kill_cluster; continue; }
         run_single_app "$bench"
-        if ae_wait_in_log 0 "$marker" "$TIMEOUT" "single/$bench"; then
+        if wait_for_bench 0 "$bench" "$marker" "single/$bench"; then
+            wait_rc=0
+        else
+            wait_rc=$?
+        fi
+        if [ "$wait_rc" -eq 0 ]; then
             sleep 2
         fi
         cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${bench}_single.log" || true
@@ -184,13 +300,16 @@ run_single_baselines() {
 
 # stress condition (traditional, single machine): source single_stress_typeN.sh
 run_stress_type() {
-    local type="$1" bench src marker
+    local type="$1" bench src marker failed=0
     echo "### real: stress (traditional) type $type"
     ae_boot_cluster 1 || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source single_stress_type${type}.sh"
     for bench in $(stress_type_benches "$type"); do
         marker="$(single_marker "$bench")"
-        ae_wait_in_log 0 "$marker" "$TIMEOUT" "stress/type${type}/$bench" || return 1
+        if ! wait_for_bench 0 "$bench" "$marker" "stress/type${type}/$bench"; then
+            failed=1
+            break
+        fi
     done
     ae_archive_logs 1 "$AE_LOG_DIR" "-stress-type${type}"
     src="$AE_LOG_DIR/machine0-stress-type${type}.log"
@@ -198,11 +317,12 @@ run_stress_type() {
         link_bench_log "$src" "$bench" "stress"
     done
     ae_kill_cluster
+    return "$failed"
 }
 
 # p3os condition (StarfishOS, two machines): source cross_stress_typeN_m{0,1}.sh
 run_cross_type() {
-    local type="$1" entry bench mach src marker
+    local type="$1" entry bench mach src marker failed=0
     echo "### real: p3os (StarfishOS cross-machine) type $type"
     ae_boot_cluster 2 || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source cross_stress_type${type}_m0.sh"
@@ -211,7 +331,9 @@ run_cross_type() {
         bench="${entry%%:*}"
         mach="${entry##*:}"
         marker="$(single_marker "$bench")"
-        ae_wait_in_log "$mach" "$marker" "$TIMEOUT" "p3os/type${type}/$bench" || return 1
+        if ! wait_for_bench "$mach" "$bench" "$marker" "p3os/type${type}/$bench"; then
+            failed=1
+        fi
     done
     ae_archive_logs 2 "$AE_LOG_DIR" "-p3os-type${type}"
     for entry in $(cross_type_bench_machines "$type"); do
@@ -221,20 +343,23 @@ run_cross_type() {
         link_bench_log "$src" "$bench" "p3os"
     done
     ae_kill_cluster
+    return "$failed"
 }
 
+failed=0
 for cond in $CONDS; do
     case "$cond" in
         single) run_single_baselines ;;
-        stress) for t in $STRESS_TYPES; do run_stress_type "$t"; done ;;
-        p3os)   for t in $STRESS_TYPES; do run_cross_type "$t"; done ;;
+        stress) for t in $STRESS_TYPES; do run_stress_type "$t" || failed=1; done ;;
+        p3os)   for t in $STRESS_TYPES; do run_cross_type "$t" || failed=1; done ;;
     esac
 done
 
 echo ""
 echo "=== Parsing + plotting real (resource-util) ==="
-python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" || failed=1
 
 echo ""
 echo "real figure target: $OUT_DIR/figures/real.{eps,pdf,png}"
 ae_finish
+exit "$failed"

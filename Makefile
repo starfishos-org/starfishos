@@ -90,12 +90,6 @@ cfork-prepare:
 cfork-restore:
 	./dsm-scripts/tests/cfork_restore.exp $(APP)
 
-llama-bench: clean-dsm
-	./dsm-scripts/tests/llama-bench.exp
-
-llama-cli: clean-dsm
-	./dsm-scripts/tests/llama-cli.exp
-
 cxl-new:
 	./dsm-scripts/config_memdev.sh cxl-new
 

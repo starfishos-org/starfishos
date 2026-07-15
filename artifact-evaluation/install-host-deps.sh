@@ -48,12 +48,15 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
     fi
     if ! apt_get install -y \
         ca-certificates \
+        autoconf \
+        automake \
         build-essential \
         cmake \
         curl \
         docker.io \
         git \
         libglib2.0-dev \
+        libtool \
         libnuma-dev \
         libpixman-1-dev \
         libslirp-dev \
@@ -62,6 +65,7 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
         numactl \
         openmpi-bin \
         libopenmpi-dev \
+        perl \
         pkg-config \
         python3 \
         python3-matplotlib \

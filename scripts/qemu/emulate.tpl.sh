@@ -87,16 +87,22 @@ plat_cpu_name=$cpu_num
 virtio_file_name="$basedir/../disk.img"
 # echo "virtio_file_name: $virtio_file_name"
 
-port=$(shuf -i 30000-40000 -n 1)
-#while true; do
-#	port=\$(shuf -i 30000-40000 -n 1)
-#	netstat -tan | grep \$port > /dev/null 2>&1
-#	if [[ \$? -ne 0 ]]; then
-#		break
-#	fi
-#done
+# Hold the per-port flock until this wrapper (and QEMU) exits.  Merely probing
+# a random free port leaves a race in which two near-concurrent machines can
+# both select it before either QEMU binds its GDB listener.
+gdb_port_reserver="$project_root/scripts/qemu/reserve_gdb_port.sh"
+if [ ! -f "$gdb_port_reserver" ]; then
+	echo "[FATAL] missing GDB port reservation helper: $gdb_port_reserver" >&2
+	exit 1
+fi
+# shellcheck source=reserve_gdb_port.sh
+. "$gdb_port_reserver"
+chcore_reserve_gdb_port
+port="$CHCORE_GDB_PORT"
 
-echo $port >$basedir/gdb-port-$vm_id
+gdb_port_tmp="$basedir/gdb-port-$vm_id.$$"
+printf '%s\n' "$port" > "$gdb_port_tmp"
+mv -f "$gdb_port_tmp" "$basedir/gdb-port-$vm_id"
 # echo $port >$basedir/gdb-port
 
 cxl_backend_file="/dev/shm/ivshmem-$USER"

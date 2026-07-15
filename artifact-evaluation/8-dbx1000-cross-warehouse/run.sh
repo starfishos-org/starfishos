@@ -50,15 +50,26 @@ cp "$DBX_CONFIG" "$TMP_DIR/config.h"
 cp "$KERNEL_CMAKE" "$TMP_DIR/CMakeLists.txt"
 
 restore_files() {
-    cp "$TMP_DIR/config.h" "$DBX_CONFIG"
-    cp "$TMP_DIR/CMakeLists.txt" "$KERNEL_CMAKE"
-    rm -rf "$TMP_DIR"
+    local failed=0
+    [ -d "$TMP_DIR" ] || return 0
+
+    cp "$TMP_DIR/config.h" "$DBX_CONFIG" || failed=1
+    cp "$TMP_DIR/CMakeLists.txt" "$KERNEL_CMAKE" || failed=1
+    if [ "$failed" -eq 0 ]; then
+        rm -rf "$TMP_DIR"
+    else
+        echo "[ERROR] failed to restore source files; backup retained at $TMP_DIR" >&2
+    fi
+    return "$failed"
 }
 
 cleanup() {
-    ae_kill_cluster
-    restore_files
-    ae_restore_build_configs
+    local rc=$?
+    trap - EXIT
+    ae_kill_cluster || { [ "$rc" -ne 0 ] || rc=1; }
+    restore_files || { [ "$rc" -ne 0 ] || rc=1; }
+    ae_restore_build_configs || { [ "$rc" -ne 0 ] || rc=1; }
+    exit "$rc"
 }
 trap cleanup EXIT
 
@@ -83,16 +94,12 @@ enable_vmspace_stats() {
 }
 
 # CPU-bind list covering THREADS_PER_MACHINE threads on each of the
-# NUM_MACHINES machines (12 cores per machine; use the first 8+1 like the
-# original experiments: 0-8,12-19,24-31,...).
+# NUM_MACHINES machines (12 cores per machine, 8 DBx1000 workers each:
+# 0-7,12-19,24-31,...).  The main thread is not part of this bind list.
 bind_cpu_list() {
     local n="$1" i parts=()
     for i in $(seq 0 $((n - 1))); do
-        if [ "$i" -eq 0 ]; then
-            parts+=("0-8")
-        else
-            parts+=("$((i * 12))-$((i * 12 + 7))")
-        fi
+        parts+=("$((i * 12))-$((i * 12 + 7))")
     done
     (IFS=,; echo "${parts[*]}")
 }
@@ -121,7 +128,12 @@ for ratio in $RATIOS; do
     set_dbx_define PERC_REMOTE_NEW_ORDER "$ratio"
     ae_build
 
-    AE_EXTRA_ENV="DRAM_SIZE=$DRAM_SIZE" ae_boot_cluster "$NUM_MACHINES"
+    if ! AE_EXTRA_ENV="DRAM_SIZE=$DRAM_SIZE" ae_boot_cluster "$NUM_MACHINES"; then
+        echo "[WARN] ratio=${ratio}% cluster failed to boot; archiving partial logs and continuing" >&2
+        ae_archive_logs "$NUM_MACHINES" "$AE_LOG_DIR" "_r${ratio}" || true
+        ae_kill_cluster
+        continue
+    fi
     ae_send_command 0 "write dbx1000_bind_cpu.txt $BIND_LIST"
     sleep 2
     ae_send_command 0 "rundb.bin"

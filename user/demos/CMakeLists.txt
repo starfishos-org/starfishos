@@ -10,57 +10,89 @@ chcore_get_nproc(_nproc)
 
 set(OS CHCORE)
 
+# Fail during configuration with an actionable message instead of letting a
+# later add_subdirectory(), make, or rsync fail inside an empty submodule path.
+function(chcore_require_demo_checkout option directory marker)
+  if(${option} AND
+     NOT EXISTS "${src_demos_dir}/${directory}/${marker}")
+    message(FATAL_ERROR
+      "${directory} is enabled but its submodule is not initialized. Run: "
+      "git submodule update --init --recursive -- user/demos/${directory}")
+  endif()
+endfunction()
+
+chcore_require_demo_checkout(CHCORE_DEMOS_REDIS redis-6.0.8 Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_YCSB YCSB-C Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_MEMCACHED memcached Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_MEMCACHETEST memcachetest Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_SQLITE sqlite Makefile)
+chcore_require_demo_checkout(CHCORE_DEMOS_LEVELDB leveldb-1.23 CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_ROCKSDB aurora-rocksdb CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_PHOENIX phoenix-2.0 CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_DBX1000 dbx1000 CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_GEIMINIGRAPH GeminiGraph CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn CMakeLists.txt)
+chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn/libjpeg Makefile)
+
 if(CHCORE_DEMOS_LIGRA)
   add_subdirectory(${src_demos_dir}/ligra)
 endif()
 
 if(CHCORE_DEMOS_REDIS)
+  set(REDIS_SOURCE_DIR ${src_demos_dir}/redis-6.0.8)
+  set(REDIS_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/redis-6.0.8)
   add_custom_target(
     redis-clean
-    WORKING_DIRECTORY ${src_demos_dir}/redis-6.0.8
-    COMMAND make clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${REDIS_BUILD_DIR}
 )
 list(APPEND _demos_clean_targets redis-clean)
   add_custom_target(
     redis ALL
-    WORKING_DIRECTORY ${src_demos_dir}/redis-6.0.8
-    COMMAND make CC=${MUSL_CC}
-    COMMAND rsync -a src/redis-cli ${build_ramdisk_dir}/redis-cli
-    COMMAND rsync -a src/redis-server ${build_ramdisk_dir}/redis-server
-    COMMAND rsync -a src/redis-benchmark ${build_ramdisk_dir}/redis-benchmark
-    COMMAND rsync -a redis.conf ${build_ramdisk_dir}/redis.conf
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${REDIS_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${REDIS_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git ${REDIS_SOURCE_DIR}/ ${REDIS_BUILD_DIR}/
+    COMMAND make -C ${REDIS_BUILD_DIR} -B MALLOC=libc CC=${MUSL_CC}
+    COMMAND rsync -a ${REDIS_BUILD_DIR}/src/redis-cli ${build_ramdisk_dir}/redis-cli
+    COMMAND rsync -a ${REDIS_BUILD_DIR}/src/redis-server ${build_ramdisk_dir}/redis-server
+    COMMAND rsync -a ${REDIS_BUILD_DIR}/src/redis-benchmark ${build_ramdisk_dir}/redis-benchmark
+    COMMAND rsync -a ${REDIS_BUILD_DIR}/redis.conf ${build_ramdisk_dir}/redis.conf
     DEPENDS)
   add_dependencies(ramdisk redis)
 endif()
 
 if(CHCORE_DEMOS_YCSB)
+  set(YCSB_SOURCE_DIR ${src_demos_dir}/YCSB-C)
+  set(YCSB_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/YCSB-C)
   add_custom_target(
     ycsb-clean
-    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C
-    COMMAND make clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${YCSB_BUILD_DIR}
 )
 list(APPEND _demos_clean_targets ycsb-clean)
   add_custom_target(
     ycsb ALL
-    COMMAND export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib # to find libhiredis
-    # COMMAND export CC=${MUSL_CC}
-    # COMMAND export CXX=${MUSL_CC}
-    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/core
-    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/redis
-    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C/db
-    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} -s
-    WORKING_DIRECTORY ${src_demos_dir}/YCSB-C
-    COMMAND make CC=${MUSL_CC} CXX=${MUSL_CXX} ycsb -s
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${YCSB_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${YCSB_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git ${YCSB_SOURCE_DIR}/ ${YCSB_BUILD_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+            make -C ${YCSB_BUILD_DIR}/core CC=${MUSL_CC} CXX=${MUSL_CXX} -s
+    COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+            make -C ${YCSB_BUILD_DIR}/db CC=${MUSL_CC} CXX=${MUSL_CXX} -s
+    COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+            make -C ${YCSB_BUILD_DIR}/redis CC=${MUSL_CC} CXX=${MUSL_CXX} -s
+    COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:/usr/local/lib"
+            make -C ${YCSB_BUILD_DIR} CC=${MUSL_CC} CXX=${MUSL_CXX} ycsb -s
 )
 
   add_custom_command(
     TARGET ycsb
     POST_BUILD
     COMMAND rsync -a /usr/local/lib/libhiredis.so.0.13 . # already builded in docker
-    COMMAND rsync -a ${src_demos_dir}/YCSB-C/ycsbc .
-    COMMAND rsync -a ${src_demos_dir}/YCSB-C/workloads/*.spec .
+    COMMAND rsync -a ${YCSB_BUILD_DIR}/ycsbc .
+    COMMAND rsync -a ${YCSB_BUILD_DIR}/workloads/*.spec .
     WORKING_DIRECTORY ${build_ramdisk_dir}
     DEPENDS)
   add_dependencies(ramdisk ycsb)
@@ -80,18 +112,30 @@ if(CHCORE_DEMOS_LIBEVENT)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHED)
-  set(MEMCACHED_BUILD_DIR ${src_demos_dir}/memcached)
+  set(MEMCACHED_SOURCE_DIR ${src_demos_dir}/memcached)
+  set(MEMCACHED_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/memcached)
 
   add_custom_target(memcached ALL
-    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
-    COMMAND make CC=${MUSL_CC} 
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHED_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${MEMCACHED_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git ${MEMCACHED_SOURCE_DIR}/ ${MEMCACHED_BUILD_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHED_BUILD_DIR} ./autogen.sh
+    COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHED_BUILD_DIR}
+            ${CMAKE_COMMAND} -E env CC=${MUSL_CC} AWK=awk
+            ./configure
+            --build=x86_64-pc-linux-gnu
+            --host=x86_64-linux-musl
+            --disable-coverage
+            --disable-docs
+            --with-libevent=/usr/libevent
+            --enable-static
+    COMMAND make -C ${MEMCACHED_BUILD_DIR} CC=${MUSL_CC} AWK=awk
     COMMENT "Building memcached"
   )
 
   add_custom_target(
     memcached-copy-data
-    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
-    COMMAND rsync -a memcached ${build_ramdisk_dir}/memcached
+    COMMAND rsync -a ${MEMCACHED_BUILD_DIR}/memcached ${build_ramdisk_dir}/memcached
     DEPENDS memcached
     COMMENT "Copying memcached to ramdisk"
   )
@@ -99,8 +143,7 @@ if(CHCORE_DEMOS_MEMCACHED)
   add_dependencies(ramdisk memcached-copy-data)
 
   add_custom_target(memcached-clean
-    WORKING_DIRECTORY ${MEMCACHED_BUILD_DIR}
-    COMMAND make maintainer-clean-local
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHED_BUILD_DIR}
     COMMENT "Cleaning memcached"
   )
 
@@ -109,12 +152,33 @@ if(CHCORE_DEMOS_MEMCACHED)
 endif()
 
 if(CHCORE_DEMOS_MEMCACHETEST)
-  set(MEMCACHETEST_BUILD_DIR ${src_demos_dir}/memcachetest)
+  set(MEMCACHETEST_SOURCE_DIR ${src_demos_dir}/memcachetest)
+  set(MEMCACHETEST_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/memcachetest)
 
   # 编译阶段
   add_custom_target(memcachetest ALL
-    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
-    COMMAND make CC=${MUSL_CC}
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHETEST_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${MEMCACHETEST_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git ${MEMCACHETEST_SOURCE_DIR}/ ${MEMCACHETEST_BUILD_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHETEST_BUILD_DIR} autoreconf -fi
+    COMMAND ${CMAKE_COMMAND} -E chdir ${MEMCACHETEST_BUILD_DIR}
+            ${CMAKE_COMMAND} -E env
+            CC=${MUSL_CC}
+            CXX=${MUSL_CXX}
+            AWK=awk
+            CPPFLAGS=-I/usr/libevent/include
+            "LDFLAGS=-static -L/usr/libevent/lib"
+            LIBS=-levent
+            ac_cv_func_clock_gettime=yes
+            ac_cv_func_malloc_0_nonnull=yes
+            ac_cv_func_realloc_0_nonnull=yes
+            pandora_cv_use_pipe=yes
+            ./configure
+            --build=x86_64-pc-linux-gnu
+            --host=x86_64-linux-musl
+            --with-libevent-prefix=/usr/libevent
+            --enable-static
+    COMMAND make -C ${MEMCACHETEST_BUILD_DIR} CC=${MUSL_CC} AWK=awk
     COMMENT "Building memcachetest"
   )
 
@@ -131,9 +195,7 @@ if(CHCORE_DEMOS_MEMCACHETEST)
 
   # 清理目标
   add_custom_target(memcachetest-clean
-    WORKING_DIRECTORY ${MEMCACHETEST_BUILD_DIR}
-    COMMAND make distclean
-    COMMAND ${CMAKE_COMMAND} -E remove -f ${MEMCACHETEST_CONFIG_DONE_FILE}
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${MEMCACHETEST_BUILD_DIR}
     COMMENT "Cleaning memcachetest"
   )
 
@@ -142,68 +204,76 @@ if(CHCORE_DEMOS_MEMCACHETEST)
 endif()
 
 if(CHCORE_DEMOS_SQLITE)
+  set(SQLITE_SOURCE_DIR ${src_demos_dir}/sqlite)
+  set(SQLITE_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/sqlite)
   add_custom_target(
     sqlite-clean
-    WORKING_DIRECTORY ${src_demos_dir}/sqlite
-    COMMAND make clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${SQLITE_BUILD_DIR}
 )
 list(APPEND _demos_clean_targets sqlite-clean)
   add_custom_target(
     sqlite ALL
-    WORKING_DIRECTORY ${src_demos_dir}/sqlite
-    COMMAND make MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
-    COMMAND rsync -a ${src_demos_dir}/sqlite/*.bin ${build_ramdisk_dir}/
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${SQLITE_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SQLITE_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git ${SQLITE_SOURCE_DIR}/ ${SQLITE_BUILD_DIR}/
+    COMMAND make -C ${SQLITE_BUILD_DIR} MALLOC=libc CC=${MUSL_CC} -j$(_nproc) -s
+    COMMAND rsync -a ${SQLITE_BUILD_DIR}/*.bin ${build_ramdisk_dir}/
     DEPENDS)
 endif()
 
 if(CHCORE_DEMOS_LEVELDB)
   set(LEVELDB_DIR ${src_demos_dir}/leveldb-1.23)
-  add_subdirectory(${LEVELDB_DIR})
+  add_subdirectory(${LEVELDB_DIR} ${CMAKE_CURRENT_BINARY_DIR}/leveldb-1.23)
 endif()
 
 if(CHCORE_DEMOS_ROCKSDB)
+  set(ROCKSDB_SOURCE_DIR ${src_demos_dir}/aurora-rocksdb)
+  set(ROCKSDB_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/aurora-rocksdb)
+  set(GFLAGS_SOURCE_DIR
+      ${ROCKSDB_SOURCE_DIR}/third-party/gflags-2.2.2)
+  set(GFLAGS_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/aurora-rocksdb-gflags)
 
-  file(MAKE_DIRECTORY ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build)
   add_custom_target(
     gflags-clean
-    COMMAND rm -rf ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${GFLAGS_BUILD_DIR}
     )
     list(APPEND _demos_clean_targets gflags-clean)
   add_custom_target(
     gflags ALL
-    WORKING_DIRECTORY ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build
-    COMMAND cmake -j$(_nproc) -DCMAKE_BUILD_TYPE=Release
+    COMMAND ${CMAKE_COMMAND}
+            -S ${GFLAGS_SOURCE_DIR}
+            -B ${GFLAGS_BUILD_DIR}
+            -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CXX_FLAGS=-fPIC
             -DCMAKE_CROSSCOMPILING=1
             -DBUILD_SHARED_LIBS=ON
-            # -DBUILD_SHARED_LIBS=OFF
             -DBUILD_TESTING=OFF
-            -S ..
-            && cmake --build . -j$(_nproc)
-    # COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags.so.2.2.2 libgflags.so
-    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/third-party/gflags-2.2.2/build/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
+    COMMAND ${CMAKE_COMMAND} --build ${GFLAGS_BUILD_DIR} -- -j$(_nproc)
+    COMMAND rsync -a ${GFLAGS_BUILD_DIR}/lib/libgflags_nothreads.so.2.2.2 ${build_ramdisk_dir}/libgflags_nothreads.so.2.2
     DEPENDS)
 
-  file(MAKE_DIRECTORY ${src_demos_dir}/aurora-rocksdb/build)
   add_custom_target(
     rocksdb-clean
-    COMMAND rm -rf ${src_demos_dir}/aurora-rocksdb/build
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${ROCKSDB_BUILD_DIR}
     )
     list(APPEND _demos_clean_targets rocksdb-clean)
   add_custom_target(
     rocksdb ALL
-    WORKING_DIRECTORY ${src_demos_dir}/aurora-rocksdb/build
-    COMMAND cmake -DCMAKE_BUILD_TYPE=Release
+    COMMAND ${CMAKE_COMMAND}
+            -S ${ROCKSDB_SOURCE_DIR}
+            -B ${ROCKSDB_BUILD_DIR}
+            -DCMAKE_BUILD_TYPE=Release
             -DCMAKE_C_COMPILER=${MUSL_CC}
             -DCMAKE_CXX_COMPILER=${MUSL_CXX}
             -DCMAKE_CROSSCOMPILING=1
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-            -S
-            ..
-    COMMAND cmake --build . -- -j$(_nproc)
-    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/build/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
-    COMMAND rsync -a ${src_demos_dir}/aurora-rocksdb/build/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
+            -DCMAKE_CXX_FLAGS=-I${GFLAGS_BUILD_DIR}/include
+            -DCMAKE_EXE_LINKER_FLAGS=-L${GFLAGS_BUILD_DIR}/lib
+            -DCMAKE_SHARED_LINKER_FLAGS=-L${GFLAGS_BUILD_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} --build ${ROCKSDB_BUILD_DIR} -- -j$(_nproc)
+    COMMAND rsync -a ${ROCKSDB_BUILD_DIR}/librocksdb.so.6.* ${build_ramdisk_dir}/librocksdb.so.6
+    COMMAND rsync -a ${ROCKSDB_BUILD_DIR}/db_bench ${build_ramdisk_dir}/rocksdb-dbbench
     DEPENDS)
   add_dependencies(rocksdb gflags)
   add_dependencies(ramdisk rocksdb)
@@ -212,7 +282,7 @@ endif()
 if(CHCORE_DEMOS_PHOENIX)
   set(PHOENIX_DIR ${src_demos_dir}/phoenix-2.0)
   set(PHOENIX_TIMING ON CACHE BOOL "" FORCE)
-  add_subdirectory(${PHOENIX_DIR})
+  add_subdirectory(${PHOENIX_DIR} ${CMAKE_CURRENT_BINARY_DIR}/phoenix-2.0)
 
   # Phoenix's worker pool uses detached pthreads and considers them destroyed
   # as soon as their loop posts sem_all_workers_done. On ChCore that signal is
@@ -283,160 +353,10 @@ if(CHCORE_DEMOS_GEMM)
   add_dependencies(ramdisk gemm)
 endif()
 
-if(CHCORE_DEMOS_LLAMACPP)
-  # add_custom_target(
-  #   llama-clean
-  #   WORKING_DIRECTORY ${src_demos_dir}/llama.cpp
-  #   COMMAND rm -rf build
-  # )
-  # list(APPEND _demos_clean_targets llama-clean)
-
-  # add_custom_target(
-  #   llama ALL
-  #   WORKING_DIRECTORY ${src_demos_dir}/llama.cpp
-  #   COMMAND cmake -B build 
-  #     -DCMAKE_C_COMPILER=${MUSL_CC}
-  #     -DCMAKE_CXX_COMPILER=${MUSL_CXX}
-  #     -DCMAKE_CROSSCOMPILING=1 
-  #     -DCMAKE_EXE_LINKER_FLAGS='-L/home/musl-cross-make/install/x86_64-linux-musl/lib -L/home/musl-cross-make/install/lib/gcc/x86_64-linux-musl/9.4.0'
-  #     -DCMAKE_SKIP_RPATH=ON
-  #     -DLLAMA_BUILD_TESTS=0
-  #   COMMAND cmake --build build --config Release -- -j
-  #   COMMENT "Build llama.cpp finished"
-  #   DEPENDS)
-  # list(APPEND _targets llama)
-  # add_dependencies(ramdisk llama)
-
-  # add_custom_command(
-  #   TARGET llama
-  #   POST_BUILD
-  #   COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
-  #   COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
-  #   COMMENT "Copying llama.cpp files to ramdisk directory"
-  #   DEPENDS llama)
-  add_subdirectory(${src_demos_dir}/llama.cpp)
-  target_compile_options(llama-bench PRIVATE -fPIE -fPIC)
-  target_link_options(llama-bench PRIVATE -pie)
-  set(llama-targets llama-bench ggml-base ggml-cpu ggml llama)
-  add_dependencies(ramdisk ${llama-targets})
-  add_custom_target(llama-copy-data
-    COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/llama-bench ${build_ramdisk_dir}/llama-bench
-    COMMAND rsync -a ${src_demos_dir}/llama.cpp/build/bin/*.so ${build_ramdisk_dir}
-    COMMENT "Copying llama.cpp files to ramdisk directory"
-    DEPENDS ${llama-targets})
-  add_dependencies(ramdisk llama-copy-data)
-endif()
-
 if(CHCORE_DEMOS_DBX1000)
-  add_subdirectory(${src_demos_dir}/dbx1000)
+  add_subdirectory(${src_demos_dir}/dbx1000
+                   ${CMAKE_CURRENT_BINARY_DIR}/dbx1000)
 endif()
-
-
-if (CHCORE_DEMOS_CPYTHON)
-if (NOT EXISTS ${libc_install_dir}/lib/libffi.so)
-  add_custom_target(
-    libffi
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
-    COMMAND ./configure CXX=${MUSL_CXX} CC=${MUSL_CC} --disable-docs --host=x86_64-linux-musl --prefix=${libc_install_dir}
-    COMMAND make -j$(_nproc)
-    COMMAND make install
-    # install libffi.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
-    DEPENDS
-  )
-else()
-  add_custom_target(
-    libffi
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
-    # install libffi.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libffi.so.8.1.4 ${build_ramdisk_dir}/libffi.so
-    DEPENDS
-  )
-endif()
-
-add_custom_target(
-    libffi-clean
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libffi
-    COMMAND make clean
-)
-add_dependencies(ramdisk libffi)
-
-if (NOT EXISTS ${libc_install_dir}/lib/libz.so)
-  add_custom_target(
-    zlib
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
-    COMMAND ./configure --prefix=${libc_install_dir}
-    COMMAND make -j$(_nproc) CC=${MUSL_CC} CXX=${MUSL_CXX}
-    COMMAND make install
-    # install libz.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
-    DEPENDS
-  )
-else()
-add_custom_target(
-    zlib
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
-    # install libz.so
-    COMMAND rsync -a ${CHCORE_MUSL_LIBC_INSTALL_DIR}/lib/libz.so.1.3.1 ${build_ramdisk_dir}/libz.so
-    DEPENDS
-  )
-endif()
-add_custom_target(
-    zlib-clean
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/zlib
-    COMMAND make clean
-)
-add_dependencies(ramdisk zlib)
-endif()
-
-if (CHCORE_DEMOS_CPYTHON)
-    set(cpython_install_dir ${CMAKE_CURRENT_BINARY_DIR}/cpython)
-    if (EXISTS ${cpython_install_dir})
-      add_custom_target(
-        cpython
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
-        # COMMAND make -j$(_nproc)
-        # COMMAND make install prefix=${cpython_install_dir} exec_prefix=${cpython_install_dir}
-        COMMAND rsync -a python ${build_ramdisk_dir}/python
-        COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
-        DEPENDS libffi zlib
-      )
-      add_dependencies(cpython libc-static)
-    else()
-      add_custom_target(
-        cpython
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cpython
-        COMMAND make clean
-        COMMAND ./configure 
-            CXX=${MUSL_CXX}
-            CC=${MUSL_CC}
-            LDFLAGS="-L${libc_install_dir}/lib"
-            CPPFLAGS="-I${libc_install_dir}/include"
-            --host=x86_64-linux-musl
-            --build=x86_64-linux
-            --disable-ipv6
-            --with-build-python
-            --with-ensurepip=no
-            --prefix=/
-            --exec-prefix=/
-            ac_cv_file__dev_ptmx=no
-            ac_cv_file__dev_ptc=no
-        COMMAND make -j$(_nproc)
-        COMMAND make install prefix=${cpython_install_dir} exec_prefix=${cpython_install_dir}
-        COMMAND rsync -a python ${build_ramdisk_dir}/python
-        COMMAND rsync -a ${cpython_install_dir}/lib ${build_ramdisk_dir}/
-        COMMAND rsync -a example/* ${build_ramdisk_dir}/ --exclude="__pycache__"
-        DEPENDS libffi zlib
-      )
-      add_dependencies(cpython libc-static)
-    endif()
-    add_dependencies(ramdisk cpython)
-
-    unset(cpython_install_dir)
-endif()
-
-add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 
 # add_custom_target(
 #   coremark
@@ -448,9 +368,64 @@ add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})
 # add_dependencies(ramdisk coremark)
 
 if (CHCORE_DEMOS_GEIMINIGRAPH)
-  add_subdirectory(${src_demos_dir}/GeminiGraph)
+  add_subdirectory(${src_demos_dir}/GeminiGraph
+                   ${CMAKE_CURRENT_BINARY_DIR}/GeminiGraph)
 endif()
 
 if (CHCORE_DEMOS_TINYCNN)
-  add_subdirectory(${src_demos_dir}/VeryTinyCnn)
+  set(TINYCNN_SOURCE_DIR ${src_demos_dir}/VeryTinyCnn)
+  set(TINYCNN_LIBJPEG_SOURCE_DIR ${TINYCNN_SOURCE_DIR}/libjpeg)
+  set(TINYCNN_LIBJPEG_BUILD_DIR
+      ${CMAKE_CURRENT_BINARY_DIR}/VeryTinyCnn-libjpeg)
+  set(TINYCNN_RAW_FILELIST
+      ${CMAKE_CURRENT_BINARY_DIR}/VeryTinyCnn-raw_filelists.txt)
+
+  add_custom_target(
+    tinycnn-clean
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${TINYCNN_LIBJPEG_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${TINYCNN_RAW_FILELIST}
+  )
+  list(APPEND _demos_clean_targets tinycnn-clean)
+
+  add_custom_target(
+    libjpeg-build
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${TINYCNN_LIBJPEG_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${TINYCNN_LIBJPEG_BUILD_DIR}
+    COMMAND rsync -a --exclude=.git
+            ${TINYCNN_LIBJPEG_SOURCE_DIR}/ ${TINYCNN_LIBJPEG_BUILD_DIR}/
+    # The committed config.status is a fraction newer than the committed
+    # Makefile and would otherwise try to regenerate it with unavailable gawk.
+    COMMAND ${CMAKE_COMMAND} -E touch ${TINYCNN_LIBJPEG_BUILD_DIR}/Makefile
+    COMMAND make -C ${TINYCNN_LIBJPEG_BUILD_DIR} CC=${CMAKE_C_COMPILER}
+  )
+
+  add_library(libjpeg STATIC IMPORTED)
+  set_property(TARGET libjpeg PROPERTY IMPORTED_LOCATION
+               ${TINYCNN_LIBJPEG_BUILD_DIR}/.libs/libjpeg.a)
+
+  add_executable(tiny-cnn ${TINYCNN_SOURCE_DIR}/feature.cpp)
+  target_link_options(tiny-cnn PRIVATE -static)
+  target_link_libraries(tiny-cnn PRIVATE
+                        libjpeg rpmalloc-static libc-static libstdc++-static)
+  target_include_directories(tiny-cnn PRIVATE
+                             ${TINYCNN_LIBJPEG_SOURCE_DIR}
+                             ${TINYCNN_SOURCE_DIR}/include)
+  target_compile_definitions(tiny-cnn PRIVATE CHCORE cimg_display=0)
+  target_compile_options(tiny-cnn PRIVATE -mavx2)
+  add_dependencies(tiny-cnn libjpeg-build)
+
+  add_custom_target(
+    tiny-cnn-copy-data
+    COMMAND /bin/sh -c
+            "cut -f 1 '${TINYCNN_SOURCE_DIR}/data/filelists.txt'>'${TINYCNN_RAW_FILELIST}'"
+    COMMAND rsync -a $<TARGET_FILE:tiny-cnn> ${build_ramdisk_dir}/
+    COMMAND rsync -a ${TINYCNN_SOURCE_DIR}/data/alexnet.dat ${build_ramdisk_dir}/
+    COMMAND rsync -a ${TINYCNN_SOURCE_DIR}/data/pca/nn-004.dat ${build_ramdisk_dir}/
+    COMMAND rsync -a ${TINYCNN_SOURCE_DIR}/image ${build_ramdisk_dir}/
+    COMMAND rsync -a ${TINYCNN_RAW_FILELIST} ${build_ramdisk_dir}/
+    DEPENDS tiny-cnn
+  )
+  add_dependencies(ramdisk tiny-cnn-copy-data)
 endif()
+
+add_custom_target(demos-clean DEPENDS ${_demos_clean_targets} ${_clean_targets})

@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <limits.h>
+#include <pthread.h>
 
 #include <chcore-internal/fs_defs.h>
 #include <chcore-internal/fs_debug.h>
@@ -29,6 +30,12 @@
 
 #define DIRENT_NAME_MAX 256
 
+/*
+ * FS_REQ_WRITE handlers may run concurrently for different vnodes.  CXLFS,
+ * however, has one allocator, superblock publisher, and p-log tail for the
+ * whole filesystem, so the persistent part of those writes must be atomic.
+ */
+static pthread_mutex_t tmpfs_persistent_write_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int __fs_openat_callback(int retcode, struct tmpfs_walk_path *walk, void *data)
 {
@@ -113,11 +120,15 @@ ssize_t tmpfs_write(void *operator, off_t offset, size_t size, const char *buf)
 	struct inode *inode = (struct inode *)operator;
 	ssize_t ret = 0;
 	if (inode) {
+		pthread_mutex_lock(&tmpfs_persistent_write_lock);
 		const char *path = plog_get_inode_path(inode);
 		if (path && !plog_is_replaying() &&
-		    plog_append_write(path, offset, buf, size) < 0)
-			return -ENOSPC;
-		ret = tfs_file_write(inode, offset, buf, size);
+		    plog_append_write(path, offset, buf, size) < 0) {
+			ret = -ENOSPC;
+		} else {
+			ret = tfs_file_write(inode, offset, buf, size);
+		}
+		pthread_mutex_unlock(&tmpfs_persistent_write_lock);
 	}
 	return ret;
 }

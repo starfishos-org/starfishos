@@ -598,6 +598,18 @@ int sys_set_affinity(u64 thread_cap, s32 aff)
         /* -2 means use global aff */
         BUG_ON(!thread);
 
+        /*
+         * Validate the global CPU before changing the current thread.  In
+         * particular, do not leave an invalid request in TE_MIGRATING: the
+         * next yield would otherwise index the shared scheduler queue with
+         * the out-of-range affinity even though this syscall returns
+         * -EINVAL.
+         */
+        if (is_invalid(aff)) {
+            ret = -EINVAL;
+            goto out;
+        }
+
         /* FIXME(FN): do not allow already bind thread to be changed */
         /* We can not change FPU owner */
         if (thread->thread_ctx->affinity != NO_AFF) {

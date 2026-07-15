@@ -4,11 +4,11 @@ set -e
 
 # return true if @v1 <= @v2
 verlte() {
-	[ "$2" = "$(echo -e "$2\n$3" | sort -V | head -n 1)" ]
+	[ "$1" = "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" ]
 }
 
 verlt() {
-	[ "$2" = "$3" ] && return 1 || verlte $2 $3
+	[ "$1" = "$2" ] && return 1 || verlte "$1" "$2"
 }
 
 vm_id=$1
@@ -32,7 +32,7 @@ done
 unset IFS
 
 if [[ "$qemu" == *"qemu-system-aarch64"* ]]; then
-	if verlt $qemu_version 6.2.0; then
+	if verlt "$qemu_version" 6.2.0; then
 		# in qemu < 6.2.0, machine type = raspi3
 		# in qemu >= 6.2.0, machine type = raspi3b
 		qemu_options=$(echo $qemu_options | sed 's/-machine[ \t]\{1,\}raspi3b/-machine raspi3/g')
