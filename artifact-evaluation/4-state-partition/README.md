@@ -68,5 +68,9 @@ The default run always collects the full 6 × 4 matrix. DBx1000 is rebuilt with
 scale), and that total remains fixed for the single-machine All-DRAM baseline
 so the working set is comparable. Override it with `DBX_NUM_WH`, which must be
 a positive multiple of `NUM_MACHINES`; `DBX_WARMUP` and `DBX_MAX_TXN` control
-the reduced run length. Missing points are fatal by default; use
-`plot.py --allow-partial` only to inspect an interrupted sweep.
+the reduced run length, and `DBX_TIMEOUT` (default 3600 s) bounds its silent
+TPC-C initialization and execution phases. Fatal guest signatures and dead
+tmux windows are still detected on every active machine during that interval;
+on failure, all per-machine serial logs are archived before teardown. Missing
+points are fatal by default; use `plot.py --allow-partial` only to inspect an
+interrupted sweep.

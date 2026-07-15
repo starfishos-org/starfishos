@@ -6,9 +6,12 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 from statistics import median
@@ -46,6 +49,163 @@ def run(cmd, *, cwd=None, log=None, env=None):
     if proc.returncode:
         raise SystemExit(f"command failed ({proc.returncode}); see {log}: {' '.join(map(str, cmd))}")
     return output
+
+
+class CommandInterrupted(SystemExit):
+    """A logged command was stopped by a signal sent to the collector."""
+
+
+def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
+    """Run a verbose command with its output connected directly to ``log``.
+
+    Unlike :func:`run`, this path never pipes child output through the
+    collector's controlling PTY and never retains it in memory.  The child has
+    its own process group so signals received by the collector can be
+    forwarded to the whole command rather than leaving a privileged image
+    builder behind.
+    """
+    if status_interval <= 0:
+        raise ValueError("status_interval must be positive")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    command = " ".join(map(str, cmd))
+    print(f"+ {command}", flush=True)
+    print(f"[AE] Verbose output is being written directly to {log}", flush=True)
+
+    interrupted_by = None
+    termination_deadline = None
+    previous_handlers = {}
+
+    def status(message):
+        """Keep controller diagnostics from affecting the logged command."""
+        try:
+            print(message, flush=True)
+        except BrokenPipeError:
+            # Avoid another EPIPE from Python's interpreter-shutdown flush.
+            # Once the controller is gone, all later heartbeats are discarded.
+            try:
+                sys.stdout = open(os.devnull, "w")
+            except OSError:
+                pass
+        except (OSError, RuntimeError, ValueError):
+            # The controlling PTY may disappear while the image build is
+            # still healthy.  Its lifecycle must not depend on a heartbeat.
+            pass
+
+    proc = None
+
+    def signal_process_group(signum):
+        if proc is None:
+            return
+        try:
+            os.killpg(proc.pid, signum)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # At least stop the unprivileged command leader if a privileged
+            # descendant prevents signalling the whole group.
+            try:
+                proc.send_signal(signum)
+            except ProcessLookupError:
+                pass
+
+    def terminate_process_group():
+        """Best-effort cleanup for every controller-side error."""
+        if proc is None:
+            return
+        signal_process_group(signal.SIGTERM)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        except OSError:
+            pass
+        # The leader may exit before a sudo/nspawn descendant.  Kill any
+        # remaining members of its still-unique process group.
+        signal_process_group(signal.SIGKILL)
+        try:
+            proc.wait(timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    def forward_signal(signum, _frame):
+        nonlocal interrupted_by, termination_deadline
+        if interrupted_by is None:
+            interrupted_by = signum
+            termination_deadline = time.monotonic() + 10.0
+        # If Popen has returned, forward immediately.  During the tiny spawn
+        # window proc is still None; the post-Popen check below forwards it.
+        signal_process_group(signum)
+
+    handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    try:
+        # Install handlers before Popen creates an independent session.  A
+        # signal before spawn prevents the child; one racing with Popen is
+        # recorded and forwarded as soon as Popen returns.
+        for signum in handled_signals:
+            previous_handlers[signum] = signal.signal(signum, forward_signal)
+        if interrupted_by is not None:
+            raise CommandInterrupted(128 + interrupted_by)
+
+        with log.open("wb") as output:
+            if interrupted_by is not None:
+                raise CommandInterrupted(128 + interrupted_by)
+            proc = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            if interrupted_by is not None:
+                signal_process_group(interrupted_by)
+
+            started = time.monotonic()
+            next_status = started + status_interval
+            while proc.poll() is None:
+                now = time.monotonic()
+                if (interrupted_by is not None
+                        and termination_deadline is not None
+                        and now >= termination_deadline):
+                    status(
+                        "[AE] Logged command did not stop after its signal; "
+                        "killing its process group"
+                    )
+                    signal_process_group(signal.SIGKILL)
+                    termination_deadline = None
+                if now >= next_status:
+                    elapsed = int(now - started)
+                    try:
+                        log_bytes = output.tell()
+                    except OSError:
+                        log_bytes = -1
+                    size = (
+                        f"{log_bytes} bytes"
+                        if log_bytes >= 0 else "unknown size"
+                    )
+                    status(
+                        f"[AE] Logged command still running after {elapsed}s "
+                        f"({size}): {log}"
+                    )
+                    next_status = now + status_interval
+                time.sleep(min(0.2, max(0.0, next_status - now)))
+            returncode = proc.wait()
+    except BaseException:
+        terminate_process_group()
+        raise
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+    if interrupted_by is not None:
+        # A command leader can exit on the forwarded signal before a
+        # privileged descendant.  Do not leave the rest of its group behind.
+        signal_process_group(signal.SIGKILL)
+        raise CommandInterrupted(128 + interrupted_by)
+    if returncode:
+        raise SystemExit(
+            f"command failed ({returncode}); see {log}: {command}"
+        )
 
 
 def require_tools(*names):
@@ -346,20 +506,34 @@ TIGON_TRANSIENT_IMAGE_ERRORS = re.compile(
 )
 
 
-def _prepare_tigon_image_keys(snapshots):
-    """Make generated SSH destinations replaceable without touching source keys."""
+def _prepare_tigon_generated_files(snapshots):
+    """Make generated destinations replaceable without following symlinks."""
     for path, kind, _contents, mode, _times in snapshots:
         if kind == "file":
             try:
                 path.chmod(mode | stat.S_IWUSR)
             except OSError as exc:
                 raise SystemExit(
-                    f"cannot make generated Tigon SSH file writable: {path}: {exc}"
+                    f"cannot make generated Tigon file writable: {path}: {exc}"
                 ) from exc
         elif kind == "symlink":
             # cp would follow an existing destination symlink and could overwrite
             # a file outside mkosi.extra.  The original link is restored later.
             _remove_generated_path(path)
+
+
+def _remove_tigon_refclock_history(path: Path):
+    """Remove the upstream append-only line before one fresh append."""
+    try:
+        contents = path.read_bytes()
+    except FileNotFoundError:
+        return
+    refclock = b"refclock PHC /dev/ptp0 poll 2"
+    filtered = b"".join(
+        line for line in contents.splitlines(keepends=True)
+        if line.rstrip(b"\r\n") != refclock
+    )
+    path.write_bytes(filtered)
 
 
 def build_tigon_image(tigon: Path, log_dir: Path, attempts: int = 3):
@@ -368,24 +542,41 @@ def build_tigon_image(tigon: Path, log_dir: Path, attempts: int = 3):
         raise SystemExit("TIGON_IMAGE_ATTEMPTS must be at least 1")
 
     ssh_dir = tigon / "emulation/image/mkosi.extra/root/.ssh"
-    key_snapshots = snapshot_generated_files(tuple(
-        ssh_dir / name for name in
-        ("authorized_keys", "id_rsa.pub", "id_rsa", "config")
+    chrony_config = (
+        tigon / "emulation/image/mkosi.extra/etc/chrony/chrony.conf"
+    )
+    generated_snapshots = snapshot_generated_files((
+        *(ssh_dir / name for name in
+          ("authorized_keys", "id_rsa.pub", "id_rsa", "config")),
+        chrony_config,
     ))
     env = os.environ.copy()
     env.setdefault("network_device", "")
     try:
         for attempt in range(1, attempts + 1):
-            # Reset any partial key copies from the previous attempt first.  In
-            # particular, make_vm_img.sh copies id_rsa as 0400 and cannot
-            # overwrite that file on a subsequent invocation.
-            restore_generated_files(key_snapshots)
-            _prepare_tigon_image_keys(key_snapshots)
+            # Reset partial generated files from the previous attempt first.
+            # make_vm_img.sh copies id_rsa as 0400 and appends its PHC refclock
+            # line to chrony.conf, so neither path is retry-safe on its own.
+            restore_generated_files(generated_snapshots)
+            _prepare_tigon_generated_files(generated_snapshots)
+            # A checkout can already contain duplicates from older invocations.
+            # Preserve them in the final snapshot, but exclude all exact old
+            # refclock lines from the image input; upstream appends one fresh
+            # canonical line during this attempt.
+            _remove_tigon_refclock_history(chrony_config)
             log = log_dir / f"tigon-image-build-attempt{attempt}.log"
             try:
-                run(["bash", "emulation/image/make_vm_img.sh"], cwd=tigon,
-                    log=log, env=env)
+                run_to_regular_log(
+                    ["bash", "emulation/image/make_vm_img.sh"],
+                    cwd=tigon,
+                    log=log,
+                    env=env,
+                )
                 return
+            except CommandInterrupted:
+                # User/controller signals are not transient mirror failures and
+                # must never start another privileged image build.
+                raise
             except SystemExit:
                 output = log.read_text(errors="replace") if log.is_file() else ""
                 if attempt == attempts or not TIGON_TRANSIENT_IMAGE_ERRORS.search(output):
@@ -396,7 +587,7 @@ def build_tigon_image(tigon: Path, log_dir: Path, attempts: int = 3):
                     flush=True,
                 )
     finally:
-        restore_generated_files(key_snapshots)
+        restore_generated_files(generated_snapshots)
 
 
 def collect_linux(log_dir: Path, graph: Path):
@@ -453,7 +644,10 @@ def collect_linux(log_dir: Path, graph: Path):
 
         run(["cmake", "-S", str(gemini), "-B", str(gemini_build)])
         run(["cmake", "--build", str(gemini_build), "-j"])
-        run(["make", "-j", "toolkits/pagerank"], cwd=distributed)
+        # The upstream target is a direct source-to-binary rule without a
+        # configuration stamp.  Force it so an executable from another host,
+        # MPI implementation, or compiler cannot be silently reused.
+        run(["make", "-B", "-j", "toolkits/pagerank"], cwd=distributed)
 
         configured = config.read_text()
         configured = re.sub(r"(#define\s+WORKLOAD\s+)\w+", r"\1TPCC", configured)

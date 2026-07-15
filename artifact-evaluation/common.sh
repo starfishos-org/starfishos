@@ -31,6 +31,63 @@ AE_DOTCONFIG="$AE_REPO_ROOT/.config"
 AE_CHCORE_INI="$AE_REPO_ROOT/chcore.ini"
 AE_BOOT_TIMEOUT="${AE_BOOT_TIMEOUT:-600}"
 AE_MACHINE_LOG_DIR="${AE_MACHINE_LOG_DIR:-$AE_REPO_ROOT/logs}"
+AE_RUN_LOCK_FD=""
+
+# Hold one per-user lock for the caller's entire shell lifetime.  The default
+# path is outside the checkout so runners from different clones still
+# serialize access to QEMU, tmux, ivshmem, and host-level baseline tuning.
+ae_acquire_run_lock() {
+    local purpose="${1:-artifact-evaluation}"
+    local lock_dir
+    if [ -n "${AE_RUN_LOCK_DIR:-}" ]; then
+        lock_dir="$AE_RUN_LOCK_DIR"
+    elif [ -d "/run/user/$UID" ] \
+        && [ "$(stat -Lc '%u' -- "/run/user/$UID" 2>/dev/null || true)" = "$UID" ]; then
+        lock_dir="/run/user/$UID/starfishos-ae-lock"
+    else
+        lock_dir="/tmp/starfishos-ae-lock-$UID"
+    fi
+    local lock_file="$lock_dir/runner.lock"
+    local owner holder
+
+    if [ -n "$AE_RUN_LOCK_FD" ]; then
+        return 0
+    fi
+    if ! command -v flock >/dev/null 2>&1; then
+        echo "[AE] required tool missing: flock" >&2
+        return 1
+    fi
+    if [ -L "$lock_dir" ]; then
+        echo "[AE] refusing symlink runner lock directory: $lock_dir" >&2
+        return 1
+    fi
+    (umask 077; mkdir -p -- "$lock_dir") || return 1
+    if [ -L "$lock_dir" ] || [ ! -d "$lock_dir" ]; then
+        echo "[AE] invalid runner lock directory: $lock_dir" >&2
+        return 1
+    fi
+    owner="$(stat -Lc '%u' -- "$lock_dir" 2>/dev/null || true)"
+    if [ "$owner" != "$UID" ]; then
+        echo "[AE] refusing runner lock directory not owned by uid $UID: $lock_dir" >&2
+        return 1
+    fi
+    chmod 700 -- "$lock_dir" || return 1
+    exec {AE_RUN_LOCK_FD}<>"$lock_file" || return 1
+    if ! flock -n "$AE_RUN_LOCK_FD"; then
+        holder="$(tr '\n' ' ' < "$lock_file" 2>/dev/null || true)"
+        echo "[AE] another artifact runner already holds $lock_file" >&2
+        [ -n "$holder" ] && echo "[AE] lock holder: $holder" >&2
+        eval "exec ${AE_RUN_LOCK_FD}>&-"
+        AE_RUN_LOCK_FD=""
+        return 1
+    fi
+
+    : > "$lock_file"
+    printf 'pid=%s purpose=%s repo=%s started=%s\n' \
+        "$BASHPID" "$purpose" "$AE_REPO_ROOT" "$(date -Is)" \
+        >&"$AE_RUN_LOCK_FD"
+    echo "[AE] acquired per-user runner lock: $lock_file"
+}
 
 # ── global environment check ────────────────────────────────────────────────
 
@@ -337,7 +394,10 @@ _ae_error_grep() {
 # intentionally silent workload that should wait for the caller's full timeout.
 AE_LOG_STALL_S="${AE_LOG_STALL_S:-120}"
 
-# ae_wait_in_log <machine> <success-pattern> <timeout-s> <label>
+# ae_wait_in_log <machine> <success-pattern> <timeout-s> <label> [machine-count]
+# The optional machine count checks fatal signatures and pane liveness on
+# every machine 0..N-1 while still looking for the success marker on the
+# selected machine's log.
 # Returns:
 #   0  success pattern seen
 #   1  timed out / log stalled (recorded via ae_record_timeout)
@@ -345,26 +405,42 @@ AE_LOG_STALL_S="${AE_LOG_STALL_S:-120}"
 # On 1 or 3 the caller should save the log and continue to the next test.
 ae_wait_in_log() {
     local machine="$1" pattern="$2" timeout="$3" label="$4"
-    local logfile err
+    local watch_count="${5:-0}"
+    local logfile err watch_machine watch_log watch_first watch_last
     logfile="$(ae_machine_log "$machine")"
+    if [ "$watch_count" = "0" ]; then
+        watch_first="$machine"
+        watch_last="$machine"
+    elif [[ "$watch_count" =~ ^[1-9][0-9]*$ ]]; then
+        watch_first=0
+        watch_last=$((watch_count - 1))
+    else
+        ae_record_error "$label: invalid machine count for log watch: $watch_count"
+        return 3
+    fi
     local elapsed=0 stall_limit="${AE_LOG_STALL_S:-120}"
     local last_sz cur_sz stalled=0
     last_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
     while [ "$elapsed" -lt "$timeout" ]; do
+        for ((watch_machine = watch_first; watch_machine <= watch_last; watch_machine++)); do
+            watch_log="$(ae_machine_log "$watch_machine")"
+            err="$(_ae_error_grep "$watch_log")"
+            if [ -n "$err" ]; then
+                ae_record_error "$label: guest error on machine $watch_machine -> ${err## } (log: $watch_log)"
+                tail -40 "$watch_log" >&2 || true
+                return 3
+            fi
+            if ! tmux list-panes -t "$AE_SESSION:$watch_machine" >/dev/null 2>&1; then
+                ae_record_error "$label: tmux window $AE_SESSION:$watch_machine died before success marker (log: $watch_log)"
+                tail -40 "$watch_log" >&2 || true
+                return 3
+            fi
+        done
+        # Accept completion only after a final all-machine health scan so a
+        # secondary panic cannot be hidden by machine 0's success marker.
         if grep -aq "$pattern" "$logfile" 2>/dev/null; then
             [ -n "$label" ] && echo "$label"
             return 0
-        fi
-        err="$(_ae_error_grep "$logfile")"
-        if [ -n "$err" ]; then
-            ae_record_error "$label: guest error detected -> ${err## } (log: $logfile)"
-            tail -40 "$logfile" >&2 || true
-            return 3
-        fi
-        if ! tmux list-panes -t "$AE_SESSION:$machine" >/dev/null 2>&1; then
-            ae_record_error "$label: tmux window $AE_SESSION:$machine died before success marker (log: $logfile)"
-            tail -40 "$logfile" >&2 || true
-            return 3
         fi
         if [ "$stall_limit" -gt 0 ] 2>/dev/null; then
             cur_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
@@ -409,6 +485,18 @@ _ae_boot_cluster_once() {
     local wait_shell_each="${AE_WAIT_SHELL_PER_MACHINE:-0}"
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
+
+    # PHOENIX_SCHED_TIMING makes every guest stop immediately after its DSM
+    # join message until all MACHINE_NUM peers reach the TSC calibration
+    # barrier.  Waiting for machine 0's shell before launching machine 1 would
+    # therefore deadlock by construction.  Callers which need serialized late
+    # boot must disable that optional instrumentation before building.
+    if [ "$wait_shell_each" = "1" ] \
+        && grep -Eq '^set\(PHOENIX_SCHED_TIMING[[:space:]]+"?ON"?\)' \
+            "$AE_DSM_CONFIG"; then
+        echo "[AE] AE_WAIT_SHELL_PER_MACHINE=1 is incompatible with PHOENIX_SCHED_TIMING=ON" >&2
+        return 1
+    fi
 
     ae_ensure_clean_tmux || return 1
     ae_ensure_doorbell || return 1
@@ -465,6 +553,10 @@ ae_boot_cluster() {
             return 0
         fi
         if [ "$attempt" -ge "$max_attempts" ]; then
+            # Returning a failed boot must never leave a partial cluster alive:
+            # callers may immediately rebuild for the next point.  Serial logs
+            # remain on disk for callers which archive diagnostics afterward.
+            ae_stop_tmux_and_reap "$AE_SESSION" || true
             return 1
         fi
 

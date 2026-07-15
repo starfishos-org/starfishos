@@ -137,7 +137,8 @@ for ratio in $RATIOS; do
     ae_send_command 0 "write dbx1000_bind_cpu.txt $BIND_LIST"
     sleep 2
     ae_send_command 0 "rundb.bin"
-    if ae_wait_in_log 0 "PASS! SimTime" "$TIMEOUT" "dbx1000 done (ratio=${ratio}%)"; then
+    if ae_wait_in_log 0 "PASS! SimTime" "$TIMEOUT" \
+        "dbx1000 done (ratio=${ratio}%)" "$NUM_MACHINES"; then
         sleep 5   # let trailing vmspace stats flush on all machines
     else
         # rc 1 (timeout) or 3 (guest error/crash) — reason recorded above;

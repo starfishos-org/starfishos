@@ -68,6 +68,15 @@ Env overrides: `APPS` (`matrix db1000 gemini`), `MACHINES` (`1 2 4 6 8`),
 `CONFIGS` (`Mixed CXL`), `TIMEOUT`, `OUT_DIR`, `RUN_BASELINES` (default `1`),
 `BASELINE_STAGES` (`linux,matrix-tcp,tigon`), `TIGON_DIR`, `TIGON_SETUP`.
 `TIGON_IMAGE_ATTEMPTS` controls transient image-build retries (default `3`).
+Verbose image-builder output is connected directly to
+`logs/tigon-image-build-attempt<N>.log`; the controller prints only periodic
+status lines and never retries a build interrupted by `SIGINT`, `SIGTERM`, or
+`SIGHUP`.
+
+The runner holds a nonblocking per-user lock for its full lifetime. A second
+auto-scale invocation, including one from another checkout, exits with the
+recorded holder PID/repository instead of cleaning or restarting shared QEMU,
+tmux, ivshmem, or host-tuning state underneath the active run.
 
 The first Tigon run performs its upstream host/VM setup and therefore needs
 passwordless/non-interactive `sudo`, 8 VM capacity, and the hardware layout

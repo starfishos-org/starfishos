@@ -47,6 +47,8 @@ RUN_BASELINES="${RUN_BASELINES:-1}"
 BASELINE_STAGES="${BASELINE_STAGES:-linux,matrix-tcp,tigon}"
 TIGON_SETUP="${TIGON_SETUP:-1}"
 
+ae_acquire_run_lock "auto-scale" || exit 1
+
 mkdir -p "$AE_LOG_DIR" "$RESULTS" "$OUT_DIR/figures"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 TMP_DIR="$(mktemp -d)"
@@ -105,6 +107,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Auto-scale consumes Phoenix's userspace timing but not the optional kernel
+# set_affinity-to-dequeue probe.  Its cross-machine TSC barrier deliberately
+# releases every guest's late boot at once, which defeats the serialized shell
+# boot used below and can strand a secondary QEMU during SMP initialization.
+ae_set_dsm_var PHOENIX_SCHED_TIMING OFF
+
 worker_bind_cpu_list() {
     local n="$1" machine cpu values=()
     for machine in $(seq 0 $((n - 1))); do
@@ -156,10 +164,16 @@ sweep_app_config() {
             set_dbx_define PERC_REMOTE_NEW_ORDER 15
             ae_build || { echo "[AE] build failed for $app/$config/N=$n" >&2; return 1; }
         fi
-        # Waiting for each guest's shell before launching the next prevents
-        # four or more QEMUs from entering late kernel/SMP initialization at
-        # once.  The concurrent launch path reproducibly strands machine 3.
-        AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n" || { ae_kill_cluster; return 1; }
+        # PHOENIX_SCHED_TIMING is disabled above, so waiting for each shell is
+        # safe and prevents four or more QEMUs from entering late kernel/SMP
+        # initialization at once.  The concurrent path strands machine 3.
+        if ! AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n"; then
+            echo "[AE] boot failed for $app/$config/N=$n" >&2
+            ae_archive_logs "$n" "$AE_LOG_DIR" \
+                "-boot-failed-${app}-${config}-N${n}"
+            ae_kill_cluster
+            return 1
+        fi
         if [ "$app" = "db1000" ]; then
             ae_send_command 0 "write dbx1000_bind_cpu.txt $(worker_bind_cpu_list "$n")"
         elif [ "$app" = "gemini" ]; then
@@ -172,7 +186,8 @@ sweep_app_config() {
         # Drive the workload on machine 0; the unmodified shared-memory app
         # creates workers across the N-machine global CPU namespace.
         ae_send_command 0 "$cmd"
-        if ae_wait_in_log 0 "$marker" "$TIMEOUT" "$app/$config N=$n"; then
+        if ae_wait_in_log 0 "$marker" "$TIMEOUT" \
+            "$app/$config N=$n" "$n"; then
             cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${app}_${config}_N${n}.log"
         else
             cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${app}_${config}_N${n}.log" || true

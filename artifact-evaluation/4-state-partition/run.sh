@@ -66,17 +66,21 @@ bench_done_pattern() {
     esac
 }
 
-# Phoenix applications are silent while their MapReduce phase is running.
-# CXL placement can stretch that phase beyond the generic 120-second serial
-# stall threshold, so use the experiment timeout for these completion markers.
+# DBx1000 is silent while it initializes the TPC-C tables, and the Phoenix
+# applications are silent while their MapReduce phase is running.  CXL page
+# placement can stretch either phase beyond the generic 120-second serial-log
+# stall threshold.  Keep checking fatal guest signatures and tmux liveness,
+# but use the benchmark's hard timeout as the fail-safe for these known-silent
+# completion markers.
 wait_for_bench() {
-    local bench="$1" pattern="$2" timeout="$3" label="$4"
+    local bench="$1" pattern="$2" timeout="$3" label="$4" machines="$5"
     case "$bench" in
-        pca|matrix_multiply|linear_regression|word_count)
-            AE_LOG_STALL_S=0 ae_wait_in_log 0 "$pattern" "$timeout" "$label"
+        dbx1000|pca|matrix_multiply|linear_regression|word_count)
+            AE_LOG_STALL_S=0 ae_wait_in_log \
+                0 "$pattern" "$timeout" "$label" "$machines"
             ;;
         *)
-            ae_wait_in_log 0 "$pattern" "$timeout" "$label"
+            ae_wait_in_log 0 "$pattern" "$timeout" "$label" "$machines"
             ;;
     esac
 }
@@ -190,6 +194,8 @@ for cfg in $CONFIGS; do
         if [ "$bench" = "dbx1000" ]; then
             if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines"; then
                 ae_record_error "boot failed for $bench under $cfg"
+                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                    "-boot-failed-${bench}-${cfg}"
                 continue
             fi
             ae_send_command 0 "write dbx1000_bind_cpu.txt $DBX_BIND_LIST"
@@ -203,6 +209,8 @@ for cfg in $CONFIGS; do
             # single-machine parameters (8 threads, CPUs 0-11) instead.
             if ! ae_boot_cluster "$cfg_machines"; then
                 ae_record_error "boot failed for $bench under $cfg"
+                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                    "-boot-failed-${bench}-${cfg}"
                 continue
             fi
             if [ "$cfg_machines" -eq 1 ]; then
@@ -216,18 +224,23 @@ for cfg in $CONFIGS; do
         else
             if ! ae_boot_cluster "$cfg_machines"; then
                 ae_record_error "boot failed for $bench under $cfg"
+                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                    "-boot-failed-${bench}-${cfg}"
                 continue
             fi
             ae_send_command 0 "source run_${bench}.sh"
             bench_timeout="$TIMEOUT"
         fi
-        if wait_for_bench "$bench" "$pattern" "$bench_timeout" "$bench done"; then
+        if wait_for_bench \
+            "$bench" "$pattern" "$bench_timeout" "$bench done" "$cfg_machines"; then
             sleep 3   # let trailing output (e.g. summary lines) flush
             cp "$(ae_machine_log 0)" "$logfile"
         else
             # rc 1 (timeout) or 3 (guest error/crash) — the specific reason is
             # already recorded above; save the log and skip to the next test.
             cp "$(ae_machine_log 0)" "$logfile" || true
+            ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                "-failed-${bench}-${cfg}"
             echo "[WARN] $bench under $cfg did not complete; skipping to next test" >&2
             ae_record_error "$bench under $cfg did not produce a complete result"
         fi

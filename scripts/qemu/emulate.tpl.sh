@@ -218,6 +218,7 @@ if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 -chardev socket,path=/tmp/ivshmem-doorbell-$USER,id=doorbell_chardev \
 -device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
 -cpu host -smp $plat_cpu_name -serial mon:stdio -nographic \
+-boot order=d \
 -cdrom $basedir/chcore.iso \
 -fw_cfg name=opt/chcore/bootargs,string=machine_id=$vm_id,,machine_num=$machine_num,,cpu_num=$cpu_num,,tmp_size=$tmp_size,,dram_size=$dram_size"
 else

@@ -19,23 +19,30 @@ if [ -z "$requested_destination" ]; then
     exit 1
 fi
 source_dir="$(realpath -e -- "$requested_source")"
-destination_dir="$(realpath -m -- "$requested_destination")"
-if [ "$source_dir" = "/" ] || [ "$destination_dir" = "/" ]; then
+# Keep a lexical destination for replacement: resolving an existing leaf
+# symlink and passing its target to rm -rf would delete the target rather than
+# unlinking the build-tree entry.  Canonicalize a separate copy only for the
+# source/destination overlap checks.
+destination_dir="$(realpath -ms -- "$requested_destination")"
+destination_resolved="$(realpath -m -- "$requested_destination")"
+if [ "$source_dir" = "/" ] \
+    || [ "$destination_dir" = "/" ] \
+    || [ "$destination_resolved" = "/" ]; then
     echo "Refusing to materialize from or replace the filesystem root" >&2
     exit 1
 fi
 
-# The destination is recursively replaced below.  Resolve symlinks and reject
-# equal or nested trees in either direction before running rm.
-case "$destination_dir/" in
+# The destination is recursively replaced below.  Reject equal or nested
+# trees in either direction before running rm.
+case "$destination_resolved/" in
     "$source_dir/"|"$source_dir/"*)
-        echo "Refusing destination at or below source: $destination_dir" >&2
+        echo "Refusing destination at or below source: $destination_resolved" >&2
         exit 1
         ;;
 esac
 case "$source_dir/" in
-    "$destination_dir/"*)
-        echo "Refusing destination which contains source: $destination_dir" >&2
+    "$destination_resolved/"*)
+        echo "Refusing destination which contains source: $destination_resolved" >&2
         exit 1
         ;;
 esac
