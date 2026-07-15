@@ -213,6 +213,51 @@ if(CHCORE_DEMOS_PHOENIX)
   set(PHOENIX_DIR ${src_demos_dir}/phoenix-2.0)
   set(PHOENIX_TIMING ON CACHE BOOL "" FORCE)
   add_subdirectory(${PHOENIX_DIR})
+
+  # Phoenix's worker pool uses detached pthreads and considers them destroyed
+  # as soon as their loop posts sem_all_workers_done. On ChCore that signal is
+  # sent before musl has removed the worker from its thread/TSD list. The main
+  # thread can then enter pthread_key_delete(), follow a worker whose detached
+  # mapping has already gone away, and fault during benchmark finalization.
+  #
+  # Keep the upstream submodule clean: generate a ChCore-only tpool.c with
+  # joinable workers and an explicit join before key deletion, then replace
+  # only that source in phoenix-lib.
+  set(_phoenix_tpool_src "${PHOENIX_DIR}/src/tpool.c")
+  set(_phoenix_tpool_fixed "${CMAKE_CURRENT_BINARY_DIR}/phoenix-tpool-chcore.c")
+  file(READ "${_phoenix_tpool_src}" _phoenix_tpool_contents)
+
+  set(_phoenix_detached
+      "pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED)")
+  set(_phoenix_joinable
+      "pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_JOINABLE)")
+  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_detached}"
+         _phoenix_detached_pos)
+  if(_phoenix_detached_pos EQUAL -1)
+    message(FATAL_ERROR
+            "Phoenix tpool layout changed: detached-worker override no longer applies")
+  endif()
+  string(REPLACE "${_phoenix_detached}" "${_phoenix_joinable}"
+         _phoenix_tpool_contents "${_phoenix_tpool_contents}")
+
+  set(_phoenix_wait_old
+      "sem_wait(&tpool->sem_all_workers_done);\n\n    sem_destroy")
+  set(_phoenix_wait_new
+      "sem_wait(&tpool->sem_all_workers_done);\n\n    /* Wait until musl has unlinked every worker from its TSD list. */\n    for (i = 0; i < tpool->num_threads; ++i) {\n        CHECK_ERROR (pthread_join (tpool->threads[i], NULL));\n    }\n\n    sem_destroy")
+  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_wait_old}"
+         _phoenix_wait_pos)
+  if(_phoenix_wait_pos EQUAL -1)
+    message(FATAL_ERROR
+            "Phoenix tpool layout changed: worker-join override no longer applies")
+  endif()
+  string(REPLACE "${_phoenix_wait_old}" "${_phoenix_wait_new}"
+         _phoenix_tpool_contents "${_phoenix_tpool_contents}")
+  file(WRITE "${_phoenix_tpool_fixed}" "${_phoenix_tpool_contents}")
+
+  get_target_property(_phoenix_sources phoenix-lib SOURCES)
+  list(FILTER _phoenix_sources EXCLUDE REGEX "[/\\\\]tpool[.]c$")
+  list(APPEND _phoenix_sources "${_phoenix_tpool_fixed}")
+  set_property(TARGET phoenix-lib PROPERTY SOURCES "${_phoenix_sources}")
 endif()
 
 if(CHCORE_DEMOS_GEMM)

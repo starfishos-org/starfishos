@@ -8,6 +8,7 @@ for f in \
     "/dev/shm/ivshmem-$USER" \
     "/dev/shm/ivshmem-hostfs-$USER" \
     "/dev/shm/ivshmem-cxlfs-$USER" \
+    "/dev/shm/ivshmem-cxlfs-$USER.build-id" \
     "/dev/shm/numa0.0-$USER" \
     "/dev/shm/numa0.1-$USER" \
     "/dev/shm/numa1.0-$USER" \

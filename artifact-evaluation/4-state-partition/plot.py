@@ -59,6 +59,26 @@ CONFIG_LABEL = {
 # is better) and are normalized as baseline_time / time.
 THROUGHPUT_BENCHS = {"leveldb", "dbx1000"}
 
+FATAL_LOG_PATTERNS = (
+    "General Protection Fault",
+    "Kernel panic",
+    "do_page_fault: invalid user access",
+    "do_page_fault: user NULL dereference",
+    "KERNEL FAULT",
+)
+
+
+def log_is_valid(text: str, bench: str) -> bool:
+    fatal = next((pattern for pattern in FATAL_LOG_PATTERNS if pattern in text), None)
+    if fatal:
+        print(f"[WARN] rejecting {bench} log with fatal marker: {fatal}")
+        return False
+    if bench in {"pca", "matrix_multiply", "linear_regression", "word_count"} \
+            and "finalize:" not in text:
+        print(f"[WARN] rejecting incomplete {bench} log without finalize marker")
+        return False
+    return True
+
 
 def extract_leveldb(text: str):
     # e.g. "fillbatch    :   5.234 micros/op;   21.1 MB/s"
@@ -110,7 +130,10 @@ def collect(log_dir: Path):
             if not f.exists():
                 print(f"[WARN] missing log: {f}")
                 continue
-            val = EXTRACTORS[bench](f.read_text(errors="replace"))
+            text = f.read_text(errors="replace")
+            if not log_is_valid(text, bench):
+                continue
+            val = EXTRACTORS[bench](text)
             if val is None:
                 print(f"[WARN] no metric found in {f}")
             data[bench][cfg] = val

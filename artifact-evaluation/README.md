@@ -9,9 +9,11 @@ submodules or host deps is the most common reason a first run fails.
 git clone <repo-url> starfishos
 cd starfishos
 
-# Required: demo/library gitlinks (rpmalloc, phoenix, dbx1000, GeminiGraph, …)
-# from https://github.com/starfishos-org (public HTTPS).
-git submodule update --init --recursive
+# Initialize the ready-AE dependencies independently. This avoids an optional
+# test-on-linux checkout preventing required ChCore demos from being populated.
+git submodule update --init --recursive -- \
+  user/libraries/rpmalloc user/demos/phoenix-2.0 \
+  user/demos/dbx1000 user/demos/GeminiGraph
 
 # Host tools: QEMU 6.2, ivshmem-server, Docker, numactl, tmux, matplotlib/numpy/pandas.
 bash artifact-evaluation/install-host-deps.sh
@@ -33,7 +35,9 @@ Defaults:
   `test-on-linux/phoenix` when present) so the first OS build can rsync real
   files into the ramdisk. The large Gemini graph (`twitter-2010.bin`, ~11 GiB)
   is **fetched by default** so auto-scale / Gemini runs can use
-  `/host/twitter-2010.bin`. Set `SKIP_GRAPH_DATASET=1` to skip it.
+  `/host/twitter-2010.bin`. The default `ready` runner skips this ~11 GiB graph;
+  selecting `auto-scale`/`paper` enables it. Set `SKIP_GRAPH_DATASET=0` or `1`
+  explicitly to override that selection.
 
 Optional full paper / extras:
 
@@ -70,6 +74,11 @@ groups, installs plotting deps (`matplotlib`, `numpy`, `pandas`), builds QEMU
 6.2.0 with KVM, and installs `/usr/local/bin/qemu-6.2-system-x86_64` plus
 `/usr/local/qemu-6.2/bin/ivshmem-server`. Log out and back in before using
 Docker or `/dev/kvm` without `sudo`.
+
+The installer waits up to 60 seconds for apt/dpkg locks. Use
+`APT_LOCK_TIMEOUT=<seconds>` to wait longer. On a pre-provisioned host,
+`SKIP_APT=1` skips package installation but still verifies/installs QEMU and
+`ivshmem-server`; it must only be used when all listed packages already exist.
 
 ### Hardware/Software Requirement
 
@@ -120,7 +129,7 @@ After the fresh-clone steps above, this is the main command. On the first run it
 
 | Step | Behavior | When it runs |
 | --- | --- | --- |
-| `prepare.sh` | Submodule check, dataset download, CXL / 8×NUMA / hostfs / CXLFS / ivshmem doorbell | Every time (skips recreating existing backing files) |
+| `prepare.sh` | Targeted submodule init, dataset download, CXL / 8×NUMA / hostfs / CXLFS / ivshmem doorbell | Every time (skips recreating existing backing files) |
 | first-time OS build | `scripts/quick-build.sh` | **Only when** `.config` or `build/kernel.img` is missing |
 | Ready experiments | Each directory's `run.sh` (build/QEMU/plot); `run_all.py` can plot after each run | Every time (default mode: `ready`) |
 | Stubs | Skipped when status is `stub` / `run.sh` missing | When selected |
@@ -153,6 +162,12 @@ python3 artifact-evaluation/run_all.py paper              # full paper list
 | `--run` / `--no-run` | Toggle experiment `run.sh` invocations |
 | `--budget SECS` | Override timeout for all ready experiments |
 
+The persistent CXLFS backing file is tied to the checkout's built ramdisk.
+Before every AE boot it is recreated when the repository changes or
+`user/build/ramdisk.cpio` is rebuilt. This prevents files inherited from
+another clone/build (especially `/libc.so`) from failing CXLFS verification,
+while retaining the filesystem across boots within one recovery experiment.
+
 ### Paper figure status
 
 | Experiment | Paper figure | Status |
@@ -167,7 +182,7 @@ python3 artifact-evaluation/run_all.py paper              # full paper list
 
 ¹ Plotting is validated against paper data; the live QEMU collection path may
 need extra demos and `test-on-linux/` baselines. Graph dataset download is on
-by default (`SKIP_GRAPH_DATASET=1` to skip ~11 GiB twitter-2010.bin).
+for `auto-scale`/`paper`; ready and other nongraph selections skip it by default.
 See each directory's README.
 
 Application-level Linux Ideal / Distributed ports for paper auto-scale curves
@@ -182,6 +197,10 @@ test-on-linux`). See `test-on-linux/README.md`.
 ./artifact-evaluation/prepare.sh
 ./artifact-evaluation/prepare.sh recreate
 SKIP_GRAPH_DATASET=1 ./artifact-evaluation/prepare.sh   # skip ~11 GiB twitter-2010.bin
+AE_DROP_CACHES=0 python3 artifact-evaluation/run_all.py # shared host: no sync/drop_caches
+AE_SYNC_TIMEOUT=60 python3 artifact-evaluation/run_all.py # bound host sync before cache drop
+AE_BOOT_RETRIES=3 python3 artifact-evaluation/run_all.py  # retry flaky guest boot/shell startup
+AE_LOG_STALL_S=0 python3 artifact-evaluation/run_all.py # allow silent jobs to use full timeout
 ./scripts/download_datasets.sh                           # datasets only
 ```
 

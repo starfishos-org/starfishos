@@ -7,9 +7,10 @@ SERVER_PID_FILE="/tmp/ivshmem-server-$USER.pid"
 
 cd "$REPO_ROOT"
 
-# Required demo / library submodules (default ON in user/demos/config.cmake).
-# Empty gitlinks after a plain `git clone` will break the first OS build.
-check_required_submodules() {
+# Required demo / library submodules for the ready AE path. Initialize these
+# paths independently so a broken optional test-on-linux submodule cannot
+# abort before the required ChCore demos are populated.
+ensure_required_submodules() {
     local path missing=0
     local required=(
         "user/libraries/rpmalloc"
@@ -18,7 +19,21 @@ check_required_submodules() {
         "user/demos/GeminiGraph"
     )
 
-    echo "=== Checking required git submodules ==="
+    echo "=== Ensuring required git submodules ==="
+    for path in "${required[@]}"; do
+        if [ ! -e "$path/CMakeLists.txt" ]; then
+            missing=1
+        fi
+    done
+    if [ "$missing" -ne 0 ]; then
+        echo "Required submodule content is missing; initializing only ready-AE paths."
+        if ! git submodule update --init --recursive -- "${required[@]}"; then
+            echo >&2
+            echo "Targeted submodule initialization failed." >&2
+        fi
+    fi
+
+    missing=0
     for path in "${required[@]}"; do
         if [ ! -e "$path/CMakeLists.txt" ]; then
             echo "Missing submodule content: $path" >&2
@@ -27,8 +42,12 @@ check_required_submodules() {
     done
     if [ "$missing" -ne 0 ]; then
         echo >&2
-        echo "Run from the repository root:" >&2
-        echo "  git submodule update --init --recursive" >&2
+        echo "Retry from the repository root:" >&2
+        echo "  git submodule update --init --recursive -- \\" >&2
+        echo "    user/libraries/rpmalloc user/demos/phoenix-2.0 \\" >&2
+        echo "    user/demos/dbx1000 user/demos/GeminiGraph" >&2
+        echo "If one path has a partial checkout, deinitialize and remove only" >&2
+        echo "that path and its .git/modules entry before retrying." >&2
         echo >&2
         echo "Note: demo URLs are under https://github.com/starfishos-org/." >&2
         echo "A network fetch is required before the first build can succeed." >&2
@@ -58,9 +77,26 @@ warn_host_layout() {
         echo "  Edit memNumaNode in dsm-scripts/config_memdev.sh if needed." >&2
     fi
 
-    # Rough capacity check: 8x16G NUMA + 64G CXL + 16G hostfs + 8G CXLFS ≈ 216G
+    # Rough capacity check: 8x16G NUMA + 64G CXL + 16G hostfs + 8G CXLFS ≈ 216G.
+    # Do not warn based on free space when this user's complete backing-file
+    # set already exists: ensure mode will reuse it without allocating 216G.
     if [ -d /dev/shm ]; then
-        local avail_kb
+        local avail_kb f all_exist=1
+        for f in \
+            "/dev/shm/ivshmem-$USER" \
+            "/dev/shm/ivshmem-hostfs-$USER" \
+            "/dev/shm/ivshmem-cxlfs-$USER" \
+            "/dev/shm/numa0.0-$USER" "/dev/shm/numa0.1-$USER" \
+            "/dev/shm/numa1.0-$USER" "/dev/shm/numa1.1-$USER" \
+            "/dev/shm/numa2.0-$USER" "/dev/shm/numa2.1-$USER" \
+            "/dev/shm/numa3.0-$USER" "/dev/shm/numa3.1-$USER"
+        do
+            [ -f "$f" ] || all_exist=0
+        done
+        if [ "$all_exist" -eq 1 ]; then
+            echo "Existing per-user /dev/shm backing files will be reused."
+            return
+        fi
         avail_kb="$(df -k /dev/shm 2>/dev/null | awk 'NR==2 {print $4}')"
         if [ -n "${avail_kb:-}" ] && [ "$avail_kb" -lt $((200 * 1024 * 1024)) ]; then
             echo "WARNING: /dev/shm has less than ~200 GiB free" \
@@ -121,7 +157,7 @@ ensure_backing_files() {
     python3 ./dsm-scripts/prepare_cxlmem.py
 }
 
-check_required_submodules
+ensure_required_submodules
 download_datasets
 warn_host_layout
 
@@ -147,7 +183,7 @@ echo "=== Starting global AE ivshmem doorbell server ==="
 make start-ivshmem-server
 sleep 1
 if [ ! -f "$SERVER_PID_FILE" ] || ! ps -p "$(cat "$SERVER_PID_FILE")" >/dev/null 2>&1; then
-    echo "ivshmem doorbell server did not stay running; see ivshmem_server.log" >&2
+    echo "ivshmem doorbell server did not stay running; see log/ivshmem-server/server.log" >&2
     exit 1
 fi
 

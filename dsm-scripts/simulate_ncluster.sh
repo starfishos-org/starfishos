@@ -78,13 +78,14 @@ fi
 source "$REPO_DIR/artifact-evaluation/common.sh"
 ae_ensure_clean_tmux
 
-# Drop host page cache so residual pages from old QEMU instances do not hurt performance
-sync
-echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true
+# Never prompt for sudo in an automated run. Set AE_DROP_CACHES=0 to skip
+# sync/cache dropping on shared hosts.
+ae_drop_host_caches
 
 # ---- prepare ----
 "$SCRIPT_DIR/start_ivshmem_server.sh"
 "$SCRIPT_DIR/config_memdev.sh" cxl
+"$SCRIPT_DIR/prepare_cxlfs_dev.sh" ensure
 sleep 3
 
 # ---- clear old logs ----

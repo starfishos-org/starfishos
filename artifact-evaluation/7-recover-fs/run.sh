@@ -268,6 +268,9 @@ if [ "$SKIP_BUILD" != "1" ]; then
     ae_build_with_config_restore \
         "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
 fi
+# Preserve CXLFS throughout this recovery run, but never inherit an image
+# initialized by another checkout or an older ramdisk build.
+"$REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure
 
 echo "[AE] Result directory: $OUT_DIR"
 echo "[AE] Log directory: $LOG_DIR"

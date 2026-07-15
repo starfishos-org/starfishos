@@ -252,12 +252,26 @@ def run_cmd(cmd: List[str], *, cwd: Path = REPO_ROOT) -> int:
     return subprocess.run(cmd, cwd=str(cwd), check=False).returncode
 
 
-def ensure_prepare(*, skip: bool, mode: str) -> None:
+def needs_graph_dataset(names: List[str]) -> bool:
+    """Only auto-scale currently consumes the ~11 GiB Gemini graph."""
+    return "auto-scale" in names
+
+
+def ensure_prepare(*, skip: bool, mode: str, include_graph: bool) -> None:
     if skip:
         log("=== Skipping prepare.sh (--no-prepare) ===")
         return
     log(f"=== Global preparation (prepare.sh {mode}) ===")
-    rc = run_cmd([str(AE_ROOT / "prepare.sh"), mode])
+    env = os.environ.copy()
+    if "SKIP_GRAPH_DATASET" not in env and not include_graph:
+        env["SKIP_GRAPH_DATASET"] = "1"
+        log("=== Ready/nongraph mode: skipping twitter-2010.bin (~11 GiB) ===")
+    rc = subprocess.run(
+        [str(AE_ROOT / "prepare.sh"), mode],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=False,
+    ).returncode
     if rc != 0:
         raise SystemExit(f"prepare.sh {mode} failed (rc={rc})")
 
@@ -281,6 +295,18 @@ def ensure_base_build(*, skip: bool, force: bool) -> None:
     ).returncode
     if rc != 0:
         raise SystemExit("First-time OS build check failed")
+
+
+def ensure_runtime_resources() -> bool:
+    """Validate persistent backing files and self-heal the doorbell server."""
+    return subprocess.run(
+        [
+            "bash", "-c",
+            f'source "{AE_ROOT}/common.sh" && ae_check_global_prepare',
+        ],
+        cwd=str(REPO_ROOT),
+        check=False,
+    ).returncode == 0
 
 
 def run_experiment(
@@ -312,6 +338,10 @@ def run_experiment(
     if dry_run:
         log(f"[dry-run] would run: timeout --kill-after=60 {budget} {script}")
         return "DRY_RUN"
+
+    if not ensure_runtime_resources():
+        log(f"[run-all] global AE resources unavailable before {name}")
+        return "PREPARE_FAILED"
 
     kill_ae_sessions()
     rc = run_cmd(
@@ -507,7 +537,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not args.dry_run:
         if args.do_prepare:
-            ensure_prepare(skip=False, mode=args.prepare_mode)
+            ensure_prepare(
+                skip=False,
+                mode=args.prepare_mode,
+                include_graph=needs_graph_dataset(names),
+            )
             if args.prepare_only:
                 log("Prepare-only done.")
                 return 0

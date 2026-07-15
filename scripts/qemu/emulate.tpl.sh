@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 vm_id=0
 machine_id=0
@@ -224,7 +224,8 @@ fi
 # Add remaining QEMU options (includes ivshmem configuration, corrected to actual sizes)
 qemu_cmd="$qemu_cmd $qemu_options_updated"
 
-log_dir="$project_root/logs"
+log_dir="${AE_MACHINE_LOG_DIR:-$project_root/logs}"
 mkdir -p "$log_dir"
-$basedir/../scripts/qemu/qemu_wrapper.sh $vm_id $qemu_cmd | tee "$log_dir/exec_log$vm_id.log"
+stdbuf -oL -eL "$basedir/../scripts/qemu/qemu_wrapper.sh" $vm_id $qemu_cmd \
+	| stdbuf -oL tee "$log_dir/exec_log$vm_id.log"
 # @qemu@ -S -gdb tcp::$port @qemu_options@ | tee exec_log$vm_id.log

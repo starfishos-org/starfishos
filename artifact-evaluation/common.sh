@@ -20,7 +20,7 @@
 # Conventions:
 #   AE_SESSION  - tmux session name (default: $USER-ae)
 #   AE_LOG_DIR  - where per-machine logs are copied (set by caller)
-#   Machine i's live log is $AE_REPO_ROOT/exec_log<i>.log (written by
+#   Machine i's live log is $AE_MACHINE_LOG_DIR/exec_log<i>.log (written by
 #   build/simulate.sh itself); ae_boot_cluster removes stale ones first.
 
 AE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,14 +29,40 @@ AE_DSM_CONFIG="$AE_REPO_ROOT/kernel/dsm_config.cmake"
 AE_DOTCONFIG="$AE_REPO_ROOT/.config"
 AE_CHCORE_INI="$AE_REPO_ROOT/chcore.ini"
 AE_BOOT_TIMEOUT="${AE_BOOT_TIMEOUT:-600}"
+AE_MACHINE_LOG_DIR="${AE_MACHINE_LOG_DIR:-$AE_REPO_ROOT/logs}"
 
 # ── global environment check ────────────────────────────────────────────────
+
+ae_doorbell_running() {
+    local socket="/tmp/ivshmem-doorbell-$USER"
+    local pid_file="/tmp/ivshmem-server-$USER.pid"
+    local pid
+
+    [ -S "$socket" ] || return 1
+    [ -f "$pid_file" ] || return 1
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -L "/proc/$pid/exe" ] || return 1
+    [ "$(basename "$(readlink -f "/proc/$pid/exe")")" = "ivshmem-server" ]
+}
+
+ae_ensure_doorbell() {
+    if ae_doorbell_running; then
+        return 0
+    fi
+    echo "[AE] ivshmem doorbell is absent or stale; restarting it."
+    "$AE_REPO_ROOT/dsm-scripts/start_ivshmem_server.sh" || return 1
+    ae_doorbell_running || {
+        echo "ivshmem doorbell restart did not produce a live server/socket." >&2
+        return 1
+    }
+}
 
 ae_check_global_prepare() {
     local cxl_file="/dev/shm/ivshmem-$USER"
     local hostfs_file="/dev/shm/ivshmem-hostfs-$USER"
-    local doorbell_socket="/tmp/ivshmem-doorbell-$USER"
-    local server_pid_file="/tmp/ivshmem-server-$USER.pid"
+    local cxlfs_file="/dev/shm/ivshmem-cxlfs-$USER"
     local numa_files=(
         "/dev/shm/numa0.0-$USER" "/dev/shm/numa0.1-$USER"
         "/dev/shm/numa1.0-$USER" "/dev/shm/numa1.1-$USER"
@@ -46,17 +72,38 @@ ae_check_global_prepare() {
     local f
 
     echo "=== Checking global AE environment ==="
-    for f in "$cxl_file" "$hostfs_file" "$doorbell_socket" "${numa_files[@]}"; do
+    for f in "$cxl_file" "$hostfs_file" "$cxlfs_file" "${numa_files[@]}"; do
         if [ ! -e "$f" ]; then
             echo "Missing global AE resource: $f" >&2
             echo "Run ./artifact-evaluation/prepare.sh once before this test." >&2
             return 1
         fi
     done
-    if [ ! -f "$server_pid_file" ] || ! ps -p "$(cat "$server_pid_file")" >/dev/null 2>&1; then
-        echo "ivshmem doorbell server is not running." >&2
-        echo "Run ./artifact-evaluation/prepare.sh before this test." >&2
-        return 1
+    ae_ensure_doorbell
+}
+
+ae_drop_host_caches() {
+    local sync_timeout="${AE_SYNC_TIMEOUT:-120}"
+
+    if [ "${AE_DROP_CACHES:-1}" != "1" ]; then
+        echo "[AE] AE_DROP_CACHES=${AE_DROP_CACHES:-0}; skip host sync/cache drop."
+        return 0
+    fi
+
+    echo "[AE] Syncing host filesystems (timeout ${sync_timeout}s)."
+    if command -v timeout >/dev/null 2>&1; then
+        if ! timeout "$sync_timeout" sync; then
+            echo "[AE] WARNING: host sync timed out/failed; skipping cache drop." >&2
+            return 0
+        fi
+    elif ! sync; then
+        echo "[AE] WARNING: host sync failed; skipping cache drop." >&2
+        return 0
+    fi
+
+    echo "[AE] Dropping host page cache (non-interactive sudo)."
+    if ! sudo -n sh -c 'echo 3 > /proc/sys/vm/drop_caches' >/dev/null 2>&1; then
+        echo "[AE] sudo -n unavailable; continuing without dropping host caches." >&2
     fi
 }
 
@@ -208,7 +255,7 @@ ae_build_with_config_restore() {
 # ── QEMU cluster management ─────────────────────────────────────────────────
 
 ae_machine_log() {
-    echo "$AE_REPO_ROOT/exec_log$1.log"
+    echo "$AE_MACHINE_LOG_DIR/exec_log$1.log"
 }
 
 # ── run-error / timeout accounting ──────────────────────────────────────────
@@ -227,7 +274,7 @@ AE_RUN_ERRORS=()
 #   panic / Kernel panic / BUG:                    -> kernel abort
 #   Unhandled ... [Ee]xception / fault             -> unhandled trap
 #   pool=NULL for va / KERNEL FAULT                 -> known fatal paths
-AE_ERROR_PATTERN="${AE_ERROR_PATTERN:-General Protection Fault|Kernel panic|kernel panic|panic:|BUG:|BUG_ON|Unhandled .*[Ee]xception|Unhandled .*fault|pool=NULL for va|KERNEL FAULT|Trap No\\. }"
+AE_ERROR_PATTERN="${AE_ERROR_PATTERN:-General Protection Fault|Kernel panic|kernel panic|panic:|BUG:|BUG_ON|Unhandled .*[Ee]xception|Unhandled .*fault|pool=NULL for va|KERNEL FAULT|Trap No\\. |Persistent data verification failed|do_page_fault: invalid user access|do_page_fault: user NULL dereference}"
 
 ae_record_timeout() {
     local what="$1"
@@ -268,17 +315,23 @@ _ae_error_grep() {
     grep -aE "$AE_ERROR_PATTERN" "$1" 2>/dev/null | head -1
 }
 
+# A frozen serial log usually means a guest/boot hang. Set this to 0 for an
+# intentionally silent workload that should wait for the caller's full timeout.
+AE_LOG_STALL_S="${AE_LOG_STALL_S:-120}"
+
 # ae_wait_in_log <machine> <success-pattern> <timeout-s> <label>
 # Returns:
 #   0  success pattern seen
-#   1  timed out          (recorded via ae_record_timeout)
+#   1  timed out / log stalled (recorded via ae_record_timeout)
 #   3  guest error / crash / tmux died (recorded via ae_record_error)
 # On 1 or 3 the caller should save the log and continue to the next test.
 ae_wait_in_log() {
     local machine="$1" pattern="$2" timeout="$3" label="$4"
     local logfile err
     logfile="$(ae_machine_log "$machine")"
-    local elapsed=0
+    local elapsed=0 stall_limit="${AE_LOG_STALL_S:-120}"
+    local last_sz cur_sz stalled=0
+    last_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
     while [ "$elapsed" -lt "$timeout" ]; do
         if grep -aq "$pattern" "$logfile" 2>/dev/null; then
             [ -n "$label" ] && echo "$label"
@@ -295,6 +348,21 @@ ae_wait_in_log() {
             tail -40 "$logfile" >&2 || true
             return 3
         fi
+        if [ "$stall_limit" -gt 0 ] 2>/dev/null; then
+            cur_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
+            if [ "$cur_sz" = "$last_sz" ]; then
+                stalled=$((stalled + 2))
+                if [ "$stalled" -ge "$stall_limit" ]; then
+                    ae_record_timeout "$label (log stalled ${stalled}s; pattern '$pattern' not seen in $logfile)"
+                    echo "[AE][STALL-SKIP] $label — no new log bytes for ${stalled}s" >&2
+                    tail -40 "$logfile" >&2 || true
+                    return 1
+                fi
+            else
+                last_sz="$cur_sz"
+                stalled=0
+            fi
+        fi
         sleep 2
         elapsed=$((elapsed + 2))
     done
@@ -306,14 +374,19 @@ ae_wait_in_log() {
 # ae_boot_cluster <num_machines> [cpu_num]
 # Boots machines 0..N-1 in tmux windows, waits for DSM join + shell on all.
 # Extra simulate.sh env (e.g. DRAM_SIZE=24G) can be passed via AE_EXTRA_ENV.
-ae_boot_cluster() {
+_ae_boot_cluster_once() {
     local n="$1"
     local cpu_num="${2:-}"
     local i env_prefix="${AE_EXTRA_ENV:+$AE_EXTRA_ENV }"
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
 
-    ae_ensure_clean_tmux
+    ae_ensure_clean_tmux || return 1
+    ae_ensure_doorbell || return 1
+    # A per-user CXLFS device can outlive this checkout. Refresh it when the
+    # built ramdisk changed so guest recovery never compares persistent files
+    # from another clone/build against the current embedded image.
+    "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure || return 1
 
     echo "=== Resetting DSM metadata ==="
     (cd "$AE_REPO_ROOT" && make clean-dsm-meta >/dev/null)
@@ -321,7 +394,8 @@ ae_boot_cluster() {
     for i in $(seq 0 $((n - 1))); do
         rm -f "$(ae_machine_log "$i")"
     done
-    rm -f "$AE_REPO_ROOT/exec_log.log"
+    mkdir -p "$AE_MACHINE_LOG_DIR"
+    rm -f "$AE_MACHINE_LOG_DIR/exec_log.log"
 
     echo "=== Booting $n machine(s) ==="
     tmux new-session -d -s "$AE_SESSION" -n 0 \
@@ -337,6 +411,34 @@ ae_boot_cluster() {
     for i in $(seq 0 $((n - 1))); do
         ae_wait_in_log "$i" "Welcome to ChCore shell!" "$AE_BOOT_TIMEOUT" "machine $i shell ready" || return 1
     done
+}
+
+# Retry intermittent secondary-machine boot/shell stalls. Failures from a
+# superseded attempt are removed from the final summary; the last attempt is
+# retained when all retries fail.
+ae_boot_cluster() {
+    local n="$1" cpu_num="${2:-}"
+    local max_attempts="${AE_BOOT_RETRIES:-2}"
+    local attempt before_to before_err
+
+    for attempt in $(seq 1 "$max_attempts"); do
+        before_to="${#AE_TIMEOUT_ERRORS[@]}"
+        before_err="${#AE_RUN_ERRORS[@]}"
+        if _ae_boot_cluster_once "$n" "$cpu_num"; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            return 1
+        fi
+
+        echo "[AE] boot attempt $attempt/$max_attempts failed; restarting doorbell and retrying." >&2
+        AE_TIMEOUT_ERRORS=("${AE_TIMEOUT_ERRORS[@]:0:before_to}")
+        AE_RUN_ERRORS=("${AE_RUN_ERRORS[@]:0:before_err}")
+        ae_stop_tmux_and_reap "$AE_SESSION" || true
+        "$AE_REPO_ROOT/dsm-scripts/kill_ivshmem_server.sh" || true
+        ae_ensure_doorbell || return 1
+    done
+    return 1
 }
 
 # ae_send_command <machine> <command>
@@ -401,7 +503,7 @@ ae_kill_all_ae_sessions() {
 # True when any ChCore guest QEMU (-name chcore-*) is still running.
 ae_has_chcore_qemu() {
     ps -u "$USER" -o args= 2>/dev/null \
-        | grep -qE 'qemu-6.2-system-x86_64.*-name chcore-'
+        | awk '$1 ~ /(^|\/)qemu-6[.]2-system-x86_64$/ && /-name[[:space:]]+chcore-/ { found=1 } END { exit !found }'
 }
 
 # Reap ChCore QEMU instances that outlived their tmux pane (e.g. after
@@ -414,8 +516,7 @@ ae_reap_leftover_qemu() {
         echo "[AE] reaping leftover ChCore QEMU pid $pid ($signal)"
         kill "-$signal" "$pid" 2>/dev/null || true
     done < <(ps -u "$USER" -o pid=,args= 2>/dev/null \
-        | grep -E 'qemu-6.2-system-x86_64.*-name chcore-' \
-        | awk '{print $1}')
+        | awk '$2 ~ /(^|\/)qemu-6[.]2-system-x86_64$/ && /-name[[:space:]]+chcore-/ { print $1 }')
     sleep 1
 }
 
@@ -467,6 +568,7 @@ ae_ensure_clean_tmux() {
     echo "=== Ensuring clean tmux / QEMU state ==="
     ae_kill_all_ae_sessions
     ae_reap_leftover_qemu
+    ae_wait_qemu_gone "${AE_QEMU_REAP_TIMEOUT:-30}"
 }
 
 # First-time OS prepare (equivalent to `make prepare`'s build step).
