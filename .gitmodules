@@ -1,11 +1,9 @@
 [submodule "user/demos/phoenix"]
 	path = user/demos/phoenix-2.0
 	url = https://github.com/starfishos-org/phoenix.git
-	branch = starfishos-test
 [submodule "user/demos/dbx1000"]
 	path = user/demos/dbx1000
 	url = https://github.com/starfishos-org/dbx1000.git
-	branch = starfishos-test
 [submodule "user/libraries/rpmalloc"]
 	path = user/libraries/rpmalloc
 	url = https://github.com/starfishos-org/rpmalloc.git
@@ -13,7 +11,6 @@
 [submodule "user/demos/GeminiGraph"]
 	path = user/demos/GeminiGraph
 	url = https://github.com/starfishos-org/GeminiGraph.git
-	branch = starfishos-test
 
 # Linux baselines for paper Ideal / Distributed curves (AE auto-scale, etc.)
 [submodule "test-on-linux/phoenix"]
@@ -45,7 +42,6 @@
 [submodule "user/demos/VeryTinyCnn"]
 	path = user/demos/VeryTinyCnn
 	url = https://github.com/starfishos-org/VeryTinyCnn.git
-	branch = starfishos-test
 
 # Tigon baseline required by paper auto-scale (db1000.eps).
 [submodule "artifact-evaluation/deps/tigon"]
@@ -61,28 +57,21 @@
 [submodule "user/demos/YCSB-C"]
 	path = user/demos/YCSB-C
 	url = https://github.com/starfishos-org/YCSB-C.git
-	branch = starfishos-test
 [submodule "user/demos/aurora-rocksdb"]
 	path = user/demos/aurora-rocksdb
 	url = https://github.com/starfishos-org/aurora-rocksdb.git
-	branch = starfishos-test
 [submodule "user/demos/leveldb-1.23"]
 	path = user/demos/leveldb-1.23
 	url = https://github.com/starfishos-org/leveldb.git
-	branch = starfishos-test
 [submodule "user/demos/memcached"]
 	path = user/demos/memcached
 	url = https://github.com/starfishos-org/memcached.git
-	branch = starfishos-test
 [submodule "user/demos/memcachetest"]
 	path = user/demos/memcachetest
 	url = https://github.com/starfishos-org/memcachetest.git
-	branch = starfishos-test
 [submodule "user/demos/redis-6.0.8"]
 	path = user/demos/redis-6.0.8
 	url = https://github.com/starfishos-org/redis.git
-	branch = starfishos-test
 [submodule "user/demos/sqlite"]
 	path = user/demos/sqlite
 	url = https://github.com/starfishos-org/sqlite.git
-	branch = starfishos-test

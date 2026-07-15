@@ -67,9 +67,19 @@ make r4             # boot a cluster of 4 QEMU/KVM machines
 All configured submodules use public HTTPS URLs under
 `https://github.com/starfishos-org`. Initialize them before `docker build` as
 well as before the normal build; Docker copies the populated `user/` tree from
-the host build context. Demo entries use the `starfishos-test` branch for
-`git submodule update --remote`; normal checkouts remain pinned by the
-superproject's recorded commit.
+the host build context. Demo entries intentionally omit `branch` metadata, so
+normal checkouts are always pinned by the superproject's recorded commit. The
+remote `starfishos-test` branches remain the integration branches for demo
+development.
+
+When changing a demo, push its commit to `starfishos-test` before recording the
+new gitlink in this repository. Enable Git's push guard once per clone, and
+keep it enabled for normal pushes:
+
+```bash
+git config push.recurseSubmodules check
+git push --recurse-submodules=check
+```
 
 Each demo repository retains its pre-StarfishOS history and publishes the
 `starfishos-upstream-base` tag at the comparison baseline. For example:
