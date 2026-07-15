@@ -49,8 +49,9 @@ Useful outputs:
 - `cdf.csv`: per-sample CDF points in us.
 - `breakdown.csv`: median client-side breakdown in us.
 - `server_timing.csv`: median server dequeue/handle timing in us.
-- `ipc_cdf.pdf`: CDF figure.
-- `ipc_read_breakdown.pdf`: Read 4KiB median breakdown figure.
+- `local_ipc_cdf.pdf`: paper CDF figure.
+- `breakdown_combined.pdf`: paper Read 4KiB median breakdown figure.
+- `ipc_cdf.png`, `ipc_read_breakdown.png`: PNG previews of the same figures.
 
 ## Regenerate results and figures only
 
@@ -73,6 +74,10 @@ python3 artifact-evaluation/1-ipc-cdf/plot.py \
 
 In this evaluation, `plot.py` does include parsing: it reads both raw machine
 logs, regenerates the CSV files, and then redraws the PDFs.
+
+The parser requires all six CDF modes plus the client/server breakdown records
+by default. `--allow-partial` is only for inspecting legacy logs that predate
+server timing instrumentation or an interrupted run.
 
 The runner builds by default. `SKIP_BUILD=1` should only be used when the
 existing image is known to contain the required IPC instrumentation and match

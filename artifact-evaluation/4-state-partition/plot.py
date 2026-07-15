@@ -8,7 +8,7 @@ Outputs (under --out-dir):
   results/state_partition.csv    raw metric per config row / bench column
                                  (same layout as p3os-paper/eval/state_partition.csv)
   results/normalized.csv         values normalized to All_DRAM (Private)
-  figures/fig13-state-partition.pdf/.eps
+  figures/state_partition.pdf/.eps
 """
 from __future__ import annotations
 
@@ -140,6 +140,30 @@ def collect(log_dir: Path):
     return data
 
 
+def require_complete(data):
+    missing = [f"{bench}/{cfg}" for bench in BENCHS for cfg in CONFIGS
+               if data[bench][cfg] is None]
+    if missing:
+        raise SystemExit(
+            "Incomplete state-partition dataset; missing "
+            f"{len(missing)} of {len(BENCHS) * len(CONFIGS)} points: "
+            + ", ".join(missing)
+        )
+
+
+def load_paper_csv(path: Path):
+    """Load the row-per-configuration CSV format used by the paper."""
+    data = {b: {c: None for c in CONFIGS} for b in BENCHS}
+    with path.open(newline="") as source:
+        reader = csv.reader(source)
+        header = next(reader)
+        for cfg, row in zip(CONFIGS, reader):
+            for bench, value in zip(header, row):
+                if bench in data and value.strip():
+                    data[bench][cfg] = float(value)
+    return data
+
+
 def normalize(data):
     norm = {b: {c: float("nan") for c in CONFIGS} for b in BENCHS}
     for bench in BENCHS:
@@ -206,12 +230,8 @@ def plot(norm, fig_dir: Path):
         )
 
     plt.ylabel("Norm. Perf.")
-    ymax = max(
-        (norm[b][c] for b in benchs for c in CONFIGS if not np.isnan(norm[b][c])),
-        default=1.0,
-    )
     plt.yticks([0, 0.25, 0.5, 0.75, 1.0])
-    plt.ylim(0, max(1.05, ymax * 1.05))
+    plt.ylim(0, 1.05)
     plt.grid(axis="y", linestyle="--", linewidth=0.8, alpha=0.5)
     plt.gca().set_axisbelow(True)
     plt.xticks(x, [BENCH_LABEL[b] for b in benchs], rotation=15, ha="center")
@@ -222,7 +242,7 @@ def plot(norm, fig_dir: Path):
     )
     plt.tight_layout()
 
-    out = fig_dir / "fig13-state-partition"
+    out = fig_dir / "state_partition"
     plt.savefig(out.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
     plt.savefig(out.with_suffix(".eps"), format="eps", bbox_inches="tight")
     plt.close()
@@ -231,13 +251,24 @@ def plot(norm, fig_dir: Path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--log-dir", required=True, type=Path)
+    ap.add_argument("--log-dir", type=Path)
+    ap.add_argument("--csv", type=Path,
+                    help="paper-format state_partition.csv (skip log parsing)")
     ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="debug only: draw available points instead of requiring all 24")
     args = ap.parse_args()
 
-    data = collect(args.log_dir)
+    if args.csv:
+        data = load_paper_csv(args.csv)
+    elif args.log_dir:
+        data = collect(args.log_dir)
+    else:
+        ap.error("either --log-dir or --csv is required")
     for bench in BENCHS:
         print(f"{bench}: " + ", ".join(f"{c}={data[bench][c]}" for c in CONFIGS))
+    if not args.allow_partial:
+        require_complete(data)
     norm = normalize(data)
     write_csvs(data, norm, args.out_dir / "results")
     plot(norm, args.out_dir / "figures")

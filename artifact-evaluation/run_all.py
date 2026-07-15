@@ -24,7 +24,7 @@ Examples::
     ./artifact-evaluation/run_all.py --build-only --force-base-build
     ./artifact-evaluation/run_all.py --no-prepare --no-build ipc-cdf
     ./artifact-evaluation/run_all.py --experiments-only
-    ./artifact-evaluation/run_all.py paper          # full paper set (includes stubs / unvalidated)
+    ./artifact-evaluation/run_all.py paper          # full paper set
     ./artifact-evaluation/run_all.py --dry-run
     ./artifact-evaluation/run_all.py --list
 """
@@ -49,7 +49,6 @@ PAPER_ORDER = [
     "memory-allocator",
     "state-partition",
     "auto-scale",
-    "process-migration",
     "resource-util",
     "recover-fs",
 ]
@@ -107,20 +106,16 @@ EXPERIMENTS: Dict[str, Experiment] = {
         "state_partition",
     ),
     "auto-scale": Experiment(
-        "auto-scale", "5-auto-scale", "ready", 28800,
+        "auto-scale", "5-auto-scale", "ready", 64800,
         "auto-scale-matrix / db1000 / gemini",
     ),
     "resource-util": Experiment(
-        "resource-util", "6-resource-util", "ready", 21600,
+        "resource-util", "6-resource-util", "ready", 43200,
         "real.eps",
     ),
     "recover-fs": Experiment(
         "recover-fs", "7-recover-fs", "ready", 10800,
         "recovery-performance-single",
-    ),
-    "process-migration": Experiment(
-        "process-migration", "8-process-migration", "stub", 14400,
-        "process-migration",
     ),
     "dbx1000-cross-warehouse": Experiment(
         "dbx1000-cross-warehouse", "8-dbx1000-cross-warehouse", "ready", 21600,
@@ -257,7 +252,8 @@ def needs_graph_dataset(names: List[str]) -> bool:
     return "auto-scale" in names
 
 
-def ensure_prepare(*, skip: bool, mode: str, include_graph: bool) -> None:
+def ensure_prepare(*, skip: bool, mode: str, include_graph: bool,
+                   include_paper_deps: bool) -> None:
     if skip:
         log("=== Skipping prepare.sh (--no-prepare) ===")
         return
@@ -266,6 +262,8 @@ def ensure_prepare(*, skip: bool, mode: str, include_graph: bool) -> None:
     if "SKIP_GRAPH_DATASET" not in env and not include_graph:
         env["SKIP_GRAPH_DATASET"] = "1"
         log("=== Ready/nongraph mode: skipping twitter-2010.bin (~11 GiB) ===")
+    if include_paper_deps:
+        env["AE_INCLUDE_OPTIONAL_PAPER"] = "1"
     rc = subprocess.run(
         [str(AE_ROOT / "prepare.sh"), mode],
         cwd=str(REPO_ROOT),
@@ -541,6 +539,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 skip=False,
                 mode=args.prepare_mode,
                 include_graph=needs_graph_dataset(names),
+                include_paper_deps=bool({"auto-scale", "resource-util"} & set(names)),
             )
             if args.prepare_only:
                 log("Prepare-only done.")

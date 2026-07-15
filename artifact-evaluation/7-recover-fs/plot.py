@@ -204,6 +204,7 @@ def main():
     fig.tight_layout()
     for stem in ("recovery-performance-single", "recovery-performance"):
         fig.savefig(args.out_dir / f"{stem}.png", dpi=240, bbox_inches="tight")
+        fig.savefig(args.out_dir / f"{stem}.pdf", format="pdf", bbox_inches="tight")
     fig.savefig(
         args.out_dir / "recovery-performance-single.eps",
         format="eps",

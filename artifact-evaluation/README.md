@@ -42,7 +42,7 @@ Defaults:
 Optional full paper / extras:
 
 ```bash
-python3 artifact-evaluation/run_all.py paper    # paper order (includes stubs / unvalidated)
+python3 artifact-evaluation/run_all.py paper    # full paper order
 python3 artifact-evaluation/run_all.py all      # paper + extras
 ```
 
@@ -172,18 +172,26 @@ while retaining the filesystem across boots within one recovery experiment.
 
 | Experiment | Paper figure | Status |
 | --- | --- | --- |
-| `1-ipc-cdf` | IPC CDF + breakdown | ready (default one-click) |
-| `3-memory-allocator` | `fig00-allocator-all` | ready (default one-click) |
-| `4-state-partition` | `state_partition` | ready (default one-click) |
-| `7-recover-fs` | `recovery-performance-single` | ready (default one-click) |
-| `5-auto-scale` | `auto-scale-matrix` / `db1000` / `gemini-chcore` | ready¹ (`paper` / named) |
-| `6-resource-util` | `real.eps` | ready¹ (`paper` / named) |
-| `process-migration` | `process-migration-data-*` | stub (skipped) |
+| `1-ipc-cdf` | `local_ipc_cdf` / `breakdown_combined` | plot verified; live run validated |
+| `3-memory-allocator` | `fig00-allocator-all` | plot verified; live run validated |
+| `4-state-partition` | `state_partition` | full 24-point collection wired; strict validation¹ |
+| `7-recover-fs` | `recovery-performance-single` | plot verified; live run validated |
+| `5-auto-scale` | `auto-scale-legend` / `auto-scale-matrix` / `db1000` / `gemini-chcore` | all Starfish/Linux/TCP/Tigon series wired; strict validation² |
+| `6-resource-util` | `real` | all 36 values wired; strict validation³ |
 
-¹ Plotting is validated against paper data; the live QEMU collection path may
-need extra demos and `test-on-linux/` baselines. Graph dataset download is on
-for `auto-scale`/`paper`; ready and other nongraph selections skip it by default.
-See each directory's README.
+¹ The earlier fresh-clone audit recorded guest stalls; the runner now includes
+the previously omitted DBx1000 point set and rejects incomplete output. See
+`FROM-SCRATCH-ISSUES.md` for the historical host-specific failures.
+
+² The first Tigon collection uses the public `artifact-evaluation/deps/tigon`
+submodule, runs its VM setup, and requires sudo plus an 8-VM-capable
+CXL/NUMA host. It records the exact source state with the results. Linux Ideal
+and Matrix/Gemini Distributed series are collected automatically. Graph
+download is enabled for `auto-scale`/`paper`.
+
+³ Redis/Memcached/TinyCNN are enabled and built automatically. The historical
+TinyCNN/libjpeg pins are hosted on IPADS GitLab, so a truly external fresh clone
+still needs those repositories mirrored publicly.
 
 Application-level Linux Ideal / Distributed ports for paper auto-scale curves
 live under `test-on-linux/` (git submodules; `git submodule update --init

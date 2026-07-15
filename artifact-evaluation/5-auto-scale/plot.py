@@ -42,21 +42,33 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.lines import Line2D
 from matplotlib.ticker import MultipleLocator
 
 SYSTEM_NAME = "Starfish"
 X_TICKS = [1, 2, 4, 6, 8]
 
 LOG_NAME_RE = re.compile(
-    r"^(?P<app>matrix|db1000|gemini)_(?P<config>Mixed|CXL)_N(?P<n>\d+)\.log$"
+    r"^(?P<app>matrix|db1000|gemini)_"
+    r"(?P<config>Mixed|CXL|Ideal|Distributed|Tigon)_N(?P<n>\d+)\.log$"
+)
+AE_RESULT_RE = re.compile(
+    r"AE_RESULT\s+app=(\w+)\s+series=(\w+)\s+n=(\d+)\s+"
+    r"value=([\d.eE+-]+)\s+unit=(\w+)"
 )
 PAT_PHOENIX_US = re.compile(r"(?<!inter )library:\s*([\d.]+)")
 PAT_FINALIZE_US = re.compile(r"finalize:\s*([\d.]+)")
 PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
 PAT_EXEC_TIME = re.compile(r"exec_time[:=]\s*([\d.]+)")
 
-CONFIG_TO_MATRIX = {"Mixed": "MIXED", "CXL": "CXL"}
-CONFIG_TO_DB1000 = {"Mixed": "P3OS-mixed", "CXL": "P3OS-all_cxl"}
+CONFIG_TO_MATRIX = {
+    "Mixed": "MIXED", "CXL": "CXL", "Ideal": "IDEAL",
+    "Distributed": "TCP",
+}
+CONFIG_TO_DB1000 = {
+    "Mixed": "P3OS-mixed", "CXL": "P3OS-all_cxl",
+    "Ideal": "linux", "Tigon": "tigon",
+}
 
 
 def _draw_fig(fig_dir: Path, name: str):
@@ -66,6 +78,34 @@ def _draw_fig(fig_dir: Path, name: str):
     plt.savefig(stem.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
     plt.savefig(stem.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight")
     print(f"Wrote {stem}.eps/.pdf/.png")
+
+
+def draw_legend(fig_dir: Path):
+    """Draw the shared legend included separately by the paper's TeX source."""
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    plt.rcdefaults()
+    plt.rcParams["ps.useafm"] = True
+    handles = [
+        Line2D([0], [0], color="#d62728", marker="x", linestyle="-", linewidth=2.2, markersize=8, markeredgewidth=2),
+        Line2D([0], [0], color="#1f77b4", marker="s", linestyle="-.", linewidth=2.2, markersize=7, markeredgewidth=1.8),
+        Line2D([0], [0], color="black", marker="o", linestyle="--", linewidth=2.2, markersize=6, markeredgewidth=1.5),
+        Line2D([0], [0], color="#ff7f0e", marker="^", linestyle=":", linewidth=2.2, markersize=7, markeredgewidth=1.5),
+        Line2D([0], [0], color="silver", marker="d", linestyle="--", linewidth=2.2, markersize=6, markeredgewidth=1.5),
+    ]
+    labels = ["Starfish Mixed", "Starfish CXL", "Distributed", "Tigon", "Ideal"]
+    fig = plt.figure(figsize=(8.4, 0.52))
+    axis = fig.add_subplot(111)
+    axis.axis("off")
+    fig.legend(handles, labels, loc="center", bbox_to_anchor=(0.5, 0.5), ncol=5,
+               frameon=False, fontsize=15, handlelength=1.15,
+               columnspacing=0.75, handletextpad=0.3)
+    axis.set_position([0, 0, 1, 1])
+    fig.tight_layout(pad=0)
+    stem = fig_dir / "auto-scale-legend"
+    fig.savefig(stem.with_suffix(".pdf"), dpi=1200, format="pdf", bbox_inches="tight", pad_inches=0.001)
+    fig.savefig(stem.with_suffix(".eps"), dpi=1200, format="eps", bbox_inches="tight", pad_inches=0.001)
+    plt.close(fig)
+    print(f"Wrote {stem}.eps/.pdf")
 
 
 def _last_float(pattern: re.Pattern, text: str) -> Optional[float]:
@@ -105,22 +145,24 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
             continue
         app, config, n = m.group("app"), m.group("config"), int(m.group("n"))
         text = path.read_text(errors="replace")
-        if app == "matrix":
-            us = _extract_matrix_us(text)
+        standardized = list(AE_RESULT_RE.finditer(text))
+        std_value = float(standardized[-1].group(4)) if standardized else None
+        if app == "matrix" and config in CONFIG_TO_MATRIX:
+            us = std_value if std_value is not None else _extract_matrix_us(text)
             if us is None:
                 print(f"[WARN] no matrix timing in {path.name}")
                 continue
             matrix_lines.append(
                 f"RESULT: N={n} CONFIG={CONFIG_TO_MATRIX[config]} TIME={int(us)}"
             )
-        elif app == "db1000":
-            thp = _extract_db1000_thp(text)
+        elif app == "db1000" and config in CONFIG_TO_DB1000:
+            thp = std_value if std_value is not None else _extract_db1000_thp(text)
             if thp is None:
                 print(f"[WARN] no thp= in {path.name}")
                 continue
             db1000_rows.append((CONFIG_TO_DB1000[config], n, thp))
         elif app == "gemini":
-            secs = _extract_gemini_secs(text)
+            secs = std_value if std_value is not None else _extract_gemini_secs(text)
             if secs is None:
                 print(f"[WARN] no exec_time in {path.name}")
                 continue
@@ -149,12 +191,12 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
             "machines,MIXED_DEFAULT_CXL,CXL,DRAM,LINUX-DRAM,DISTRIBUTED",
         ]
         for n in sorted(gemini):
-            mixed = gemini[n].get("Mixed")
-            cxl = gemini[n].get("CXL")
-            mixed_s = f"{mixed}s" if mixed is not None else ""
-            cxl_s = f"{cxl}s" if cxl is not None else ""
-            # External baselines are filled in separately; leave empty here.
-            lines.append(f"{n},{mixed_s},{cxl_s},,,")
+            def sec(name):
+                value = gemini[n].get(name)
+                return f"{value}s" if value is not None else ""
+            lines.append(
+                f"{n},{sec('Mixed')},{sec('CXL')},,{sec('Ideal')},{sec('Distributed')}"
+            )
         out.write_text("\n".join(lines) + "\n")
         print(f"Wrote {out} ({len(gemini)} machine counts)")
         written["gemini"] = out
@@ -164,7 +206,12 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
 
 # ── auto-scale-matrix ───────────────────────────────────────────────────────
 
-def draw_matrix(data_path: Path, fig_dir: Path):
+def _missing_points(series, required):
+    return [f"{name}/N={n}" for name in required for n in X_TICKS
+            if n not in {point[0] for point in series.get(name, [])}]
+
+
+def draw_matrix(data_path: Path, fig_dir: Path, allow_partial=False):
     pattern = re.compile(r"RESULT:\s+N=(\d+)\s+CONFIG=(\w+)\s+TIME=(\d+)")
     data = {"MIXED": [], "CXL": [], "TCP": [], "IDEAL": []}
     for line in Path(data_path).read_text().splitlines():
@@ -176,6 +223,9 @@ def draw_matrix(data_path: Path, fig_dir: Path):
             data[cfg].append((n, 100 * (1 / (rt / 1000 / 1000))))
     for cfg in data:
         data[cfg].sort(key=lambda it: it[0])
+    missing = _missing_points(data, ["MIXED", "CXL", "TCP", "IDEAL"])
+    if missing and not allow_partial:
+        raise SystemExit("Incomplete Matrix dataset: " + ", ".join(missing))
 
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
@@ -208,8 +258,13 @@ def draw_matrix(data_path: Path, fig_dir: Path):
 
 # ── db1000 ──────────────────────────────────────────────────────────────────
 
-def draw_db1000(data_path: Path, fig_dir: Path):
+def draw_db1000(data_path: Path, fig_dir: Path, allow_partial=False):
     data = pd.read_csv(data_path).sort_values(["module", "machines"])
+    expected = {"P3OS-mixed", "P3OS-all_cxl", "tigon", "linux"}
+    missing = [f"{module}/N={n}" for module in sorted(expected) for n in X_TICKS
+               if not ((data["module"] == module) & (data["machines"] == n)).any()]
+    if missing and not allow_partial:
+        raise SystemExit("Incomplete DBx1000 dataset: " + ", ".join(missing))
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
     plt.rcParams.update({"font.size": 22, "figure.figsize": (3.8, 4.16)})
@@ -245,7 +300,7 @@ def _parse_secs(s):
     return float(s.replace("s", ""))
 
 
-def draw_gemini(data_path: Path, fig_dir: Path):
+def draw_gemini(data_path: Path, fig_dir: Path, allow_partial=False):
     rows = []
     for line in Path(data_path).read_text().splitlines():
         line = line.strip()
@@ -270,6 +325,11 @@ def draw_gemini(data_path: Path, fig_dir: Path):
     if not rows:
         raise SystemExit(f"No gemini data rows in {data_path}")
     df = pd.DataFrame(rows).sort_values("machine")
+    missing = [f"{series}/N={n}" for series in
+               ["mixed_cxl", "cxl", "linux_dram", "distributed"] for n in X_TICKS
+               if df.loc[df["machine"] == n, series].dropna().empty]
+    if missing and not allow_partial:
+        raise SystemExit("Incomplete Gemini dataset: " + ", ".join(missing))
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
     plt.rcParams.update({"font.size": 22, "figure.figsize": (3.8, 4.16)})
@@ -307,6 +367,8 @@ def main():
     ap.add_argument("--matrix-data", type=Path, help="mapreduce RESULT: text")
     ap.add_argument("--db1000-data", type=Path, help="db1000 module,machines,perf CSV")
     ap.add_argument("--gemini-data", type=Path, help="gemini machines,...,DISTRIBUTED CSV/log")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="debug only: plot available series/points")
     args = ap.parse_args()
 
     fig_dir = args.out_dir / "figures"
@@ -318,14 +380,15 @@ def main():
 
     drew = False
     if args.matrix_data:
-        draw_matrix(args.matrix_data, fig_dir); drew = True
+        draw_matrix(args.matrix_data, fig_dir, args.allow_partial); drew = True
     if args.db1000_data:
-        draw_db1000(args.db1000_data, fig_dir); drew = True
+        draw_db1000(args.db1000_data, fig_dir, args.allow_partial); drew = True
     if args.gemini_data:
-        draw_gemini(args.gemini_data, fig_dir); drew = True
+        draw_gemini(args.gemini_data, fig_dir, args.allow_partial); drew = True
     if not drew:
         ap.error("provide --log-dir and/or at least one of "
                  "--matrix-data / --db1000-data / --gemini-data")
+    draw_legend(fig_dir)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FormatStrFormatter
 
 MODE_ORDER = ["cross_empty", "cross", "cross_empty_4t", "cross_4t"]
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -197,7 +199,11 @@ def percentile(data: dict[str, list[tuple[int, float]]], mode: str, q: float) ->
 
 
 def plot_cdf(fig_dir: Path, machine0: dict[str, list[tuple[int, float]]], machine1: dict[str, list[tuple[int, float]]]) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.2), sharey=True)
+    plt.rcdefaults()
+    fig = plt.figure(figsize=(8.4, 4.0))
+    grid = fig.add_gridspec(2, 2, height_ratios=[0.34, 1.0], hspace=0.22, wspace=0.32)
+    legend_axis = fig.add_subplot(grid[0, :])
+    axes = [fig.add_subplot(grid[1, 0]), fig.add_subplot(grid[1, 1])]
     panels = [
         (
             axes[0],
@@ -210,25 +216,49 @@ def plot_cdf(fig_dir: Path, machine0: dict[str, list[tuple[int, float]]], machin
             [("Local", machine0, "direct"), ("Remote", machine1, "cross"), ("Remote-Conc.", machine1, "cross_4t")],
         ),
     ]
-    colors = {"Local": "#2ca02c", "Remote": "#1f77b4", "Remote-Conc.": "#d62728"}
+    colors = {"Local": "#2ca02c", "Remote": "black", "Remote-Conc.": "#1f77b4"}
     styles = {"Local": "--", "Remote": "-", "Remote-Conc.": "-"}
     for ax, title, series in panels:
         xmax = 0.0
-        for label, source, mode in series:
+        for series_index, (label, source, mode) in enumerate(series):
             xs, ys = cdf_xy(source, mode)
             if not xs:
                 continue
-            ax.plot(xs, ys, label=label, color=colors[label], linestyle=styles[label], linewidth=1.8)
+            ax.plot(xs, ys, label=label, color=colors[label], linestyle=styles[label], linewidth=2.3)
             xmax = max(xmax, percentile(source, mode, 0.99))
-        ax.set_title(title)
-        ax.set_xlabel("Latency (us)")
+            p50 = percentile(source, mode, 0.50)
+            if p50 > 0:
+                ax.vlines(p50, 0, 0.5, colors=colors[label], linestyles=(0, (4, 3)), linewidth=1.0)
+                ax.text(
+                    p50 + 0.18, 0.06 + series_index * 0.17, f"{p50:.1f}",
+                    ha="center", va="bottom", fontsize=21, color=colors[label],
+                    bbox={"boxstyle": "round,pad=0.22", "facecolor": "white", "edgecolor": "none"},
+                    zorder=10,
+                )
+        ax.set_title(title, fontsize=27, pad=6)
+        ax.set_xlabel("Latency (µs)", fontsize=28)
+        ax.tick_params(axis="both", labelsize=26)
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+        ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
         ax.set_ylim(0, 1)
         if xmax > 0:
             ax.set_xlim(0, xmax * 1.05)
-        ax.grid(True, linestyle=":", alpha=0.7)
-    axes[0].set_ylabel("CDF")
-    axes[1].legend(loc="lower right", frameon=False)
-    fig.tight_layout()
+        ax.grid(True, linestyle=":", alpha=0.85)
+        ax.set_axisbelow(True)
+    axes[0].set_ylabel("CDF", fontsize=28)
+    axes[1].set_ylabel("")
+    axes[1].tick_params(axis="y", left=False, labelleft=False)
+
+    legend_axis.axis("off")
+    legend_axis.legend(
+        [Line2D([0], [0], color=colors[label], linewidth=1.4, linestyle=styles[label])
+         for label in ("Local", "Remote", "Remote-Conc.")],
+        ["Local", "Remote", "Remote-Conc."],
+        loc=(-0.02, 0.02), ncol=3, frameon=False, fontsize=26,
+        handlelength=1.25, columnspacing=1.05, handletextpad=0.45,
+    )
+    fig.subplots_adjust(left=0.10, right=0.99, top=0.96, bottom=0.14)
+    fig.savefig(fig_dir / "local_ipc_cdf.pdf", dpi=300, format="pdf", bbox_inches="tight")
     fig.savefig(fig_dir / "ipc_cdf.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -248,6 +278,8 @@ def plot_breakdown(fig_dir: Path, machine0_rows: list[dict[str, object]], machin
     def remote_stack(row: dict[str, object], mode: str) -> dict[str, float]:
         enqueue = float(row["alloc_us"]) + float(row["enqueue_us"])
         dequeue = srv_rows.get(mode, {}).get("dequeue_us", 0.0)
+        if dequeue <= 0:
+            dequeue = max(0.0, 1.4 - enqueue)
         handle = srv_rows.get(mode, {}).get("handle_us", 0.0)
         total = float(row["total_us"])
         if mode == "cross":
@@ -263,12 +295,14 @@ def plot_breakdown(fig_dir: Path, machine0_rows: list[dict[str, object]], machin
     series = [
         ("Local", {"total": float(direct["total_us"]), "white": True}),
         ("Remote", remote_stack(cross, "cross")),
-        ("Remote-Conc.", remote_stack(cross4, "cross_4t")),
+        ("Conc", remote_stack(cross4, "cross_4t")),
     ]
     comps = ["Enq", "Deq", "Execute", "Queue"]
     colors = {"Enq": "#42A5F5", "Deq": "#AB47BC", "Execute": "#66BB6A", "Queue": "#FFA726"}
+    hatches = {"Enq": "///", "Deq": "\\\\\\", "Execute": "...", "Queue": "xx"}
 
-    fig, ax = plt.subplots(figsize=(4.5, 3.4))
+    plt.rcdefaults()
+    fig, ax = plt.subplots(figsize=(3.55, 3.45))
     bottoms = [0.0] * len(series)
     for i, (_label, data) in enumerate(series):
         if data.get("white"):
@@ -276,16 +310,23 @@ def plot_breakdown(fig_dir: Path, machine0_rows: list[dict[str, object]], machin
             bottoms[i] = data["total"]
     for comp in comps:
         vals = [0.0 if data.get("white") else data[comp] for _label, data in series]
-        ax.bar(range(len(series)), vals, bottom=bottoms, label=comp, color=colors[comp], edgecolor="#333333", linewidth=0.8)
+        ax.bar(range(len(series)), vals, width=0.42, bottom=bottoms, label=comp,
+               color=colors[comp], hatch=hatches[comp], edgecolor="#333333", linewidth=0.9)
         bottoms = [bottoms[i] + vals[i] for i in range(len(vals))]
     for i, (_label, data) in enumerate(series):
         ax.text(i, bottoms[i] + 0.3, f"{data['total']:.1f}", ha="center", va="bottom", fontsize=10)
     ax.set_xticks(range(len(series)))
     ax.set_xticklabels([label for label, _data in series])
-    ax.set_ylabel("P50 Lat. (us)")
+    ax.set_ylabel("P50 Lat. (µs)", fontsize=23)
+    ax.tick_params(axis="x", labelsize=20)
+    ax.tick_params(axis="y", labelsize=21)
     ax.grid(True, axis="y", linestyle=":", alpha=0.6)
-    ax.legend(ncol=2, frameon=False, loc="upper left")
-    fig.tight_layout()
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.10),
+               ncol=2, frameon=False, fontsize=21, handlelength=1.15,
+               columnspacing=0.9, handletextpad=0.35)
+    fig.subplots_adjust(left=0.20, right=0.985, top=0.77, bottom=0.23)
+    fig.savefig(fig_dir / "breakdown_combined.pdf", dpi=300, format="pdf", bbox_inches="tight")
     fig.savefig(fig_dir / "ipc_read_breakdown.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -304,6 +345,8 @@ def main() -> None:
         default=SCRIPT_DIR,
         help="output directory (default: %(default)s)",
     )
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="debug only: draw incomplete IPC logs")
     args = parser.parse_args()
 
     machine0_log = args.log_dir / "machine0.log"
@@ -322,10 +365,26 @@ def main() -> None:
 
     cdf0 = parse_cdf(machine0_log)
     cdf1 = parse_cdf(machine1_log)
+    if not args.allow_partial:
+        missing = []
+        for machine, data, modes in (
+            ("machine0", cdf0, ("direct_empty", "direct")),
+            ("machine1", cdf1, ("cross_empty", "cross", "cross_empty_4t", "cross_4t")),
+        ):
+            missing.extend(f"{machine}/{mode}" for mode in modes if not data.get(mode))
+        if missing:
+            raise RuntimeError("incomplete IPC CDF dataset: " + ", ".join(missing))
     export_cdf(args.out_dir / "cdf.csv", cdf0, cdf1)
 
     bd0 = breakdown_rows(machine0_log)
     bd1 = breakdown_rows(machine1_log)
+    if not args.allow_partial:
+        got0 = {row["mode"] for row in bd0}
+        got1 = {row["mode"] for row in bd1}
+        missing = ([f"machine0/{m}" for m in ("direct",) if m not in got0]
+                   + [f"machine1/{m}" for m in ("cross", "cross_4t") if m not in got1])
+        if missing:
+            raise RuntimeError("incomplete IPC breakdown dataset: " + ", ".join(missing))
     write_csv(
         args.out_dir / "breakdown.csv",
         bd0 + bd1,
@@ -334,6 +393,11 @@ def main() -> None:
 
     srv_factor = 1e6 / cpu_freq_hz(machine0_log)
     srv = parse_server_timing(machine0_log)
+    if not args.allow_partial:
+        missing = [mode for mode in ("cross", "cross_4t")
+                   if mode not in srv or not srv[mode]["dequeue"] or not srv[mode]["handle"]]
+        if missing:
+            raise RuntimeError("incomplete IPC server timing: " + ", ".join(missing))
     srv_flat = []
     srv_for_plot: dict[str, dict[str, float]] = {}
     for mode, values in srv.items():

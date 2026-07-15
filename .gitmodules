@@ -41,6 +41,17 @@
 	url = https://github.com/starfishos-org/linux-tests.git
 	branch = main
 
+# Historical CNN port required by paper resource-util (real.eps).
+[submodule "user/demos/VeryTinyCnn"]
+	path = user/demos/VeryTinyCnn
+	url = git@ipads.se.sjtu.edu.cn:nvsys/FITS/demos/tiny-cnn.git
+
+# Tigon baseline required by paper auto-scale (db1000.eps).
+[submodule "artifact-evaluation/deps/tigon"]
+	path = artifact-evaluation/deps/tigon
+	url = https://github.com/starfishos-org/tigon.git
+	branch = main
+
 # --- unused by current AE; keep for later ---
 # [submodule "user/demos/ligra"]
 # 	path = user/demos/ligra

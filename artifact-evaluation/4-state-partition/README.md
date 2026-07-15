@@ -40,7 +40,7 @@ Throughput benches normalize as `v / v_private`; time benches as
 - `results/state_partition.csv` — raw metrics (same layout as the paper's
   `eval/state_partition.csv`: one row per config, one column per bench)
 - `results/normalized.csv` — normalized to Private
-- `figures/fig13-state-partition.pdf` / `.eps`
+- `figures/state_partition.pdf` / `.eps`
 
 ## Re-parse an existing run
 
@@ -50,7 +50,20 @@ python3 artifact-evaluation/4-state-partition/plot.py \
   --out-dir artifact-evaluation/4-state-partition/out/<ts>
 ```
 
+To verify the plotter directly with the paper-format CSV:
+
+```bash
+python3 artifact-evaluation/4-state-partition/plot.py \
+  --csv /mnt/disk1/yjs/p3os-paper/eval/state_partition.csv \
+  --out-dir /tmp/state-partition-check
+```
+
 ## Env knobs
 
 `BENCHS`, `CONFIGS`, `NUM_MACHINES` (default 2), `TIMEOUT` (default 1200 s),
 `OUT_DIR`.
+
+The default run always collects the full 6 × 4 matrix. DBx1000 is rebuilt with
+the small one-warehouse configuration for this figure (override with
+`DBX_NUM_WH`, `DBX_WARMUP`, and `DBX_MAX_TXN`). Missing points are fatal by
+default; use `plot.py --allow-partial` only to inspect an interrupted sweep.

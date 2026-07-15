@@ -49,15 +49,19 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
     if ! apt_get install -y \
         ca-certificates \
         build-essential \
+        cmake \
         curl \
         docker.io \
         git \
         libglib2.0-dev \
+        libnuma-dev \
         libpixman-1-dev \
         libslirp-dev \
         make \
         ninja-build \
         numactl \
+        openmpi-bin \
+        libopenmpi-dev \
         pkg-config \
         python3 \
         python3-matplotlib \
@@ -102,7 +106,7 @@ if [ "$need_relogin" -eq 1 ]; then
     echo "Log out and back in (or re-login via ssh) before running Docker/QEMU without sudo."
 fi
 
-echo "Installed Docker, numactl, tmux, Python 3, matplotlib/numpy/pandas, and QEMU build dependencies."
+echo "Installed Docker, OpenMPI, numactl, tmux, Python 3, matplotlib/numpy/pandas, and QEMU build dependencies."
 
 QEMU_VERSION=6.2.0
 QEMU_PREFIX=/usr/local/qemu-6.2

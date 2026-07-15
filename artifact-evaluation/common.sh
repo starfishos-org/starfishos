@@ -26,6 +26,7 @@
 AE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AE_SESSION="${AE_SESSION:-${USER}-ae}"
 AE_DSM_CONFIG="$AE_REPO_ROOT/kernel/dsm_config.cmake"
+AE_DEMOS_CONFIG="$AE_REPO_ROOT/user/demos/config.cmake"
 AE_DOTCONFIG="$AE_REPO_ROOT/.config"
 AE_CHCORE_INI="$AE_REPO_ROOT/chcore.ini"
 AE_BOOT_TIMEOUT="${AE_BOOT_TIMEOUT:-600}"
@@ -119,6 +120,16 @@ ae_set_dsm_var() {
     }
 }
 
+# ae_set_demo_var CHCORE_DEMOS_REDIS ON
+ae_set_demo_var() {
+    local var="$1" val="$2"
+    sed -i "s/^chcore_config(${var} BOOL [A-Z]* /chcore_config(${var} BOOL ${val} /" "$AE_DEMOS_CONFIG"
+    grep -q "^chcore_config(${var} BOOL ${val} " "$AE_DEMOS_CONFIG" || {
+        echo "Failed to set ${var}=${val} in $AE_DEMOS_CONFIG" >&2
+        return 1
+    }
+}
+
 # ae_set_dotconfig CHCORE_KERNEL_TEST BOOL ON
 # Appends the entry if the key is not present yet (e.g. a chcore_config added
 # after .config was generated).
@@ -153,6 +164,7 @@ AE_CONFIG_BACKUP_DIR=""
 ae_save_build_configs() {
     AE_CONFIG_BACKUP_DIR="$(mktemp -d)"
     cp "$AE_DSM_CONFIG" "$AE_CONFIG_BACKUP_DIR/dsm_config.cmake"
+    cp "$AE_DEMOS_CONFIG" "$AE_CONFIG_BACKUP_DIR/demos-config.cmake"
     cp "$AE_DOTCONFIG" "$AE_CONFIG_BACKUP_DIR/dotconfig"
     cp "$AE_CHCORE_INI" "$AE_CONFIG_BACKUP_DIR/chcore.ini"
 }
@@ -160,6 +172,7 @@ ae_save_build_configs() {
 ae_restore_build_configs() {
     if [ -n "$AE_CONFIG_BACKUP_DIR" ] && [ -d "$AE_CONFIG_BACKUP_DIR" ]; then
         cp "$AE_CONFIG_BACKUP_DIR/dsm_config.cmake" "$AE_DSM_CONFIG"
+        cp "$AE_CONFIG_BACKUP_DIR/demos-config.cmake" "$AE_DEMOS_CONFIG"
         cp "$AE_CONFIG_BACKUP_DIR/dotconfig" "$AE_DOTCONFIG"
         cp "$AE_CONFIG_BACKUP_DIR/chcore.ini" "$AE_CHCORE_INI"
         rm -rf "$AE_CONFIG_BACKUP_DIR"

@@ -30,4 +30,8 @@ Sched/notify host Linux microbench for AE lives separately at
   [github.com/starfishos-org](https://github.com/starfishos-org)
   (`GeminiGraph/` → `GeminiGraph-linux`, `ggraph-distri/` → `GeminiGraph-distri`).
 - ChCore app ports stay under `user/demos/` (different branches/remotes).
-- AE `5-auto-scale` still needs Ideal/Distributed numbers merged from these trees.
+- AE `5-auto-scale/run_baselines.py` builds these trees, collects all machine
+  counts, and emits standardized `AE_RESULT` records consumed by `plot.py`.
+- Matrix's local-TCP distributed baseline is implemented in
+  `artifact-evaluation/5-auto-scale/matrix_tcp_mpi.c` and forces MPI transport
+  to `tcp,self`; it is intentionally not sourced from `ggraph-distri/`.

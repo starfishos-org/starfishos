@@ -11,17 +11,29 @@ cd "$REPO_ROOT"
 # paths independently so a broken optional test-on-linux submodule cannot
 # abort before the required ChCore demos are populated.
 ensure_required_submodules() {
-    local path missing=0
+    local path marker missing=0
     local required=(
         "user/libraries/rpmalloc"
         "user/demos/phoenix-2.0"
         "user/demos/dbx1000"
         "user/demos/GeminiGraph"
     )
+    if [ "${AE_INCLUDE_OPTIONAL_PAPER:-0}" = "1" ]; then
+        required+=(
+            "user/demos/VeryTinyCnn"
+            "test-on-linux/phoenix"
+            "test-on-linux/dbx1000"
+            "test-on-linux/GeminiGraph"
+            "test-on-linux/ggraph-distri"
+            "artifact-evaluation/deps/tigon"
+        )
+    fi
 
     echo "=== Ensuring required git submodules ==="
     for path in "${required[@]}"; do
-        if [ ! -e "$path/CMakeLists.txt" ]; then
+        marker="CMakeLists.txt"
+        [ "$path" = "test-on-linux/ggraph-distri" ] && marker="Makefile"
+        if [ ! -e "$path/$marker" ]; then
             missing=1
         fi
     done
@@ -35,7 +47,9 @@ ensure_required_submodules() {
 
     missing=0
     for path in "${required[@]}"; do
-        if [ ! -e "$path/CMakeLists.txt" ]; then
+        marker="CMakeLists.txt"
+        [ "$path" = "test-on-linux/ggraph-distri" ] && marker="Makefile"
+        if [ ! -e "$path/$marker" ]; then
             echo "Missing submodule content: $path" >&2
             missing=1
         fi

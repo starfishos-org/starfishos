@@ -71,7 +71,7 @@ def x_redis(t):        # redis-benchmark "requests per second"
 
 
 def x_memcached(t):    # memcachetest average get latency/throughput
-    return _last(r"[Aa]vg[^\d]*([\d.]+)", t)
+    return _last(r"ops/sec:\s*([\d.]+)", t) or _last(r"Total throughput:\s*([\d.]+)", t)
 
 
 def x_gemini(t):       # pagerank "<seconds>s" runtime line
@@ -79,7 +79,11 @@ def x_gemini(t):       # pagerank "<seconds>s" runtime line
 
 
 def x_cnn(t):          # tiny-cnn inference time
-    return _last(r"([\d.]+)\s*(?:ms|s)\b", t)
+    value = _last(r"Forward finished\.\s*([\d.]+)\s*ms\b", t)
+    if value is not None:
+        return value
+    seconds = _last(r"Forward finished\.\s*([\d.]+)\s*s\b", t)
+    return seconds * 1000 if seconds is not None else None
 
 
 EXTRACTORS = {
@@ -116,6 +120,17 @@ def collect(log_dir: Path):
                 continue
             rows.append((f"{bench}-{cond}", val))
     return rows
+
+
+def require_complete_rows(rows):
+    got = {name for name, _ in rows}
+    expected = {f"{bench}-{cond}" for bench in BENCHES for cond in CONDS}
+    missing = sorted(expected - got)
+    if missing:
+        raise SystemExit(
+            f"Incomplete resource-util dataset; missing {len(missing)} of "
+            f"{len(expected)} points: " + ", ".join(missing)
+        )
 
 
 # Stress-type -> benches (matches user/script/single_stress_typeN.sh).
@@ -177,7 +192,7 @@ def _draw_fig(fig_dir: Path, name: str):
     print(f"Wrote {stem}.eps/.pdf/.png")
 
 
-def draw(csv_path: Path, fig_dir: Path):
+def draw(csv_path: Path, fig_dir: Path, allow_partial: bool = False):
     tab20 = plt.colormaps["tab20"]
     hatch_patterns = ["+", "x", "o", "O", ".", "*"]
     starfish_hatch = "\\\\"
@@ -212,14 +227,23 @@ def draw(csv_path: Path, fig_dir: Path):
     data[["name", "type"]] = data["benchmark"].str.rsplit("-", n=1, expand=True)
     plot_data = data.pivot(index="name", columns="type", values="value")
 
-    # Drop benches missing any of the three conditions so normalization stays defined.
+    # Require the full 12 x 3 matrix by default.  Partial drawing is only for
+    # debugging interrupted runs and must be requested explicitly.
     for col in CONDS:
         if col not in plot_data.columns:
             plot_data[col] = float("nan")
     complete = plot_data.dropna(subset=CONDS)
     dropped = sorted(set(plot_data.index) - set(complete.index))
     if dropped:
+        if not allow_partial:
+            raise SystemExit(
+                "Incomplete resource-util CSV; need single/stress/p3os for: "
+                + ", ".join(dropped)
+            )
         print(f"[WARN] skipping incomplete benches (need single/stress/p3os): {dropped}")
+    absent = sorted(set(BENCHES) - set(complete.index))
+    if absent and not allow_partial:
+        raise SystemExit("Resource-util CSV is missing benchmarks: " + ", ".join(absent))
     if complete.empty:
         raise SystemExit("No benchmark has all three conditions; nothing to plot")
     plot_data = complete
@@ -298,20 +322,24 @@ def main():
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--csv", type=Path,
                     help="Draw directly from an existing real.csv (verify vs paper)")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="debug only: plot an interrupted/incomplete collection")
     args = ap.parse_args()
 
     fig_dir = args.out_dir / "figures"
     if args.csv:
-        draw(args.csv, fig_dir)
+        draw(args.csv, fig_dir, args.allow_partial)
         return
     if not args.log_dir:
         ap.error("either --csv or --log-dir is required")
     rows = collect(args.log_dir)
     if not rows:
         raise SystemExit("No benchmark produced a metric; nothing to plot")
+    if not args.allow_partial:
+        require_complete_rows(rows)
     csv_path = args.out_dir / "results" / "real.csv"
     write_csv(rows, csv_path)
-    draw(csv_path, fig_dir)
+    draw(csv_path, fig_dir, args.allow_partial)
 
 
 if __name__ == "__main__":

@@ -65,3 +65,16 @@ python3 artifact-evaluation/3-memory-allocator/plot.py
 
 By default, the script reads `allocator_results.csv` and writes the figure in
 this directory.  `--csv` and `--out-dir` can override those locations.
+
+The paper's archived aggregate CSVs can also be used for plot-only validation:
+
+```bash
+python3 artifact-evaluation/3-memory-allocator/plot.py \
+  --csv /mnt/disk1/yjs/p3os-paper/eval/malloc/allocator.csv \
+  --user-csv /mnt/disk1/yjs/p3os-paper/eval/malloc/user-malloc.csv \
+  --out-dir /tmp/allocator-check
+```
+
+The paper plot validates every required Slab/Buddy/rpmalloc series at all
+default thread counts before drawing. `--allow-partial` is only for debugging
+an interrupted sweep.

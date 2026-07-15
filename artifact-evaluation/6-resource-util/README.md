@@ -24,9 +24,14 @@ schema as `p3os-paper/eval/real.csv`) and draws the figure.
 
 ## Prerequisites
 
-`user/demos/config.cmake`: the paper set needs `LEVELDB`, `PHOENIX`, `DBX1000`,
-`GEIMINIGRAPH` (currently ON) plus `REDIS`, `MEMCACHED`/`MEMCACHETEST`,
-`TINYCNN` (currently OFF — enable and rebuild for a full run).
+`run.sh` enables and rebuilds Redis, Memcached/Memcachetest, and TinyCNN
+automatically, then restores the original build configuration. TinyCNN is the
+historical pinned submodule and currently requires access to the IPADS GitLab.
+`prepare_cnn.sh` creates deterministic zero-weight AlexNet data and an 8-image
+batch; this preserves the inference compute/memory path, while model accuracy
+is irrelevant to this performance-only figure.
+DBx1000 is likewise rebuilt with the compact read-only YCSB configuration used
+by this figure, rather than inheriting the large TPC-C auto-scale settings.
 
 ## Run
 
@@ -51,10 +56,10 @@ python3 artifact-evaluation/6-resource-util/plot.py \
     --out-dir /tmp/real-check
 ```
 
-## Status / caveats
+## Completeness contract
 
-`run.sh` now (1) runs per-app **single** baselines into `<bench>_single.log`,
-(2) demuxes stress/p3os type bundles into `<bench>_{stress,p3os}.log`, and
-(3) calls `plot.py --log-dir`. Plotting skips benches missing any of the three
-conditions. Cross scripts cover all six paper pairs (types 1–6); **live
-co-location numbers are still unvalidated** against a full run.
+The normal path requires all 36 values (12 applications × 3 conditions).
+Stress and cross-machine runs wait for each member of the pair independently;
+fixed sleeps are no longer used. Missing logs or metrics terminate plotting
+instead of silently dropping an application. `--allow-partial` is available
+only for debugging interrupted runs.

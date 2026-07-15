@@ -30,6 +30,16 @@ TESTS = [
     ("get_pages(2MB)-free", "free_pages 2 MiB"),
     ("random_get_free_4K2M", "random alloc/free 4 KiB + 2 MiB"),
 ]
+KERNEL_PARALLELS = [1, 4, 8, 16, 32, 48, 64, 96]
+USER_PARALLELS = [1, 2, 4, 8, 16, 32, 64, 96]
+PAPER_SERIES = [
+    ("kmalloc", "LLFree+CR", "DRAM", KERNEL_PARALLELS),
+    ("kmalloc", "Buddy", "CXL", KERNEL_PARALLELS),
+    ("kmalloc", "LLFree", "CXL", KERNEL_PARALLELS),
+    ("random_get_free_4K2M", "LLFree+CR", "DRAM", KERNEL_PARALLELS),
+    ("random_get_free_4K2M", "Buddy", "CXL", KERNEL_PARALLELS),
+    ("random_get_free_4K2M", "LLFree+CR", "CXL", KERNEL_PARALLELS),
+]
 
 
 def load_rows(path: Path):
@@ -37,8 +47,8 @@ def load_rows(path: Path):
     with path.open(newline="") as source:
         for row in csv.DictReader(source):
             row["parallel"] = int(row["parallel"])
-            row["run"] = int(row["run"])
-            row["ops_per_sec"] = float(row["ops_per_sec"])
+            row["run"] = int(row.get("run") or 1)
+            row["ops_per_sec"] = float(row.get("ops_per_sec") or row["avg_ops_per_sec"])
             if row["test"].startswith("random_get_free_4K2M"):
                 row["test"] = "random_get_free_4K2M"
             rows.append(row)
@@ -59,6 +69,24 @@ def make_buckets(rows):
         key = (row["config"], row["memory"], row["test"], row["parallel"])
         buckets[key].append(row["ops_per_sec"])
     return buckets
+
+
+def require_paper_series(rows, buckets):
+    missing = []
+    for test, config, memory, parallels in PAPER_SERIES:
+        for parallel in parallels:
+            if not buckets.get((config, memory, test, parallel)):
+                missing.append(f"{test}/{config}/{memory}/T={parallel}")
+    user_tests = sorted({row["test"] for row in rows if row["memory"] == "user"})
+    if len(user_tests) != 1:
+        missing.append(f"expected exactly one user malloc test, found {user_tests}")
+    else:
+        for config in ("LLFree+CR", "Buddy", "LLFree"):
+            for parallel in USER_PARALLELS:
+                if not buckets.get((config, "user", user_tests[0], parallel)):
+                    missing.append(f"{user_tests[0]}/{config}/user/T={parallel}")
+    if missing:
+        raise ValueError("incomplete allocator paper dataset: " + ", ".join(missing))
 
 
 def values_for(buckets, test, config, memory):
@@ -168,32 +196,30 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
     if not user_tests:
         return
 
-    styles = {
-        "DRAM": ("black", "^"),
-        "CXL": ("#2ca02c", "P"),
-        "CXL-Log": ("#ff7f0e", "X"),
-        "CXL-Buddy": ("#1f77b4", "o"),
-        "CXL-LLFree": ("#d62728", "s"),
-    }
+    styles = {"DRAM": ("black", "^"), "CXL": ("#2ca02c", "P"),
+              "CXL-Log": ("#ff7f0e", "X"), "CXL-Buddy": ("#1f77b4", "o"),
+              "CXL-LLFree": ("#d62728", "s")}
 
     def paper_series(axis, test, config, memory, label):
         points = values_for(buckets, test, config, memory)
         if not points:
             return
         color, marker = styles[label]
-        axis.errorbar(
+        axis.plot(
             [point[0] for point in points],
             [point[1] / 1e6 for point in points],
-            yerr=[point[2] / 1e6 for point in points],
             label=label,
             color=color,
             marker=marker,
             linestyle="-",
             linewidth=1.5,
             markersize=6,
-            capsize=2.5,
         )
 
+    plt.rcdefaults()
+    plt.rcParams.update({"font.size": 19, "axes.titlesize": 18,
+                         "axes.labelsize": 18, "legend.fontsize": 15,
+                         "xtick.labelsize": 16, "ytick.labelsize": 16})
     figure, axes = plt.subplots(1, 3, figsize=(8.0, 3.0), constrained_layout=True)
 
     # Keep these mappings aligned with p3os-paper/eval/malloc/
@@ -212,14 +238,31 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
     paper_series(axes[2], user_test, "LLFree", "user", "CXL-LLFree")
 
     for axis, title in zip(axes, ["(a) Slab", "(b) Buddy", "(c) rpmalloc"]):
-        axis.set_title(title, fontweight="bold", pad=12)
+        axis.set_title(title, fontweight="bold", pad=16)
         axis.set_xlabel("#Threads")
         axis.set_ylabel("Thp (Mops/s)")
         axis.set_ylim(bottom=0)
-        axis.set_xlim(left=0, right=100)
-        axis.set_xticks([1, 32, 64, 96])
+        axis.set_xlim(left=0)
+        axis.set_xticks([1, 32, 64, 92])
         axis.grid(True, which="both", axis="y", linestyle=":")
-        axis.legend(fontsize=8, frameon=False)
+
+    def paper_legend(axis, keep=None, *, loc="upper right", bbox=None):
+        handles, labels = axis.get_legend_handles_labels()
+        if keep is not None:
+            pairs = [(h, label) for h, label in zip(handles, labels) if label in keep]
+            handles, labels = [p[0] for p in pairs], [p[1] for p in pairs]
+        legend = axis.legend(handles, labels, loc=loc, bbox_to_anchor=bbox,
+                             frameon=True, fancybox=True, framealpha=0.65,
+                             handlelength=1.1, handletextpad=0.35,
+                             borderpad=0.25, labelspacing=0.25,
+                             borderaxespad=0.2)
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("#cccccc")
+        legend.get_frame().set_linewidth(0.8)
+
+    paper_legend(axes[0], loc="upper right", bbox=(1, 1))
+    paper_legend(axes[1], ["CXL-Buddy", "CXL-LLFree"], loc="lower center", bbox=(0.5, 0))
+    paper_legend(axes[2], ["CXL-Buddy", "CXL-LLFree"], loc="lower center", bbox=(0.5, 0))
 
     figure.savefig(
         out_dir / "fig00-allocator-all.png",
@@ -259,17 +302,28 @@ def main():
         default=SCRIPT_DIR / "allocator_results.csv",
         help="allocator result CSV (default: %(default)s)",
     )
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="debug only: draw available allocator series")
     parser.add_argument(
         "--out-dir",
         type=Path,
         default=SCRIPT_DIR,
         help="output directory (default: %(default)s)",
     )
+    parser.add_argument(
+        "--user-csv",
+        type=Path,
+        help="optional user-malloc CSV to append (for paper-data verification)",
+    )
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     rows = load_rows(args.csv)
+    if args.user_csv:
+        rows.extend(load_rows(args.user_csv))
     buckets = make_buckets(rows)
+    if not args.allow_partial:
+        require_paper_series(rows, buckets)
     draw_paper_figure(rows, buckets, args.out_dir)
     print(f"Figure written to {args.out_dir / 'fig00-allocator-all.png'} (+ .pdf/.eps)")
 

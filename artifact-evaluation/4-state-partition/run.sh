@@ -35,12 +35,11 @@ OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
 NUM_MACHINES="${NUM_MACHINES:-2}"
 TIMEOUT="${TIMEOUT:-1200}"
-# leveldb (DB::Open fsync-dir EBADF) and matrix_multiply 2-machine (#GP in
-# the shared CXL slab free path) were fixed 2026-07-14 and are now included.
-# Default still excludes:
-#   dbx1000 — vendored config is the 16 GB / 8-machine CXL-footprint build and
-#             OOMs on 1-2 machines; fig13 needs the small (1x) TPC-C config.
-BENCHS="${BENCHS:-pca matrix_multiply linear_regression word_count leveldb}"
+# The default is the complete 6 x 4 matrix used by the paper figure.  The
+# DBx1000 compile-time configuration is reduced below for this two-machine
+# state-placement experiment; the 64-warehouse auto-scale configuration would
+# otherwise consume far more memory than this figure requires.
+BENCHS="${BENCHS:-leveldb dbx1000 pca matrix_multiply linear_regression word_count}"
 CONFIGS="${CONFIGS:-All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM}"
 
 mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
@@ -73,6 +72,9 @@ bench_done_pattern() {
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 DBX_TIMEOUT="${DBX_TIMEOUT:-3600}"
 DBX_DRAM_SIZE="${DBX_DRAM_SIZE:-24G}"
+DBX_NUM_WH="${DBX_NUM_WH:-1}"
+DBX_WARMUP="${DBX_WARMUP:-10000}"
+DBX_MAX_TXN="${DBX_MAX_TXN:-10000}"
 
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
@@ -129,6 +131,10 @@ for cfg in $CONFIGS; do
     done
     # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the cluster size
     sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t$cfg_machines/" "$DBX_CONFIG"
+    sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$DBX_NUM_WH/" "$DBX_CONFIG"
+    sed -i "s/^#define WARMUP[[:space:]].*/#define WARMUP\t\t\t\t\t\t$DBX_WARMUP/" "$DBX_CONFIG"
+    sed -i "s/^#define MAX_TXN_PER_PART[[:space:]].*/#define MAX_TXN_PER_PART\t\t\t$DBX_MAX_TXN/" "$DBX_CONFIG"
+    sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t50/" "$DBX_CONFIG"
     DBX_BIND_LIST="$(dbx_bind_cpu_list "$cfg_machines")"
     ae_build
 
@@ -178,6 +184,7 @@ for cfg in $CONFIGS; do
             # already recorded above; save the log and skip to the next test.
             cp "$(ae_machine_log 0)" "$logfile" || true
             echo "[WARN] $bench under $cfg did not complete; skipping to next test" >&2
+            ae_record_error "$bench under $cfg did not produce a complete result"
         fi
         ae_kill_cluster
     done
