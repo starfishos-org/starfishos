@@ -7,13 +7,15 @@ BUILD_DIR="${BUILD_DIR:-/tmp/chcore-cxl-linux-sched-notify-$USER}"
 BINARY="$BUILD_DIR/linux_sched_notify_microbench.bin"
 OUT_DIR="${OUT_DIR:-$AE_DIR/linux-results}"
 LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
 NRUNS="${NRUNS:-3}"
 SAMPLES="${SAMPLES:-1000}"
 SOURCE_CPU="${SOURCE_CPU:-}"
 REMOTE_CPU="${REMOTE_CPU:-}"
 CC="${CC:-cc}"
 
-mkdir -p "$BUILD_DIR" "$LOG_DIR" "$OUT_DIR"
+mkdir -p "$BUILD_DIR" "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 
 echo "=== Building Linux sched/notify microbenchmark ==="
 "$CC" -O2 -std=gnu11 -Wall -Wextra -pthread "$SOURCE" -o "$BINARY"
@@ -35,5 +37,5 @@ for run in $(seq 1 "$NRUNS"); do
 done
 
 echo "=== Parsing Linux samples and drawing figure ==="
-python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
-echo "Linux artifact output: $OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR"
+echo "Linux artifact output: logs=$LOG_DIR csv=$CSV_DIR figures=$FIG_DIR"

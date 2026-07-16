@@ -3,18 +3,16 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/3-memory-allocator"
-LOG_DIR="$AE_DIR/logs"
-CSV_FILE="$AE_DIR/allocator_results.csv"
 NRUNS="${NRUNS:-1}"
 RUN_OFFSET="${RUN_OFFSET:-0}"
 USER_BENCH_THREADS="${USER_BENCH_THREADS:-1 2 4 8 16 32 64 96}"
 CPU_NUM="${CPU_NUM:-96}"
-CLEAN_RESULTS="${CLEAN_RESULTS:-1}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
 PROJECT_INI="$REPO_ROOT/chcore.ini"
 LOCK_FILE="$AE_DIR/.run.lock"
 
-mkdir -p "$LOG_DIR"
+source "$REPO_ROOT/artifact-evaluation/common.sh"
+
 if [ "${MEMORY_ALLOCATOR_LOCK_HELD:-0}" != "1" ]; then
     export MEMORY_ALLOCATOR_LOCK_HELD=1
     # The flock parent owns the lock. --close prevents QEMU/ivshmem children
@@ -22,24 +20,14 @@ if [ "${MEMORY_ALLOCATOR_LOCK_HELD:-0}" != "1" ]; then
     exec flock --close --nonblock "$LOCK_FILE" "$0" "$@"
 fi
 
-if [ "$CLEAN_RESULTS" = "1" ]; then
-    find "$LOG_DIR" -mindepth 1 -maxdepth 1 -type f -delete
-    rm -f "$CSV_FILE" \
-        "$AE_DIR/allocator_summary.csv" \
-        "$AE_DIR/allocator_overview.png" \
-        "$AE_DIR/allocator_cxl.png" \
-        "$AE_DIR/user_malloc.png" \
-        "$AE_DIR/fig00-allocator-all.png" \
-        "$AE_DIR/fig00-allocator-all.pdf" \
-        "$AE_DIR/fig00-allocator-all.eps"
-fi
+ae_init_output_dirs "$AE_DIR"
+CSV_FILE="$CSV_DIR/allocator_results.csv"
 
 PROJECT_CONFIG_BACKUP="$(mktemp)"
 PROJECT_INI_BACKUP="$(mktemp)"
 cp "$PROJECT_CONFIG" "$PROJECT_CONFIG_BACKUP"
 cp "$PROJECT_INI" "$PROJECT_INI_BACKUP"
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 ae_ensure_clean_tmux
 ae_check_global_prepare
 
@@ -61,14 +49,9 @@ cleanup_ae_config() {
 trap cleanup_ae_config EXIT
 
 CSV_OUT="$CSV_FILE"
-LOG_DIR="$AE_DIR/logs"
-NRUNS="${NRUNS:-1}"
-RUN_OFFSET="${RUN_OFFSET:-0}"
-USER_BENCH_THREADS="${USER_BENCH_THREADS:-1 2 4 8 16 32 64 96}"
 export CPU_NUM
-mkdir -p "$LOG_DIR"
 
-echo "[AE] Output directory: $AE_DIR"
+echo "[AE] Output directory: $OUT_DIR"
 echo "[AE] Guest CPUs: $CPU_NUM"
 echo "[AE] Kernel parallel levels: 1 4 8 16 32 48 64 96"
 echo "[AE] User threads: $USER_BENCH_THREADS"
@@ -130,7 +113,7 @@ for entry in "LLFree+CR:llfree_cr_on" "LLFree:llfree_cr_off" "Buddy:buddy_cr_off
     done
 done
 
-echo "=== Drawing fig00-allocator-all.png ==="
+echo "=== Drawing allocator-all figure ==="
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-$USER}" \
-    python3 "$AE_DIR/plot.py" --csv "$CSV_FILE" --out-dir "$AE_DIR"
-echo "Artifact output: $AE_DIR"
+    python3 "$AE_DIR/plot.py" --csv "$CSV_FILE" --fig-dir "$FIG_DIR"
+echo "Artifact output: $OUT_DIR"

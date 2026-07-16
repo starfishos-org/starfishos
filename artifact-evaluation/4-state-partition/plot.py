@@ -4,11 +4,11 @@
 Inputs (in --log-dir, produced by run.sh):
   <bench>_<config>.log     one QEMU machine-0 log per (bench, config)
 
-Outputs (under --out-dir):
-  results/state_partition.csv    raw metric per config row / bench column
-                                 (same layout as p3os-paper/eval/state_partition.csv)
-  results/normalized.csv         values normalized to All_DRAM (Private)
-  figures/state_partition.pdf/.eps
+Outputs:
+  csv/state_partition.csv    raw metric per config row / bench column
+                             (same layout as p3os-paper/eval/state_partition.csv)
+  csv/normalized.csv         values normalized to All_DRAM (Private)
+  figures/state_partition.{png}
 """
 from __future__ import annotations
 
@@ -241,7 +241,7 @@ def plot(norm, fig_dir: Path):
               if any(not np.isnan(norm[b][c]) for c in CONFIGS)]
     if not benchs:
         out = fig_dir / "state_partition"
-        for suffix in (".pdf", ".eps"):
+        for suffix in (".png",):
             stale = out.with_suffix(suffix)
             if stale.exists():
                 stale.unlink()
@@ -283,10 +283,9 @@ def plot(norm, fig_dir: Path):
     plt.tight_layout()
 
     out = fig_dir / "state_partition"
-    plt.savefig(out.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
-    plt.savefig(out.with_suffix(".eps"), format="eps", bbox_inches="tight")
+    plt.savefig(out.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight")
     plt.close()
-    print(f"Wrote {out}.pdf and .eps")
+    print(f"Wrote {out}.png")
     return True
 
 
@@ -295,7 +294,8 @@ def main():
     ap.add_argument("--log-dir", type=Path)
     ap.add_argument("--csv", type=Path,
                     help="paper-format state_partition.csv (skip log parsing)")
-    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
+    ap.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
     ap.add_argument("--allow-partial", action="store_true",
                     help="allow unrelated points to be absent; requested points stay mandatory")
     ap.add_argument("--require-point", action="append", default=[],
@@ -318,8 +318,8 @@ def main():
     if not args.allow_partial:
         require_complete(data)
     norm = normalize(data)
-    write_csvs(data, norm, args.out_dir / "results")
-    plot(norm, args.out_dir / "figures")
+    write_csvs(data, norm, args.csv_dir)
+    plot(norm, args.fig_dir)
 
 
 if __name__ == "__main__":

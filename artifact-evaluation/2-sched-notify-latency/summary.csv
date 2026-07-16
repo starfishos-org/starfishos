@@ -1,5 +1,0 @@
-metric,runs,samples,avg_ns,run_std_ns,min_ns,max_ns
-local_sched,1,4,19410.25,0.0,17402,22340
-cross_sched,1,4,65191.5,0.0,40373,95645
-local_notify,1,4,15309.75,0.0,13558,16122
-cross_notify,1,4,22842.75,0.0,14778,26165

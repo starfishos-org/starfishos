@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Parse auto-scaling sweep logs and plot the three paper auto-scale figures:
 
-  auto-scale-matrix.eps  — Matrix-multiply MapReduce, throughput vs #machines
-  db1000.eps             — DBx1000 TPC-C throughput vs #machines
-  gemini-chcore.eps      — GeminiGraph PageRank runtime->throughput vs #machines
+  auto-scale-matrix.png  — Matrix-multiply MapReduce, throughput vs #machines
+  db1000.png             — DBx1000 TPC-C throughput vs #machines
+  gemini-chcore.png      — GeminiGraph PageRank runtime->throughput vs #machines
 
 Each figure compares StarfishOS (Mixed / CXL) against external baselines
 (Ideal = Linux DRAM, Distributed = Linux-MPI, Tigon).  The StarfishOS curves
@@ -21,14 +21,15 @@ Sweep logs produced by run.sh (`--log-dir`):
 
 Draw from data files (verify against paper)::
 
-  python3 plot.py --out-dir /tmp/as-check \
-    --matrix-data /mnt/disk1/yjs/p3os-paper/eval/mapreduce/4000size.txt \
-    --db1000-data /mnt/disk1/yjs/p3os-paper/eval/db1000/db1000-p3os-tigon.csv \
-    --gemini-data /mnt/disk1/yjs/p3os-paper/eval/gemini_graph/data.log
+  python3 plot.py --csv-dir /tmp/as-check/csv \
+                  --fig-dir /tmp/as-check/figures \
+    --matrix-data /path/to/paper/4000size.txt \
+    --db1000-data /path/to/paper/db1000-p3os-tigon.csv \
+    --gemini-data /path/to/paper/gemini-data.log
 
 Collect StarfishOS curves from a sweep then plot::
 
-  python3 plot.py --out-dir out/<ts> --log-dir out/<ts>/logs
+  python3 plot.py --log-dir logs --csv-dir csv --fig-dir figures
 """
 from __future__ import annotations
 
@@ -90,10 +91,8 @@ CONFIG_TO_DB1000 = {
 def _draw_fig(fig_dir: Path, name: str):
     fig_dir.mkdir(parents=True, exist_ok=True)
     stem = fig_dir / name
-    plt.savefig(stem.with_suffix(".eps"), format="eps", bbox_inches="tight")
-    plt.savefig(stem.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
     plt.savefig(stem.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight")
-    print(f"Wrote {stem}.eps/.pdf/.png")
+    print(f"Wrote {stem}.png")
 
 
 def draw_legend(fig_dir: Path):
@@ -118,10 +117,9 @@ def draw_legend(fig_dir: Path):
     axis.set_position([0, 0, 1, 1])
     fig.tight_layout(pad=0)
     stem = fig_dir / "auto-scale-legend"
-    fig.savefig(stem.with_suffix(".pdf"), dpi=1200, format="pdf", bbox_inches="tight", pad_inches=0.001)
-    fig.savefig(stem.with_suffix(".eps"), dpi=1200, format="eps", bbox_inches="tight", pad_inches=0.001)
+    fig.savefig(stem.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight", pad_inches=0.001)
     plt.close(fig)
-    print(f"Wrote {stem}.eps/.pdf")
+    print(f"Wrote {stem}.png")
 
 
 def _last_float(pattern: re.Pattern, text: str) -> Optional[float]:
@@ -441,9 +439,10 @@ def draw_gemini(data_path: Path, fig_dir: Path, allow_partial=False):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
+    ap.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
     ap.add_argument("--log-dir", type=Path,
-                    help="Sweep logs (<app>_<Mixed|CXL>_N<n>.log); write results/ then plot")
+                    help="Sweep logs (<app>_<Mixed|CXL>_N<n>.log); write csv/ then plot")
     ap.add_argument("--matrix-data", type=Path, help="mapreduce RESULT: text")
     ap.add_argument("--db1000-data", type=Path, help="db1000 module,machines,perf CSV")
     ap.add_argument("--gemini-data", type=Path, help="gemini machines,...,DISTRIBUTED CSV/log")
@@ -453,12 +452,15 @@ def main():
                     help="require this requested sweep log to contain its matching metric; repeatable")
     args = ap.parse_args()
 
-    fig_dir = args.out_dir / "figures"
+    fig_dir = args.fig_dir
+    csv_dir = args.csv_dir
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
     if args.require_log and not args.log_dir:
         ap.error("--require-log requires --log-dir")
     if args.log_dir:
         written = collect_from_logs(
-            args.log_dir, args.out_dir / "results", args.require_log
+            args.log_dir, csv_dir, args.require_log
         )
         args.matrix_data = args.matrix_data or written.get("matrix")
         args.db1000_data = args.db1000_data or written.get("db1000")

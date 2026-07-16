@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Artifact script for the paper "real" figure (real.eps): 12 applications, each
+# Artifact script for paper Figure 15 (real): 12 applications, each
 # measured under three conditions and normalized to its own single-run.
 #
 #   single  — the application alone on one machine (baseline)
@@ -30,16 +30,15 @@
 # ##   1. confirm which application's output lands in which log;
 # ##   2. confirm the completion markers (COND_MARKER);
 # ##   3. cross-check plot.py's EXTRACTORS against real app output.
-# ## The plotting path IS validated: it reproduces real.eps from the paper CSV.
+# ## The plotting path IS validated: it reproduces real.png from the paper CSV.
 # ###########################################################################
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/6-resource-util"
-TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
-OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
-AE_LOG_DIR="$OUT_DIR/logs"
+ae_init_output_dirs "$AE_DIR"
+AE_LOG_DIR="$LOG_DIR"
 TIMEOUT="${TIMEOUT:-1800}"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 
@@ -155,7 +154,7 @@ restore_generated_tree() {
     return "$failed"
 }
 
-mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
+mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 
 snapshot_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
     include/CImg.h data image
@@ -285,7 +284,7 @@ for demo in REDIS MEMCACHED MEMCACHETEST TINYCNN; do
     ae_set_demo_var "CHCORE_DEMOS_${demo}" ON
     ae_set_dotconfig "CHCORE_DEMOS_${demo}" BOOL ON
 done
-# real.eps uses DBx1000's compact read-only YCSB workload, not the 64-warehouse
+# real.png uses DBx1000's compact read-only YCSB workload, not the 64-warehouse
 # TPC-C auto-scale build currently pinned in the demo submodule.
 sed -i 's/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t\t1/' "$DBX_CONFIG"
 sed -i 's/^#define THREADS_PER_MACHINE[[:space:]].*/#define THREADS_PER_MACHINE\t\t\t8/' "$DBX_CONFIG"
@@ -419,7 +418,7 @@ done
 
 echo ""
 echo "=== Parsing + plotting real (resource-util) ==="
-plot_args=(--log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR")
+plot_args=(--log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR")
 if [ "$FULL_PLOT_REQUEST" != "1" ]; then
     plot_args+=(--allow-partial)
 fi
@@ -454,13 +453,14 @@ python3 "$AE_DIR/plot.py" "${plot_args[@]}" || {
 }
 
 echo ""
-echo "real CSV target: $OUT_DIR/results/real.csv"
-if [ "$plot_succeeded" = "1" ] && [ -f "$OUT_DIR/figures/real.png" ]; then
-    echo "real figure target: $OUT_DIR/figures/real.{eps,pdf,png}"
+echo "real CSV target: $CSV_DIR/real.csv"
+if [ "$plot_succeeded" = "1" ] && [ -f "$FIG_DIR/real.png" ]; then
+    echo "real figure target: $FIG_DIR/real.png"
 elif [ "$plot_succeeded" = "1" ]; then
     echo "real figure not generated (no complete single/stress/p3os triplet)"
 else
     echo "real outputs incomplete: parsing/plotting failed"
 fi
+echo "Artifact output: $OUT_DIR"
 ae_finish
 exit "$failed"

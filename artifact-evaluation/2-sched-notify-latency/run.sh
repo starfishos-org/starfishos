@@ -3,8 +3,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/2-sched-notify-latency"
-OUT_DIR="${OUT_DIR:-$AE_DIR}"
+TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
 SESSION="${SESSION:-${USER}-sched-notify-ae}"
 NUM_MACHINES=2
 NRUNS="${NRUNS:-3}"
@@ -17,7 +20,8 @@ KEEP_QEMU="${KEEP_QEMU:-0}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
 COMMAND="${COMMAND:-sched_notify_microbench.bin $SAMPLES $LOCAL_CPU $REMOTE_CPU}"
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
+echo "[AE] Output directory: $OUT_DIR"
 CONFIG_BACKUP="$(mktemp)"
 cp "$PROJECT_CONFIG" "$CONFIG_BACKUP"
 
@@ -162,7 +166,7 @@ for run in $(seq 1 "$NRUNS"); do
 done
 
 echo "=== Parsing samples and drawing figure ==="
-python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR"
 echo "Artifact output: $OUT_DIR"
 
 if [ -x "$AE_DIR/run_linux.sh" ]; then

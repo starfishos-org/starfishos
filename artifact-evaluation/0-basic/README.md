@@ -1,48 +1,61 @@
 # Basic platform measurements
 
-This directory contains low-level measurements used to separate platform and
-virtualization costs from higher-level ChCore paths.
+Low-level measurements that separate platform cost from higher-level ChCore
+paths. Not a numbered paper figure.
 
-## ivshmem MSI delivery latency
-
-The source kernel timestamps immediately before writing the ivshmem doorbell.
-The target MSI handler writes a shared completion sequence before message
-parsing or scheduler work, and the source stops timing when it observes that
-sequence. Thus the result excludes migration, notification, remote scheduling,
-and return to user mode.
-
-Use this number as the transport baseline for
-`2-sched-notify-latency`: its cross-machine results additionally include shared
-queue handling, destination scheduling, and return to user mode. Neither test
-prints synchronously from the measured MSI wake-up path.
+## Run
 
 ```bash
 ./artifact-evaluation/prepare.sh
+./artifact-evaluation/0-basic/run.sh
+```
+
+MSI only:
+
+```bash
 ./artifact-evaluation/0-basic/run_msi.sh
 ```
 
-The default is 100 deliveries from machine 0 to machine 1 local CPU 4. Override
-it with `SAMPLES`, `TARGET_MACHINE`, `TARGET_CPU`, or `NRUNS`. The runner builds
-with `quick-build.sh` by default; use `SKIP_BUILD=1` only for a matching image.
-Raw logs go to `msi-logs/`; parsed results are `msi_samples.csv` and
-`msi_summary.csv` in this directory by default.
+## Outputs
 
-## Intel MLC bandwidth (paper Table 1 / host Linux)
+Each run creates `artifact-evaluation/0-basic/out/<timestamp>/`:
 
-Host-side DRAM/CXL bandwidth for the evaluation setup table. One-click
-`run_all.py` always invokes this after MSI when running the `basic` experiment.
+| Directory | Contents |
+| --- | --- |
+| `logs/runN/` | MSI: `machine0.log`, `machine1.log` per repetition |
+| `logs/` | MLC: `mlc_bandwidth_matrix.log`, `mlc_peak_bandwidth.log` |
+| `csv/` | `msi_samples.csv`, `msi_summary.csv` |
 
-The wrapper looks for `mlc` on `PATH`, or uses `MLC_BIN` if set:
+## Re-plot MSI
 
 ```bash
-MLC_BIN=/path/to/mlc ./artifact-evaluation/0-basic/run_mlc.sh
-# or via one-click:
-python3 artifact-evaluation/run_all.py --experiments-only basic
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 0
 ```
 
-It runs both `--bandwidth_matrix` and `--peak_injection_bandwidth`. Set
-`MODE=matrix` or `MODE=peak` to run one mode, and `OUT_DIR` to change the
-output directory. If MLC is missing, the script skips by default
-(`ALLOW_MLC_SKIP=1`); set `ALLOW_MLC_SKIP=0` to fail instead. `-e` is used so
-MLC does not attempt to modify hardware prefetcher state. One-click reports
-`OK[MLC-OK]`, `OK[MLC-SKIPPED]`, or `FAILED(...MLC-FAILED...)` in the status.
+Or point `parse_msi.py` at a specific run:
+
+```bash
+python3 artifact-evaluation/0-basic/parse_msi.py \
+  --log-dir artifact-evaluation/0-basic/out/<timestamp>/logs \
+  --csv-dir artifact-evaluation/0-basic/out/<timestamp>/csv
+```
+
+## Intel MLC bandwidth (paper Table 1)
+
+Host-side DRAM/CXL bandwidth for the evaluation setup table.
+
+```bash
+./artifact-evaluation/0-basic/run_mlc.sh
+# or: python3 artifact-evaluation/run_all.py --run-subset-of-tests 0
+```
+
+Set `MLC_BIN` if `mlc` is not on `PATH`. Missing MLC is skipped by default
+(`ALLOW_MLC_SKIP=1`).
+
+## Env knobs
+
+MSI: `SAMPLES`, `TARGET_MACHINE`, `TARGET_CPU`, `NRUNS`, `SKIP_BUILD`, `OUT_DIR`,
+`LOG_DIR`, `CSV_DIR`, `TS`.
+
+MLC: `MODE` (`matrix`, `peak`, `all`), `MLC_BIN`, `ALLOW_MLC_SKIP`, `LOG_DIR`,
+`OUT_DIR`.

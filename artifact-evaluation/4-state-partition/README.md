@@ -1,89 +1,61 @@
 # State partitioning (paper Figure 13)
 
-Reproduces **Figure 13: Performance across state-partition choices** — six
-applications on a **2-machine** cluster under four state-partition
-configurations, normalized to the *Private* (all-DRAM, ideal) setup.
+Six applications on a two-machine cluster under four state-partition
+configurations, normalized to the Private (all-DRAM) baseline.
 
 ## Run
 
 ```bash
-./artifact-evaluation/prepare.sh                  # once, global
+./artifact-evaluation/prepare.sh
 ./artifact-evaluation/4-state-partition/run.sh
 ```
 
-Runtime: ~2–3 hours with defaults (4 configs × 1 build each × 6 benches ×
-one 2-machine QEMU cluster boot per bench).
+Runtime: ~2–3 hours with defaults.
 
 ## Configurations
 
-All five per-type placement modes (`THREADCTX/PGTABLE/STACK/OBJECT/PAGE`)
-stay `CXL` in every config except `All_DRAM`:
-
 | Config (paper label) | `DSM_MALLOC_MODE` | `DSM_USER_MALLOC_MODE` |
-|---|---|---|
+| --- | --- | --- |
 | All_CXL (*Share*) | CXL | DEFAULT_CXL |
 | Kernel_DRAM_User_CXL (*K-mix/U-share*) | MIXED_DEFAULT_DRAM | DEFAULT_CXL |
 | Kernel_Page_CXL_Other_DRAM (*K-mix/U-mix*) | MIXED_DEFAULT_DRAM | DEFAULT_DRAM |
 | All_DRAM (*Private*) | DRAM | DEFAULT_DRAM |
 
-## Benchmarks
+## Outputs
 
-Each bench is launched via its ramdisk script (`source run_<bench>.sh`):
-LevelDB (`fillbatch`, MB/s ↑), DBx1000 (`thp=` ↑), and four Phoenix apps —
-PCA, Matrix Multiply, Linear Regression, Word Count (`library:` exec time ↓).
-Throughput benches normalize as `v / v_private`; time benches as
-`t_private / t`.
+Each run creates `artifact-evaluation/4-state-partition/out/<timestamp>/`:
 
-## Outputs (under `out/<timestamp>/`)
+| Directory | Contents |
+| --- | --- |
+| `logs/` | `<bench>_<config>.log` per run |
+| `csv/` | `state_partition.csv`, `normalized.csv` |
+| `figures/` | `state_partition.png` — paper Figure 13 |
 
-- `logs/<bench>_<config>.log` — machine-0 log per run
-- `results/state_partition.csv` — raw metrics (same layout as the paper's
-  `eval/state_partition.csv`: one row per config, one column per bench)
-- `results/normalized.csv` — normalized to Private
-- `figures/state_partition.pdf` / `.eps`
-
-## Re-parse an existing run
+## Re-plot only
 
 ```bash
-python3 artifact-evaluation/4-state-partition/plot.py \
-  --log-dir artifact-evaluation/4-state-partition/out/<ts>/logs \
-  --out-dir artifact-evaluation/4-state-partition/out/<ts>
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 4
 ```
 
-To verify the plotter directly with the paper-format CSV:
+Or point `plot.py` at a specific run:
 
 ```bash
 python3 artifact-evaluation/4-state-partition/plot.py \
-  --csv /mnt/disk1/yjs/p3os-paper/eval/state_partition.csv \
-  --out-dir /tmp/state-partition-check
+  --log-dir artifact-evaluation/4-state-partition/out/<timestamp>/logs \
+  --csv-dir artifact-evaluation/4-state-partition/out/<timestamp>/csv \
+  --fig-dir artifact-evaluation/4-state-partition/out/<timestamp>/figures
+```
+
+Paper CSV validation:
+
+```bash
+python3 artifact-evaluation/4-state-partition/plot.py \
+  --csv /path/to/paper/state_partition.csv \
+  --csv-dir /tmp/state-partition-check/csv \
+  --fig-dir /tmp/state-partition-check/figures
 ```
 
 ## Env knobs
 
-`BENCHS`, `CONFIGS`, `NUM_MACHINES` (default 2), `TIMEOUT` (default 1200 s),
-`OUT_DIR`.
-
-The default run collects the full 6 × 4 matrix and requires every point before
-drawing the paper figure. `BENCHS` and `CONFIGS` may select a whitespace-
-separated subset; their Cartesian product remains mandatory, while unrelated
-points are allowed to be absent. Unknown, duplicate, multiline, and empty
-selectors are rejected before output or build state is changed. A subset that
-does not include an `All_DRAM` value cannot be normalized: the plotter still
-writes the raw and normalized CSV files, emits a warning, and skips the figure
-instead of inventing baseline data. Include `All_DRAM` when a subset figure is
-desired.
-
-DBx1000 is rebuilt with
-`NUM_MACHINES` total warehouses (one per machine at the default two-machine
-scale), and that total remains fixed for the single-machine All-DRAM baseline
-so the working set is comparable. Override it with `DBX_NUM_WH`, which must be
-a positive multiple of `NUM_MACHINES`; `DBX_WARMUP` and `DBX_MAX_TXN` control
-the reduced run length, and `DBX_TIMEOUT` (default 3600 s) bounds its silent
-TPC-C initialization and execution phases. Fatal guest signatures and dead
-tmux windows are still detected on every active machine during that interval;
-the main `TIMEOUT` similarly bounds LevelDB and Phoenix workload phases that
-may be serial-console silent for more than 120 seconds. On failure, all
-per-machine serial logs are archived before teardown. Missing points are fatal
-by default; direct plotter users may combine repeatable
-`--require-point BENCH/CONFIG` arguments with `--allow-partial` to require the
-requested measurements while ignoring unrelated points.
+`BENCHS`, `CONFIGS`, `NUM_MACHINES` (default 2), `TIMEOUT`, `OUT_DIR`, `LOG_DIR`,
+`CSV_DIR`, `FIG_DIR`, `TS`, `DBX_NUM_WH`, `DBX_WARMUP`, `DBX_MAX_TXN`, `DBX_TIMEOUT`.

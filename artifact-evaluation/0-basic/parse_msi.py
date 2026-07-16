@@ -21,8 +21,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Parse the one-way ivshmem MSI delivery benchmark"
     )
-    parser.add_argument("--log-dir", type=Path, default=DEFAULT_OUT / "msi-logs")
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--log-dir", type=Path, default=SCRIPT_DIR / "logs")
+    parser.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
     args = parser.parse_args()
 
     rows = []
@@ -40,8 +40,8 @@ def main():
     if not rows:
         parser.error(f"no MSI samples found under {args.log_dir}")
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    with (args.out_dir / "msi_samples.csv").open("w", newline="") as output:
+    args.csv_dir.mkdir(parents=True, exist_ok=True)
+    with (args.csv_dir / "msi_samples.csv").open("w", newline="") as output:
         writer = csv.writer(output)
         writer.writerow(("run", "sample", "latency_ns"))
         writer.writerows(rows)
@@ -57,7 +57,7 @@ def main():
         "p99_ns": nearest_rank(values, 99),
         "max_ns": max(values),
     }
-    with (args.out_dir / "msi_summary.csv").open("w", newline="") as output:
+    with (args.csv_dir / "msi_summary.csv").open("w", newline="") as output:
         writer = csv.DictWriter(output, fieldnames=summary.keys())
         writer.writeheader()
         writer.writerow(summary)

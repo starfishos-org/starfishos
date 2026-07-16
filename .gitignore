@@ -71,4 +71,8 @@ logs/
 # Large AE datasets (download from HF/Zenodo, do not commit)
 /datasets/
 /.ae-deps/
-artifact-evaluation/FROM-SCRATCH-ISSUES.md
+# Artifact evaluation outputs (created by run.sh / plot.py)
+artifact-evaluation/*/out/
+artifact-evaluation/5-auto-scale/linux-build/
+artifact-evaluation/2-sched-notify-latency/linux-results/
+

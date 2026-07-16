@@ -11,10 +11,10 @@ Extracted per ratio:
   DRAM MB    sum over machines i of machine i's own "Machine i" local pages
              (each machine's last [VMSPACE MEMORY] block)
 
-Outputs (under --out-dir):
-  results/cross_warehouse.csv
-  results/footprint_per_machine.csv
-  figures/dbx1000-cross-warehouse.pdf/.eps  (thp + footprint vs ratio)
+Outputs:
+  csv/cross_warehouse.csv
+  csv/footprint_per_machine.csv
+  figures/dbx1000-cross-warehouse.png
 """
 from __future__ import annotations
 
@@ -160,16 +160,16 @@ def plot(rows, fig_dir: Path):
     ax2.set_title("(b) Memory footprint")
 
     out = fig_dir / "dbx1000-cross-warehouse"
-    fig.savefig(out.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
-    fig.savefig(out.with_suffix(".eps"), format="eps", bbox_inches="tight")
+    fig.savefig(out.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight")
     plt.close(fig)
-    print(f"Wrote {out}.pdf and .eps")
+    print(f"Wrote {out}.png")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log-dir", required=True, type=Path)
-    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
+    ap.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
     ap.add_argument("--num-machines", type=int, default=8)
     ap.add_argument("--ratios", nargs="+", type=int, default=[15, 50, 80])
     args = ap.parse_args()
@@ -177,8 +177,8 @@ def main():
     rows, per_machine = collect(args.log_dir, args.ratios, args.num_machines)
     for r in rows:
         print(f"ratio={r['ratio']}%: thp={r['thp']} cxl={r['cxl_mb']:.0f}MB dram={r['dram_mb']:.0f}MB")
-    write_csvs(rows, per_machine, args.out_dir / "results")
-    plot(rows, args.out_dir / "figures")
+    write_csvs(rows, per_machine, args.csv_dir)
+    plot(rows, args.fig_dir)
 
 
 if __name__ == "__main__":

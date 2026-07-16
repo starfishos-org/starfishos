@@ -1,6 +1,2 @@
-logs/
+out/
 __pycache__/
-*.log
-*.pdf
-*.png
-*.csv

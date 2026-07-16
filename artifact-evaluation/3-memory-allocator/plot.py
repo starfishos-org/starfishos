@@ -265,18 +265,8 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
     paper_legend(axes[2], ["CXL-Buddy", "CXL-LLFree"], loc="lower center", bbox=(0.5, 0))
 
     figure.savefig(
-        out_dir / "fig00-allocator-all.png",
+        out_dir / "allocator-all.png",
         dpi=240,
-        bbox_inches="tight",
-    )
-    figure.savefig(
-        out_dir / "fig00-allocator-all.pdf",
-        format="pdf",
-        bbox_inches="tight",
-    )
-    figure.savefig(
-        out_dir / "fig00-allocator-all.eps",
-        format="eps",
         bbox_inches="tight",
     )
     plt.close(figure)
@@ -299,16 +289,16 @@ def main():
     parser.add_argument(
         "--csv",
         type=Path,
-        default=SCRIPT_DIR / "allocator_results.csv",
+        default=SCRIPT_DIR / "csv" / "allocator_results.csv",
         help="allocator result CSV (default: %(default)s)",
     )
     parser.add_argument("--allow-partial", action="store_true",
                         help="debug only: draw available allocator series")
     parser.add_argument(
-        "--out-dir",
+        "--fig-dir",
         type=Path,
-        default=SCRIPT_DIR,
-        help="output directory (default: %(default)s)",
+        default=SCRIPT_DIR / "figures",
+        help="figure output directory (default: %(default)s)",
     )
     parser.add_argument(
         "--user-csv",
@@ -316,7 +306,7 @@ def main():
         help="optional user-malloc CSV to append (for paper-data verification)",
     )
     args = parser.parse_args()
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    args.fig_dir.mkdir(parents=True, exist_ok=True)
 
     rows = load_rows(args.csv)
     if args.user_csv:
@@ -324,8 +314,8 @@ def main():
     buckets = make_buckets(rows)
     if not args.allow_partial:
         require_paper_series(rows, buckets)
-    draw_paper_figure(rows, buckets, args.out_dir)
-    print(f"Figure written to {args.out_dir / 'fig00-allocator-all.png'} (+ .pdf/.eps)")
+    draw_paper_figure(rows, buckets, args.fig_dir)
+    print(f"Figure written to {args.fig_dir / 'allocator-all.png'}")
 
 
 if __name__ == "__main__":

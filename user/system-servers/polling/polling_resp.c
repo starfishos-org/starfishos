@@ -133,7 +133,7 @@ void handle_polling_kernel_flush_tlb(struct dq_node *node)
 }
 
 /* Set to 1 to dump server-side timing data in polling_print_debug_info() */
-#define ENABLE_SRV_TIMING 0
+#define ENABLE_SRV_TIMING 1
 
 void handle_polling_print_debug_info(struct dq_node *node)
 {

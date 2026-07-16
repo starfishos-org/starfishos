@@ -15,7 +15,7 @@
  * - ENABLE_BREAKDOWN: Output per-component breakdown [BREAKDOWN_BEGIN/END]
  *   (alloc, enqueue, wait times). Set to 1 for detailed, 0 for CDF only.
  */
-#define ENABLE_BREAKDOWN 0
+#define ENABLE_BREAKDOWN 1
 
 #define WRITE_SIZE 4096  /* 4KiB file */
 #define NUM_ITERS  1000

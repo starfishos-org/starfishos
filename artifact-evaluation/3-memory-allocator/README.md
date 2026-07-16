@@ -1,80 +1,53 @@
-# Memory allocator evaluation
+# Memory allocator (paper Figure 12)
 
-This artifact evaluates the paper's CXL memory allocator configurations:
+Evaluates Buddy, LLFree, and LLFree+CR allocator configurations on DRAM and CXL.
 
-- **Buddy:** original lock-based CXL buddy allocator, crash recovery off
-- **LLFree:** lock-free CXL page allocator, crash recovery off
-- **LLFree+CR:** lock-free CXL page allocator with slab crash recovery on
-
-For each configuration it builds a fresh image and runs:
-
-- kernel `kmalloc` throughput on DRAM and CXL;
-- 4 KiB and 2 MiB `get_pages` / `free_pages` throughput;
-- mixed random 4 KiB + 2 MiB allocation/free throughput;
-- user-space malloc throughput over a thread-count sweep.
-
-The original `kernel/dsm_config.cmake` is restored automatically on normal
-exit, error, or interruption.
-
-The AE entry point itself sets `DSM_CXL_LF_BUDDY` and
-`SLAB_CRASH_RECOVERY`, enables `CHCORE_KERNEL_TEST` and
-`CHCORE_BUILD_USER_MALLOC_TESTS`, performs a fresh build for each row of the
-configuration matrix, and only then launches that configuration's QEMU runs.
-It deliberately uses `chbuild clean` plus `chbuild build`; `quick-build.sh` is
-not used because its `defconfig` step would reset the AE-selected options.
-
-## Run the complete evaluation
+## Run
 
 ```bash
 ./artifact-evaluation/prepare.sh
 ./artifact-evaluation/3-memory-allocator/run.sh
 ```
 
-The full sweep is intentionally long. Useful overrides are:
-
-```bash
-NRUNS=3 ./artifact-evaluation/3-memory-allocator/run.sh
-USER_BENCH_THREADS="1 2 4 8 16" ./artifact-evaluation/3-memory-allocator/run.sh
-CPU_NUM=96 ./artifact-evaluation/3-memory-allocator/run.sh
-CLEAN_RESULTS=0 ./artifact-evaluation/3-memory-allocator/run.sh
-```
-
-`run.sh` runs the benchmarks, parses the raw logs into
-`allocator_results.csv`, and then invokes `plot.py`. Unlike the other two
-evaluations, allocator log parsing currently lives in `run.sh`; `plot.py` only
-loads the resulting CSV and draws the figure.
+Useful overrides: `NRUNS`, `USER_BENCH_THREADS`, `CPU_NUM`.
 
 ## Outputs
 
-- `logs/`: one fixed raw-log directory (no timestamp/checkpoint directories)
-- `allocator_results.csv`: all measured throughput rows
-- `fig00-allocator-all.png`: p3os-paper-style Slab/Buddy/rpmalloc figure
+Each run creates `artifact-evaluation/3-memory-allocator/out/<timestamp>/`:
 
-The default is one run per configuration. This produces 27 useful raw logs:
-one kernel log plus eight user-thread logs for each of the three allocator
-configurations. Set `NRUNS=3` only when error bars across repeated runs are
-needed. Redundant `.match` checkpoint files are not generated.
+| Directory | Contents |
+| --- | --- |
+| `logs/` | Kernel and user benchmark raw logs |
+| `csv/` | `allocator_results.csv` |
+| `figures/` | `allocator-all.png` — paper Figure 12 |
 
-## Regenerate the figure only
+`run.sh` parses logs into `csv/allocator_results.csv`; `plot.py` draws the
+paper figure.
 
-To redraw the figure from the existing CSV without rebuilding or booting QEMU:
+## Re-plot only
 
 ```bash
-python3 artifact-evaluation/3-memory-allocator/plot.py
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
 ```
 
-By default, the script reads `allocator_results.csv` and writes the figure in
-this directory.  `--csv` and `--out-dir` can override those locations.
-
-The paper's archived aggregate CSVs can also be used for plot-only validation:
+Or point `plot.py` at a specific run:
 
 ```bash
 python3 artifact-evaluation/3-memory-allocator/plot.py \
-  --csv /mnt/disk1/yjs/p3os-paper/eval/malloc/allocator.csv \
-  --user-csv /mnt/disk1/yjs/p3os-paper/eval/malloc/user-malloc.csv \
-  --out-dir /tmp/allocator-check
+  --csv artifact-evaluation/3-memory-allocator/out/<timestamp>/csv/allocator_results.csv \
+  --fig-dir artifact-evaluation/3-memory-allocator/out/<timestamp>/figures
 ```
 
-The paper plot validates every required Slab/Buddy/rpmalloc series at all
-default thread counts before drawing. `--allow-partial` is only for debugging
-an interrupted sweep.
+Paper CSV validation example:
+
+```bash
+python3 artifact-evaluation/3-memory-allocator/plot.py \
+  --csv /path/to/paper/allocator.csv \
+  --user-csv /path/to/paper/user-malloc.csv \
+  --fig-dir /tmp/allocator-check/figures
+```
+
+## Env knobs
+
+`NRUNS`, `RUN_OFFSET`, `USER_BENCH_THREADS`, `CPU_NUM`, `OUT_DIR`, `LOG_DIR`,
+`CSV_DIR`, `FIG_DIR`, `TS`.

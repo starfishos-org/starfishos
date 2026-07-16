@@ -4,11 +4,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$REPO_ROOT/artifact-evaluation/common.sh"
 AE_DIR="$REPO_ROOT/artifact-evaluation/1-ipc-cdf"
-# Keep the latest artifact in one predictable location.  Each invocation
-# truncates these two logs before booting, rather than accumulating per-run
-# copies under out/<timestamp>.
-OUT_DIR="${OUT_DIR:-$AE_DIR}"
-LOG_DIR="${LOG_DIR:-$AE_DIR/logs}"
+TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
+LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
 SESSION="${SESSION:-${USER}-ipc-ae}"
 NUM_MACHINES=2
 TIMEOUT="${TIMEOUT:-600}"
@@ -21,7 +21,8 @@ CLIENT_SRC="$REPO_ROOT/user/system-servers/polling/polling_client_test.c"
 SERVER_SRC="$REPO_ROOT/user/system-servers/polling/polling_server.c"
 RESP_SRC="$REPO_ROOT/user/system-servers/polling/polling_resp.c"
 
-mkdir -p "$LOG_DIR" "$OUT_DIR"
+mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
+echo "[AE] Output directory: $OUT_DIR"
 
 TMP_DIR="$(mktemp -d)"
 cp "$CLIENT_SRC" "$TMP_DIR/polling_client_test.c"
@@ -298,7 +299,7 @@ run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" ||
 run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
 
 echo "=== Parsing logs and generating figures ==="
-python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
+python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR"
 
 echo "Artifact output: $OUT_DIR"
 if [ "$failed" -ne 0 ]; then

@@ -24,15 +24,14 @@
 # Env overrides:
 #   BENCHS="leveldb dbx1000 pca matrix_multiply linear_regression word_count"
 #   CONFIGS="All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM"
-#   NUM_MACHINES=2   TIMEOUT=1200   OUT_DIR=out/<timestamp>
+#   NUM_MACHINES=2   TIMEOUT=1200
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
-TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
-OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
-AE_LOG_DIR="$OUT_DIR/logs"
+ae_init_output_dirs "$AE_DIR"
+AE_LOG_DIR="$LOG_DIR"
 NUM_MACHINES="${NUM_MACHINES:-2}"
 TIMEOUT="${TIMEOUT:-1200}"
 # The default is the complete 6 x 4 matrix used by the paper figure.  The
@@ -167,7 +166,7 @@ fi
 
 ae_acquire_run_lock "state-partition" || exit 1
 
-mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
+mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
@@ -242,7 +241,7 @@ for cfg in $CONFIGS; do
     for bench in $BENCHS; do
         pattern="$(bench_done_pattern "$bench")"
         logfile="$AE_LOG_DIR/${bench}_${cfg}.log"
-        # OUT_DIR may intentionally be reused for a targeted retry.  Remove
+        # A targeted retry may reuse the same log directory.  Remove
         # this point before boot so a failed retry cannot be parsed as the
         # prior run's successful measurement.
         rm -f -- "$logfile"
@@ -309,7 +308,7 @@ ae_restore_build_configs
 
 echo ""
 echo "=== Parsing logs and generating figure ==="
-plot_args=(--log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR")
+plot_args=(--log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR")
 for bench in $BENCHS; do
     for cfg in $CONFIGS; do
         plot_args+=(--require-point "$bench/$cfg")

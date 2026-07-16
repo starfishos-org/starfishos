@@ -37,13 +37,13 @@ def preferred_ms(row):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--detail", type=Path, default=AE_DIR / "recovery_detail.csv")
-    parser.add_argument("--throughput", type=Path, default=AE_DIR / "throughput.csv")
-    parser.add_argument("--out-dir", type=Path, default=AE_DIR)
+    parser.add_argument("--detail", type=Path, default=AE_DIR / "csv" / "recovery_detail.csv")
+    parser.add_argument("--throughput", type=Path, default=AE_DIR / "csv" / "throughput.csv")
+    parser.add_argument("--fig-dir", type=Path, default=AE_DIR / "figures")
     args = parser.parse_args()
     detail = load_csv(args.detail)
     points = load_csv(args.throughput)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    args.fig_dir.mkdir(parents=True, exist_ok=True)
 
     required_columns = {"event", "elapsed_ms", "workload", "ops_per_sec"}
     if not points or not required_columns.issubset(points[0]):
@@ -202,14 +202,7 @@ def main():
     )
 
     fig.tight_layout()
-    for stem in ("recovery-performance-single", "recovery-performance"):
-        fig.savefig(args.out_dir / f"{stem}.png", dpi=240, bbox_inches="tight")
-        fig.savefig(args.out_dir / f"{stem}.pdf", format="pdf", bbox_inches="tight")
-    fig.savefig(
-        args.out_dir / "recovery-performance-single.eps",
-        format="eps",
-        bbox_inches="tight",
-    )
+    fig.savefig(args.fig_dir / "recovery-performance-single.png", dpi=240, bbox_inches="tight")
     plt.close(fig)
 
 

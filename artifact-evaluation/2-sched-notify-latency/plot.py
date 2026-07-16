@@ -37,6 +37,10 @@ LEGACY_METRICS = ("sched", "notify")
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
+def save_paper_figure(fig_dir: Path, stem: str, fig, *, dpi: int = 180) -> None:
+    fig.savefig((fig_dir / stem).with_suffix(".png"), dpi=dpi, bbox_inches="tight")
+
+
 def run_number(path: Path) -> int:
     match = re.search(r"run(\d+)", str(path))
     return int(match.group(1)) if match else 1
@@ -66,8 +70,10 @@ def mean_std(values):
     return mean, math.sqrt(variance)
 
 
-def write_outputs(samples, out_dir: Path):
-    with (out_dir / "samples.csv").open("w", newline="") as output:
+def write_outputs(samples, csv_dir: Path, fig_dir: Path):
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    with (csv_dir / "samples.csv").open("w", newline="") as output:
         writer = csv.DictWriter(
             output, fieldnames=samples[0].keys(), lineterminator="\n"
         )
@@ -106,7 +112,7 @@ def write_outputs(samples, out_dir: Path):
             }
         )
 
-    with (out_dir / "summary.csv").open("w", newline="") as output:
+    with (csv_dir / "summary.csv").open("w", newline="") as output:
         writer = csv.DictWriter(
             output, fieldnames=summary[0].keys(), lineterminator="\n"
         )
@@ -130,7 +136,7 @@ def write_outputs(samples, out_dir: Path):
     axis.set_title("Scheduling and notification latency")
     axis.grid(axis="y", alpha=0.3)
     figure.tight_layout()
-    figure.savefig(out_dir / "sched_notify_latency.png", dpi=180)
+    save_paper_figure(fig_dir, "sched_notify_latency", figure)
     plt.close(figure)
 
     for row in summary:
@@ -150,18 +156,23 @@ def main():
         help="benchmark log directory (default: %(default)s)",
     )
     parser.add_argument(
-        "--out-dir",
+        "--csv-dir",
         type=Path,
-        default=SCRIPT_DIR,
-        help="output directory (default: %(default)s)",
+        default=SCRIPT_DIR / "csv",
+        help="CSV output directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--fig-dir",
+        type=Path,
+        default=SCRIPT_DIR / "figures",
+        help="figure output directory (default: %(default)s)",
     )
     args = parser.parse_args()
-    args.out_dir.mkdir(parents=True, exist_ok=True)
 
     samples = parse_logs(args.log_dir)
     if not samples:
         raise SystemExit(f"no microbenchmark samples found under {args.log_dir}")
-    write_outputs(samples, args.out_dir)
+    write_outputs(samples, args.csv_dir, args.fig_dir)
 
 
 if __name__ == "__main__":

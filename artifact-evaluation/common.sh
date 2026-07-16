@@ -14,6 +14,7 @@
 #   ae_stop_tmux_and_reap [sess] - kill one tmux session + reap stray QEMU
 #   ae_ensure_clean_tmux         - kill all AE/QEMU tmux sessions + stray QEMU
 #   ae_ensure_cxlfs_device       - recreate CXLFS when ramdisk build changed
+#   ae_init_output_dirs DIR      - mkdir out/<timestamp>/{logs,csv,figures}
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
 #   ae_save_build_configs / ae_restore_build_configs
@@ -110,6 +111,21 @@ ae_doorbell_running() {
 # no longer matches user/build/ramdisk.cpio.
 ae_ensure_cxlfs_device() {
     "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure || return 1
+}
+
+# Standard per-experiment artifact layout (one directory per run):
+#   <experiment>/out/<timestamp>/logs/     runtime QEMU and benchmark logs
+#   <experiment>/out/<timestamp>/csv/      parsed tables and intermediate data
+#   <experiment>/out/<timestamp>/figures/  plots (png)
+ae_init_output_dirs() {
+    local ae_dir="$1"
+    TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
+    OUT_DIR="${OUT_DIR:-$ae_dir/out/$TS}"
+    LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+    CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+    FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
+    mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
+    echo "[AE] Output directory: $OUT_DIR"
 }
 
 ae_ensure_doorbell() {

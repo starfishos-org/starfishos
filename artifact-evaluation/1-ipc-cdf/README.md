@@ -1,84 +1,51 @@
-# IPC CDF artifact script
+# IPC CDF (paper Figure 11)
 
-This directory contains the end-to-end artifact script for the first IPC test
-used by the paper evaluation: local direct IPC vs cross-machine polling IPC.
+End-to-end artifact for local direct IPC vs cross-machine polling IPC.
 
-## Run the complete evaluation
-
-Run from the repository root:
+## Run
 
 ```bash
-./artifact-evaluation/prepare.sh
+./artifact-evaluation/prepare.sh          # once, global
 ./artifact-evaluation/1-ipc-cdf/run.sh
 ```
 
-`artifact-evaluation/prepare.sh` is global. Run it before the individual
-artifact tests; repeated default runs reuse existing large backing files. It
-prepares:
+`run.sh` enables IPC instrumentation, rebuilds, boots two QEMU machines, runs
+six client modes (`direct_empty`, `direct`, `cross_empty`, `cross`,
+`cross_empty_4t`, `cross_4t`), then calls `plot.py`.
 
-- CXL shared memory file
-- 8 NUMA backing files
-- hostfs shared memory file and metadata
-- CXL/NUMA magic headers
-- ivshmem doorbell server
+## Outputs
 
-`run.sh` performs the complete workflow:
+Each run creates `artifact-evaluation/1-ipc-cdf/out/<timestamp>/`:
 
-1. Checks that the global AE environment has been prepared.
-2. Resets DSM metadata for this run.
-3. Temporarily enables client breakdown and server timing instrumentation.
-4. Rebuilds ChCore so the temporary IPC instrumentation is present in the
-   image.
-5. Boots two QEMU machines through the prepared DSM/ivshmem setup.
-6. Runs:
-   - `direct_empty`
-   - `direct`
-   - `cross_empty`
-   - `cross`
-   - `cross_empty_4t`
-   - `cross_4t`
-7. Invokes `plot.py`, which parses the QEMU logs and generates CSV files and
-   figures.
-8. Replaces the previous artifact under `artifact-evaluation/1-ipc-cdf/`.
+| Directory | Contents |
+| --- | --- |
+| `logs/` | `machine0.log`, `machine1.log` |
+| `csv/` | `summary.csv`, `cdf.csv`, `breakdown.csv`, `server_timing.csv` |
+| `figures/` | Paper Figure 11 PNG files |
 
-Useful outputs:
+Paper figure files in `figures/`:
 
-- `logs/machine0.log`, `logs/machine1.log`: the only retained raw logs (the
-  next run replaces them).
-- `summary.csv`: p50/p75/p90/p99/max latency summary in us.
-- `cdf.csv`: per-sample CDF points in us.
-- `breakdown.csv`: median client-side breakdown in us.
-- `server_timing.csv`: median server dequeue/handle timing in us.
-- `local_ipc_cdf.pdf`: paper CDF figure.
-- `breakdown_combined.pdf`: paper Read 4KiB median breakdown figure.
-- `ipc_cdf.png`, `ipc_read_breakdown.png`: PNG previews of the same figures.
+- `ipc_cdf.png` — IPC latency CDF
+- `ipc_read_breakdown.png` — Read 4 KiB median breakdown
 
-## Regenerate results and figures only
-
-To parse existing logs and redraw the figures without rebuilding or booting
-QEMU:
+## Re-plot only
 
 ```bash
-python3 artifact-evaluation/1-ipc-cdf/plot.py
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 1
 ```
 
-With no arguments, the script reads `logs/` and writes CSVs and PDFs directly
-under `artifact-evaluation/1-ipc-cdf/`. To select another log location
-explicitly:
+Or point `plot.py` at a specific run:
 
 ```bash
 python3 artifact-evaluation/1-ipc-cdf/plot.py \
-  --log-dir artifact-evaluation/1-ipc-cdf/logs \
-  --out-dir artifact-evaluation/1-ipc-cdf
+  --log-dir artifact-evaluation/1-ipc-cdf/out/<timestamp>/logs \
+  --csv-dir artifact-evaluation/1-ipc-cdf/out/<timestamp>/csv \
+  --fig-dir artifact-evaluation/1-ipc-cdf/out/<timestamp>/figures
 ```
 
-In this evaluation, `plot.py` does include parsing: it reads both raw machine
-logs, regenerates the CSV files, and then redraws the PDFs.
+`--allow-partial` is for debugging interrupted runs only.
 
-The parser requires all six CDF modes plus the client/server breakdown records
-by default. `--allow-partial` is only for inspecting legacy logs that predate
-server timing instrumentation or an interrupted run.
+## Env knobs
 
-The runner builds by default. `SKIP_BUILD=1` should only be used when the
-existing image is known to contain the required IPC instrumentation and match
-the current source.
+`SKIP_BUILD`, `KEEP_QEMU`, `TIMEOUT`, `INPUT_TIMEOUT`, `OUT_DIR`, `LOG_DIR`,
+`CSV_DIR`, `FIG_DIR`, `TS`.

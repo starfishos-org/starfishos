@@ -1,149 +1,68 @@
-# 5 — Auto-scaling applications (paper Fig auto-scale)
+# Auto-scaling applications (paper Figure 14)
 
-Reproduces three figures, each throughput/runtime vs machine count (1–8):
+Three throughput/runtime vs machine-count curves (1–8 machines):
 
-- `auto-scale-matrix.eps` — Matrix-multiply MapReduce
-- `db1000.eps` — DBx1000 TPC-C
-- `gemini-chcore.eps` — GeminiGraph PageRank
-
-Each compares StarfishOS **Mixed** (`MIXED_DEFAULT_CXL`) and **CXL** (all-CXL)
-against external baselines.
-
-## How it works
-
-`run.sh` first sweeps both StarfishOS placements and then invokes
-`run_baselines.py` to collect every non-Starfish curve:
-
-| Baseline | Source (`test-on-linux/`) | Appears in |
-|---|---|---|
-| Ideal (Linux DRAM) — Matrix | `phoenix` | matrix (IDEAL) |
-| Ideal (Linux DRAM) — DBx1000 | `dbx1000` | db1000 (linux) |
-| Ideal (Linux DRAM) — Gemini | `GeminiGraph` | gemini (LINUX-DRAM) |
-| Distributed (local TCP) — Matrix | AE `matrix_tcp_mpi.c` | matrix (TCP) |
-| Distributed (Linux-MPI) — Gemini | `ggraph-distri` | gemini (DISTRIBUTED) |
-| Tigon (external DB) — DBx1000 | `../deps/tigon` submodule | db1000 (tigon) |
-
-The Matrix distributed runner forces MPI onto loopback `tcp,self`, so it measures the
-paper's local multi-process TCP path rather than MPI shared-memory transport.
-The Tigon runner uses the public
-[`starfishos-org/tigon`](https://github.com/starfishos-org/tigon) submodule at
-`artifact-evaluation/deps/tigon`, pinned to the portable SPR1 artifact commit.
-The actual commit,
-ancestry of the paper revision `16f8007fa15bc853397b04e0747efc4f8c21ef25`,
-and dirty status are recorded in `logs/tigon-source.txt`. Override the source
-with `TIGON_DIR=/path/to/tigon` when developing against another checkout.
-
-## Data-file formats (identical to `p3os-paper/eval/`)
-
-- matrix: lines `RESULT: N=<m> CONFIG=<MIXED|CXL|TCP|IDEAL> TIME=<us>`
-- db1000: CSV `module,machines,performance_mops` (modules `P3OS-mixed`,
-  `P3OS-all_cxl`, `tigon`, `linux`)
-- gemini: CSV `machines,MIXED_DEFAULT_CXL,CXL,DRAM,LINUX-DRAM,DISTRIBUTED`
-  (values `<seconds>s`)
+- Matrix-multiply MapReduce
+- DBx1000 TPC-C
+- GeminiGraph PageRank
 
 ## Run
 
 ```bash
-./artifact-evaluation/prepare.sh                 # once
+./artifact-evaluation/prepare.sh
 ./artifact-evaluation/5-auto-scale/run.sh
 ```
 
-Output: `out/<timestamp>/figures/{auto-scale-matrix,db1000,gemini-chcore}.{eps,pdf,png}`
-plus the paper's shared `auto-scale-legend.{eps,pdf}`.
+`run.sh` sweeps StarfishOS Mixed/CXL placements, collects Linux/MPI/Tigon
+baselines via `run_baselines.py`, then plots.
 
-Linux Gemini logs retain every raw timing and checksum record. The collector
-requires the complete warmup-plus-measurement set and appends an `AE_QUALITY`
-record. Numerically divergent or high-latency measured samples are additionally
-listed as `AE_WARNING` records but remain in the reported average. Detection is
-relative to the measured-sample median (relative tolerances `5e-5` for PageRank
-checksums and `5e-2` for high latency).
+## Outputs
 
-All Gemini series collected from raw logs must also contain complete
-`exec_time`/`pr_sum`/maximum-vertex records. Before a point enters a figure,
-the collector checks the fixed twitter-2010/50-iteration result against its
-known PageRank checksum and maximum vertex/value with a `1e-3` relative
-correctness corridor, plus finite-value and vertex-range checks. The StarfishOS
-runner waits for the final maximum-vertex line before archiving a guest log. A
-truncated or numerically divergent run is therefore rejected as an unparseable
-requested point instead of being plotted.
+Each run creates `artifact-evaluation/5-auto-scale/out/<timestamp>/`:
 
-Linux baseline build state is isolated under `out/<timestamp>/linux-build`.
-Phoenix and Gemini use out-of-source CMake trees. DBx1000 is built from a clean
-materialization of its current tracked and nonignored-untracked files, so local
-edits are honored while deleted files and ignored compiler caches stay deleted
-or excluded; its source checkout and existing build cache are never modified.
+| Directory | Contents |
+| --- | --- |
+| `logs/` | `<app>_<Mixed\|CXL>_N<n>.log`, baseline logs, `tigon-source.txt` |
+| `csv/` | `4000size.txt`, `db1000-p3os-tigon.csv`, `gemini-data.log` |
+| `figures/` | Paper Figure 14 PNG files |
 
-Env overrides: `APPS` (`matrix db1000 gemini`), `MACHINES` (`1 2 4 6 8`),
-`CONFIGS` (`Mixed CXL`), `TIMEOUT`, `OUT_DIR`, `RUN_BASELINES` (default `1`),
-`BASELINE_STAGES` (`linux,matrix-tcp,tigon`), `TIGON_DIR`, `TIGON_SETUP`.
-`TIGON_IMAGE_ATTEMPTS` controls transient image-build retries (default `3`).
-Scope-list ordering and surrounding whitespace do not affect completeness;
-unknown or duplicate values are rejected before the runner lock or any state
-change.
-Verbose image-builder output is connected directly to
-`logs/tigon-image-build-attempt<N>.log`; the controller prints only periodic
-status lines and never retries a build interrupted by `SIGINT`, `SIGTERM`, or
-`SIGHUP`.
+Paper figure files in `figures/`:
 
-Matrix finalization, DBx1000 table initialization, and GeminiGraph graph
-loading/processing can be serial-console silent for several minutes. Their
-workload waits therefore rely on `TIMEOUT` while continuing to scan every
-guest for fatal errors and tmux-pane loss; boot waits retain the normal
-serial-log stall detector.
+- `auto-scale-matrix.png`
+- `db1000.png`
+- `gemini-chcore.png`
+- `auto-scale-legend.png`
 
-For the pinned Tigon revision, VM startup temporarily applies
-`patches/tigon-vm-compat.patch` and restores the checkout exactly afterward.
-The patch copies sparse VM disks through atomic `.partial` files with
-`cp --sparse=always --reflink=auto`, uses `aio=threads`, namespaces TAP devices
-as `tigon-tap<N>` behind `tigon-br0`, and moves the default single-backend NUMA
-binding to `numactl`. A checkout that already contains the complete patch is
-used as-is; partially applied or conflicting VM-source edits fail before host
-state is changed by the VM-start stage. A root-owned cross-user host lock
-serializes the fixed-name network/sysctl stage, and startup refuses
-pre-existing interfaces in that Tigon namespace. If startup fails, it removes
-only the interfaces created by that locked attempt and restores
-`net.ipv4.ip_forward` when the attempt changed it from `0` to `1`.
+Linux baseline build cache: `linux-build/` (gitignored).
 
-The runner holds a nonblocking per-user lock for its full lifetime. A second
-auto-scale invocation, including one from another checkout, exits with the
-recorded holder PID/repository instead of cleaning or restarting shared QEMU,
-tmux, ivshmem, or host-tuning state underneath the active run.
-Doorbell daemons restarted during a boot retry are spawned with all inherited
-non-stdio descriptors closed, so they cannot keep that runner lock after the
-owning shell exits.
-
-Before a pending Tigon setup, `run.sh` releases the completed StarfishOS
-sweep's large per-user `/dev/shm` backing files so eight Tigon guests can
-preallocate local memory. It preflights the complete fixed path set before
-stopping this user's recorded doorbell server, rechecks immediately before
-removal, refuses files still mapped by a process, and never uses a wildcard.
-Run `artifact-evaluation/prepare.sh` again before a later StarfishOS experiment.
-
-The first Tigon run performs its upstream host/VM setup and therefore needs
-passwordless/non-interactive `sudo`, 8 VM capacity, and the hardware layout
-described by Tigon. Set `TIGON_SETUP=0` only when those VMs are already running
-and its binary has already been synchronized. `prepare.sh` initializes the
-submodule automatically for `auto-scale` and `paper` runs.
-
-## Re-plot only / verify against paper data
-
-The drawing logic is copied verbatim from `p3os-paper/eval/{auto_scale_matrix,
-db1000,gemini_graph}.py` and is validated — it reproduces all three figures
-from the paper's own data files:
+## Re-plot only
 
 ```bash
-python3 artifact-evaluation/5-auto-scale/plot.py --out-dir /tmp/as-check \
-  --matrix-data /mnt/disk1/yjs/p3os-paper/eval/mapreduce/4000size.txt \
-  --db1000-data /mnt/disk1/yjs/p3os-paper/eval/db1000/db1000-p3os-tigon.csv \
-  --gemini-data /mnt/disk1/yjs/p3os-paper/eval/gemini_graph/data.log
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 5
 ```
 
-## Completeness contract
+From sweep logs:
 
-The default full run requires all 5 machine counts for every plotted series:
-20 Matrix points, 20 DBx1000 points, and 20 Gemini points. Missing logs,
-metrics, or points terminate the run/plot with an error. A run that explicitly
-narrows `APPS`, `MACHINES`, `CONFIGS`, or baseline collection automatically
-plots its available points with `--allow-partial`; measurement, parsing, and
-rendering failures still terminate the run. `--allow-partial` can also be used
-directly when debugging an interrupted collection.
+```bash
+python3 artifact-evaluation/5-auto-scale/plot.py \
+  --log-dir artifact-evaluation/5-auto-scale/out/<timestamp>/logs \
+  --csv-dir artifact-evaluation/5-auto-scale/out/<timestamp>/csv \
+  --fig-dir artifact-evaluation/5-auto-scale/out/<timestamp>/figures
+```
+
+From paper data files:
+
+```bash
+python3 artifact-evaluation/5-auto-scale/plot.py \
+  --csv-dir /tmp/as-check/csv \
+  --fig-dir /tmp/as-check/figures \
+  --matrix-data /path/to/paper/4000size.txt \
+  --db1000-data /path/to/paper/db1000-p3os-tigon.csv \
+  --gemini-data /path/to/paper/gemini-data.log
+```
+
+## Env knobs
+
+`APPS`, `MACHINES`, `CONFIGS`, `TIMEOUT`, `RUN_BASELINES`, `BASELINE_STAGES`,
+`TIGON_DIR`, `TIGON_SETUP`, `TIGON_IMAGE_ATTEMPTS`, `OUT_DIR`, `LOG_DIR`,
+`CSV_DIR`, `FIG_DIR`, `TS`.

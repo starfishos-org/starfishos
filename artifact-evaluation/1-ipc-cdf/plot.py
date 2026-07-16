@@ -19,6 +19,10 @@ MODE_ORDER = ["cross_empty", "cross", "cross_empty_4t", "cross_4t"]
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
+def save_paper_figure(fig_dir: Path, stem: str, fig, *, dpi: int = 300) -> None:
+    fig.savefig((fig_dir / stem).with_suffix(".png"), dpi=dpi, bbox_inches="tight")
+
+
 def cpu_freq_hz(log: Path) -> float:
     pat = re.compile(r"cpu frequency=\(Dec\)(\d+)")
     for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -258,8 +262,7 @@ def plot_cdf(fig_dir: Path, machine0: dict[str, list[tuple[int, float]]], machin
         handlelength=1.25, columnspacing=1.05, handletextpad=0.45,
     )
     fig.subplots_adjust(left=0.10, right=0.99, top=0.96, bottom=0.14)
-    fig.savefig(fig_dir / "local_ipc_cdf.pdf", dpi=300, format="pdf", bbox_inches="tight")
-    fig.savefig(fig_dir / "ipc_cdf.png", dpi=300, bbox_inches="tight")
+    save_paper_figure(fig_dir, "ipc_cdf", fig)
     plt.close(fig)
 
 
@@ -326,8 +329,7 @@ def plot_breakdown(fig_dir: Path, machine0_rows: list[dict[str, object]], machin
                ncol=2, frameon=False, fontsize=21, handlelength=1.15,
                columnspacing=0.9, handletextpad=0.35)
     fig.subplots_adjust(left=0.20, right=0.985, top=0.77, bottom=0.23)
-    fig.savefig(fig_dir / "breakdown_combined.pdf", dpi=300, format="pdf", bbox_inches="tight")
-    fig.savefig(fig_dir / "ipc_read_breakdown.png", dpi=300, bbox_inches="tight")
+    save_paper_figure(fig_dir, "ipc_read_breakdown", fig)
     plt.close(fig)
 
 
@@ -340,10 +342,16 @@ def main() -> None:
         help="IPC log directory (default: %(default)s)",
     )
     parser.add_argument(
-        "--out-dir",
+        "--csv-dir",
         type=Path,
-        default=SCRIPT_DIR,
-        help="output directory (default: %(default)s)",
+        default=SCRIPT_DIR / "csv",
+        help="CSV output directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--fig-dir",
+        type=Path,
+        default=SCRIPT_DIR / "figures",
+        help="figure output directory (default: %(default)s)",
     )
     parser.add_argument("--allow-partial", action="store_true",
                         help="debug only: draw incomplete IPC logs")
@@ -354,11 +362,12 @@ def main() -> None:
     if not machine0_log.is_file() or not machine1_log.is_file():
         raise FileNotFoundError("expected machine0.log and machine1.log under --log-dir")
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    args.csv_dir.mkdir(parents=True, exist_ok=True)
+    args.fig_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = parse_summary(machine0_log) + parse_summary(machine1_log)
     write_csv(
-        args.out_dir / "summary.csv",
+        args.csv_dir / "summary.csv",
         summary_rows,
         ["machine", "mode", "total", "threads", "p50_us", "p75_us", "p90_us", "p99_us", "max_us", "source_unit"],
     )
@@ -374,7 +383,7 @@ def main() -> None:
             missing.extend(f"{machine}/{mode}" for mode in modes if not data.get(mode))
         if missing:
             raise RuntimeError("incomplete IPC CDF dataset: " + ", ".join(missing))
-    export_cdf(args.out_dir / "cdf.csv", cdf0, cdf1)
+    export_cdf(args.csv_dir / "cdf.csv", cdf0, cdf1)
 
     bd0 = breakdown_rows(machine0_log)
     bd1 = breakdown_rows(machine1_log)
@@ -386,7 +395,7 @@ def main() -> None:
         if missing:
             raise RuntimeError("incomplete IPC breakdown dataset: " + ", ".join(missing))
     write_csv(
-        args.out_dir / "breakdown.csv",
+        args.csv_dir / "breakdown.csv",
         bd0 + bd1,
         ["machine", "mode", "samples", "total_us", "alloc_us", "enqueue_us", "wait_us"],
     )
@@ -410,11 +419,11 @@ def main() -> None:
         }
         srv_flat.append(row)
         srv_for_plot[mode] = {"dequeue_us": row["dequeue_us"], "handle_us": row["handle_us"]}
-    write_csv(args.out_dir / "server_timing.csv", srv_flat, ["machine", "mode", "samples", "dequeue_us", "handle_us"])
+    write_csv(args.csv_dir / "server_timing.csv", srv_flat, ["machine", "mode", "samples", "dequeue_us", "handle_us"])
 
-    plot_cdf(args.out_dir, cdf0, cdf1)
-    plot_breakdown(args.out_dir, bd0, bd1, srv_for_plot)
-    print(f"Wrote results to {args.out_dir}")
+    plot_cdf(args.fig_dir, cdf0, cdf1)
+    plot_breakdown(args.fig_dir, bd0, bd1, srv_for_plot)
+    print(f"Wrote CSV to {args.csv_dir} and figures to {args.fig_dir}")
 
 
 if __name__ == "__main__":

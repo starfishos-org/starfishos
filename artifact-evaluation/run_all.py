@@ -20,12 +20,11 @@ a run times out or ``run.sh`` exits before its own plot step. Use
 
 Examples::
 
-    ./artifact-evaluation/run_all.py --prepare-only
-    ./artifact-evaluation/run_all.py --build-only --force-base-build
-    ./artifact-evaluation/run_all.py --no-prepare --no-build ipc-cdf
-    ./artifact-evaluation/run_all.py --experiments-only
-    ./artifact-evaluation/run_all.py paper          # full paper set
-    ./artifact-evaluation/run_all.py --dry-run
+    ./artifact-evaluation/run_all.py --clean
+    ./artifact-evaluation/run_all.py --run-subset-of-tests 1,4,7
+    ./artifact-evaluation/run_all.py --no-prepare --no-build --run-subset-of-tests 1
+    ./artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
+    ./artifact-evaluation/run_all.py --dry-run --clean --run-subset-of-tests 1,4
     ./artifact-evaluation/run_all.py --list
 """
 
@@ -33,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -44,6 +44,19 @@ from typing import Dict, List, Optional
 AE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = AE_ROOT.parent
 
+# Paper / README numbering (0 = extra basic setup).
+EXPERIMENT_NUMBERS: Dict[int, str] = {
+    0: "basic",
+    1: "ipc-cdf",
+    2: "sched-notify",
+    3: "memory-allocator",
+    4: "state-partition",
+    5: "auto-scale",
+    6: "resource-util",
+    7: "recover-fs",
+    8: "dbx1000-cross-warehouse",
+}
+
 PAPER_ORDER = [
     "ipc-cdf",
     "memory-allocator",
@@ -54,8 +67,11 @@ PAPER_ORDER = [
 ]
 READY_PAPER = [
     "ipc-cdf",
+    "sched-notify",
     "memory-allocator",
     "state-partition",
+    "auto-scale",
+    "resource-util",
     "recover-fs",
 ]
 EXTRA_ORDER = [
@@ -63,6 +79,8 @@ EXTRA_ORDER = [
     "sched-notify",
     "dbx1000-cross-warehouse",
 ]
+
+LEGACY_OUTPUT_DIRS = ("logs", "csv", "figures")
 
 AE_SESSIONS = [
     "{user}-ae",
@@ -111,7 +129,7 @@ EXPERIMENTS: Dict[str, Experiment] = {
     ),
     "resource-util": Experiment(
         "resource-util", "6-resource-util", "ready", 43200,
-        "real.eps",
+        "real.png",
     ),
     "recover-fs": Experiment(
         "recover-fs", "7-recover-fs", "ready", 10800,
@@ -148,9 +166,87 @@ def latest_out_dir(ae_dir: Path) -> Optional[Path]:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def ae_output_dirs(out_dir: Path) -> tuple[Path, Path, Path]:
+    """Per-run artifact layout under out/<timestamp>/."""
+    return out_dir / "logs", out_dir / "csv", out_dir / "figures"
+
+
+def experiment_number(name: str) -> Optional[int]:
+    for num, exp_name in EXPERIMENT_NUMBERS.items():
+        if exp_name == name:
+            return num
+    return None
+
+
+def parse_subset(raw: str) -> List[str]:
+    """Parse comma-separated experiment numbers (spaces trimmed)."""
+    numbers: List[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            numbers.append(int(part))
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid experiment number: {part!r} (expected comma-separated integers)"
+            ) from exc
+
+    if not numbers:
+        raise SystemExit("--run-subset-of-tests requires at least one experiment number")
+
+    unknown = [n for n in numbers if n not in EXPERIMENT_NUMBERS]
+    if unknown:
+        valid = ", ".join(str(n) for n in sorted(EXPERIMENT_NUMBERS))
+        bad = ", ".join(str(n) for n in unknown)
+        raise SystemExit(f"Unknown experiment number(s): {bad} (valid: {valid})")
+
+    return [EXPERIMENT_NUMBERS[n] for n in numbers]
+
+
+def resolve_experiments(subset: Optional[str]) -> List[str]:
+    if subset is not None:
+        return parse_subset(subset)
+    return list(READY_PAPER)
+
+
+def clean_targets() -> List[Path]:
+    """Paths removed by --clean: out/ and legacy flat output dirs per experiment."""
+    targets: List[Path] = []
+    seen: set[Path] = set()
+    for exp in EXPERIMENTS.values():
+        ae_dir = AE_ROOT / exp.directory
+        for rel in ("out", *LEGACY_OUTPUT_DIRS):
+            path = ae_dir / rel
+            if path.exists() and path not in seen:
+                targets.append(path)
+                seen.add(path)
+    return sorted(targets)
+
+
+def clean_ae_outputs(*, dry_run: bool) -> None:
+    targets = clean_targets()
+    if not targets:
+        log("=== --clean: no AE output directories to remove ===")
+        return
+
+    log("=== --clean: removing AE output directories ===")
+    for path in targets:
+        rel = path.relative_to(AE_ROOT)
+        if dry_run:
+            log(f"[dry-run] would remove: artifact-evaluation/{rel}")
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        log(f"removed: artifact-evaluation/{rel}")
+
+
 def plot_cmd(name: str) -> Optional[List[str]]:
     """Build the plot/parse command for an experiment (None if no plotter)."""
     ae_dir = exp_dir(name)
+    out = latest_out_dir(ae_dir)
     plot_sh = ae_dir / "plot.sh"
     if plot_sh.is_file():
         return ["bash", str(plot_sh)]
@@ -159,7 +255,17 @@ def plot_cmd(name: str) -> Optional[List[str]]:
     parse_msi = ae_dir / "parse_msi.py"
 
     if name == "basic":
-        return ["python3", str(parse_msi)] if parse_msi.is_file() else None
+        if not parse_msi.is_file():
+            return None
+        if out is None:
+            return ["python3", str(parse_msi)]
+        log_dir, csv_dir, _ = ae_output_dirs(out)
+        return [
+            "python3", str(parse_msi),
+            "--log-dir", str(log_dir),
+            "--csv-dir", str(csv_dir),
+        ]
+
     if not plot_py.is_file():
         return None
 
@@ -170,19 +276,35 @@ def plot_cmd(name: str) -> Optional[List[str]]:
     else:
         base = ["python3", str(plot_py)]
 
-    if name in ("ipc-cdf", "sched-notify", "memory-allocator", "recover-fs"):
-        return base
-
-    out = latest_out_dir(ae_dir)
     if out is None:
+        if name in ("ipc-cdf", "sched-notify", "memory-allocator", "recover-fs"):
+            return base
         return None
 
-    log_dir = out / "logs"
+    log_dir, csv_dir, fig_dir = ae_output_dirs(out)
+
+    if name == "memory-allocator":
+        return base + [
+            "--csv", str(csv_dir / "allocator_results.csv"),
+            "--fig-dir", str(fig_dir),
+        ]
+
+    if name == "recover-fs":
+        return base + [
+            "--detail", str(csv_dir / "recovery_detail.csv"),
+            "--throughput", str(csv_dir / "throughput.csv"),
+            "--fig-dir", str(fig_dir),
+        ]
+
+    if name in ("ipc-cdf", "sched-notify"):
+        return base + [
+            "--log-dir", str(log_dir),
+            "--csv-dir", str(csv_dir),
+            "--fig-dir", str(fig_dir),
+        ]
+
     if name == "auto-scale":
-        # Prefer collecting from sweep logs (writes results/ then plots). Fall
-        # back to already-materialized data files when logs are absent.
-        results = out / "results"
-        cmd = base + ["--out-dir", str(out)]
+        cmd = base + ["--csv-dir", str(csv_dir), "--fig-dir", str(fig_dir)]
         if log_dir.is_dir() and any(log_dir.glob("*_N*.log")):
             return cmd + ["--log-dir", str(log_dir)]
         for flag, fname in (
@@ -190,13 +312,17 @@ def plot_cmd(name: str) -> Optional[List[str]]:
             ("--db1000-data", "db1000-p3os-tigon.csv"),
             ("--gemini-data", "gemini-data.log"),
         ):
-            path = results / fname
+            path = csv_dir / fname
             if path.is_file():
                 cmd += [flag, str(path)]
         return cmd if len(cmd) > 4 else None
 
     if name in ("state-partition", "resource-util", "dbx1000-cross-warehouse"):
-        return base + ["--log-dir", str(log_dir), "--out-dir", str(out)]
+        return base + [
+            "--log-dir", str(log_dir),
+            "--csv-dir", str(csv_dir),
+            "--fig-dir", str(fig_dir),
+        ]
 
     return base
 
@@ -209,27 +335,6 @@ def budget_for(exp: Experiment, global_budget: Optional[int]) -> int:
     if global_budget is not None:
         return global_budget
     return exp.budget_s
-
-
-def resolve_names(mode_args: List[str]) -> List[str]:
-    # Default is the validated ready set so a fresh-clone one-click path can succeed.
-    if not mode_args or mode_args == ["ready"]:
-        return list(READY_PAPER)
-    head = mode_args[0]
-    if head == "paper":
-        return list(PAPER_ORDER)
-    if head == "ready":
-        return list(READY_PAPER)
-    if head == "extra":
-        return list(EXTRA_ORDER)
-    if head == "all":
-        return list(PAPER_ORDER) + list(EXTRA_ORDER)
-    if head in ("-h", "--help", "help"):
-        return []
-    unknown = [n for n in mode_args if n not in EXPERIMENTS]
-    if unknown:
-        raise SystemExit(f"Unknown experiment(s): {', '.join(unknown)}")
-    return list(mode_args)
 
 
 def kill_ae_sessions() -> None:
@@ -252,12 +357,12 @@ def needs_graph_dataset(names: List[str]) -> bool:
     return "auto-scale" in names
 
 
-def ensure_prepare(*, skip: bool, mode: str, include_graph: bool,
+def ensure_prepare(*, skip: bool, include_graph: bool,
                    include_paper_deps: bool) -> None:
     if skip:
         log("=== Skipping prepare.sh (--no-prepare) ===")
         return
-    log(f"=== Global preparation (prepare.sh {mode}) ===")
+    log("=== Global preparation (prepare.sh ensure) ===")
     env = os.environ.copy()
     if "SKIP_GRAPH_DATASET" not in env and not include_graph:
         env["SKIP_GRAPH_DATASET"] = "1"
@@ -265,22 +370,22 @@ def ensure_prepare(*, skip: bool, mode: str, include_graph: bool,
     if include_paper_deps:
         env["AE_INCLUDE_OPTIONAL_PAPER"] = "1"
     rc = subprocess.run(
-        [str(AE_ROOT / "prepare.sh"), mode],
+        [str(AE_ROOT / "prepare.sh"), "ensure"],
         cwd=str(REPO_ROOT),
         env=env,
         check=False,
     ).returncode
     if rc != 0:
-        raise SystemExit(f"prepare.sh {mode} failed (rc={rc})")
+        raise SystemExit("prepare.sh ensure failed (rc={})".format(rc))
 
 
-def ensure_base_build(*, skip: bool, force: bool) -> None:
+def ensure_base_build(*, skip: bool) -> None:
     if skip:
         log("=== Skipping first-time OS build (--no-build) ===")
         return
     log("=== Ensuring first-time OS build (if needed) ===")
     env = os.environ.copy()
-    if force:
+    if env_flag("FORCE_BASE_BUILD"):
         env["FORCE_BASE_BUILD"] = "1"
     rc = subprocess.run(
         [
@@ -397,105 +502,49 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         epilog=__doc__,
     )
     parser.add_argument(
-        "mode",
-        nargs="*",
-        default=["ready"],
-        help="ready (default) | paper | all | extra | experiment names",
+        "--clean",
+        action="store_true",
+        help="Remove artifact-evaluation/*/out/ and legacy flat logs/csv/figures; "
+             "alone exits after clean, combined with a run cleans first",
     )
-
-    stages = parser.add_argument_group("stage shortcuts")
-    stages.add_argument("--prepare-only", action="store_true")
-    stages.add_argument("--build-only", action="store_true")
-    stages.add_argument(
+    parser.add_argument(
+        "--run-subset-of-tests",
+        metavar="N[,N...]",
+        help="Run only numbered experiments (see --list); default is the ready set",
+    )
+    parser.add_argument(
         "--plot-only",
         action="store_true",
-        help="Re-plot from existing logs; skip prepare, build, and run.sh",
+        help="Re-plot from the latest out/<timestamp>/ without re-running QEMU",
     )
-    stages.add_argument(
-        "--gather-only",
+    parser.add_argument(
+        "--dry-run",
         action="store_true",
-        help="Alias for --plot-only",
-    )
-
-    parser.add_argument(
-        "--plot", dest="do_plot", action="store_true", default=None,
+        default=env_flag("DRY_RUN"),
+        help="Print actions without running prepare, build, experiments, or clean",
     )
     parser.add_argument(
-        "--no-plot", dest="do_plot", action="store_false",
-    )
-    stages.add_argument(
-        "--experiments-only",
+        "--list",
         action="store_true",
-        help="Skip prepare + OS build; only run experiments",
-    )
-
-    parser.add_argument(
-        "--prepare", dest="do_prepare", action="store_true", default=None,
+        help="List experiments with paper numbers and exit",
     )
     parser.add_argument(
-        "--no-prepare", "--skip-prepare",
-        dest="do_prepare", action="store_false",
-    )
-    parser.add_argument(
-        "--prepare-mode",
-        choices=("ensure", "recreate"),
-        default=os.environ.get("PREPARE_MODE", "ensure"),
-    )
-    parser.add_argument(
-        "--build", dest="do_build", action="store_true", default=None,
-    )
-    parser.add_argument(
-        "--no-build", "--skip-base-build",
-        dest="do_build", action="store_false",
-    )
-    parser.add_argument(
-        "--force-base-build",
+        "--no-prepare",
         action="store_true",
-        default=env_flag("FORCE_BASE_BUILD"),
+        help="Skip artifact-evaluation/prepare.sh",
     )
     parser.add_argument(
-        "--run", dest="do_run", action="store_true", default=None,
+        "--no-build",
+        action="store_true",
+        help="Skip first-time OS build check",
     )
     parser.add_argument(
-        "--no-run", dest="do_run", action="store_false",
-    )
-    parser.add_argument(
-        "--budget", type=int, default=None,
+        "--budget",
+        type=int,
+        default=None,
         help="Override wall-clock timeout (seconds) for each run.sh",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", default=env_flag("DRY_RUN"),
-    )
-    parser.add_argument("--list", action="store_true")
-
-    args = parser.parse_args(argv)
-
-    if args.prepare_only:
-        args.do_prepare, args.do_build, args.do_run = True, False, False
-    elif args.build_only:
-        args.do_prepare = False if args.do_prepare is None else args.do_prepare
-        args.do_build, args.do_run = True, False
-    elif args.plot_only or args.gather_only:
-        args.do_prepare, args.do_build, args.do_run = False, False, False
-        args.do_plot = True
-    elif args.experiments_only:
-        args.do_prepare, args.do_build = False, False
-        if args.do_run is None:
-            args.do_run = True
-    else:
-        if args.do_prepare is None:
-            args.do_prepare = not env_flag("SKIP_PREPARE")
-        if args.do_build is None:
-            args.do_build = not env_flag("SKIP_BASE_BUILD")
-        if args.do_run is None:
-            args.do_run = True
-        if args.do_plot is None:
-            args.do_plot = True
-
-    if args.do_plot is None:
-        args.do_plot = not (args.prepare_only or args.build_only)
-
-    return args
+    return parser.parse_args(argv)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -503,59 +552,68 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.list:
         log("Experiments (each uses artifact-evaluation/<dir>/run.sh):")
-        for name in PAPER_ORDER + EXTRA_ORDER:
+        for num in sorted(EXPERIMENT_NUMBERS):
+            name = EXPERIMENT_NUMBERS[num]
             exp = EXPERIMENTS[name]
             tag = "paper" if exp.is_paper else "extra"
             script = run_script(name)
             present = "run.sh" if script.is_file() else "MISSING run.sh"
-            log(f"  {name:<26} {exp.status:<6} [{tag}]  {exp.directory}/{present}")
+            log(
+                f"  {num}  {name:<26} {exp.status:<6} [{tag}]  "
+                f"{exp.directory}/{present}"
+            )
+        log("")
+        log(f"Default run set (no --run-subset-of-tests): {' '.join(READY_PAPER)}")
         return 0
 
-    names = resolve_names(args.mode)
+    names = resolve_experiments(args.run_subset_of_tests)
+    clean_only = args.clean and not args.plot_only and args.run_subset_of_tests is None
+
+    do_prepare = not args.no_prepare and not args.plot_only
+    do_build = not args.no_build and not args.plot_only
+    do_run = not args.plot_only
 
     log("=== One-click AE: artifact-evaluation/run_all.py ===")
-    log(f"=== mode: {' '.join(args.mode) or 'ready'} ===")
+    if args.run_subset_of_tests is not None:
+        log(f"=== subset: {args.run_subset_of_tests} ===")
+    else:
+        log("=== subset: (default ready set) ===")
     log(f"=== experiments: {' '.join(names)} ===")
     log(
-        f"=== stages: prepare={args.do_prepare}({args.prepare_mode}) "
-        f"build={args.do_build} run={args.do_run} plot={args.do_plot} "
-        f"dry_run={args.dry_run} force_build={args.force_base_build} ==="
+        f"=== stages: prepare={do_prepare} build={do_build} "
+        f"run={do_run} plot=True dry_run={args.dry_run} clean={args.clean} ==="
     )
 
-    if (args.plot_only or args.gather_only) and not args.dry_run:
+    if args.clean:
+        clean_ae_outputs(dry_run=args.dry_run)
+        if clean_only:
+            return 0
+
+    if args.plot_only and not args.dry_run:
         log("=== plot-only: re-plot from existing logs (no QEMU) ===")
 
     if args.dry_run:
-        if args.do_prepare:
-            log(f"[dry-run] would run: prepare.sh {args.prepare_mode}")
-        if args.do_build:
+        if do_prepare:
+            log("[dry-run] would run: prepare.sh ensure")
+        if do_build:
             log("[dry-run] would run: ae_ensure_base_build (common.sh)")
-        if args.prepare_only or args.build_only:
-            return 0
 
     if not args.dry_run:
-        if args.do_prepare:
+        if do_prepare:
             ensure_prepare(
                 skip=False,
-                mode=args.prepare_mode,
                 include_graph=needs_graph_dataset(names),
                 include_paper_deps=bool({"auto-scale", "resource-util"} & set(names)),
             )
-            if args.prepare_only:
-                log("Prepare-only done.")
-                return 0
 
-        if args.do_build:
-            ensure_base_build(skip=False, force=args.force_base_build)
-            if args.build_only:
-                log("Build-only done.")
-                return 0
+        if do_build:
+            ensure_base_build(skip=False)
 
     status: Dict[str, str] = {}
     plot_status: Dict[str, str] = {}
     overall = 0
 
-    if args.do_run:
+    if do_run:
         for name in names:
             exp = EXPERIMENTS[name]
             status[name] = run_experiment(
@@ -566,21 +624,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             st = status[name]
             if st not in ("OK", "DRY_RUN", "TODO(stub)") and not st.startswith("TODO"):
                 overall = 1
-            if args.do_plot:
-                plot_status[name] = run_plot(name, dry_run=args.dry_run)
-                pst = plot_status[name]
-                if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
-                    overall = 1
-    elif args.dry_run:
-        for name in names:
-            status[name] = run_experiment(
-                name,
-                budget=budget_for(EXPERIMENTS[name], args.budget),
-                dry_run=True,
-            )
-            if args.do_plot:
-                plot_status[name] = run_plot(name, dry_run=True)
-    elif args.do_plot:
+            plot_status[name] = run_plot(name, dry_run=args.dry_run)
+            pst = plot_status[name]
+            if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
+                overall = 1
+    else:
         for name in names:
             plot_status[name] = run_plot(name, dry_run=args.dry_run)
             pst = plot_status[name]
@@ -594,8 +642,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ready_ok = ready_total = 0
     for name in names:
         st = status.get(name, "skipped")
-        pst = plot_status.get(name, "skipped" if args.do_plot else "-")
-        log(f"{name:<26} run={st:<20} plot={pst:<16} {exp_dir(name)}")
+        pst = plot_status.get(name, "-")
+        num = experiment_number(name)
+        prefix = f"{num} " if num is not None else "  "
+        log(f"{prefix}{name:<26} run={st:<20} plot={pst:<16} {exp_dir(name)}")
         if st not in ("DRY_RUN", "TODO(stub)", "skipped"):
             ready_total += 1
             if st == "OK":

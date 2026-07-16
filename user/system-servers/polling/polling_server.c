@@ -19,7 +19,7 @@
  * Uses rdtsc() for sub-microsecond precision (cycles).
  * Dumped via polling_print_debug_info() when client sends POLLING_PRINT_DEBUG_INFO.
  */
-#define ENABLE_SRV_TIMING 0
+#define ENABLE_SRV_TIMING 1
 
 static inline uint64_t rdtsc(void)
 {

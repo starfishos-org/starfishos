@@ -1,51 +1,4 @@
 # Artifact evaluation
-
-## From a fresh clone (required order)
-
-Do these steps once on a clean host before the one-click runner. Skipping
-submodules or host deps is the most common reason a first run fails.
-
-```bash
-git clone <repo-url> starfishos
-cd starfishos
-
-# Initialize the ready-AE dependencies independently. This avoids an optional
-# test-on-linux checkout preventing required ChCore demos from being populated.
-git submodule update --init --recursive -- \
-  user/libraries/rpmalloc user/demos/phoenix-2.0 \
-  user/demos/dbx1000 user/demos/GeminiGraph
-
-# Host tools: QEMU 6.2, ivshmem-server, Docker, numactl, tmux, matplotlib/numpy/pandas.
-bash artifact-evaluation/install-host-deps.sh
-# Log out and back in so docker + kvm group membership apply.
-
-docker pull promisivia/treesls_chcore_builder:v2.3
-
-# One-click: prepare (datasets + ivshmem) → first OS build if needed → ready experiments.
-python3 artifact-evaluation/run_all.py
-# Equivalent:
-./artifact-evaluation/run-all.sh
-```
-
-Defaults:
-- `run_all.py` with no args runs the **ready** set (`ipc-cdf`, `memory-allocator`,
-  `state-partition`, `recover-fs`), not the full paper list.
-- `prepare.sh` downloads Phoenix datasets under `datasets/` (gitignored) and
-  hardlinks/copies them into `user/demos/phoenix-2.0/data/…` (and
-  `test-on-linux/phoenix` when present) so the first OS build can rsync real
-  files into the ramdisk. The large Gemini graph (`twitter-2010.bin`, ~11 GiB)
-  is **fetched by default** so auto-scale / Gemini runs can use
-  `/host/twitter-2010.bin`. The default `ready` runner skips this ~11 GiB graph;
-  selecting `auto-scale`/`paper` enables it. Set `SKIP_GRAPH_DATASET=0` or `1`
-  explicitly to override that selection.
-
-Optional full paper / extras:
-
-```bash
-python3 artifact-evaluation/run_all.py paper    # full paper order
-python3 artifact-evaluation/run_all.py all      # paper + extras
-```
-
 ---
 
 ## Hardware and software requirements
@@ -116,51 +69,96 @@ docker build -t promisivia/treesls_chcore_builder:v2.3 .
 
 ---
 
-## One-click entry point
+## Getting Start
+
+Do these steps once on a clean host before the one-click runner. Skipping
+submodules or host deps is the most common reason a first run fails.
 
 ```bash
-python3 artifact-evaluation/run_all.py
-# Equivalent:
-./artifact-evaluation/run_all.py
+git clone https://github.com/starfishos-org/starfishos.git starfishos
+cd starfishos
+
+# Initialize the ready-AE dependencies independently. 
+git submodule update --init --recursive
+
+# Host tools: QEMU 6.2, ivshmem-server, Docker, numactl, tmux, matplotlib/numpy/pandas.
+bash artifact-evaluation/install-host-deps.sh
+# Log out and back in so docker + kvm group membership apply.
+
+# One-click entry point
 ./artifact-evaluation/run-all.sh
 ```
 
-After the fresh-clone steps above, this is the main command. On the first run it:
+**Note:** Do not run `./artifact-evaluation/run-all.sh` inside tmux; each experiment launches its own tmux session for QEMU, and nesting leads to session conflicts.
 
-| Step | Behavior | When it runs |
-| --- | --- | --- |
-| `prepare.sh` | Targeted submodule init, dataset download, CXL / 8×NUMA / hostfs / CXLFS / ivshmem doorbell | Every time (skips recreating existing backing files) |
-| first-time OS build | `scripts/quick-build.sh` | **Only when** `.config` or `build/kernel.img` is missing |
-| Ready experiments | Each directory's `run.sh` (build/QEMU/plot); `run_all.py` can plot after each run | Every time (default mode: `ready`) |
-| Stubs | Skipped when status is `stub` / `run.sh` missing | When selected |
+After finishing the one-click runner, each experiment creates a timestamped
+output directory:
 
-```bash
-python3 artifact-evaluation/run_all.py --dry-run          # print plan only
-python3 artifact-evaluation/run_all.py --list             # list experiments
-python3 artifact-evaluation/run_all.py --prepare-only     # environment prepare only
-python3 artifact-evaluation/run_all.py --prepare-only --prepare-mode recreate
-python3 artifact-evaluation/run_all.py --build-only       # first-time / forced build only
-python3 artifact-evaluation/run_all.py --experiments-only ready
-python3 artifact-evaluation/run_all.py --plot-only ipc-cdf   # re-plot without QEMU
-python3 artifact-evaluation/run_all.py --no-plot ready       # run only, skip figures
-python3 artifact-evaluation/run_all.py --force-base-build # force rebuild then run all
-python3 artifact-evaluation/run_all.py paper              # full paper list
+```
+artifact-evaluation/<experiment>/out/<timestamp>/
+  logs/      runtime QEMU and benchmark logs
+  csv/       parsed tables and intermediate data
+  figures/   plots (png only)
 ```
 
-### Stage options
+These directories are gitignored. Re-running creates a new `out/<timestamp>/`
+directory; prior runs are preserved until removed with `./artifact-evaluation/run-all.sh --clean`.
+
+### CLI options
 
 | Option | Effect |
 | --- | --- |
-| `--prepare-only` | Run `prepare.sh` only, then exit |
-| `--build-only` | Do first-time / forced OS build only, then exit |
-| `--gather-only` | List experiment output directories only (no QEMU) |
-| `--experiments-only` | Skip prepare + build; run experiments only |
-| `--prepare` / `--no-prepare` | Toggle prepare (on by default) |
-| `--prepare-mode ensure\|recreate` | `ensure` is idempotent (default); `recreate` rebuilds backing files |
-| `--build` / `--no-build` | Toggle first-time OS build check (on by default) |
-| `--force-base-build` | Force `quick-build.sh` |
-| `--run` / `--no-run` | Toggle experiment `run.sh` invocations |
-| `--budget SECS` | Override timeout for all ready experiments |
+| *(default)* | Run the ready set: ipc-cdf, sched-notify, memory-allocator, state-partition, auto-scale, resource-util, recover-fs |
+| `--run-subset-of-tests N[,N...]` | Run only numbered experiments (comma-separated; spaces trimmed). See table below. |
+| `--clean` | Remove `artifact-evaluation/*/out/` and legacy flat `logs/`, `csv/`, `figures/` under each experiment. Alone: clean and exit. With a run or `--plot-only`: clean first, then continue. |
+| `--plot-only` | Re-plot from the latest `out/<timestamp>/` without re-running QEMU |
+| `--no-prepare` | Skip `prepare.sh` |
+| `--no-build` | Skip first-time OS build check |
+| `--budget SECS` | Override timeout for all selected experiments |
+| `--dry-run` | Print actions without running prepare, build, experiments, or clean |
+| `--list` | List experiments with paper numbers and exit |
+
+Examples:
+
+```bash
+python3 artifact-evaluation/run_all.py --list
+python3 artifact-evaluation/run_all.py --clean
+python3 artifact-evaluation/run_all.py --run-subset-of-tests 1,4,7
+python3 artifact-evaluation/run_all.py --no-prepare --no-build --run-subset-of-tests 1
+python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
+python3 artifact-evaluation/run_all.py --dry-run --clean --run-subset-of-tests 1,4
+```
+
+### Stopping runs and troubleshooting
+
+Each experiment launches QEMU (and sometimes `chbuild` via Docker) in its own
+tmux session. If you want to **stop an in-progress `run_all.py`**, or you hit a
+**Docker container name conflict** (for example
+`The container name "/wfn-chbuild" is already in use`), stop all tmux sessions
+first:
+
+```bash
+# This kills all tmux sessions.
+tmux kill-server
+```
+
+Then re-run `./artifact-evaluation/run-all.sh` to continue.
+
+### Experiments
+
+Each numbered experiment writes paper figures as `.png` files under
+`out/<timestamp>/figures/`.
+
+| # | Directory | Output Figure(s) | Paper | Description |
+| --- | --- | --- | --- | --- |
+| 0 | 0-basic | — | Table 3 (setup) | basic (CXL latency/bandwidth/MSI) |
+| 1 | 1-ipc-cdf | `ipc_cdf`, `ipc_read_breakdown` | Figure 11 | ipc-cdf |
+| 2 | 2-sched-notify-latency | `sched_notify_latency` | Section 8.2 (text) | sched-notify |
+| 3 | 3-memory-allocator | `allocator-all` | Figure 12 | memory-allocator |
+| 4 | 4-state-partition | `state_partition` | Figure 13 | state-partition |
+| 5 | 5-auto-scale | `auto-scale-matrix`, `db1000`, `gemini-chcore`, `auto-scale-legend` | Figure 14 | auto-scale |
+| 6 | 6-resource-util | `real` | Figure 15 | resource-util |
+| 7 | 7-recover-fs | `recovery-performance-single` | Figure 16 | recover-fs |
 
 The persistent CXLFS backing file is tied to the checkout's built ramdisk.
 Before every AE boot it is recreated when the repository changes or
@@ -168,64 +166,5 @@ Before every AE boot it is recreated when the repository changes or
 another clone/build (especially `/libc.so`) from failing CXLFS verification,
 while retaining the filesystem across boots within one recovery experiment.
 
-### Paper figure status
-
-| Experiment | Paper figure | Status |
-| --- | --- | --- |
-| `1-ipc-cdf` | `local_ipc_cdf` / `breakdown_combined` | plot verified; live run validated |
-| `3-memory-allocator` | `fig00-allocator-all` | plot verified; live run validated |
-| `4-state-partition` | `state_partition` | full 24-point collection wired; strict validation¹ |
-| `7-recover-fs` | `recovery-performance-single` | plot verified; live run validated |
-| `5-auto-scale` | `auto-scale-legend` / `auto-scale-matrix` / `db1000` / `gemini-chcore` | all Starfish/Linux/TCP/Tigon series wired; strict validation² |
-| `6-resource-util` | `real` | all 36 values wired; strict validation³ |
-
-¹ The earlier fresh-clone audit recorded guest stalls; the runner now includes
-the previously omitted DBx1000 point set and rejects incomplete output. See
-`FROM-SCRATCH-ISSUES.md` for the historical host-specific failures.
-
-² The first Tigon collection uses the public `artifact-evaluation/deps/tigon`
-submodule, runs its VM setup, and requires sudo plus an 8-VM-capable
-CXL/NUMA host. It records the exact source state with the results. Linux Ideal
-and Matrix/Gemini Distributed series are collected automatically. Graph
-download is enabled for `auto-scale`/`paper`.
-
-³ Redis/Memcached/TinyCNN are enabled and built automatically. The historical
-TinyCNN/libjpeg pins are hosted on IPADS GitLab, so a truly external fresh clone
-still needs those repositories mirrored publicly.
-
 Application-level Linux Ideal / Distributed ports for paper auto-scale curves
-live under `test-on-linux/` (git submodules; `git submodule update --init
-test-on-linux`). See `test-on-linux/README.md`.
-
----
-
-## Low-level prepare scripts (usually not run separately)
-
-```bash
-./artifact-evaluation/prepare.sh
-./artifact-evaluation/prepare.sh recreate
-SKIP_GRAPH_DATASET=1 ./artifact-evaluation/prepare.sh   # skip ~11 GiB twitter-2010.bin
-AE_DROP_CACHES=0 python3 artifact-evaluation/run_all.py # shared host: no sync/drop_caches
-AE_SYNC_TIMEOUT=60 python3 artifact-evaluation/run_all.py # bound host sync before cache drop
-AE_BOOT_RETRIES=3 python3 artifact-evaluation/run_all.py  # retry flaky guest boot/shell startup
-AE_LOG_STALL_S=0 python3 artifact-evaluation/run_all.py # allow silent jobs to use full timeout
-./scripts/download_datasets.sh                           # datasets only
-```
-
-## Per-experiment entry points
-
-```bash
-./artifact-evaluation/1-ipc-cdf/run.sh
-./artifact-evaluation/2-sched-notify-latency/run.sh
-./artifact-evaluation/3-memory-allocator/run.sh
-./artifact-evaluation/4-state-partition/run.sh
-./artifact-evaluation/5-auto-scale/run.sh
-./artifact-evaluation/6-resource-util/run.sh
-./artifact-evaluation/7-recover-fs/run.sh
-./artifact-evaluation/8-dbx1000-cross-warehouse/run.sh
-./artifact-evaluation/0-basic/run_msi.sh
-./artifact-evaluation/0-basic/run_mlc.sh
-```
-
-Each subdirectory has a README describing its workload, configuration matrix,
-environment overrides, raw logs, and figure-regeneration command.
+live under `test-on-linux/`.

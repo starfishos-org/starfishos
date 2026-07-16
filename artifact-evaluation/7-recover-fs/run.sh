@@ -4,8 +4,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/7-recover-fs"
-OUT_DIR="${OUT_DIR:-$AE_DIR}"
-LOG_DIR="${LOG_DIR:-$AE_DIR/logs}"
+TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
+OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
+LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
 SESSION="${SESSION:-${USER}-recover-fs-ae}"
 NUM_MACHINES=2
 TIMEOUT="${TIMEOUT:-600}"
@@ -29,9 +32,9 @@ LOG_POLL_INTERVAL="${LOG_POLL_INTERVAL:-0.05}"
 # device, while each machine keeps using its own device-backed DRAM region.
 USE_DEV_AS_DRAM="${USE_DEV_AS_DRAM:-1}"
 
-mkdir -p "$OUT_DIR" "$LOG_DIR"
-# Logs use stable names and are truncated on every run. They are diagnostic
-# state, not timestamped experiment artifacts.
+mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
+echo "[AE] Output directory: $OUT_DIR"
+# Logs use stable names within this run's output directory.
 : > "$LOG_DIR/machine0.log"
 : > "$LOG_DIR/machine1.log"
 : > "$LOG_DIR/machine0-detector.log"
@@ -270,8 +273,9 @@ if [ "$SKIP_BUILD" != "1" ]; then
 fi
 # start_cluster -> make clean-dsm-meta refreshes CXLFS when the ramdisk changed.
 
-echo "[AE] Result directory: $OUT_DIR"
 echo "[AE] Log directory: $LOG_DIR"
+echo "[AE] CSV directory: $CSV_DIR"
+echo "[AE] Figure directory: $FIG_DIR"
 echo "[AE] DB: $DB_PATH; fill entries: $FILL_NUM; read entries: $READ_NUM"
 echo "[AE] USE_DEV_AS_DRAM: $USE_DEV_AS_DRAM"
 start_cluster
@@ -359,7 +363,7 @@ read_warmup_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_read_warmup_end_ns
 read_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_read_end_ns")"
 fill_elapsed_ms="$(elapsed_ms "$crash_start_ns" "$post_fill_end_ns")"
 
-cat > "$OUT_DIR/recovery_detail.csv" <<CSV
+cat > "$CSV_DIR/recovery_detail.csv" <<CSV
 stage,measured_ms,guest_reported_ms,entry_count,error_count,description
 kill_machine0,$kill_elapsed_ms,,,,Host issued tmux kill-window for machine 0 QEMU
 detect_machine0,$detect_elapsed_ms,,,,External host detector observed machine 0 QEMU exit
@@ -368,7 +372,7 @@ plog_replay,,${plog_ms:-},${plog_entries:-},${plog_errors:-},P-log replay report
 restart_leveldb,$(elapsed_ms "$leveldb_start_ns" "$leveldb_ready_ns"),${leveldb_open_ms:-},,,Machine 1 reopened existing LevelDB database
 CSV
 
-cat > "$OUT_DIR/throughput.csv" <<CSV
+cat > "$CSV_DIR/throughput.csv" <<CSV
 event,elapsed_ms,workload,ops_per_sec
 pre_crash,0,fill,$pre_fill_ops
 pre_crash,0,read,$pre_read_ops
@@ -391,11 +395,12 @@ post_fill_completed,$(timeline_ms "$fill_elapsed_ms"),read,$post_read_ops
 CSV
 
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-$USER}" \
-    python3 "$AE_DIR/plot.py" --detail "$OUT_DIR/recovery_detail.csv" \
-    --throughput "$OUT_DIR/throughput.csv" --out-dir "$OUT_DIR"
+    python3 "$AE_DIR/plot.py" --detail "$CSV_DIR/recovery_detail.csv" \
+    --throughput "$CSV_DIR/throughput.csv" --fig-dir "$FIG_DIR"
 
 echo "[AE] LevelDB DB::Open on machine 1: ${leveldb_open_ms:-unknown} ms"
 echo "[AE] P-log replay: ${plog_entries:-unknown} entries, ${plog_errors:-unknown} errors (${plog_ms:-unknown} ms)"
 echo "[AE] Fill throughput: pre=$pre_fill_ops ops/s post=$post_fill_ops ops/s"
 echo "[AE] Read throughput: pre=$pre_read_ops ops/s first-recovered=$post_read_warmup_ops ops/s peak=$post_read_ops ops/s"
-echo "[AE] Figure: $OUT_DIR/recovery-performance-single.png"
+echo "[AE] Figure: $FIG_DIR/recovery-performance-single.png"
+echo "Artifact output: $OUT_DIR"

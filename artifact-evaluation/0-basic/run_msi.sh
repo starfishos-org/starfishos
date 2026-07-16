@@ -3,8 +3,14 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/0-basic"
-OUT_DIR="${OUT_DIR:-$AE_DIR}"
-LOG_DIR="${LOG_DIR:-$OUT_DIR/msi-logs}"
+if [ -z "${OUT_DIR:-}" ]; then
+    source "$REPO_ROOT/artifact-evaluation/common.sh"
+    ae_init_output_dirs "$AE_DIR"
+else
+    LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
+    CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
+    mkdir -p "$LOG_DIR" "$CSV_DIR"
+fi
 SESSION="${SESSION:-${USER}-msi-basic-ae}"
 NRUNS="${NRUNS:-1}"
 SAMPLES="${SAMPLES:-100}"
@@ -14,7 +20,7 @@ TIMEOUT="${TIMEOUT:-300}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 NUM_MACHINES=2
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$CSV_DIR"
 
 stop_cluster() {
     if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -111,5 +117,5 @@ for run in $(seq 1 "$NRUNS"); do
     stop_cluster
 done
 
-python3 "$AE_DIR/parse_msi.py" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR"
-echo "Artifact output: $OUT_DIR"
+python3 "$AE_DIR/parse_msi.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR"
+echo "Artifact output: ${OUT_DIR:-$LOG_DIR}"

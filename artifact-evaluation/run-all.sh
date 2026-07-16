@@ -11,8 +11,7 @@ AE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Map legacy env vars into argparse flags when not already on the CLI.
 extra=()
 [ "${DRY_RUN:-0}" = "1" ] && extra+=(--dry-run)
-[ "${SKIP_PREPARE:-0}" = "1" ] && extra+=(--skip-prepare)
-[ "${SKIP_BASE_BUILD:-0}" = "1" ] && extra+=(--skip-base-build)
-[ "${FORCE_BASE_BUILD:-0}" = "1" ] && extra+=(--force-base-build)
+[ "${SKIP_PREPARE:-0}" = "1" ] && extra+=(--no-prepare)
+[ "${SKIP_BASE_BUILD:-0}" = "1" ] && extra+=(--no-build)
 
 exec python3 "$AE_ROOT/run_all.py" "${extra[@]}" "$@"

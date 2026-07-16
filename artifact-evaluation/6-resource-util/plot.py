@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Parse the co-location / resource-utilization suite logs and plot the paper
-"real" figure (real.eps).
+"""Parse the co-location / resource-utilization suite logs and plot paper
+Figure 15 (real).
 
 Each of 12 benchmarks is measured under three conditions:
   single  — the benchmark alone (baseline)
@@ -14,14 +14,14 @@ Inputs (in --log-dir, produced by run.sh)
 Output CSV schema (same as p3os-paper/eval/real.csv):
   <bench>-<cond>,<value>          one row per (benchmark, condition)
 
-Outputs (under --out-dir)
-  results/real.csv
-  figures/real.{eps,pdf,png}
+Outputs:
+  csv/real.csv
+  figures/real.png
 
 Verify the drawing offline against the paper's own data::
 
-  python3 plot.py --csv /mnt/disk1/yjs/p3os-paper/eval/real.csv \
-                            --out-dir /tmp/real-check
+  python3 plot.py --csv /path/to/paper/real.csv \
+                  --fig-dir /tmp/real-check/figures
 """
 from __future__ import annotations
 
@@ -217,10 +217,8 @@ def write_csv(rows, csv_path: Path):
 def _draw_fig(fig_dir: Path, name: str):
     fig_dir.mkdir(parents=True, exist_ok=True)
     stem = fig_dir / name
-    plt.savefig(stem.with_suffix(".eps"), format="eps", bbox_inches="tight")
-    plt.savefig(stem.with_suffix(".pdf"), format="pdf", bbox_inches="tight")
     plt.savefig(stem.with_suffix(".png"), dpi=200, format="png", bbox_inches="tight")
-    print(f"Wrote {stem}.eps/.pdf/.png")
+    print(f"Wrote {stem}.png")
 
 
 def draw(csv_path: Path, fig_dir: Path, allow_partial: bool = False):
@@ -278,7 +276,7 @@ def draw(csv_path: Path, fig_dir: Path, allow_partial: bool = False):
     if complete.empty:
         if allow_partial:
             removed = []
-            for suffix in (".eps", ".pdf", ".png"):
+            for suffix in (".png",):
                 stale = (fig_dir / "real").with_suffix(suffix)
                 if stale.exists():
                     stale.unlink()
@@ -365,7 +363,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--log-dir", type=Path)
-    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
+    ap.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
     ap.add_argument("--csv", type=Path,
                     help="Draw directly from an existing real.csv (verify vs paper)")
     ap.add_argument("--allow-partial", action="store_true",
@@ -376,7 +375,9 @@ def main():
     )
     args = ap.parse_args()
 
-    fig_dir = args.out_dir / "figures"
+    fig_dir = args.fig_dir
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    args.csv_dir.mkdir(parents=True, exist_ok=True)
     if args.csv:
         if args.require_point:
             ap.error("--require-point requires --log-dir")
@@ -392,7 +393,7 @@ def main():
         raise SystemExit("No benchmark produced a metric; nothing to plot")
     if not args.allow_partial:
         require_complete_rows(rows)
-    csv_path = args.out_dir / "results" / "real.csv"
+    csv_path = args.csv_dir / "real.csv"
     write_csv(rows, csv_path)
     draw(csv_path, fig_dir, args.allow_partial)
 

@@ -1,4 +1,2 @@
+out/
 __pycache__/
-logs/
-*.csv
-*.png

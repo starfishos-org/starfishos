@@ -18,7 +18,7 @@
 #
 # Usage (from repo root):
 #   ./artifact-evaluation/prepare.sh          # once
-#   ./artifact-evaluation/5-dbx1000-cross-warehouse/run.sh
+#   ./artifact-evaluation/8-dbx1000-cross-warehouse/run.sh
 #
 # Env overrides:
 #   RATIOS="15 50 80"     cross-warehouse percentages to sweep
@@ -26,15 +26,14 @@
 #                         synced to this value automatically)
 #   DRAM_SIZE=24G         per-QEMU guest DRAM (16 GB-scale tables need >16G)
 #   TIMEOUT=3600          per-run timeout (s)
-#   OUT_DIR               output dir (default out/<timestamp>)
+#   TIMEOUT=3600          per-run timeout (s)
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/8-dbx1000-cross-warehouse"
-TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
-OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
-AE_LOG_DIR="$OUT_DIR/logs"
+ae_init_output_dirs "$AE_DIR"
+AE_LOG_DIR="$LOG_DIR"
 RATIOS="${RATIOS:-15 50 80}"
 NUM_MACHINES="${NUM_MACHINES:-8}"
 DRAM_SIZE="${DRAM_SIZE:-24G}"
@@ -43,7 +42,7 @@ TIMEOUT="${TIMEOUT:-3600}"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 KERNEL_CMAKE="$AE_REPO_ROOT/kernel/CMakeLists.txt"
 
-mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
+mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
@@ -154,8 +153,8 @@ ae_restore_build_configs
 
 echo ""
 echo "=== Parsing logs and generating figures ==="
-python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" \
-    --num-machines "$NUM_MACHINES" --ratios $RATIOS
+python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" \
+    --fig-dir "$FIG_DIR" --num-machines "$NUM_MACHINES" --ratios $RATIOS
 
 echo "Artifact output: $OUT_DIR"
 ae_finish
