@@ -84,8 +84,8 @@ ae_drop_host_caches
 
 # ---- prepare ----
 "$SCRIPT_DIR/start_ivshmem_server.sh"
+# config_memdev.sh cxl also refreshes CXLFS when the ramdisk build changed.
 "$SCRIPT_DIR/config_memdev.sh" cxl
-"$SCRIPT_DIR/prepare_cxlfs_dev.sh" ensure
 sleep 3
 
 # ---- clear old logs ----

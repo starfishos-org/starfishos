@@ -13,7 +13,7 @@
 #   ae_kill_cluster              - tear down the tmux session + reap stray QEMU
 #   ae_stop_tmux_and_reap [sess] - kill one tmux session + reap stray QEMU
 #   ae_ensure_clean_tmux         - kill all AE/QEMU tmux sessions + stray QEMU
-#   ae_release_memdev_backing    - safely free this user's StarfishOS tmpfs files
+#   ae_ensure_cxlfs_device       - recreate CXLFS when ramdisk build changed
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
 #   ae_save_build_configs / ae_restore_build_configs
@@ -104,6 +104,12 @@ ae_doorbell_running() {
     kill -0 "$pid" 2>/dev/null || return 1
     [ -L "/proc/$pid/exe" ] || return 1
     [ "$(basename "$(readlink -f "/proc/$pid/exe")")" = "ivshmem-server" ]
+}
+
+# Recreate the per-user CXLFS ivshmem device when its stamped ramdisk build-id
+# no longer matches user/build/ramdisk.cpio.
+ae_ensure_cxlfs_device() {
+    "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure || return 1
 }
 
 ae_ensure_doorbell() {
@@ -501,10 +507,7 @@ _ae_boot_cluster_once() {
 
     ae_ensure_clean_tmux || return 1
     ae_ensure_doorbell || return 1
-    # A per-user CXLFS device can outlive this checkout. Refresh it when the
-    # built ramdisk changed so guest recovery never compares persistent files
-    # from another clone/build against the current embedded image.
-    "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure || return 1
+    ae_ensure_cxlfs_device || return 1
 
     echo "=== Resetting DSM metadata ==="
     (cd "$AE_REPO_ROOT" && make clean-dsm-meta >/dev/null)

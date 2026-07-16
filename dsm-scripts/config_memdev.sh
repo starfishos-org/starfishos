@@ -132,4 +132,8 @@ if [ "$mode" = "new-all" ]; then
   python3 dsm-scripts/prepare_hostfs.py;
 fi
 
+# CXLFS persists the boot ramdisk across runs.  Recreate the device when the
+# built ramdisk no longer matches the stamped image (e.g. after rebuild).
+"$project_root/dsm-scripts/prepare_cxlfs_dev.sh" ensure
+
 python3 dsm-scripts/prepare_cxlmem.py

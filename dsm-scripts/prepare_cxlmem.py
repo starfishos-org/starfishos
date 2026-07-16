@@ -108,7 +108,7 @@ for dev_path in cxl_devices:
 
         _write_magic_compatible(dev_path, magic_padded)
         
-        print(f"CXL device {dev_path} has been prepared with magic: numa{numa_node}.{numa_dev}")
+        # print(f"CXL device {dev_path} has been prepared with magic: numa{numa_node}.{numa_dev}")
     else:
         print(f"Warning: Could not extract numa info from {dev_path}")
 

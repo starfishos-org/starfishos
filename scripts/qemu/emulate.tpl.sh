@@ -176,11 +176,14 @@ else
 	hostfs_size_bytes=$(( ${hostfs_size%G} * 1024 * 1024 * 1024 ))
 fi
 
-# CXLFS has its own CXL-like ivshmem device.  VM startup never creates,
-# truncates, or clears it: its bytes are the authoritative filesystem image.
+# CXLFS has its own CXL-like ivshmem device.  Create or recreate it when the
+# built ramdisk no longer matches the persistent image.
+if ! "$project_root/dsm-scripts/prepare_cxlfs_dev.sh" ensure; then
+	echo "[FATAL] Failed to prepare CXLFS ivshmem device: $cxlfs_dev" >&2
+	exit 1
+fi
 if [ ! -f "$cxlfs_dev" ]; then
-	echo "[FATAL] CXLFS ivshmem device 不存在: $cxlfs_dev" >&2
-	echo "请先运行: ./dsm-scripts/prepare_cxlfs_dev.sh" >&2
+	echo "[FATAL] CXLFS ivshmem device does not exist: $cxlfs_dev" >&2
 	exit 1
 fi
 cxlfs_dev_file_size=$(stat -c%s "$cxlfs_dev")
