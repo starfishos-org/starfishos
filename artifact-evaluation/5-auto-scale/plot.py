@@ -33,9 +33,10 @@ Collect StarfishOS curves from a sweep then plot::
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import matplotlib
 
@@ -60,6 +61,21 @@ PAT_PHOENIX_US = re.compile(r"(?<!inter )library:\s*([\d.]+)")
 PAT_FINALIZE_US = re.compile(r"finalize:\s*([\d.]+)")
 PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
 PAT_EXEC_TIME = re.compile(r"exec_time[:=]\s*([\d.]+)")
+FLOAT_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+GEMINI_SAMPLE_RE = re.compile(
+    rf"^exec_time=({FLOAT_PATTERN})\(s\)\r?\n"
+    rf"pr_sum=({FLOAT_PATTERN})\r?\n"
+    rf"pr\[(\d+)\]=({FLOAT_PATTERN})\r?$",
+    re.MULTILINE,
+)
+# run.sh fixes the workload to twitter-2010.bin with 41,652,230 vertices and
+# 50 PageRank iterations.  Linux implementations differ slightly at high
+# thread counts, so this is a correctness corridor, not an equality check.
+GEMINI_VERTEX_COUNT = 41_652_230
+GEMINI_REFERENCE_PR_SUM = 38_256_454.72
+GEMINI_REFERENCE_MAX_VERTEX = 21_513_299
+GEMINI_REFERENCE_MAX_VALUE = 14_068.815162
+GEMINI_CORRECTNESS_REL_TOL = 1e-3
 
 CONFIG_TO_MATRIX = {
     "Mixed": "MIXED", "CXL": "CXL", "Ideal": "IDEAL",
@@ -127,7 +143,51 @@ def _extract_gemini_secs(text: str) -> Optional[float]:
     return _last_float(PAT_EXEC_TIME, text)
 
 
-def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
+def _relative_deviation(value: float, reference: float) -> float:
+    return abs(value - reference) / abs(reference)
+
+
+def _valid_gemini_samples(text: str, path_name: str) -> bool:
+    """Require complete, numerically sane PageRank records for this dataset."""
+    samples = [
+        (float(seconds), float(pr_sum), int(max_vertex), float(max_value))
+        for seconds, pr_sum, max_vertex, max_value
+        in GEMINI_SAMPLE_RE.findall(text)
+    ]
+    if not samples:
+        print(f"[WARN] no complete Gemini timing/checksum record in {path_name}")
+        return False
+
+    for sample_index, (seconds, pr_sum, max_vertex, max_value) in enumerate(
+        samples, start=1
+    ):
+        finite = all(math.isfinite(value) for value in (seconds, pr_sum, max_value))
+        sum_deviation = (
+            _relative_deviation(pr_sum, GEMINI_REFERENCE_PR_SUM)
+            if finite else float("inf")
+        )
+        max_deviation = (
+            _relative_deviation(max_value, GEMINI_REFERENCE_MAX_VALUE)
+            if finite else float("inf")
+        )
+        if (not finite or seconds <= 0 or pr_sum <= 0
+                or pr_sum > GEMINI_VERTEX_COUNT * (1 + GEMINI_CORRECTNESS_REL_TOL)
+                or not 0 <= max_vertex < GEMINI_VERTEX_COUNT
+                or max_vertex != GEMINI_REFERENCE_MAX_VERTEX
+                or max_value <= 0 or max_value > pr_sum
+                or sum_deviation > GEMINI_CORRECTNESS_REL_TOL
+                or max_deviation > GEMINI_CORRECTNESS_REL_TOL):
+            print(
+                f"[WARN] invalid Gemini PageRank result in {path_name} "
+                f"sample={sample_index}: seconds={seconds:g} pr_sum={pr_sum:g} "
+                f"max_vertex={max_vertex} max_value={max_value:g}"
+            )
+            return False
+    return True
+
+
+def collect_from_logs(log_dir: Path, results_dir: Path,
+                      required_logs: Iterable[str] = ()) -> Dict[str, Path]:
     """Convert run.sh sweep logs into the three plotter data files.
 
     Returns a dict of logical name -> written path for files that were produced.
@@ -136,6 +196,7 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
 
     matrix_lines: List[str] = []
     db1000_rows: List[Tuple[str, int, float]] = []
+    parsed_logs: Set[str] = set()
     # machine -> {Mixed: secs, CXL: secs}
     gemini: Dict[int, Dict[str, float]] = {}
 
@@ -145,7 +206,14 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
             continue
         app, config, n = m.group("app"), m.group("config"), int(m.group("n"))
         text = path.read_text(errors="replace")
-        standardized = list(AE_RESULT_RE.finditer(text))
+        expected_unit = {"matrix": "us", "db1000": "mops", "gemini": "s"}[app]
+        standardized = [
+            result for result in AE_RESULT_RE.finditer(text)
+            if result.group(1) == app
+            and result.group(2) == config
+            and int(result.group(3)) == n
+            and result.group(5) == expected_unit
+        ]
         std_value = float(standardized[-1].group(4)) if standardized else None
         if app == "matrix" and config in CONFIG_TO_MATRIX:
             us = std_value if std_value is not None else _extract_matrix_us(text)
@@ -155,18 +223,30 @@ def collect_from_logs(log_dir: Path, results_dir: Path) -> Dict[str, Path]:
             matrix_lines.append(
                 f"RESULT: N={n} CONFIG={CONFIG_TO_MATRIX[config]} TIME={int(us)}"
             )
+            parsed_logs.add(path.name)
         elif app == "db1000" and config in CONFIG_TO_DB1000:
             thp = std_value if std_value is not None else _extract_db1000_thp(text)
             if thp is None:
                 print(f"[WARN] no thp= in {path.name}")
                 continue
             db1000_rows.append((CONFIG_TO_DB1000[config], n, thp))
+            parsed_logs.add(path.name)
         elif app == "gemini":
+            if not _valid_gemini_samples(text, path.name):
+                continue
             secs = std_value if std_value is not None else _extract_gemini_secs(text)
-            if secs is None:
+            if secs is None or not math.isfinite(secs) or secs <= 0:
                 print(f"[WARN] no exec_time in {path.name}")
                 continue
             gemini.setdefault(n, {})[config] = secs
+            parsed_logs.add(path.name)
+
+    missing_required = sorted(set(required_logs) - parsed_logs)
+    if missing_required:
+        raise SystemExit(
+            "Missing or unparseable requested sweep logs: "
+            + ", ".join(missing_required)
+        )
 
     written: Dict[str, Path] = {}
 
@@ -369,11 +449,17 @@ def main():
     ap.add_argument("--gemini-data", type=Path, help="gemini machines,...,DISTRIBUTED CSV/log")
     ap.add_argument("--allow-partial", action="store_true",
                     help="debug only: plot available series/points")
+    ap.add_argument("--require-log", action="append", default=[], metavar="BASENAME",
+                    help="require this requested sweep log to contain its matching metric; repeatable")
     args = ap.parse_args()
 
     fig_dir = args.out_dir / "figures"
+    if args.require_log and not args.log_dir:
+        ap.error("--require-log requires --log-dir")
     if args.log_dir:
-        written = collect_from_logs(args.log_dir, args.out_dir / "results")
+        written = collect_from_logs(
+            args.log_dir, args.out_dir / "results", args.require_log
+        )
         args.matrix_data = args.matrix_data or written.get("matrix")
         args.db1000_data = args.db1000_data or written.get("db1000")
         args.gemini_data = args.gemini_data or written.get("gemini")

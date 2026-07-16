@@ -13,6 +13,7 @@
 #   ae_kill_cluster              - tear down the tmux session + reap stray QEMU
 #   ae_stop_tmux_and_reap [sess] - kill one tmux session + reap stray QEMU
 #   ae_ensure_clean_tmux         - kill all AE/QEMU tmux sessions + stray QEMU
+#   ae_release_memdev_backing    - safely free this user's StarfishOS tmpfs files
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
 #   ae_save_build_configs / ae_restore_build_configs
@@ -698,6 +699,27 @@ ae_ensure_clean_tmux() {
     ae_kill_all_ae_sessions
     ae_reap_leftover_qemu
     ae_wait_qemu_gone "${AE_QEMU_REAP_TIMEOUT:-30}"
+}
+
+# Release the large per-user StarfishOS backing files before a host-level
+# baseline such as Tigon preallocates its own VM memory.  Do not kill an
+# unexpected guest here: the caller holds the runner lock, and a live ChCore
+# QEMU indicates an external/manual user that must be investigated instead.
+ae_release_memdev_backing() {
+    if ae_has_chcore_qemu; then
+        echo "[AE] refusing to release memdev backing files while ChCore QEMU is running" >&2
+        return 1
+    fi
+
+    # Preflight before stopping even the per-user doorbell, then repeat inside
+    # the removal command after it stops, so the complete fixed path set is
+    # checked before any backing file is deleted under the official lock.
+    "$AE_REPO_ROOT/dsm-scripts/clean_memdev.sh" \
+        --check --sudo-fuser || return 1
+    "$AE_REPO_ROOT/dsm-scripts/kill_ivshmem_server.sh" || return 1
+    "$AE_REPO_ROOT/dsm-scripts/clean_memdev.sh" --sudo-fuser || return 1
+    echo "[AE] Released this user's StarfishOS /dev/shm backing files."
+    echo "[AE] Run artifact-evaluation/prepare.sh before the next StarfishOS experiment."
 }
 
 # First-time OS prepare (equivalent to `make prepare`'s build step).

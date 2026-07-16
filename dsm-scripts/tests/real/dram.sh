@@ -14,7 +14,7 @@ pca="pca.bin -c 2000 -r 2000 -t 8 &"
 # library time
 word_count="word_count.bin -f word_100MB.txt -t 8 &"
 # MB/s
-leveldb="leveldb-dbbench.bin --benchmarks=fillbatch --num=100000 --db=/tmp --threads=8 &"
+leveldb="leveldb-dbbench.bin --benchmarks=fillbatch --num=100000 --db=/tmp --threads=8 --write_num_is_total=1 &"
 # thp
 dbx1000="rundb.bin -t8 -r1 -w0 -z0.6 &"
 # op/s

@@ -20,36 +20,7 @@ LOG_FILE="$LOG_DIR/server.log"
 # Function to cleanup old resources
 cleanup_old_resources() {
     echo "Cleaning up old resources..."
-    
-    # Kill old ivshmem-server process if running
-    if [ -f "$PID_FILE" ]; then
-        OLD_PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
-        if [ -n "$OLD_PID" ] && [ -L "/proc/$OLD_PID/exe" ] \
-            && [ "$(basename "$(readlink -f "/proc/$OLD_PID/exe")")" = "ivshmem-server" ]; then
-            echo "  Killing old ivshmem-server process (PID: $OLD_PID)"
-            kill "$OLD_PID" 2>/dev/null || true
-            sleep 1
-            # Force kill if still running
-            if ps -p "$OLD_PID" > /dev/null 2>&1; then
-                kill -9 "$OLD_PID" 2>/dev/null || true
-            fi
-        fi
-        rm -f "$PID_FILE"
-    fi
-    
-    # Also check for any other ivshmem-server processes using this socket
-    if [ -e "$SOCKET_PATH" ]; then
-        echo "  Removing old socket: $SOCKET_PATH"
-        rm -f "$SOCKET_PATH"
-    fi
-    
-    # Clean up shared memory if exists
-    if [ -e "/dev/shm/$SHM_NAME" ]; then
-        echo "  Removing old shared memory: /dev/shm/$SHM_NAME"
-        rm -f "/dev/shm/$SHM_NAME"
-    fi
-    
-    # Wait a bit for cleanup to complete
+    "$SCRIPT_DIR/kill_ivshmem_server.sh"
     sleep 0.5
 }
 
@@ -86,14 +57,17 @@ echo "  Log: $LOG_FILE"
 echo ""
 
 mkdir -p "$LOG_DIR"
-nohup "$IVSHMEM_SERVER" -F -v \
+server_pid="$(python3 "$SCRIPT_DIR/spawn_detached.py" \
+    --log "$LOG_FILE" -- \
+    "$IVSHMEM_SERVER" -F -v \
     -S "$SOCKET_PATH" \
     -M "$SHM_NAME" \
     -l "$SHM_SIZE" \
-    -n "$VECTORS" \
-    > "$LOG_FILE" 2>&1 &
-
-server_pid=$!
+    -n "$VECTORS")"
+[[ "$server_pid" =~ ^[0-9]+$ ]] || {
+    echo "Failed to obtain ivshmem-server PID: $server_pid" >&2
+    exit 1
+}
 echo "$server_pid" > "$PID_FILE"
 
 for _ in $(seq 1 50); do
@@ -108,8 +82,9 @@ for _ in $(seq 1 50); do
 done
 if [ ! -S "$SOCKET_PATH" ]; then
     echo "ivshmem-server did not create $SOCKET_PATH; see $LOG_FILE" >&2
-    kill "$server_pid" 2>/dev/null || true
-    rm -f "$PID_FILE"
+    if ! "$SCRIPT_DIR/kill_ivshmem_server.sh"; then
+        echo "Scoped ivshmem-server cleanup failed; runtime files were preserved." >&2
+    fi
     exit 1
 fi
 

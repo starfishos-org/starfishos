@@ -43,5 +43,10 @@ fi
 # This prevents OOM killer from killing qemu when the preferred node runs out of memory
 # -N: bind to CPUs on node $vm_id
 # --preferred: prefer node $vm_id but allow allocation from other nodes if needed
-# numactl -N $vm_id --preferred=$vm_id 
+# numactl -N $vm_id --preferred=$vm_id
+set +e
 $qemu $qemu_options
+qemu_rc=$?
+set -e
+echo "[QEMU-EXIT] vm_id=$vm_id rc=$qemu_rc"
+exit "$qemu_rc"

@@ -20,6 +20,7 @@
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #include <drivers/ivshmem.h>
+#include <arch/sync.h>
 #define rr_shared_queue     (dsm_meta->shared_queue)
 #define rr_cur_shared_queue (dsm_meta->shared_queue[cpuid_l2g(smp_get_cpu_id())])
 #endif
@@ -755,17 +756,41 @@ int rr_sched_init(void)
     }
 
 #ifdef DSM_ENABLED
-    /* Initialize thread_dq pool once (machine 0 only) */
+    /*
+     * The node pool and queue sentinels are shared by the whole cluster.
+     * Initializing the queues on every machine consumes 1024 sentinels per
+     * machine and exhausts the 4095-node free list on machine 3.  Publish the
+     * complete structure once, after every queue head and lock is ready.
+     */
     if (CUR_MACHINE_ID == 0) {
-        thread_dq_pool_init();
-    }
+        /* sched_init() is also called by the runtime shutdown/restore path.
+         * Do not rebuild a live cluster-wide allocator in that case.  The
+         * full-cluster AE cold-boot path (which assumes no live peers)
+         * explicitly invalidates READY before arriving here. */
+        if (__atomic_load_n(&dsm_meta->thread_dq_pool.init_state,
+                            __ATOMIC_ACQUIRE)
+            != THREAD_DQ_POOL_READY) {
+            __atomic_store_n(&dsm_meta->thread_dq_pool.init_state,
+                             THREAD_DQ_POOL_INITIALIZING,
+                             __ATOMIC_RELAXED);
+            thread_dq_pool_init();
 
-    /* Initialize shared queue heads and locks for all CPUs */
-    for (i = 0; i < CLUSTER_MAX_CPU_NUM; i++) {
-        if (thread_dq_init(&(rr_shared_queue[i])) != 0) {
-            kwarn("Failed to initialize shared queue %d\n", i);
-            return -ENOMEM;
+            for (i = 0; i < CLUSTER_MAX_CPU_NUM; i++) {
+                if (thread_dq_init(&(rr_shared_queue[i])) != 0) {
+                    kwarn("Failed to initialize shared queue %d\n", i);
+                    return -ENOMEM;
+                }
+            }
+
+            __atomic_store_n(&dsm_meta->thread_dq_pool.init_state,
+                             THREAD_DQ_POOL_READY,
+                             __ATOMIC_RELEASE);
         }
+    } else {
+        while (__atomic_load_n(&dsm_meta->thread_dq_pool.init_state,
+                               __ATOMIC_ACQUIRE)
+               != THREAD_DQ_POOL_READY)
+            CPU_PAUSE();
     }
 #endif
     return 0;

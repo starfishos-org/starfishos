@@ -42,6 +42,76 @@ OUT_DIR="${OUT_DIR:-$AE_DIR/out/$TS}"
 AE_LOG_DIR="$OUT_DIR/logs"
 TIMEOUT="${TIMEOUT:-1800}"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
+
+# Validate every scope selector before taking the global runner lock or
+# changing host/repository state.  Reordering a complete set (or changing its
+# whitespace) still counts as a complete 36-point request.
+ALL_STRESS_TYPES="1 2 3 4 5 6"
+ALL_CONDS="single stress p3os"
+ALL_SINGLE_BENCHES="matrix leveldb linear-regression dbx1000 pca redis word-count memcached gemini string-match kmeans cnn"
+STRESS_TYPES="${STRESS_TYPES-$ALL_STRESS_TYPES}"
+CONDS="${CONDS-$ALL_CONDS}"
+SINGLE_BENCHES="${SINGLE_BENCHES-$ALL_SINGLE_BENCHES}"
+
+validate_scope_list() {
+    local label="$1" raw="$2"
+    shift 2
+    local -a values=() normalized=() seen_values=()
+    local value allowed seen found
+
+    case "$raw" in
+        *$'\n'*|*$'\r'*)
+            echo "[AE] $label must be a whitespace-separated single line" >&2
+            return 1
+            ;;
+    esac
+    read -r -a values <<< "$raw"
+    if [ "${#values[@]}" -eq 0 ]; then
+        echo "[AE] $label must select at least one value" >&2
+        return 1
+    fi
+    for value in "${values[@]}"; do
+        found=0
+        for allowed in "$@"; do
+            if [ "$value" = "$allowed" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ "$found" != "1" ]; then
+            echo "[AE] unknown $label value: $value" >&2
+            return 1
+        fi
+        for seen in "${seen_values[@]}"; do
+            if [ "$value" = "$seen" ]; then
+                echo "[AE] duplicate $label value: $value" >&2
+                return 1
+            fi
+        done
+        seen_values+=("$value")
+        normalized+=("$value")
+    done
+    VALIDATED_SCOPE="${normalized[*]}"
+}
+
+validate_scope_list STRESS_TYPES "$STRESS_TYPES" 1 2 3 4 5 6 || exit 1
+STRESS_TYPES="$VALIDATED_SCOPE"
+validate_scope_list CONDS "$CONDS" single stress p3os || exit 1
+CONDS="$VALIDATED_SCOPE"
+validate_scope_list SINGLE_BENCHES "$SINGLE_BENCHES" \
+    matrix leveldb linear-regression dbx1000 pca redis word-count memcached \
+    gemini string-match kmeans cnn || exit 1
+SINGLE_BENCHES="$VALIDATED_SCOPE"
+
+FULL_PLOT_REQUEST=0
+if [ "$(wc -w <<< "$STRESS_TYPES")" -eq "$(wc -w <<< "$ALL_STRESS_TYPES")" ] \
+    && [ "$(wc -w <<< "$CONDS")" -eq "$(wc -w <<< "$ALL_CONDS")" ] \
+    && [ "$(wc -w <<< "$SINGLE_BENCHES")" -eq "$(wc -w <<< "$ALL_SINGLE_BENCHES")" ]; then
+    FULL_PLOT_REQUEST=1
+fi
+
+ae_acquire_run_lock "resource-util" || exit 1
+
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/dbx1000-config.h"
 
@@ -85,14 +155,10 @@ restore_generated_tree() {
     return "$failed"
 }
 
+mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
+
 snapshot_generated_tree tinycnn "$AE_REPO_ROOT/user/demos/VeryTinyCnn" \
     include/CImg.h data image
-
-# The 6 co-location groups (paper dram_groups / single_stress_typeN order).
-STRESS_TYPES="${STRESS_TYPES:-1 2 3 4 5 6}"
-CONDS="${CONDS:-single stress p3os}"
-
-mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
 
 WELCOME="Welcome to ChCore shell!"
 
@@ -141,12 +207,15 @@ single_marker() {
 # experiment timeout instead of treating 120 seconds of silence as a hang.
 wait_for_bench() {
     local machine="$1" bench="$2" marker="$3" label="$4"
+    local watch_count="${5:-1}"
     case "$bench" in
-        matrix|linear-regression|pca|kmeans|cnn|gemini|memcached)
-            AE_LOG_STALL_S=0 ae_wait_in_log "$machine" "$marker" "$TIMEOUT" "$label"
+        matrix|linear-regression|pca|kmeans|cnn|gemini|leveldb|memcached)
+            AE_LOG_STALL_S=0 ae_wait_in_log \
+                "$machine" "$marker" "$TIMEOUT" "$label" "$watch_count"
             ;;
         *)
-            ae_wait_in_log "$machine" "$marker" "$TIMEOUT" "$label"
+            ae_wait_in_log \
+                "$machine" "$marker" "$TIMEOUT" "$label" "$watch_count"
             ;;
     esac
 }
@@ -179,8 +248,6 @@ run_single_app() {
     esac
 }
 
-SINGLE_BENCHES="matrix leveldb linear-regression dbx1000 pca redis word-count memcached gemini string-match kmeans cnn"
-
 ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
 ae_ensure_base_build
@@ -207,6 +274,11 @@ cleanup() {
     exit "$rc"
 }
 trap cleanup EXIT
+
+# Resource-util is a fixed placement experiment.  Do not inherit allocation
+# policy from a preceding state-partition or auto-scale run.
+ae_set_dsm_var DSM_MALLOC_MODE MIXED_DEFAULT_CXL
+ae_set_dsm_var DSM_USER_MALLOC_MODE DEFAULT_DRAM
 
 "$AE_DIR/prepare_cnn.sh"
 for demo in REDIS MEMCACHED MEMCACHETEST TINYCNN; do
@@ -241,17 +313,27 @@ link_bench_log() {
 }
 
 run_single_baselines() {
-    local bench marker wait_rc
+    local bench marker wait_rc failed=0
     echo "### real: single baselines (one app per 1-machine boot)"
     for bench in $SINGLE_BENCHES; do
         marker="$(single_marker "$bench")"
+        rm -f -- "$AE_LOG_DIR/${bench}_single.log"
         echo "### single: $bench"
-        ae_boot_cluster 1 || { ae_kill_cluster; continue; }
-        run_single_app "$bench"
+        if ! ae_boot_cluster 1; then
+            failed=1
+            ae_kill_cluster
+            continue
+        fi
+        if ! run_single_app "$bench"; then
+            failed=1
+            ae_kill_cluster
+            continue
+        fi
         if wait_for_bench 0 "$bench" "$marker" "single/$bench"; then
             wait_rc=0
         else
             wait_rc=$?
+            failed=1
         fi
         if [ "$wait_rc" -eq 0 ]; then
             sleep 2
@@ -259,17 +341,25 @@ run_single_baselines() {
         cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${bench}_single.log" || true
         ae_kill_cluster
     done
+    return "$failed"
 }
 
 # stress condition (traditional, single machine): source single_stress_typeN.sh
 run_stress_type() {
     local type="$1" bench src marker failed=0
     echo "### real: stress (traditional) type $type"
+    # _demux_type_logs() may reconstruct per-benchmark logs from this archive.
+    # Remove it before boot so a failed retry cannot resurrect stale metrics.
+    rm -f -- "$AE_LOG_DIR/machine0-stress-type${type}.log"
+    for bench in $(stress_type_benches "$type"); do
+        rm -f -- "$AE_LOG_DIR/${bench}_stress.log"
+    done
     ae_boot_cluster 1 || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source single_stress_type${type}.sh"
     for bench in $(stress_type_benches "$type"); do
         marker="$(single_marker "$bench")"
-        if ! wait_for_bench 0 "$bench" "$marker" "stress/type${type}/$bench"; then
+        if ! wait_for_bench 0 "$bench" "$marker" \
+            "stress/type${type}/$bench" 1; then
             failed=1
             break
         fi
@@ -287,6 +377,14 @@ run_stress_type() {
 run_cross_type() {
     local type="$1" entry bench mach src marker failed=0
     echo "### real: p3os (StarfishOS cross-machine) type $type"
+    # These archives are fallback inputs to _demux_type_logs(); invalidate both
+    # before boot for the same reason as the standard per-benchmark logs.
+    rm -f -- "$AE_LOG_DIR/machine0-p3os-type${type}.log" \
+        "$AE_LOG_DIR/machine1-p3os-type${type}.log"
+    for entry in $(cross_type_bench_machines "$type"); do
+        bench="${entry%%:*}"
+        rm -f -- "$AE_LOG_DIR/${bench}_p3os.log"
+    done
     ae_boot_cluster 2 || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source cross_stress_type${type}_m0.sh"
     ae_send_command 1 "source cross_stress_type${type}_m1.sh"
@@ -294,7 +392,8 @@ run_cross_type() {
         bench="${entry%%:*}"
         mach="${entry##*:}"
         marker="$(single_marker "$bench")"
-        if ! wait_for_bench "$mach" "$bench" "$marker" "p3os/type${type}/$bench"; then
+        if ! wait_for_bench "$mach" "$bench" "$marker" \
+            "p3os/type${type}/$bench" 2; then
             failed=1
         fi
     done
@@ -312,7 +411,7 @@ run_cross_type() {
 failed=0
 for cond in $CONDS; do
     case "$cond" in
-        single) run_single_baselines ;;
+        single) run_single_baselines || failed=1 ;;
         stress) for t in $STRESS_TYPES; do run_stress_type "$t" || failed=1; done ;;
         p3os)   for t in $STRESS_TYPES; do run_cross_type "$t" || failed=1; done ;;
     esac
@@ -320,9 +419,48 @@ done
 
 echo ""
 echo "=== Parsing + plotting real (resource-util) ==="
-python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR" || failed=1
+plot_args=(--log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR")
+if [ "$FULL_PLOT_REQUEST" != "1" ]; then
+    plot_args+=(--allow-partial)
+fi
+for cond in $CONDS; do
+    case "$cond" in
+        single)
+            for bench in $SINGLE_BENCHES; do
+                plot_args+=(--require-point "${bench}-single")
+            done
+            ;;
+        stress)
+            for t in $STRESS_TYPES; do
+                for bench in $(stress_type_benches "$t"); do
+                    plot_args+=(--require-point "${bench}-stress")
+                done
+            done
+            ;;
+        p3os)
+            for t in $STRESS_TYPES; do
+                for entry in $(cross_type_bench_machines "$t"); do
+                    bench="${entry%%:*}"
+                    plot_args+=(--require-point "${bench}-p3os")
+                done
+            done
+            ;;
+    esac
+done
+plot_succeeded=1
+python3 "$AE_DIR/plot.py" "${plot_args[@]}" || {
+    failed=1
+    plot_succeeded=0
+}
 
 echo ""
-echo "real figure target: $OUT_DIR/figures/real.{eps,pdf,png}"
+echo "real CSV target: $OUT_DIR/results/real.csv"
+if [ "$plot_succeeded" = "1" ] && [ -f "$OUT_DIR/figures/real.png" ]; then
+    echo "real figure target: $OUT_DIR/figures/real.{eps,pdf,png}"
+elif [ "$plot_succeeded" = "1" ]; then
+    echo "real figure not generated (no complete single/stress/p3os triplet)"
+else
+    echo "real outputs incomplete: parsing/plotting failed"
+fi
 ae_finish
 exit "$failed"

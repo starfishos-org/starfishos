@@ -58,6 +58,15 @@ listed as `AE_WARNING` records but remain in the reported average. Detection is
 relative to the measured-sample median (relative tolerances `5e-5` for PageRank
 checksums and `5e-2` for high latency).
 
+All Gemini series collected from raw logs must also contain complete
+`exec_time`/`pr_sum`/maximum-vertex records. Before a point enters a figure,
+the collector checks the fixed twitter-2010/50-iteration result against its
+known PageRank checksum and maximum vertex/value with a `1e-3` relative
+correctness corridor, plus finite-value and vertex-range checks. The StarfishOS
+runner waits for the final maximum-vertex line before archiving a guest log. A
+truncated or numerically divergent run is therefore rejected as an unparseable
+requested point instead of being plotted.
+
 Linux baseline build state is isolated under `out/<timestamp>/linux-build`.
 Phoenix and Gemini use out-of-source CMake trees. DBx1000 is built from a clean
 materialization of its current tracked and nonignored-untracked files, so local
@@ -68,15 +77,47 @@ Env overrides: `APPS` (`matrix db1000 gemini`), `MACHINES` (`1 2 4 6 8`),
 `CONFIGS` (`Mixed CXL`), `TIMEOUT`, `OUT_DIR`, `RUN_BASELINES` (default `1`),
 `BASELINE_STAGES` (`linux,matrix-tcp,tigon`), `TIGON_DIR`, `TIGON_SETUP`.
 `TIGON_IMAGE_ATTEMPTS` controls transient image-build retries (default `3`).
+Scope-list ordering and surrounding whitespace do not affect completeness;
+unknown or duplicate values are rejected before the runner lock or any state
+change.
 Verbose image-builder output is connected directly to
 `logs/tigon-image-build-attempt<N>.log`; the controller prints only periodic
 status lines and never retries a build interrupted by `SIGINT`, `SIGTERM`, or
 `SIGHUP`.
 
+Matrix finalization, DBx1000 table initialization, and GeminiGraph graph
+loading/processing can be serial-console silent for several minutes. Their
+workload waits therefore rely on `TIMEOUT` while continuing to scan every
+guest for fatal errors and tmux-pane loss; boot waits retain the normal
+serial-log stall detector.
+
+For the pinned Tigon revision, VM startup temporarily applies
+`patches/tigon-vm-compat.patch` and restores the checkout exactly afterward.
+The patch copies sparse VM disks through atomic `.partial` files with
+`cp --sparse=always --reflink=auto`, uses `aio=threads`, namespaces TAP devices
+as `tigon-tap<N>` behind `tigon-br0`, and moves the default single-backend NUMA
+binding to `numactl`. A checkout that already contains the complete patch is
+used as-is; partially applied or conflicting VM-source edits fail before host
+state is changed by the VM-start stage. A root-owned cross-user host lock
+serializes the fixed-name network/sysctl stage, and startup refuses
+pre-existing interfaces in that Tigon namespace. If startup fails, it removes
+only the interfaces created by that locked attempt and restores
+`net.ipv4.ip_forward` when the attempt changed it from `0` to `1`.
+
 The runner holds a nonblocking per-user lock for its full lifetime. A second
 auto-scale invocation, including one from another checkout, exits with the
 recorded holder PID/repository instead of cleaning or restarting shared QEMU,
 tmux, ivshmem, or host-tuning state underneath the active run.
+Doorbell daemons restarted during a boot retry are spawned with all inherited
+non-stdio descriptors closed, so they cannot keep that runner lock after the
+owning shell exits.
+
+Before a pending Tigon setup, `run.sh` releases the completed StarfishOS
+sweep's large per-user `/dev/shm` backing files so eight Tigon guests can
+preallocate local memory. It preflights the complete fixed path set before
+stopping this user's recorded doorbell server, rechecks immediately before
+removal, refuses files still mapped by a process, and never uses a wildcard.
+Run `artifact-evaluation/prepare.sh` again before a later StarfishOS experiment.
 
 The first Tigon run performs its upstream host/VM setup and therefore needs
 passwordless/non-interactive `sudo`, 8 VM capacity, and the hardware layout
@@ -99,7 +140,10 @@ python3 artifact-evaluation/5-auto-scale/plot.py --out-dir /tmp/as-check \
 
 ## Completeness contract
 
-The normal path requires all 5 machine counts for every plotted series: 20
-Matrix points, 20 DBx1000 points, and 20 Gemini points. Missing logs, metrics,
-or points terminate the run/plot with an error. `--allow-partial` exists only
-for debugging an interrupted collection.
+The default full run requires all 5 machine counts for every plotted series:
+20 Matrix points, 20 DBx1000 points, and 20 Gemini points. Missing logs,
+metrics, or points terminate the run/plot with an error. A run that explicitly
+narrows `APPS`, `MACHINES`, `CONFIGS`, or baseline collection automatically
+plots its available points with `--allow-partial`; measurement, parsing, and
+rendering failures still terminate the run. `--allow-partial` can also be used
+directly when debugging an interrupted collection.

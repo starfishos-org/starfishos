@@ -63,7 +63,17 @@ python3 artifact-evaluation/4-state-partition/plot.py \
 `BENCHS`, `CONFIGS`, `NUM_MACHINES` (default 2), `TIMEOUT` (default 1200 s),
 `OUT_DIR`.
 
-The default run always collects the full 6 × 4 matrix. DBx1000 is rebuilt with
+The default run collects the full 6 × 4 matrix and requires every point before
+drawing the paper figure. `BENCHS` and `CONFIGS` may select a whitespace-
+separated subset; their Cartesian product remains mandatory, while unrelated
+points are allowed to be absent. Unknown, duplicate, multiline, and empty
+selectors are rejected before output or build state is changed. A subset that
+does not include an `All_DRAM` value cannot be normalized: the plotter still
+writes the raw and normalized CSV files, emits a warning, and skips the figure
+instead of inventing baseline data. Include `All_DRAM` when a subset figure is
+desired.
+
+DBx1000 is rebuilt with
 `NUM_MACHINES` total warehouses (one per machine at the default two-machine
 scale), and that total remains fixed for the single-machine All-DRAM baseline
 so the working set is comparable. Override it with `DBX_NUM_WH`, which must be
@@ -71,6 +81,9 @@ a positive multiple of `NUM_MACHINES`; `DBX_WARMUP` and `DBX_MAX_TXN` control
 the reduced run length, and `DBX_TIMEOUT` (default 3600 s) bounds its silent
 TPC-C initialization and execution phases. Fatal guest signatures and dead
 tmux windows are still detected on every active machine during that interval;
-on failure, all per-machine serial logs are archived before teardown. Missing
-points are fatal by default; use `plot.py --allow-partial` only to inspect an
-interrupted sweep.
+the main `TIMEOUT` similarly bounds LevelDB and Phoenix workload phases that
+may be serial-console silent for more than 120 seconds. On failure, all
+per-machine serial logs are archived before teardown. Missing points are fatal
+by default; direct plotter users may combine repeatable
+`--require-point BENCH/CONFIG` arguments with `--allow-partial` to require the
+requested measurements while ignoring unrelated points.

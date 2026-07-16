@@ -14,6 +14,16 @@ void dsm_add_machine()
 
     /* Initialize machine_to_peer_id array if this is the first machine */
     if (CUR_MACHINE_ID == 0) {
+        /*
+         * prepare_cxlmem resets only the metadata prefix, while the durable
+         * queue pool lives farther into the shared region and can retain
+         * READY from an earlier boot.  The AE launcher performs a full-cluster
+         * cold boot with no live peers; under that precondition, invalidate
+         * the state before machine 0's join message starts secondaries.
+         */
+        __atomic_store_n(&dsm_meta->thread_dq_pool.init_state,
+                         THREAD_DQ_POOL_INITIALIZING,
+                         __ATOMIC_RELEASE);
         for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
             dsm_meta->machine_to_peer_id[i] = 0xFFFFFFFF; /* Uninitialized */
         }

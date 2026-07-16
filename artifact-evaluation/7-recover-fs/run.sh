@@ -288,7 +288,7 @@ fi
 # count, so it does not probe keys outside the populated database.
 m0_log="$LOG_DIR/machine0.log"
 pre_fill_line=$(($(wc -l < "$m0_log") + 1))
-tmux send-keys -t "$SESSION:0" "leveldb-dbbench.bin --benchmarks=fillbatch,readrandom --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS" Enter
+tmux send-keys -t "$SESSION:0" "leveldb-dbbench.bin --benchmarks=fillbatch,readrandom --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS --write_num_is_total=1" Enter
 wait_for_log "$m0_log" 'fillbatch.*micros/op' 'machine 0 database populated' "$pre_fill_line"
 pre_fill_ops="$(benchmark_rate_ops "$m0_log" fillbatch "$pre_fill_line")"
 require_rate 'pre-crash fill' "$pre_fill_ops"
@@ -328,7 +328,7 @@ plog_errors="$(sed -nE 's/.*\[plog\] Replay done: ([0-9]+) entries, ([0-9]+) err
 leveldb_line=$(($(wc -l < "$m1_log") + 1))
 leveldb_start_ns="$(now_ns)"
 recovery_cpu_offset=$((RECOVERY_MACHINE * CPUS_PER_MACHINE))
-tmux send-keys -t "$SESSION:1" "leveldb-dbbench.bin --benchmarks=readrandom,readrandom,overwrite --use_existing_db=1 --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS --thread_bind_cpu_offset=$recovery_cpu_offset" Enter
+tmux send-keys -t "$SESSION:1" "leveldb-dbbench.bin --benchmarks=readrandom,readrandom,overwrite --use_existing_db=1 --num=$FILL_NUM --reads=$READ_NUM --db=$DB_PATH --threads=$THREADS --write_num_is_total=1 --thread_bind_cpu_offset=$recovery_cpu_offset" Enter
 wait_for_log "$m1_log" '\[TIMING\] leveldb_restart \(open existing db\):' 'LevelDB reopened on machine 1' "$leveldb_line"
 leveldb_ready_ns="$(now_ns)"
 # Match LevelDB's standard db_bench sequence. Record both the first recovered

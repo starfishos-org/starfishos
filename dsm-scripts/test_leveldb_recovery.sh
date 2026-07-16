@@ -60,7 +60,7 @@ echo "Both machines ready."
 # Phase 1: Machine 0 runs leveldb fillbatch to populate database
 echo ""
 echo "=== Phase 1: Machine 0 starts LevelDB fillbatch ==="
-tmux send -t "$session_name:0" "leveldb-dbbench.bin --benchmarks=fillbatch --num=100000 --db=/tmp/leveldb_test --threads=8" ENTER
+tmux send -t "$session_name:0" "leveldb-dbbench.bin --benchmarks=fillbatch --num=100000 --db=/tmp/leveldb_test --threads=8 --write_num_is_total=1" ENTER
 
 # Wait briefly for LevelDB to start and write some entries to the p-log
 wait_marker exec_log0.log "fillbatch" "Fillbatch started on machine 0" || exit 1

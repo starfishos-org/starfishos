@@ -151,6 +151,35 @@ def require_complete(data):
         )
 
 
+def parse_required_points(raw_points, parser):
+    """Validate repeatable BENCH/CONFIG selectors from the runner."""
+    points = []
+    seen = set()
+    for raw in raw_points:
+        parts = raw.split("/")
+        if len(parts) != 2 or parts[0] not in BENCHS or parts[1] not in CONFIGS:
+            parser.error(
+                f"invalid --require-point {raw!r}; expected BENCH/CONFIG "
+                "using a known state-partition benchmark and configuration"
+            )
+        point = (parts[0], parts[1])
+        if point in seen:
+            parser.error(f"duplicate --require-point: {raw}")
+        seen.add(point)
+        points.append(point)
+    return points
+
+
+def require_requested(data, points):
+    missing = [f"{bench}/{cfg}" for bench, cfg in points
+               if data[bench][cfg] is None]
+    if missing:
+        raise SystemExit(
+            "Requested state-partition points are missing or unparseable: "
+            + ", ".join(missing)
+        )
+
+
 def load_paper_csv(path: Path):
     """Load the row-per-configuration CSV format used by the paper."""
     data = {b: {c: None for c in CONFIGS} for b in BENCHS}
@@ -169,7 +198,8 @@ def normalize(data):
     for bench in BENCHS:
         base = data[bench]["All_DRAM"]
         if not base:
-            print(f"[WARN] cannot normalize {bench}: All_DRAM value missing/zero")
+            if any(data[bench][cfg] is not None for cfg in CONFIGS):
+                print(f"[WARN] cannot normalize {bench}: All_DRAM value missing/zero")
             continue
         for cfg in CONFIGS:
             v = data[bench][cfg]
@@ -194,7 +224,10 @@ def write_csvs(data, norm, results_dir: Path):
         w = csv.writer(f)
         w.writerow(["config"] + BENCHS)
         for cfg in CONFIGS:
-            w.writerow([CONFIG_LABEL[cfg]] + [f"{norm[b][cfg]:.4f}" for b in BENCHS])
+            w.writerow([CONFIG_LABEL[cfg]] + [
+                "" if np.isnan(norm[b][cfg]) else f"{norm[b][cfg]:.4f}"
+                for b in BENCHS
+            ])
 
 
 def plot(norm, fig_dir: Path):
@@ -207,7 +240,14 @@ def plot(norm, fig_dir: Path):
     benchs = [b for b in BENCHS
               if any(not np.isnan(norm[b][c]) for c in CONFIGS)]
     if not benchs:
-        raise SystemExit("No bench produced data; nothing to plot")
+        out = fig_dir / "state_partition"
+        for suffix in (".pdf", ".eps"):
+            stale = out.with_suffix(suffix)
+            if stale.exists():
+                stale.unlink()
+        print("[WARN] no normalized data are drawable (an All_DRAM baseline "
+              "is required); wrote CSV results and skipped the figure")
+        return False
 
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
@@ -247,6 +287,7 @@ def plot(norm, fig_dir: Path):
     plt.savefig(out.with_suffix(".eps"), format="eps", bbox_inches="tight")
     plt.close()
     print(f"Wrote {out}.pdf and .eps")
+    return True
 
 
 def main():
@@ -256,9 +297,15 @@ def main():
                     help="paper-format state_partition.csv (skip log parsing)")
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--allow-partial", action="store_true",
-                    help="debug only: draw available points instead of requiring all 24")
+                    help="allow unrelated points to be absent; requested points stay mandatory")
+    ap.add_argument("--require-point", action="append", default=[],
+                    metavar="BENCH/CONFIG",
+                    help="require this requested log to contain its metric; repeatable")
     args = ap.parse_args()
 
+    if args.require_point and not args.log_dir:
+        ap.error("--require-point requires --log-dir")
+    required_points = parse_required_points(args.require_point, ap)
     if args.csv:
         data = load_paper_csv(args.csv)
     elif args.log_dir:
@@ -267,6 +314,7 @@ def main():
         ap.error("either --log-dir or --csv is required")
     for bench in BENCHS:
         print(f"{bench}: " + ", ".join(f"{c}={data[bench][c]}" for c in CONFIGS))
+    require_requested(data, required_points)
     if not args.allow_partial:
         require_complete(data)
     norm = normalize(data)

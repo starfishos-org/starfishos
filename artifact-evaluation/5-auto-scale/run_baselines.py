@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import re
 import shutil
@@ -22,6 +23,12 @@ PAPER_TIGON_REV = "16f8007fa15bc853397b04e0747efc4f8c21ef25"
 MACHINES = [1, 2, 4, 6, 8]
 GEMINI_NUMERIC_REL_TOL = 5e-5
 GEMINI_HIGH_LATENCY_REL_TOL = 5e-2
+TIGON_BRIDGE = "tigon-br0"
+TIGON_NETWORK_INTERFACES = frozenset(
+    {TIGON_BRIDGE, *(f"tigon-tap{i}" for i in range(8))}
+)
+TIGON_HOST_LOCK_DIR = Path("/run/lock/starfishos-tigon-host")
+TIGON_HOST_LOCK = TIGON_HOST_LOCK_DIR / "runner.lock"
 FLOAT_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 GEMINI_SAMPLE_RE = re.compile(
     rf"^exec_time=({FLOAT_PATTERN})\(s\)\r?\n"
@@ -55,14 +62,31 @@ class CommandInterrupted(SystemExit):
     """A logged command was stopped by a signal sent to the collector."""
 
 
-def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
+def controller_status(message):
+    """Emit a best-effort diagnostic without making cleanup depend on a PTY."""
+    try:
+        print(message, flush=True)
+    except BrokenPipeError:
+        # Avoid another EPIPE from Python's interpreter-shutdown flush.
+        try:
+            sys.stdout = open(os.devnull, "w")
+        except OSError:
+            pass
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+
+def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0,
+                       privileged_process_group=False):
     """Run a verbose command with its output connected directly to ``log``.
 
     Unlike :func:`run`, this path never pipes child output through the
     collector's controlling PTY and never retains it in memory.  The child has
     its own process group so signals received by the collector can be
     forwarded to the whole command rather than leaving a privileged image
-    builder behind.
+    builder behind.  ``privileged_process_group`` is for a command whose
+    descendants become root through sudo; it repeats termination through a
+    non-interactive sudo invocation outside the Python signal handler.
     """
     if status_interval <= 0:
         raise ValueError("status_interval must be positive")
@@ -75,25 +99,20 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
     termination_deadline = None
     previous_handlers = {}
 
-    def status(message):
-        """Keep controller diagnostics from affecting the logged command."""
-        try:
-            print(message, flush=True)
-        except BrokenPipeError:
-            # Avoid another EPIPE from Python's interpreter-shutdown flush.
-            # Once the controller is gone, all later heartbeats are discarded.
-            try:
-                sys.stdout = open(os.devnull, "w")
-            except OSError:
-                pass
-        except (OSError, RuntimeError, ValueError):
-            # The controlling PTY may disappear while the image build is
-            # still healthy.  Its lifecycle must not depend on a heartbeat.
-            pass
-
     proc = None
 
-    def signal_process_group(signum):
+    def process_group_exists():
+        if proc is None:
+            return False
+        try:
+            os.killpg(proc.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def signal_process_group(signum, *, include_privileged=False):
         if proc is None:
             return
         try:
@@ -105,14 +124,46 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
             # descendant prevents signalling the whole group.
             try:
                 proc.send_signal(signum)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
+        if not include_privileged:
+            return
+
+        # The start-vms process group begins with sudo and then consists mostly
+        # of root-owned bash/Python/copy/helper processes.  A successful
+        # unprivileged killpg only means that it reached at least one permitted
+        # member; it does not prove that those privileged descendants stopped.
+        # Keep this subprocess call out of forward_signal(): Python signal
+        # handlers must not start or wait for another process.
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "/bin/kill", f"-{signum}", "--",
+                 f"-{proc.pid}"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            controller_status(
+                f"[AE] WARNING: could not signal privileged process group "
+                f"{proc.pid}: {exc}"
+            )
+            return
+        if result.returncode and process_group_exists():
+            controller_status(
+                f"[AE] WARNING: sudo could not signal privileged process "
+                f"group {proc.pid} (exit {result.returncode})"
+            )
 
     def terminate_process_group():
         """Best-effort cleanup for every controller-side error."""
         if proc is None:
             return
-        signal_process_group(signal.SIGTERM)
+        signal_process_group(
+            signal.SIGTERM,
+            include_privileged=privileged_process_group,
+        )
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -121,11 +172,17 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
             pass
         # The leader may exit before a sudo/nspawn descendant.  Kill any
         # remaining members of its still-unique process group.
-        signal_process_group(signal.SIGKILL)
+        signal_process_group(
+            signal.SIGKILL,
+            include_privileged=privileged_process_group,
+        )
         try:
             proc.wait(timeout=5)
         except (subprocess.TimeoutExpired, OSError):
             pass
+        group_deadline = time.monotonic() + 5
+        while process_group_exists() and time.monotonic() < group_deadline:
+            time.sleep(0.05)
 
     def forward_signal(signum, _frame):
         nonlocal interrupted_by, termination_deadline
@@ -134,7 +191,8 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
             termination_deadline = time.monotonic() + 10.0
         # If Popen has returned, forward immediately.  During the tiny spawn
         # window proc is still None; the post-Popen check below forwards it.
-        signal_process_group(signum)
+        if not privileged_process_group:
+            signal_process_group(signum)
 
     handled_signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
     try:
@@ -157,21 +215,36 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
+            forwarded_interruption = None
             if interrupted_by is not None:
-                signal_process_group(interrupted_by)
+                signal_process_group(
+                    interrupted_by,
+                    include_privileged=privileged_process_group,
+                )
+                forwarded_interruption = interrupted_by
 
             started = time.monotonic()
             next_status = started + status_interval
             while proc.poll() is None:
                 now = time.monotonic()
                 if (interrupted_by is not None
+                        and forwarded_interruption != interrupted_by):
+                    signal_process_group(
+                        interrupted_by,
+                        include_privileged=privileged_process_group,
+                    )
+                    forwarded_interruption = interrupted_by
+                if (interrupted_by is not None
                         and termination_deadline is not None
                         and now >= termination_deadline):
-                    status(
+                    controller_status(
                         "[AE] Logged command did not stop after its signal; "
                         "killing its process group"
                     )
-                    signal_process_group(signal.SIGKILL)
+                    signal_process_group(
+                        signal.SIGKILL,
+                        include_privileged=privileged_process_group,
+                    )
                     termination_deadline = None
                 if now >= next_status:
                     elapsed = int(now - started)
@@ -183,15 +256,20 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
                         f"{log_bytes} bytes"
                         if log_bytes >= 0 else "unknown size"
                     )
-                    status(
+                    controller_status(
                         f"[AE] Logged command still running after {elapsed}s "
                         f"({size}): {log}"
                     )
                     next_status = now + status_interval
                 time.sleep(min(0.2, max(0.0, next_status - now)))
             returncode = proc.wait()
-    except BaseException:
+    except BaseException as exc:
         terminate_process_group()
+        if process_group_exists():
+            raise RuntimeError(
+                f"failed to stop logged command process group {proc.pid}; "
+                f"see {log}"
+            ) from exc
         raise
     finally:
         for signum, handler in previous_handlers.items():
@@ -200,9 +278,23 @@ def run_to_regular_log(cmd, *, cwd, log, env=None, status_interval=60.0):
     if interrupted_by is not None:
         # A command leader can exit on the forwarded signal before a
         # privileged descendant.  Do not leave the rest of its group behind.
-        signal_process_group(signal.SIGKILL)
+        terminate_process_group()
+        if process_group_exists():
+            raise RuntimeError(
+                f"interrupted logged command left process group {proc.pid}; "
+                f"see {log}"
+            )
         raise CommandInterrupted(128 + interrupted_by)
     if returncode:
+        # The command itself may have been signalled directly instead of the
+        # collector.  Its leader can report 128+signal while a parallel copy
+        # or ivshmem helper remains in the independently created group.
+        terminate_process_group()
+        if process_group_exists():
+            raise RuntimeError(
+                f"failed logged command left process group {proc.pid}; "
+                f"see {log}"
+            )
         raise SystemExit(
             f"command failed ({returncode}); see {log}: {command}"
         )
@@ -778,6 +870,440 @@ def ensure_tigon(path: Path, log_dir: Path):
         print("[AE] Tigon worktree has local changes; preserving and using them", flush=True)
 
 
+def _apply_tigon_vm_compat_patch(tigon: Path):
+    """Temporarily apply the pinned VM-launch fixes, preserving local edits."""
+    patch = HERE / "patches/tigon-vm-compat.patch"
+    targets = (
+        tigon / "emulation/vm_lib/run_command.py",
+        tigon / "emulation/vm_lib/start_vm.py",
+    )
+    if not patch.is_file():
+        raise SystemExit(f"missing Tigon VM compatibility patch: {patch}")
+
+    def check(*extra):
+        return subprocess.run(
+            ["git", "apply", "--check", *extra, str(patch)],
+            cwd=tigon,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    forward = check()
+    if forward.returncode == 0:
+        snapshots = snapshot_generated_files(targets)
+        applied = subprocess.run(
+            ["git", "apply", str(patch)],
+            cwd=tigon,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if applied.returncode:
+            restore_generated_files(snapshots)
+            raise SystemExit(
+                f"could not apply Tigon VM compatibility patch: "
+                f"{applied.stderr.strip()}"
+            )
+        print("[AE] Temporarily applied Tigon VM compatibility fixes", flush=True)
+        return snapshots
+
+    reverse = check("--reverse")
+    if reverse.returncode == 0:
+        # The supplied checkout already contains the complete fix.  It belongs
+        # to the user, so use it as-is and do not reverse it after VM startup.
+        print("[AE] Tigon checkout already contains the VM compatibility fixes",
+              flush=True)
+        return None
+
+    forward_error = forward.stderr.strip() or "forward check failed"
+    reverse_error = reverse.stderr.strip() or "reverse check failed"
+    raise SystemExit(
+        "Tigon VM sources match neither the expected unpatched nor fully "
+        "patched form; refusing a partial or ambiguous runtime patch: "
+        f"{forward_error}; {reverse_error}"
+    )
+
+
+def _tigon_vm_processes(tigon: Path):
+    """Return only QEMU/ivshmem processes owned by this Tigon VM directory."""
+    vmdir = (tigon / "emulation/vms").resolve(strict=False)
+    ivshmem_socket = (vmdir / "ivshmem_sock").resolve(strict=False)
+    matches = set()
+    try:
+        proc_entries = tuple(Path("/proc").iterdir())
+    except OSError:
+        return matches
+
+    for entry in proc_entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw_args = (entry / "cmdline").read_bytes().split(b"\0")
+            args = [os.fsdecode(arg) for arg in raw_args if arg]
+            comm = (entry / "comm").read_text().strip()
+        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+            continue
+        if not args:
+            continue
+        command = Path(args[0]).name
+
+        # Root-owned /proc/<pid>/exe symlinks are not readable by the
+        # unprivileged collector on this host.  cmdline and comm remain
+        # readable; require both identities plus an exact checkout-owned
+        # socket/pidfile argument before a PID is ever passed to sudo kill.
+        if command == "ivshmem-server" and comm == "ivshmem-server":
+            try:
+                socket_arg = args[args.index("--socket-path") + 1]
+                socket_path = Path(socket_arg).resolve(strict=False)
+            except (ValueError, IndexError, OSError, RuntimeError):
+                continue
+            if socket_path == ivshmem_socket:
+                matches.add(int(entry.name))
+            continue
+
+        if not command.startswith("qemu") or not comm.startswith("qemu"):
+            continue
+        try:
+            pidfile_arg = args[args.index("-pidfile") + 1]
+            pidfile = Path(pidfile_arg).resolve(strict=False)
+            relative = pidfile.relative_to(vmdir)
+        except (ValueError, IndexError, OSError, RuntimeError):
+            continue
+        if (len(relative.parts) == 2 and relative.parts[0].isdigit()
+                and relative.parts[1] == "pid"):
+            matches.add(int(entry.name))
+    return matches
+
+
+def _cleanup_new_tigon_vm_processes(tigon: Path, processes_before):
+    """Stop only detached VM processes created by the failed setup attempt."""
+    remaining = _tigon_vm_processes(tigon) - processes_before
+    if not remaining:
+        return
+
+    def sudo_kill(signum, pids):
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "/bin/kill", f"-{signum}", "--",
+                 *(str(pid) for pid in sorted(pids))],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                f"could not signal failed Tigon VM setup processes: {exc}"
+            ) from exc
+        return result.returncode
+
+    controller_status(
+        "[AE] Stopping detached processes from the failed Tigon VM setup: "
+        + ", ".join(map(str, sorted(remaining)))
+    )
+    term_returncode = sudo_kill(signal.SIGTERM, remaining)
+    deadline = time.monotonic() + 10
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.1)
+        # Revalidate exact command arguments before each subsequent action;
+        # never trust a stale pidfile or a PID that could have been reused.
+        remaining &= _tigon_vm_processes(tigon)
+    if remaining:
+        kill_returncode = sudo_kill(signal.SIGKILL, remaining)
+        kill_deadline = time.monotonic() + 5
+        while remaining and time.monotonic() < kill_deadline:
+            time.sleep(0.1)
+            remaining &= _tigon_vm_processes(tigon)
+    else:
+        kill_returncode = 0
+    if remaining:
+        raise RuntimeError(
+            "failed Tigon VM setup processes remain after scoped cleanup: "
+            + ", ".join(map(str, sorted(remaining)))
+            + f" (TERM exit {term_returncode}, KILL exit {kill_returncode})"
+        )
+
+
+def _mount_records(mountpoint: Path):
+    """Read mount ID, filesystem, and source for one exact mountpoint."""
+    records = {}
+    try:
+        lines = Path("/proc/self/mountinfo").read_text().splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"cannot inspect mount state: {exc}") from exc
+    expected = str(mountpoint.resolve(strict=False))
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 8 or fields[4] != expected:
+            continue
+        try:
+            separator = fields.index("-")
+            records[fields[0]] = (fields[separator + 1], fields[separator + 2])
+        except (ValueError, IndexError):
+            continue
+    return records
+
+
+def _mount_ids(mountpoint: Path):
+    return frozenset(_mount_records(mountpoint))
+
+
+def _network_interfaces():
+    """Return host interface names without depending on optional pyroute2."""
+    try:
+        return frozenset(path.name for path in Path("/sys/class/net").iterdir())
+    except OSError as exc:
+        raise RuntimeError(f"cannot inspect host network interfaces: {exc}") from exc
+
+
+def _read_ipv4_forwarding():
+    try:
+        value = Path("/proc/sys/net/ipv4/ip_forward").read_text().strip()
+    except OSError as exc:
+        raise RuntimeError(f"cannot inspect net.ipv4.ip_forward: {exc}") from exc
+    if value not in {"0", "1"}:
+        raise RuntimeError(f"unexpected net.ipv4.ip_forward value: {value!r}")
+    return value
+
+
+def _acquire_tigon_host_lock():
+    """Serialize fixed-name Tigon network/sysctl state across host users."""
+    def sudo_command(command):
+        try:
+            return subprocess.run(
+                ["sudo", "-n", *command],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise SystemExit(f"cannot prepare Tigon host lock: {exc}") from exc
+
+    # /run/lock is sticky and permits user-created entries.  Create a
+    # root-owned, non-writable directory first, then refuse any pre-existing
+    # object that does not have exactly that safe shape.
+    sudo_command(["mkdir", "--", str(TIGON_HOST_LOCK_DIR)])
+    try:
+        directory = TIGON_HOST_LOCK_DIR.lstat()
+    except OSError as exc:
+        raise SystemExit(f"cannot inspect Tigon host lock directory: {exc}") from exc
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != 0
+            or directory.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
+        raise SystemExit(
+            f"refusing unsafe Tigon host lock directory: {TIGON_HOST_LOCK_DIR}"
+        )
+
+    touch = sudo_command(["touch", "--", str(TIGON_HOST_LOCK)])
+    chmod = sudo_command(["chmod", "0666", "--", str(TIGON_HOST_LOCK)])
+    if touch.returncode or chmod.returncode:
+        raise SystemExit(
+            f"cannot initialize Tigon host lock {TIGON_HOST_LOCK} "
+            f"(touch={touch.returncode}, chmod={chmod.returncode})"
+        )
+    flags = os.O_RDWR | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        lock_fd = os.open(TIGON_HOST_LOCK, flags)
+        lock_stat = os.fstat(lock_fd)
+        if not stat.S_ISREG(lock_stat.st_mode) or lock_stat.st_uid != 0:
+            raise SystemExit(f"refusing unsafe Tigon host lock: {TIGON_HOST_LOCK}")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        os.close(lock_fd)
+        raise SystemExit(
+            "another user is already preparing Tigon host network state"
+        ) from exc
+    except BaseException:
+        if "lock_fd" in locals():
+            os.close(lock_fd)
+        raise
+    return lock_fd
+
+
+def _cleanup_new_tigon_network(interfaces_before, ip_forward_before):
+    """Remove only network state created by a failed Tigon start attempt."""
+    cleanup_errors = []
+    created = ((_network_interfaces() - interfaces_before)
+               & TIGON_NETWORK_INTERFACES)
+    # Delete enslaved TAPs before their bridge.  Every name was absent at the
+    # precondition check, so no pre-existing host interface is eligible here.
+    ordered = sorted(created - {TIGON_BRIDGE})
+    if TIGON_BRIDGE in created:
+        ordered.append(TIGON_BRIDGE)
+    for interface in ordered:
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "ip", "link", "delete", "dev", interface],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            cleanup_errors.append(
+                f"could not delete failed Tigon interface {interface}: {exc}"
+            )
+            continue
+        if result.returncode:
+            cleanup_errors.append(
+                f"failed to delete Tigon interface {interface} "
+                f"(exit {result.returncode})"
+            )
+
+    try:
+        remaining = ((_network_interfaces() - interfaces_before)
+                     & TIGON_NETWORK_INTERFACES)
+    except RuntimeError as exc:
+        cleanup_errors.append(str(exc))
+        remaining = created
+    if remaining:
+        cleanup_errors.append(
+            "failed Tigon network interfaces remain: "
+            + ", ".join(sorted(remaining))
+        )
+
+    # setup_bridge_tap_network only writes 1.  The cross-user Tigon host lock
+    # serializes that write with this snapshot and cleanup.
+    ip_forward_now = _read_ipv4_forwarding()
+    if ip_forward_before == "0" and ip_forward_now == "1":
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "sysctl", "-q", "-w",
+                 "net.ipv4.ip_forward=0"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            cleanup_errors.append(
+                f"could not restore net.ipv4.ip_forward: {exc}"
+            )
+        else:
+            try:
+                forwarding_restored = (
+                    result.returncode == 0 and _read_ipv4_forwarding() == "0"
+                )
+            except RuntimeError as exc:
+                cleanup_errors.append(str(exc))
+                forwarding_restored = False
+            if not forwarding_restored:
+                cleanup_errors.append(
+                    "failed to restore net.ipv4.ip_forward=0 "
+                    f"(exit {result.returncode})"
+                )
+    removed = created - remaining
+    if removed:
+        controller_status(
+            "[AE] Removed failed Tigon network interfaces: "
+            + ", ".join(interface for interface in ordered
+                        if interface in removed)
+        )
+    if cleanup_errors:
+        raise RuntimeError("; ".join(cleanup_errors))
+
+
+def _cleanup_new_tigon_cxl_mount(tigon: Path, mount_ids_before):
+    """Unmount only a CXL tmpfs created by this failed VM-start stage."""
+    mountpoint = Path("/mnt/cxl_mem")
+    mount_records = _mount_records(mountpoint)
+    mount_ids_now = frozenset(mount_records)
+    new_mount_ids = mount_ids_now - mount_ids_before
+    if not new_mount_ids:
+        return
+    if len(new_mount_ids) != 1:
+        raise RuntimeError(
+            f"refusing to unmount ambiguous new mounts at {mountpoint}: "
+            f"{sorted(new_mount_ids)}"
+        )
+    unexpected = {
+        mount_id: mount_records[mount_id]
+        for mount_id in new_mount_ids
+        if mount_records[mount_id] != ("tmpfs", "tmpfs")
+    }
+    if unexpected:
+        raise RuntimeError(
+            f"refusing to unmount unexpected filesystem at {mountpoint}: "
+            f"{unexpected}"
+        )
+    active = _tigon_vm_processes(tigon)
+    if active:
+        raise RuntimeError(
+            f"refusing to unmount {mountpoint}; scoped Tigon VM processes "
+            f"remain: {', '.join(map(str, sorted(active)))}"
+        )
+    while new_mount_ids:
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "umount", "--", str(mountpoint)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                f"could not unmount failed Tigon CXL tmpfs {mountpoint}: {exc}"
+            ) from exc
+        updated_ids = _mount_ids(mountpoint)
+        if result.returncode or updated_ids == mount_ids_now:
+            raise RuntimeError(
+                f"failed to unmount Tigon CXL tmpfs {mountpoint} "
+                f"(exit {result.returncode})"
+            )
+        mount_ids_now = updated_ids
+        new_mount_ids = mount_ids_now - mount_ids_before
+    controller_status(f"[AE] Unmounted failed Tigon CXL tmpfs: {mountpoint}")
+
+
+def _validate_tigon_vm_start_preconditions(
+        tigon: Path, mountpoint=Path("/mnt/cxl_mem")):
+    """Refuse to replace resources that predate this VM-start attempt."""
+    try:
+        metadata = mountpoint.lstat()
+    except FileNotFoundError:
+        metadata = None
+    except OSError as exc:
+        raise SystemExit(f"cannot inspect Tigon CXL mountpoint: {exc}") from exc
+    if metadata is not None and (stat.S_ISLNK(metadata.st_mode)
+                                 or not stat.S_ISDIR(metadata.st_mode)):
+        raise SystemExit(
+            f"refusing Tigon VM startup: {mountpoint} is not a real directory"
+        )
+
+    existing_mounts = _mount_records(mountpoint)
+    if existing_mounts:
+        raise SystemExit(
+            f"refusing Tigon VM startup: {mountpoint} is already mounted "
+            f"({existing_mounts})"
+        )
+    existing_processes = _tigon_vm_processes(tigon)
+    if existing_processes:
+        raise SystemExit(
+            "refusing Tigon VM startup: scoped VM processes already exist: "
+            + ", ".join(map(str, sorted(existing_processes)))
+        )
+    try:
+        interfaces_before = _network_interfaces()
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    conflicting_interfaces = interfaces_before & TIGON_NETWORK_INTERFACES
+    if conflicting_interfaces:
+        raise SystemExit(
+            "refusing Tigon VM startup: scoped network interfaces already "
+            "exist: " + ", ".join(sorted(conflicting_interfaces))
+        )
+    try:
+        ip_forward_before = _read_ipv4_forwarding()
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    return (frozenset(existing_processes), frozenset(existing_mounts),
+            interfaces_before, ip_forward_before)
+
+
 def collect_tigon(log_dir: Path, tigon: Path, setup: bool):
     pending = [n for n in MACHINES if not result_exists(
         log_dir / f"db1000_Tigon_N{n}.log", "db1000", "Tigon", n, "mops")]
@@ -794,10 +1320,63 @@ def collect_tigon(log_dir: Path, tigon: Path, setup: bool):
             raise SystemExit("TIGON_IMAGE_ATTEMPTS must be at least 1")
         run(["bash", "scripts/setup.sh", "HOST"], cwd=tigon)
         build_tigon_image(tigon, log_dir, image_attempts)
-        run(["sudo", "bash", "emulation/start_vms.sh", "--using-old-img", "--cxl",
-             "0", "12", "8", "1", "1"], cwd=tigon)
-        run(["bash", "scripts/setup.sh", "VMS", "8"], cwd=tigon)
-        run(["bash", "scripts/run.sh", "COMPILE_SYNC", "8"], cwd=tigon)
+        tigon_host_lock_fd = _acquire_tigon_host_lock()
+        try:
+            compatibility_snapshots = _apply_tigon_vm_compat_patch(tigon)
+            try:
+                (vm_processes_before, cxl_mount_ids_before,
+                 interfaces_before,
+                 ip_forward_before) = _validate_tigon_vm_start_preconditions(
+                     tigon
+                 )
+                try:
+                    run_to_regular_log(
+                        ["sudo", "bash", "emulation/start_vms.sh",
+                         "--using-old-img", "--cxl", "0", "12", "8", "1",
+                         "1"],
+                        cwd=tigon,
+                        log=log_dir / "tigon-start-vms.log",
+                        privileged_process_group=True,
+                    )
+                    run(["bash", "scripts/setup.sh", "VMS", "8"], cwd=tigon)
+                    run(["bash", "scripts/run.sh", "COMPILE_SYNC", "8"],
+                        cwd=tigon)
+                except BaseException as setup_error:
+                    # QEMU -daemonize leaves the command's otherwise unique
+                    # process group.  Setup/compile can also fail after all
+                    # VMs are live.  In either case clean only resources
+                    # created after the locked snapshot, preserving unrelated
+                    # host VMs/state.
+                    cleanup_errors = []
+                    try:
+                        _cleanup_new_tigon_vm_processes(
+                            tigon, vm_processes_before
+                        )
+                    except Exception as exc:
+                        cleanup_errors.append(str(exc))
+                    try:
+                        _cleanup_new_tigon_cxl_mount(
+                            tigon, cxl_mount_ids_before
+                        )
+                    except Exception as exc:
+                        cleanup_errors.append(str(exc))
+                    try:
+                        _cleanup_new_tigon_network(
+                            interfaces_before, ip_forward_before
+                        )
+                    except Exception as exc:
+                        cleanup_errors.append(str(exc))
+                    if cleanup_errors:
+                        raise RuntimeError(
+                            "Tigon VM setup failed and scoped cleanup was "
+                            "incomplete: " + "; ".join(cleanup_errors)
+                        ) from setup_error
+                    raise
+            finally:
+                if compatibility_snapshots is not None:
+                    restore_generated_files(compatibility_snapshots)
+        finally:
+            os.close(tigon_host_lock_fd)
     for n in MACHINES:
         path = log_dir / f"db1000_Tigon_N{n}.log"
         if result_exists(path, "db1000", "Tigon", n, "mops"):

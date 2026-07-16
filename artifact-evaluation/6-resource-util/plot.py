@@ -102,7 +102,7 @@ EXTRACTORS = {
 }
 
 
-def collect(log_dir: Path):
+def collect(log_dir: Path, warn_missing_points=None):
     """Collect metrics from <bench>_<cond>.log, with stress/p3os type-log fallback."""
     # Ensure demuxed names exist when only machine*-{stress,p3os}-typeN.log remain.
     _demux_type_logs(log_dir)
@@ -112,7 +112,9 @@ def collect(log_dir: Path):
         for cond in CONDS:
             f = log_dir / f"{bench}_{cond}.log"
             if not f.exists():
-                print(f"[WARN] missing log: {f}")
+                point = f"{bench}-{cond}"
+                if warn_missing_points is None or point in warn_missing_points:
+                    print(f"[WARN] missing log: {f}")
                 continue
             val = EXTRACTORS[bench](f.read_text(errors="replace"))
             if val is None:
@@ -130,6 +132,35 @@ def require_complete_rows(rows):
         raise SystemExit(
             f"Incomplete resource-util dataset; missing {len(missing)} of "
             f"{len(expected)} points: " + ", ".join(missing)
+        )
+
+
+def validate_required_points(raw_points):
+    """Validate repeatable BENCH-COND requirements before touching log_dir."""
+    required = set()
+    for point in raw_points:
+        try:
+            bench, cond = point.rsplit("-", 1)
+        except ValueError:
+            bench, cond = "", ""
+        if bench not in BENCHES or cond not in CONDS:
+            raise SystemExit(
+                f"Invalid --require-point {point!r}; expected a known "
+                "<benchmark>-<single|stress|p3os> point"
+            )
+        if point in required:
+            raise SystemExit(f"Duplicate --require-point: {point}")
+        required.add(point)
+    return required
+
+
+def require_requested_rows(rows, required):
+    got = {name for name, _ in rows}
+    missing = sorted(required - got)
+    if missing:
+        raise SystemExit(
+            "Requested resource-util point(s) missing or unparseable: "
+            + ", ".join(missing)
         )
 
 
@@ -245,6 +276,20 @@ def draw(csv_path: Path, fig_dir: Path, allow_partial: bool = False):
     if absent and not allow_partial:
         raise SystemExit("Resource-util CSV is missing benchmarks: " + ", ".join(absent))
     if complete.empty:
+        if allow_partial:
+            removed = []
+            for suffix in (".eps", ".pdf", ".png"):
+                stale = (fig_dir / "real").with_suffix(suffix)
+                if stale.exists():
+                    stale.unlink()
+                    removed.append(str(stale))
+            print(
+                "[WARN] no benchmark has all three conditions; "
+                "kept the raw CSV but skipped figure generation"
+            )
+            if removed:
+                print("[WARN] removed stale incomplete-run figure(s): " + ", ".join(removed))
+            return False
         raise SystemExit("No benchmark has all three conditions; nothing to plot")
     plot_data = complete
 
@@ -313,6 +358,7 @@ def draw(csv_path: Path, fig_dir: Path, allow_partial: bool = False):
 
     _draw_fig(fig_dir, "real")
     plt.close(fig)
+    return True
 
 
 def main():
@@ -324,15 +370,24 @@ def main():
                     help="Draw directly from an existing real.csv (verify vs paper)")
     ap.add_argument("--allow-partial", action="store_true",
                     help="debug only: plot an interrupted/incomplete collection")
+    ap.add_argument(
+        "--require-point", action="append", default=[], metavar="BENCH-COND",
+        help="require an exact requested point (repeatable; used by subset runs)",
+    )
     args = ap.parse_args()
 
     fig_dir = args.out_dir / "figures"
     if args.csv:
+        if args.require_point:
+            ap.error("--require-point requires --log-dir")
         draw(args.csv, fig_dir, args.allow_partial)
         return
     if not args.log_dir:
         ap.error("either --csv or --log-dir is required")
-    rows = collect(args.log_dir)
+    required = validate_required_points(args.require_point)
+    warn_missing_points = required if args.allow_partial else None
+    rows = collect(args.log_dir, warn_missing_points)
+    require_requested_rows(rows, required)
     if not rows:
         raise SystemExit("No benchmark produced a metric; nothing to plot")
     if not args.allow_partial:

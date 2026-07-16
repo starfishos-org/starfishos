@@ -297,13 +297,14 @@ if(CHCORE_DEMOS_PHOENIX)
 
   # Phoenix's worker pool uses detached pthreads and considers them destroyed
   # as soon as their loop posts sem_all_workers_done. On ChCore that signal is
-  # sent before musl has removed the worker from its thread/TSD list. The main
-  # thread can then enter pthread_key_delete(), follow a worker whose detached
-  # mapping has already gone away, and fault during benchmark finalization.
+  # sent before musl has removed the worker from its thread/TSD list. Waking
+  # every cluster-wide worker at once also lets their exits concurrently
+  # mutate that process-wide list, which can leave pthread_key_delete() walking
+  # a corrupted ring.
   #
   # Keep the upstream submodule clean: generate a ChCore-only tpool.c with
-  # joinable workers and an explicit join before key deletion, then replace
-  # only that source in phoenix-lib.
+  # joinable workers, waking and joining one worker at a time before key
+  # deletion, then replace only that source in phoenix-lib.
   set(_phoenix_tpool_src "${PHOENIX_DIR}/src/tpool.c")
   set(_phoenix_tpool_fixed "${CMAKE_CURRENT_BINARY_DIR}/phoenix-tpool-chcore.c")
   file(READ "${_phoenix_tpool_src}" _phoenix_tpool_contents)
@@ -321,17 +322,46 @@ if(CHCORE_DEMOS_PHOENIX)
   string(REPLACE "${_phoenix_detached}" "${_phoenix_joinable}"
          _phoenix_tpool_contents "${_phoenix_tpool_contents}")
 
-  set(_phoenix_wait_old
-      "sem_wait(&tpool->sem_all_workers_done);\n\n    sem_destroy")
-  set(_phoenix_wait_new
-      "sem_wait(&tpool->sem_all_workers_done);\n\n    /* Wait until musl has unlinked every worker from its TSD list. */\n    for (i = 0; i < tpool->num_threads; ++i) {\n        CHECK_ERROR (pthread_join (tpool->threads[i], NULL));\n    }\n\n    sem_destroy")
-  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_wait_old}"
-         _phoenix_wait_pos)
-  if(_phoenix_wait_pos EQUAL -1)
+  # The MapReduce caller runs worker 0 itself on bind[0] and starts only
+  # N-1 active pool workers. Rotate the pool bindings so those workers use
+  # bind[1] through bind[N-1]; the normally idle final pool slot gets bind[0].
+  set(_phoenix_worker_cpu_old
+      "tpool->thread_args[i].cpu_id = i;")
+  set(_phoenix_worker_cpu_new
+      "tpool->thread_args[i].cpu_id = (i + 1) % num_threads;")
+  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_worker_cpu_old}"
+         _phoenix_worker_cpu_pos)
+  if(_phoenix_worker_cpu_pos EQUAL -1)
     message(FATAL_ERROR
-            "Phoenix tpool layout changed: worker-join override no longer applies")
+            "Phoenix tpool layout changed: worker-CPU rotation override no longer applies")
   endif()
-  string(REPLACE "${_phoenix_wait_old}" "${_phoenix_wait_new}"
+  string(REPLACE "${_phoenix_worker_cpu_old}" "${_phoenix_worker_cpu_new}"
+         _phoenix_tpool_contents "${_phoenix_tpool_contents}")
+
+  set(_phoenix_destroy_old
+      "    for (i = 0; i < tpool->num_threads; ++i) {\n        mem_free (tpool->thread_args[i].ret);\n\n        tpool->die = 1;\n        sem_post(&tpool->thread_args[i].sem_run);\n    }\n\n    sem_wait(&tpool->sem_all_workers_done);")
+  set(_phoenix_destroy_new
+      "    /* Serialize cross-machine exits while musl unlinks each worker. */\n    tpool->die = 1;\n    for (i = 0; i < tpool->num_threads; ++i) {\n        result = sem_post (&tpool->thread_args[i].sem_run);\n        CHECK_ERROR (result);\n\n        result = pthread_join (tpool->threads[i], NULL);\n        CHECK_ERROR (result);\n\n        mem_free (tpool->thread_args[i].ret);\n    }")
+  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_destroy_old}"
+         _phoenix_destroy_pos)
+  if(_phoenix_destroy_pos EQUAL -1)
+    message(FATAL_ERROR
+            "Phoenix tpool layout changed: serialized-destroy override no longer applies")
+  endif()
+  string(REPLACE "${_phoenix_destroy_old}" "${_phoenix_destroy_new}"
+         _phoenix_tpool_contents "${_phoenix_tpool_contents}")
+
+  set(_phoenix_create_fail_old
+      "fail_thread_create:\n    --i;\n    while (i >= 0)\n    {\n        pthread_cancel (tpool->threads[i]);\n        --i;\n    }\nfail_all_workers_done:\n    mem_free (tpool->thread_args);\nfail_thread_args:\n    mem_free (tpool->threads);\nfail_threads:\n    mem_free (tpool->args);\nfail_args:\n\n    return NULL;")
+  set(_phoenix_create_fail_new
+      "fail_thread_create:\n    /* Index i is initialized, but has no worker to release its resources. */\n    tpool->die = 1;\n    for (int created = 0; created < i; ++created) {\n        ret = sem_post (&tpool->thread_args[created].sem_run);\n        CHECK_ERROR (ret);\n\n        ret = pthread_join (tpool->threads[created], NULL);\n        CHECK_ERROR (ret);\n\n        mem_free (tpool->thread_args[created].ret);\n    }\n    sem_destroy (&tpool->thread_args[i].sem_run);\n    mem_free (tpool->thread_args[i].ret);\n    sem_destroy (&tpool->sem_all_workers_done);\nfail_all_workers_done:\n    mem_free (tpool->thread_args);\nfail_thread_args:\n    mem_free (tpool->threads);\nfail_threads:\n    mem_free (tpool->args);\nfail_args:\n    mem_free (tpool);\n\n    return NULL;")
+  string(FIND "${_phoenix_tpool_contents}" "${_phoenix_create_fail_old}"
+         _phoenix_create_fail_pos)
+  if(_phoenix_create_fail_pos EQUAL -1)
+    message(FATAL_ERROR
+            "Phoenix tpool layout changed: partial-create cleanup override no longer applies")
+  endif()
+  string(REPLACE "${_phoenix_create_fail_old}" "${_phoenix_create_fail_new}"
          _phoenix_tpool_contents "${_phoenix_tpool_contents}")
   file(WRITE "${_phoenix_tpool_fixed}" "${_phoenix_tpool_contents}")
 
@@ -423,7 +453,11 @@ if (CHCORE_DEMOS_TINYCNN)
   target_include_directories(tiny-cnn PRIVATE
                              ${TINYCNN_LIBJPEG_BUILD_DIR}
                              ${TINYCNN_SOURCE_DIR}/include)
-  target_compile_definitions(tiny-cnn PRIVATE CHCORE cimg_display=0)
+  # CImg otherwise falls back to spawning an external image converter for
+  # JPEG input.  ChCore has no fork/exec path for that fallback, and this
+  # target already builds and links libjpeg for native decoding.
+  target_compile_definitions(tiny-cnn PRIVATE
+                             CHCORE cimg_display=0 cimg_use_jpeg)
   target_compile_options(tiny-cnn PRIVATE -mavx2)
   add_dependencies(tiny-cnn libjpeg-build)
 

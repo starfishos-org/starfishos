@@ -31,7 +31,9 @@ Legacy demos are materialized into clean out-of-tree build directories, so
 ignored host objects are neither reused nor written back into their submodules.
 `prepare_cnn.sh` creates deterministic zero-weight AlexNet data and an 8-image
 batch; this preserves the inference compute/memory path, while model accuracy
-is irrelevant to this performance-only figure.
+is irrelevant to this performance-only figure. TinyCNN is linked with libjpeg
+and decodes JPEG inputs in-process, avoiding CImg's external converter path and
+the process-related syscalls that path would require from the guest.
 DBx1000 is likewise rebuilt with the compact read-only YCSB configuration used
 by this figure, rather than inheriting the large TPC-C auto-scale settings.
 
@@ -42,10 +44,27 @@ by this figure, rather than inheriting the large TPC-C auto-scale settings.
 ./artifact-evaluation/6-resource-util/run.sh
 ```
 
-Output: `out/<timestamp>/figures/real.{eps,pdf,png}`.
+Every successful collection writes `out/<timestamp>/results/real.csv`; the
+default full run also writes `out/<timestamp>/figures/real.{eps,pdf,png}`.
 
 Env overrides: `STRESS_TYPES` (default `1 2 3 4 5 6`), `CONDS`
-(`single stress p3os`), `TIMEOUT`, `OUT_DIR`.
+(`single stress p3os`), `SINGLE_BENCHES` (default `matrix leveldb
+linear-regression dbx1000 pca redis word-count memcached gemini string-match
+kmeans cnn`), `TIMEOUT`, and `OUT_DIR`. The three scope variables are
+whitespace-separated lists. Unknown or duplicate entries, embedded newlines,
+and empty selections are rejected before the runner takes its lock or changes
+host/repository state.
+
+For example, this collects only GeminiGraph's single-run value:
+
+```bash
+CONDS=single SINGLE_BENCHES=gemini \
+    ./artifact-evaluation/6-resource-util/run.sh
+```
+
+Known serial-console-silent workloads, including LevelDB, use `TIMEOUT` as
+their progress fail-safe while the runner continues to scan for fatal guest
+signatures and dead tmux panes.
 
 ## Re-plot only / verify against paper data
 
@@ -60,8 +79,19 @@ python3 artifact-evaluation/6-resource-util/plot.py \
 
 ## Completeness contract
 
-The normal path requires all 36 values (12 applications × 3 conditions).
-Stress and cross-machine runs wait for each member of the pair independently;
-fixed sleeps are no longer used. Missing logs or metrics terminate plotting
-instead of silently dropping an application. `--allow-partial` is available
-only for debugging interrupted runs.
+The default path requires all 36 values (12 applications × 3 conditions), even
+when each complete scope list is reordered. A legal scope subset automatically
+uses partial plotting while still requiring every point that the runner
+requested; a missing or unparseable requested metric fails the run. Stress and
+cross-machine runs wait for each member of the selected type pair independently;
+fixed sleeps are no longer used.
+
+`results/real.csv` always preserves the real metrics produced by a successful
+subset. Normalization and a figure are produced only for benchmarks that have
+all three conditions. If (for example) a single-only run has no complete
+triplet, the plotter emits an explicit warning, skips the figure, and succeeds;
+it also removes stale `real.eps`, `real.pdf`, and `real.png` files if an output
+directory is reused, and never invents the missing normalization inputs. Direct
+plotter use can add repeatable `--require-point <bench>-<cond>` checks.
+`--allow-partial` remains a debug/subset option; without it the plotter enforces
+the full 36-point dataset.

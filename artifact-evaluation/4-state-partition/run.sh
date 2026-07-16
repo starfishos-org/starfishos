@@ -39,10 +39,58 @@ TIMEOUT="${TIMEOUT:-1200}"
 # DBx1000 compile-time configuration is reduced below for this two-machine
 # state-placement experiment; the 64-warehouse auto-scale configuration would
 # otherwise consume far more memory than this figure requires.
-BENCHS="${BENCHS:-leveldb dbx1000 pca matrix_multiply linear_regression word_count}"
-CONFIGS="${CONFIGS:-All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM}"
+BENCHS="${BENCHS-leveldb dbx1000 pca matrix_multiply linear_regression word_count}"
+CONFIGS="${CONFIGS-All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM}"
 
-mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
+# Validate the documented scope controls before creating output, taking a
+# runner lock, or changing any repository/host state.  Since unknown and
+# duplicate values are rejected, a reordered/whitespace-normalized full set
+# is still unambiguously the complete paper request.
+FULL_PLOT_REQUEST=1
+validate_scope_list() {
+    local label="$1" raw="$2"
+    shift 2
+    local -a values=()
+    local value allowed found seen=""
+
+    case "$raw" in
+        *$'\n'*|*$'\r'*)
+            echo "[AE] $label must be a whitespace-separated single line" >&2
+            return 1
+            ;;
+    esac
+    read -r -a values <<< "$raw"
+    if [ "${#values[@]}" -eq 0 ]; then
+        echo "[AE] $label must select at least one value" >&2
+        return 1
+    fi
+    for value in "${values[@]}"; do
+        found=0
+        for allowed in "$@"; do
+            if [ "$value" = "$allowed" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ "$found" != "1" ]; then
+            echo "[AE] unknown $label value: $value" >&2
+            return 1
+        fi
+        if [[ " $seen " == *" $value "* ]]; then
+            echo "[AE] duplicate $label value: $value" >&2
+            return 1
+        fi
+        seen+=" $value"
+    done
+    if [ "${#values[@]}" -ne "$#" ]; then
+        FULL_PLOT_REQUEST=0
+    fi
+}
+
+validate_scope_list BENCHS "$BENCHS" \
+    leveldb dbx1000 pca matrix_multiply linear_regression word_count || exit 1
+validate_scope_list CONFIGS "$CONFIGS" \
+    All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM || exit 1
 
 # config -> DSM_MALLOC_MODE  DSM_USER_MALLOC_MODE  <5 type modes>
 config_params() {
@@ -66,16 +114,16 @@ bench_done_pattern() {
     esac
 }
 
-# DBx1000 is silent while it initializes the TPC-C tables, and the Phoenix
-# applications are silent while their MapReduce phase is running.  CXL page
-# placement can stretch either phase beyond the generic 120-second serial-log
-# stall threshold.  Keep checking fatal guest signatures and tmux liveness,
-# but use the benchmark's hard timeout as the fail-safe for these known-silent
-# completion markers.
+# DBx1000 is silent while it initializes the TPC-C tables; LevelDB and the
+# Phoenix applications can likewise be silent during their measured work.
+# CXL page placement can stretch these phases beyond the generic 120-second
+# serial-log stall threshold.  Keep checking fatal guest signatures and tmux
+# liveness, but use the benchmark's hard timeout as the fail-safe for these
+# known-silent completion markers.
 wait_for_bench() {
     local bench="$1" pattern="$2" timeout="$3" label="$4" machines="$5"
     case "$bench" in
-        dbx1000|pca|matrix_multiply|linear_regression|word_count)
+        dbx1000|leveldb|pca|matrix_multiply|linear_regression|word_count)
             AE_LOG_STALL_S=0 ae_wait_in_log \
                 0 "$pattern" "$timeout" "$label" "$machines"
             ;;
@@ -116,6 +164,10 @@ if [ $((DBX_NUM_WH % NUM_MACHINES)) -ne 0 ]; then
     echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
     exit 1
 fi
+
+ae_acquire_run_lock "state-partition" || exit 1
+
+mkdir -p "$AE_LOG_DIR" "$OUT_DIR/results" "$OUT_DIR/figures"
 
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
@@ -190,6 +242,10 @@ for cfg in $CONFIGS; do
     for bench in $BENCHS; do
         pattern="$(bench_done_pattern "$bench")"
         logfile="$AE_LOG_DIR/${bench}_${cfg}.log"
+        # OUT_DIR may intentionally be reused for a targeted retry.  Remove
+        # this point before boot so a failed retry cannot be parsed as the
+        # prior run's successful measurement.
+        rm -f -- "$logfile"
         echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
         if [ "$bench" = "dbx1000" ]; then
             if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines"; then
@@ -203,8 +259,9 @@ for cfg in $CONFIGS; do
             ae_send_command 0 "rundb.bin"
             bench_timeout="$DBX_TIMEOUT"
         elif [ "$bench" = "matrix_multiply" ]; then
-            # run_matrix_multiply.sh hardcodes the 2-machine setup (16 threads
-            # bound to 0-10,12-23); on 1 machine threads bound to CPUs >= 12
+            # run_matrix_multiply.sh hardcodes the 2-machine setup (16 threads,
+            # eight per machine, bound to 0-7 and 12-19); on 1 machine the
+            # threads bound to CPUs >= 12
             # never run and the app hangs at its barrier. Use the original
             # single-machine parameters (8 threads, CPUs 0-11) instead.
             if ! ae_boot_cluster "$cfg_machines"; then
@@ -252,7 +309,20 @@ ae_restore_build_configs
 
 echo ""
 echo "=== Parsing logs and generating figure ==="
-python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR"
+plot_args=(--log-dir "$AE_LOG_DIR" --out-dir "$OUT_DIR")
+for bench in $BENCHS; do
+    for cfg in $CONFIGS; do
+        plot_args+=(--require-point "$bench/$cfg")
+    done
+done
+if [ "$FULL_PLOT_REQUEST" != "1" ]; then
+    # BENCHS/CONFIGS are supported subset controls.  Partial mode relaxes only
+    # the other 24-point completeness checks; every requested Cartesian point
+    # remains mandatory through --require-point.
+    echo "[AE] subset run requested; plotting only the available points."
+    plot_args+=(--allow-partial)
+fi
+python3 "$AE_DIR/plot.py" "${plot_args[@]}"
 
 echo "Artifact output: $OUT_DIR"
 ae_finish

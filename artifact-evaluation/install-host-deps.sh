@@ -55,6 +55,7 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
         curl \
         docker.io \
         git \
+        iproute2 \
         libglib2.0-dev \
         libtool \
         libnuma-dev \
@@ -67,6 +68,7 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
         libopenmpi-dev \
         perl \
         pkg-config \
+        psmisc \
         python3 \
         python3-matplotlib \
         python3-numpy \

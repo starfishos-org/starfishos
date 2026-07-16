@@ -40,12 +40,116 @@ TIMEOUT="${TIMEOUT:-1200}"
 DBX_WAREHOUSES_PER_MACHINE="${DBX_WAREHOUSES_PER_MACHINE:-8}"
 DBX_WARMUP_PER_MACHINE="${DBX_WARMUP_PER_MACHINE:-880000}"
 
-APPS="${APPS:-matrix db1000 gemini}"
-MACHINES="${MACHINES:-1 2 4 6 8}"
-CONFIGS="${CONFIGS:-Mixed CXL}"
-RUN_BASELINES="${RUN_BASELINES:-1}"
-BASELINE_STAGES="${BASELINE_STAGES:-linux,matrix-tcp,tigon}"
-TIGON_SETUP="${TIGON_SETUP:-1}"
+APPS="${APPS-matrix db1000 gemini}"
+MACHINES="${MACHINES-1 2 4 6 8}"
+CONFIGS="${CONFIGS-Mixed CXL}"
+RUN_BASELINES="${RUN_BASELINES-1}"
+BASELINE_STAGES="${BASELINE_STAGES-linux,matrix-tcp,tigon}"
+TIGON_SETUP="${TIGON_SETUP-1}"
+
+# Validate every scope selector before taking the global runner lock or
+# changing host/repository state.  A reordered or whitespace-normalized full
+# set remains a full request; duplicates and unknown values are rejected.
+FULL_PLOT_REQUEST=1
+validate_scope_list() {
+    local label="$1" raw="$2"
+    shift 2
+    local -a values=()
+    local value allowed found seen=""
+
+    case "$raw" in
+        *$'\n'*|*$'\r'*)
+            echo "[AE] $label must be a whitespace-separated single line" >&2
+            return 1
+            ;;
+    esac
+    read -r -a values <<< "$raw"
+    if [ "${#values[@]}" -eq 0 ]; then
+        echo "[AE] $label must contain at least one value" >&2
+        return 1
+    fi
+    for value in "${values[@]}"; do
+        found=0
+        for allowed in "$@"; do
+            if [ "$value" = "$allowed" ]; then
+                found=1
+                break
+            fi
+        done
+        if [ "$found" != "1" ]; then
+            echo "[AE] unknown $label value: $value" >&2
+            return 1
+        fi
+        if [[ " $seen " == *" $value "* ]]; then
+            echo "[AE] duplicate $label value: $value" >&2
+            return 1
+        fi
+        seen+=" $value"
+    done
+    if [ "${#values[@]}" -ne "$#" ]; then
+        FULL_PLOT_REQUEST=0
+    fi
+}
+
+validate_scope_list APPS "$APPS" matrix db1000 gemini || exit 1
+validate_scope_list MACHINES "$MACHINES" 1 2 4 6 8 || exit 1
+validate_scope_list CONFIGS "$CONFIGS" Mixed CXL || exit 1
+
+validate_baseline_stages() {
+    local raw="$1" baseline_stage baseline_stage_count=0
+    local -a requested_baseline_stages=()
+
+    case "$raw" in
+        *$'\n'*|*$'\r'*)
+            echo "[AE] BASELINE_STAGES must be a single comma-separated line" >&2
+            return 1
+            ;;
+    esac
+    IFS=, read -r -a requested_baseline_stages <<< "$raw"
+    baseline_stage_list=","
+    for baseline_stage in "${requested_baseline_stages[@]}"; do
+        # Match run_baselines.py's per-token strip() without accepting spaces
+        # inside a stage name.
+        baseline_stage="${baseline_stage#"${baseline_stage%%[![:space:]]*}"}"
+        baseline_stage="${baseline_stage%"${baseline_stage##*[![:space:]]}"}"
+        case "$baseline_stage" in
+            "") continue ;;
+            linux|matrix-tcp|tigon) ;;
+            *)
+                echo "[AE] unknown baseline stage: $baseline_stage" >&2
+                return 1
+                ;;
+        esac
+        if [[ "$baseline_stage_list" == *,"$baseline_stage",* ]]; then
+            echo "[AE] duplicate baseline stage: $baseline_stage" >&2
+            return 1
+        fi
+        baseline_stage_list+="${baseline_stage},"
+        baseline_stage_count=$((baseline_stage_count + 1))
+    done
+    if [ "$baseline_stage_count" -eq 0 ]; then
+        echo "[AE] BASELINE_STAGES must contain at least one stage" >&2
+        return 1
+    fi
+    if [ "$baseline_stage_count" -ne 3 ]; then
+        FULL_PLOT_REQUEST=0
+    fi
+}
+
+case "$RUN_BASELINES" in
+    0|1) ;;
+    *) echo "[AE] RUN_BASELINES must be 0 or 1" >&2; exit 1 ;;
+esac
+case "$TIGON_SETUP" in
+    0|1) ;;
+    *) echo "[AE] TIGON_SETUP must be 0 or 1" >&2; exit 1 ;;
+esac
+baseline_stage_list=","
+if [ "$RUN_BASELINES" = "1" ]; then
+    validate_baseline_stages "$BASELINE_STAGES" || exit 1
+else
+    FULL_PLOT_REQUEST=0
+fi
 
 ae_acquire_run_lock "auto-scale" || exit 1
 
@@ -67,7 +171,7 @@ config_params() {
 app_cmd() {
     local app="$1" n="$2"
     case "$app" in
-        matrix) echo "matrix_multiply.bin -l 4000 -r 4000 -t 8 -c 0 &" ;;
+        matrix) echo "matrix_multiply.bin -l 4000 -r 4000 -t $((8 * n)) -c 0 &" ;;
         db1000) echo "rundb.bin -t$((8 * n)) &" ;;
         gemini) echo "pagerank /host/twitter-2010.bin 41652230 50 $n &" ;;
         *) echo "Unknown app: $1" >&2; return 1 ;;
@@ -80,7 +184,28 @@ app_marker() {
         # matrix_multiply prints library: / finalize:, not "inter library:"
         matrix) echo "finalize:" ;;
         db1000) echo "thp=" ;;
-        gemini) echo "exec_time=" ;;
+        # Wait for the final checksum record, not just the preceding timing.
+        # The escaped '[' is a grep basic-regex literal.
+        gemini) echo 'pr\[' ;;
+    esac
+}
+
+# Matrix finalization, DBx1000 table initialization, and GeminiGraph graph
+# loading/processing may spend several minutes without writing to the serial
+# console.  That is normal progress, so those workload phases use the
+# experiment timeout instead of the generic frozen-boot-log heuristic.
+# ae_wait_in_log still checks guest fatal errors and every tmux pane while the
+# serial-stall timer is disabled.
+wait_for_app() {
+    local app="$1" marker="$2" label="$3" machines="$4"
+    case "$app" in
+        matrix|db1000|gemini)
+            AE_LOG_STALL_S=0 ae_wait_in_log \
+                0 "$marker" "$TIMEOUT" "$label" "$machines"
+            ;;
+        *)
+            ae_wait_in_log 0 "$marker" "$TIMEOUT" "$label" "$machines"
+            ;;
     esac
 }
 
@@ -174,7 +299,11 @@ sweep_app_config() {
             ae_kill_cluster
             return 1
         fi
-        if [ "$app" = "db1000" ]; then
+        if [ "$app" = "matrix" ]; then
+            # Phoenix's -t value is the cluster-wide worker count.  Give each
+            # machine eight workers and keep the bind file scoped to this N.
+            ae_send_command 0 "write matrix_multiply_bind_cpu.txt $(worker_bind_cpu_list "$n")"
+        elif [ "$app" = "db1000" ]; then
             ae_send_command 0 "write dbx1000_bind_cpu.txt $(worker_bind_cpu_list "$n")"
         elif [ "$app" = "gemini" ]; then
             # Keep Gemini's global CPU namespace consistent with the cluster
@@ -186,8 +315,7 @@ sweep_app_config() {
         # Drive the workload on machine 0; the unmodified shared-memory app
         # creates workers across the N-machine global CPU namespace.
         ae_send_command 0 "$cmd"
-        if ae_wait_in_log 0 "$marker" "$TIMEOUT" \
-            "$app/$config N=$n" "$n"; then
+        if wait_for_app "$app" "$marker" "$app/$config N=$n" "$n"; then
             cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${app}_${config}_N${n}.log"
         else
             cp "$(ae_machine_log 0)" "$AE_LOG_DIR/${app}_${config}_N${n}.log" || true
@@ -205,6 +333,25 @@ for app in $APPS; do
 done
 
 if [ "$RUN_BASELINES" = "1" ]; then
+    tigon_pending=0
+    if [ "$TIGON_SETUP" = "1" ] && [[ "$baseline_stage_list" == *,tigon,* ]]; then
+        for n in 1 2 4 6 8; do
+            tigon_log="$AE_LOG_DIR/db1000_Tigon_N${n}.log"
+            if ! grep -qE "^AE_RESULT app=db1000 series=Tigon n=${n} value=[-+0-9.eE]+ unit=mops$" \
+                "$tigon_log" 2>/dev/null; then
+                tigon_pending=1
+                break
+            fi
+        done
+    fi
+    if [ "$tigon_pending" = "1" ]; then
+        # The StarfishOS sweep uses about 191 GiB of tmpfs-backed memory.  Tigon
+        # subsequently preallocates eight 10-GiB guests on node 0; retaining
+        # the now-unused StarfishOS files can starve the final VM.  The helper
+        # refuses any file still mapped by a process and removes only this
+        # user's exact StarfishOS resource names.
+        ae_release_memdev_backing || exit 1
+    fi
     echo ""
     echo "=== Collecting Linux / TCP / Tigon baselines ==="
     baseline_args=(
@@ -223,7 +370,46 @@ fi
 echo ""
 echo "=== Collecting results + plotting (from $AE_LOG_DIR) ==="
 if ls "$AE_LOG_DIR"/*_N*.log >/dev/null 2>&1; then
-    python3 "$AE_DIR/plot.py" --out-dir "$OUT_DIR" --log-dir "$AE_LOG_DIR"
+    plot_args=(--out-dir "$OUT_DIR" --log-dir "$AE_LOG_DIR")
+    required_plot_logs=()
+    for app in $APPS; do
+        for config in $CONFIGS; do
+            for n in $MACHINES; do
+                required_plot_logs+=("${app}_${config}_N${n}.log")
+            done
+        done
+    done
+    if [ "$RUN_BASELINES" = "1" ]; then
+        for n in 1 2 4 6 8; do
+            if [[ "$baseline_stage_list" == *,linux,* ]]; then
+                required_plot_logs+=(
+                    "matrix_Ideal_N${n}.log"
+                    "db1000_Ideal_N${n}.log"
+                    "gemini_Ideal_N${n}.log"
+                    "gemini_Distributed_N${n}.log"
+                )
+            fi
+            if [[ "$baseline_stage_list" == *,matrix-tcp,* ]]; then
+                required_plot_logs+=("matrix_Distributed_N${n}.log")
+            fi
+            if [[ "$baseline_stage_list" == *,tigon,* ]]; then
+                required_plot_logs+=("db1000_Tigon_N${n}.log")
+            fi
+        done
+    fi
+    for required_plot_log in "${required_plot_logs[@]}"; do
+        plot_args+=(--require-log "$required_plot_log")
+    done
+    if [ "$FULL_PLOT_REQUEST" != "1" ]; then
+        # APPS/MACHINES/CONFIGS are documented subset controls.  Such a run is
+        # successful when every requested measurement succeeds, even though it
+        # cannot satisfy the paper figure's full-dataset contract.  Partial
+        # mode relaxes only completeness checks; parse and rendering failures
+        # still propagate from plot.py.
+        echo "[AE] subset run requested; plotting only the available points."
+        plot_args+=(--allow-partial)
+    fi
+    python3 "$AE_DIR/plot.py" "${plot_args[@]}"
 else
     echo "[AE] No sweep logs under $AE_LOG_DIR; nothing to plot." >&2
     echo "[AE] To verify plotters against paper data:"

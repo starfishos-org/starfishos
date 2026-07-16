@@ -21,6 +21,7 @@
 #include <irq/irq.h>
 #include <drivers/pci.h>
 #include <drivers/ivshmem.h>
+#include <lib/fw_cfg.h>
 #include <ipc/futex.h>
 #include <mm/shm.h>
 #include <mm/page_table_func.h>
@@ -277,6 +278,17 @@ static inline void reset_bypass_connnection_flags()
 
 void sys_shutdown(int flag)
 {
+#ifdef DSM_ENABLED
+    /* A DSM reset stops only this machine's CPUs.  In a multi-machine run,
+     * peers may still enqueue physical thread pointers into the shared
+     * scheduler queues, so reject the operation before switching stacks or
+     * mutating reset state.  Keep the existing single-machine SSI-SLS path
+     * available; rr_sched_init() preserves its already-published queue pool. */
+    if (FW_MACHINE_NUM > 1 || CLUSTER_MACHINE_NUM > 1) {
+        kwarn("Multi-machine DSM runtime shutdown is not supported safely\n");
+        return;
+    }
+#endif
     /* switch kernel stack because the mm module will be re-initialized */
     u32 cpuid = smp_get_cpu_id();
     u64 tmp_kernel_stack = (u64)shutdown_kernel_stack[cpuid + 1];
@@ -299,7 +311,10 @@ mid_t sys_get_machine_id(void)
 
 u32 sys_get_machine_cpu_count(void)
 {
-    return smp_get_cpu_num();
+    /* Global DSM CPU IDs reserve PLAT_CPU_NUM slots for every machine (see
+     * dsm_add_machine), even if a machine boots fewer online CPUs.  Expose
+     * that stride so userspace can group global affinity IDs correctly. */
+    return PLAT_CPU_NUM;
 }
 
 int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,

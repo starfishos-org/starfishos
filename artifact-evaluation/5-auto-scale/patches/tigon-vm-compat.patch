@@ -1,0 +1,238 @@
+diff --git a/emulation/vm_lib/run_command.py b/emulation/vm_lib/run_command.py
+index 7c194b5..d9bf9f0 100644
+--- a/emulation/vm_lib/run_command.py
++++ b/emulation/vm_lib/run_command.py
+@@ -1,6 +1,7 @@
+ import subprocess as sp
+ import os
+ import sys
++import time
+ from typing import List, Optional
+ 
+ Fail_MSG = 'Failed to run command: '
+@@ -12,15 +13,50 @@ def run_local_command_parallel(cmds: List[List[str]], env: Optional[dict] = None
+     else:
+         new_env = os.environ
+     running_procs = []
+-    for cmd in cmds:
+-        print(f"{' '.join(cmd)}")
+-        p = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE, encoding='utf8', env=new_env)
+-        running_procs.append((p, cmd))
+-    for (p, cmd) in running_procs:
+-        returncode = p.wait()
+-        if returncode != 0:
+-            outs, errs = p.communicate()
+-            raise RuntimeError(f'Fail to run cmd: {" ".join(cmd)}\n{errs}')
++    try:
++        for cmd in cmds:
++            print(f"{' '.join(cmd)}")
++            p = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE, encoding='utf8', env=new_env)
++            running_procs.append((p, cmd))
++        pending = set(range(len(running_procs)))
++        while pending:
++            for index in tuple(pending):
++                p, cmd = running_procs[index]
++                returncode = p.poll()
++                if returncode is None:
++                    continue
++                pending.remove(index)
++                outs, errs = p.communicate()
++                if returncode != 0:
++                    raise RuntimeError(
++                        f'Fail to run cmd: {" ".join(cmd)}\n{errs}'
++                    )
++            if pending:
++                time.sleep(0.1)
++    except BaseException:
++        # A failed/interrupted parallel operation must not leave siblings
++        # running against paths that the caller is about to clean up.
++        for p, _ in running_procs:
++            if p.poll() is None:
++                try:
++                    p.terminate()
++                except (ProcessLookupError, OSError):
++                    pass
++        for p, _ in running_procs:
++            try:
++                p.communicate(timeout=5)
++            except sp.TimeoutExpired:
++                try:
++                    p.kill()
++                except (ProcessLookupError, OSError):
++                    pass
++                try:
++                    p.communicate(timeout=5)
++                except (sp.TimeoutExpired, OSError, ValueError):
++                    pass
++            except (OSError, ValueError):
++                pass
++        raise
+ 
+ 
+ def copy_remote_to_local(ssh_str, remote_path, local_path, port=22):
+diff --git a/emulation/vm_lib/start_vm.py b/emulation/vm_lib/start_vm.py
+index 4c1b5ac..6dd9ad5 100644
+--- a/emulation/vm_lib/start_vm.py
++++ b/emulation/vm_lib/start_vm.py
+@@ -4,6 +4,7 @@ import re
+ import errno
+ import time
+ import shutil
++import stat
+ import sys
+ from pathlib import Path
+ from typing import List, Optional
+@@ -55,7 +56,7 @@ class VMConfig:
+ 
+ 
+ def setup_bridge_tap_network(vmdir: str, num_vms: int):
+-    bridge = 'br0'
++    bridge = 'tigon-br0'
+     bridge_addr = '192.168.100.1'
+     bridge_broadcast = '192.168.100.255'
+     run_local_command(['sudo', 'modprobe', 'tun', 'tap'])
+@@ -85,7 +86,7 @@ def setup_bridge_tap_network(vmdir: str, num_vms: int):
+                 raise
+         print("creating tap device")
+         for i in range(num_vms):
+-            tap_name = f'tap{i}'
++            tap_name = f'tigon-tap{i}'
+             tap = ipr.link_lookup(ifname=tap_name)
+             if len(tap) == 0:
+                 print(f"creating {tap_name}")
+@@ -124,7 +125,8 @@ def construct_basic_qemu_cmd(args: argparse.Namespace, vm_id: int):
+ 
+     numa_cpu = ",".join(map(str, args.vm_numa_node))
+     gdb_port = 1234 + vm_id
+-    qemu_cmd = ["numactl", f"--cpunodebind={numa_cpu}", "--", f"{args.qemu_bin}", *trace,
++    qemu_cmd = ["numactl", f"--cpunodebind={numa_cpu}",
++        f"--membind={numa_cpu}", "--", f"{args.qemu_bin}", *trace,
+         "-machine", "q35,accel=kvm,mem-merge=off", "-cpu", cpu_model, "-D", f"./qemu_log{vm_id}.txt",
+         "-m", f"{args.mem_size_mb}M,maxmem={args.mem_size_mb}M",
+         "-smp", f"{args.num_cpus},maxcpus={args.num_cpus},sockets=1,cores={args.num_cpus}",
+@@ -153,13 +155,13 @@ def construct_blk_cmd(qemu_cmd: List[str], numcpus: int, vmdrive_file: str):
+     #     "-drive", f"if=none,file={vmdrive_file},format=raw,media=disk,id=drive0"]
+     qemu_cmd += [
+         "-device", f"virtio-blk-pci,packed=on,num-queues=1,drive=drive0,id=virblk0",
+-        "-drive", f"if=none,file={vmdrive_file},format=raw,media=disk,id=drive0,cache=none,aio=native"]
++        "-drive", f"if=none,file={vmdrive_file},format=raw,media=disk,id=drive0,cache=none,aio=threads"]
+ 
+ 
+ def construct_tap_net_cmd(qemu_cmd: List[str], vm_id: int):
+     rand_mac = get_rand_macaddr()
+     qemu_cmd += ["-device", f"virtio-net-pci,mq=on,packed=on,netdev=network{vm_id},mac={rand_mac},romfile=",
+-        "-netdev", f"tap,id=network{vm_id},vhost=on,ifname=tap{vm_id},script=no,downscript=no"]
++        "-netdev", f"tap,id=network{vm_id},vhost=on,ifname=tigon-tap{vm_id},script=no,downscript=no"]
+ 
+ 
+ def construct_sriov_vfio_net_cmd(qemu_cmd: List[str], vm_id: int, vf_devs: List, num_vfs_per_vm: int):
+@@ -221,7 +223,7 @@ def construct_shared_dir(qemu_cmd: List[str], shared_dir: str):
+ 
+ 
+ def construct_vnode_single(qemu_cmd: List[str], mem_size_mb: int):
+-    qemu_cmd += ["-object", f"memory-backend-ram,id=mem0,size={mem_size_mb}M,prealloc=on,host-nodes=0,policy=bind,merge=off",
++    qemu_cmd += ["-object", f"memory-backend-ram,id=mem0,size={mem_size_mb}M,prealloc=on,merge=off",
+         "-numa", "node,nodeid=0,memdev=mem0",
+         "-numa", "cpu,node-id=0,socket-id=0",
+         "-numa", "dist,src=0,dst=0,val=10"]
+@@ -290,17 +292,84 @@ def create_etc_hosts(per_vmdir: str, ip_addr: str):
+     return etchosts_file
+ 
+ 
++def vm_disk_copy_is_complete(drive: str, per_vm_drive: str):
++    """Reject unsafe or legacy/interrupted final-name disk copies."""
++    try:
++        source = os.stat(drive)
++        destination = os.stat(per_vm_drive, follow_symlinks=False)
++        return (stat.S_ISREG(source.st_mode)
++                and stat.S_ISREG(destination.st_mode)
++                and destination.st_size == source.st_size
++                and (destination.st_dev, destination.st_ino)
++                    != (source.st_dev, source.st_ino))
++    except OSError:
++        return False
++
++
++def remove_vm_disk_copy(path: str):
++    try:
++        os.unlink(path)
++    except FileNotFoundError:
++        pass
++
++
++def prepare_vm_disk_copy(drive: str, per_vm_drive: str):
++    """Return an atomic sparse-copy job after removing stale output."""
++    partial_drive = f'{per_vm_drive}.partial'
++    source_absolute = os.path.abspath(drive)
++    source_real = os.path.realpath(drive)
++    for output in (per_vm_drive, partial_drive):
++        if (source_absolute == os.path.abspath(output)
++                or (source_real == os.path.realpath(output)
++                    and not os.path.islink(output))):
++            raise ValueError('VM disk outputs must differ from the base image')
++    remove_vm_disk_copy(per_vm_drive)
++    remove_vm_disk_copy(partial_drive)
++    cmd = ['cp', '--sparse=always', '--reflink=auto', '--',
++           drive, partial_drive]
++    return cmd, partial_drive
++
++
++def publish_vm_disk_copy(drive: str, partial_drive: str, per_vm_drive: str):
++    if not vm_disk_copy_is_complete(drive, partial_drive):
++        raise RuntimeError(f'incomplete VM disk copy: {partial_drive}')
++    os.replace(partial_drive, per_vm_drive)
++
++
++def copy_one_vm_disk(drive: str, per_vm_drive: str):
++    if vm_disk_copy_is_complete(drive, per_vm_drive):
++        return
++    cmd, partial_drive = prepare_vm_disk_copy(drive, per_vm_drive)
++    try:
++        run_local_command(cmd)
++        publish_vm_disk_copy(drive, partial_drive, per_vm_drive)
++    except BaseException:
++        remove_vm_disk_copy(partial_drive)
++        raise
++
++
+ def copy_vm_disk(top_vmdir: str, num_vms: int, drive: str, drive_file_name: str):
+     copy_cmds = []
++    copies = []
+     for vm_id in range(num_vms):
+         per_vmdir = os.path.join(top_vmdir, str(vm_id))
+         os.makedirs(per_vmdir, exist_ok=True)
+         per_vm_drive = os.path.join(per_vmdir, drive_file_name)
+-        if not os.path.exists(per_vm_drive):
+-            cmd = ['dd', f'if={drive}', f'of={per_vm_drive}',
+-                   'iflag=direct', 'oflag=direct', 'bs=64K', 'conv=sparse']
+-            copy_cmds.append(cmd)
+-    run_local_command_parallel(copy_cmds)
++        if vm_disk_copy_is_complete(drive, per_vm_drive):
++            continue
++        cmd, partial_drive = prepare_vm_disk_copy(drive, per_vm_drive)
++        copy_cmds.append(cmd)
++        copies.append((partial_drive, per_vm_drive))
++    try:
++        run_local_command_parallel(copy_cmds)
++        for partial_drive, per_vm_drive in copies:
++            publish_vm_disk_copy(drive, partial_drive, per_vm_drive)
++    except BaseException:
++        # SIGKILL cannot run this cleanup, but the next attempt removes the
++        # .partial file before copying and never mistakes it for a VM image.
++        for partial_drive, _ in copies:
++            remove_vm_disk_copy(partial_drive)
++        raise
+ 
+ 
+ def prepare_vmdir(top_vmdir: str, drive: str, vm_id: int, drive_file_name: str,
+@@ -316,9 +385,7 @@ def prepare_vmdir(top_vmdir: str, drive: str, vm_id: int, drive_file_name: str,
+ 
+     shutil.copy('/usr/share/OVMF/OVMF_VARS.fd', per_vmdir)
+     per_vm_drive = os.path.join(per_vmdir, drive_file_name)
+-    if not os.path.exists(per_vm_drive):
+-        run_local_command(['dd', f'if={drive}', f'of={per_vm_drive}',
+-            'iflag=direct', 'oflag=direct', 'bs=64K', 'conv=sparse'])
++    copy_one_vm_disk(drive, per_vm_drive)
+ 
+     # ensuring different VMs on different hosts do not have overlapped IP addresses
+     num_ip_required = num_vms * (ether_card_per_vm + ib_card_per_vm)

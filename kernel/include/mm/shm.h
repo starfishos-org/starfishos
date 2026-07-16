@@ -215,9 +215,20 @@ struct thread_dq_node {
 struct thread_dq_pool {
     qptr_t free_list;   /* head of Treiber stack free list */
     s32 node_count;     /* total nodes allocated */
-    char _pad[56];      /* padding to cache line */
+    /*
+     * Publishes the pool and scheduler shared-queue sentinels as one unit.
+     * Machine 0 is the sole initializer; other machines wait for READY.
+     */
+    volatile u32 init_state;
+    char _pad[52];      /* padding to cache line */
     struct thread_dq_node nodes[THREAD_DQ_POOL_SIZE];
 } __attribute__((aligned(64)));
+
+enum thread_dq_pool_init_state {
+    THREAD_DQ_POOL_UNINIT = 0,
+    THREAD_DQ_POOL_INITIALIZING,
+    THREAD_DQ_POOL_READY,
+};
 
 /* Helper functions for thread queue offset calculations - declared in shm.c */
 void *thread_qptr_to_ptr(qptr_t off);
