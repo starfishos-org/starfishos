@@ -10,12 +10,18 @@
 #
 # Env vars:
 #   SKIP_GRAPH_DATASET=1   skip twitter-2010.bin (11GB, only needed for GeminiGraph)
+#   HF_ENDPOINT            Hugging Face host (default: https://hf-mirror.com).
+#                          Use https://huggingface.co for the official site.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATASETS_DIR="$REPO_ROOT/datasets"
-HF_BASE="https://huggingface.co/datasets/ShadowNearby/starfishos-datasets/resolve/main"
+# Default to hf-mirror (CN); official HF often hits TLS EOF on large files.
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+HF_ENDPOINT="${HF_ENDPOINT%/}"
+HF_BASE="${HF_ENDPOINT}/datasets/ShadowNearby/starfishos-datasets/resolve/main"
+HF_FALLBACK_BASE="https://huggingface.co/datasets/ShadowNearby/starfishos-datasets/resolve/main"
 
 mkdir -p "$DATASETS_DIR"
 
@@ -35,6 +41,17 @@ if [ "${SKIP_GRAPH_DATASET:-0}" != "1" ]; then
 twitter-2010.bin:11746921456"
 fi
 
+# HF large-file transfers often hit transient TLS EOFs (curl exit 35).
+# Resume with -C -, retry SSL/transport errors, prefer HTTP/1.1.
+curl_dataset() {
+    local dest_part="$1"
+    local url="$2"
+    curl -fL --http1.1 \
+        --retry 10 --retry-delay 5 --retry-all-errors \
+        --connect-timeout 30 \
+        -C - -o "$dest_part" "$url"
+}
+
 for entry in $files; do
     name="${entry%%:*}"
     expected_size="${entry##*:}"
@@ -45,13 +62,22 @@ for entry in $files; do
         continue
     fi
 
-    echo "downloading: $name ($expected_size bytes)"
+    echo "downloading: $name ($expected_size bytes) from $HF_ENDPOINT"
     tmp="$dest.part"
-    curl -fL --retry 3 -C - -o "$tmp" "$HF_BASE/$name"
+
+    if ! curl_dataset "$tmp" "$HF_BASE/$name"; then
+        if [ "$HF_BASE" != "$HF_FALLBACK_BASE" ]; then
+            echo "warn: download via $HF_ENDPOINT failed; retrying official Hugging Face" >&2
+            curl_dataset "$tmp" "$HF_FALLBACK_BASE/$name"
+        else
+            exit 1
+        fi
+    fi
 
     actual_size="$(stat -c%s "$tmp" 2>/dev/null || stat -f%z "$tmp")"
     if [ "$actual_size" != "$expected_size" ]; then
         echo "error: $name downloaded size $actual_size != expected $expected_size" >&2
+        echo "hint: re-run this script; partial file kept at $tmp for resume" >&2
         exit 1
     fi
     mv "$tmp" "$dest"
