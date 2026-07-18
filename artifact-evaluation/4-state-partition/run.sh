@@ -3,10 +3,17 @@
 # Artifact script for paper Figure 13: "Performance across state-partition
 # choices".
 #
+# Camera-ready / shepherd revision plan: Reviewer B asked to show
+# K-mix/U-mix vs Share at 4 AND 8 machines so the benefit can be seen
+# growing.  The three shared placements therefore run at every cluster size
+# in MACHINE_COUNTS (default "4 8"); Private (All_DRAM) remains the
+# single-machine ideal baseline shared by all panels.  Each QEMU guest uses
+# 12 vCPUs, so the largest default cluster is 8 x 12 = 96 vCPUs — matching
+# the paper testbed.
+#
 # Runs 6 applications (LevelDB, DBx1000, PCA, Matrix Multiply, Linear
-# Regression, Word Count) on a 2-machine cluster under four state-partition
-# configurations, then plots performance normalized to the Private
-# (All-DRAM) setup.
+# Regression, Word Count) under four state-partition configurations, then
+# plots performance normalized to the Private (All-DRAM) setup.
 #
 # Config -> kernel/dsm_config.cmake mapping (all five per-type modes —
 # THREADCTX/PGTABLE/STACK/OBJECT/PAGE — stay "CXL" except in All_DRAM):
@@ -24,7 +31,9 @@
 # Env overrides:
 #   BENCHS="leveldb dbx1000 pca matrix_multiply linear_regression word_count"
 #   CONFIGS="All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM"
-#   NUM_MACHINES=2   TIMEOUT=1200
+#   MACHINE_COUNTS="4 8"   TIMEOUT=1200
+#   (use MACHINE_COUNTS=2 for a smaller ablation / debug; NUM_MACHINES=N is
+#   accepted as a legacy alias for MACHINE_COUNTS="N")
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
@@ -32,16 +41,19 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
 ae_init_output_dirs "$AE_DIR"
 AE_LOG_DIR="$LOG_DIR"
-NUM_MACHINES="${NUM_MACHINES:-2}"
+# Cluster sizes for the shared placements (Private always runs on 1 machine).
+# NUM_MACHINES=N is kept as a legacy single-size alias.
+MACHINE_COUNTS="${MACHINE_COUNTS:-${NUM_MACHINES:-4 8}}"
 TIMEOUT="${TIMEOUT:-1200}"
-# State-partition uses a 2-machine cluster with 12 vCPUs per QEMU.  Its
-# global CPU layout is therefore 0-11 on machine 0 and 12-23 on machine 1,
-# matching DBx1000's 0-7,12-19 thread binding below.
+# Per-guest SMP is 12 vCPUs.  Global CPU layout is therefore
+# 0-11,12-23,...,(N-1)*12..(N*12-1).  DBx1000 and Matrix Multiply bind
+# eight workers per machine (0-7 on each 12-core segment).
 STATE_PARTITION_CPU_NUM="${STATE_PARTITION_CPU_NUM:-${AE_MICROBENCH_GUEST_CPU_NUM:-12}}"
 # The default is the complete 6 x 4 matrix used by the paper figure.  The
-# DBx1000 compile-time configuration is reduced below for this two-machine
-# state-placement experiment; the 64-warehouse auto-scale configuration would
-# otherwise consume far more memory than this figure requires.
+# DBx1000 compile-time configuration is kept modest for this state-placement
+# experiment (one warehouse per machine); the 64-warehouse auto-scale
+# configuration would otherwise consume far more memory than this figure
+# requires.
 BENCHS="${BENCHS-leveldb dbx1000 pca matrix_multiply linear_regression word_count}"
 CONFIGS="${CONFIGS-All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM}"
 
@@ -136,37 +148,50 @@ wait_for_bench() {
     esac
 }
 
-# dbx1000's vendored config is the 8-machine TPC-C setup; sync its
-# compile-time NUM_MACHINES to this experiment's cluster size and launch it
-# with threads bound across all machines (12 cores per machine).
+# Sync dbx1000's compile-time NUM_MACHINES to this experiment's cluster size
+# and launch it with threads bound across all machines (8 workers / 12 cores
+# per machine).
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 DBX_TIMEOUT="${DBX_TIMEOUT:-3600}"
 DBX_DRAM_SIZE="${DBX_DRAM_SIZE:-24G}"
-# Every multi-machine partition must own at least one warehouse.  Keep the
-# total warehouse count fixed across all four placements (including the
-# single-machine All_DRAM baseline) so their working sets remain comparable.
-DBX_NUM_WH="${DBX_NUM_WH:-$NUM_MACHINES}"
 DBX_WARMUP="${DBX_WARMUP:-10000}"
 DBX_MAX_TXN="${DBX_MAX_TXN:-10000}"
+# Matrix Multiply: eight workers per machine on the multi-machine configs;
+# Private (All_DRAM) keeps the original single-machine 8-thread binding.
+MATRIX_THREADS_PER_MACHINE="${MATRIX_THREADS_PER_MACHINE:-8}"
 
-if ! [[ "$NUM_MACHINES" =~ ^[1-9][0-9]*$ ]]; then
-    echo "NUM_MACHINES must be a positive integer: $NUM_MACHINES" >&2
-    exit 1
-fi
+MAX_MACHINES=0
+for count in $MACHINE_COUNTS; do
+    if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+        echo "MACHINE_COUNTS entries must be positive integers: $count" >&2
+        exit 1
+    fi
+    if [ "$count" -gt "$MAX_MACHINES" ]; then
+        MAX_MACHINES="$count"
+    fi
+done
+
+# Every multi-machine partition must own at least one warehouse.  Keep the
+# total warehouse count fixed across all placement points (including the
+# single-machine All_DRAM baseline) so their working sets remain comparable;
+# the default is the largest requested cluster size.
+DBX_NUM_WH="${DBX_NUM_WH:-$MAX_MACHINES}"
 if ! [[ "$DBX_NUM_WH" =~ ^[1-9][0-9]*$ ]]; then
     echo "DBX_NUM_WH must be a positive integer: $DBX_NUM_WH" >&2
     exit 1
 fi
-if [ "$DBX_NUM_WH" -lt "$NUM_MACHINES" ]; then
-    echo "DBX_NUM_WH ($DBX_NUM_WH) must be >= NUM_MACHINES ($NUM_MACHINES)" >&2
-    echo "DBx1000 requires at least one local warehouse per machine." >&2
-    exit 1
-fi
-if [ $((DBX_NUM_WH % NUM_MACHINES)) -ne 0 ]; then
-    echo "DBX_NUM_WH ($DBX_NUM_WH) must be divisible by NUM_MACHINES ($NUM_MACHINES)" >&2
-    echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
-    exit 1
-fi
+for count in $MACHINE_COUNTS; do
+    if [ "$DBX_NUM_WH" -lt "$count" ]; then
+        echo "DBX_NUM_WH ($DBX_NUM_WH) must be >= every MACHINE_COUNTS entry ($count)" >&2
+        echo "DBx1000 requires at least one local warehouse per machine." >&2
+        exit 1
+    fi
+    if [ $((DBX_NUM_WH % count)) -ne 0 ]; then
+        echo "DBX_NUM_WH ($DBX_NUM_WH) must be divisible by every MACHINE_COUNTS entry ($count)" >&2
+        echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
+        exit 1
+    fi
+done
 
 ae_acquire_run_lock "state-partition" || exit 1
 
@@ -175,12 +200,17 @@ mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
 
-dbx_bind_cpu_list() {
+# Eight worker CPUs on each 12-vCPU machine segment: 0-7,12-19,24-31,...
+worker_bind_cpu_list() {
     local n="$1" i parts=()
     for i in $(seq 0 $((n - 1))); do
-        parts+=("$((i * 12))-$((i * 12 + 7))")
+        parts+=("$((i * STATE_PARTITION_CPU_NUM))-$((i * STATE_PARTITION_CPU_NUM + MATRIX_THREADS_PER_MACHINE - 1))")
     done
     (IFS=,; echo "${parts[*]}")
+}
+
+dbx_bind_cpu_list() {
+    worker_bind_cpu_list "$1"
 }
 
 cleanup() {
@@ -213,8 +243,9 @@ ae_set_paper_guest_cpu_config "$STATE_PARTITION_CPU_NUM"
 ae_export_guest_cpu_num "$STATE_PARTITION_CPU_NUM"
 # LLFree is evaluated by test 3.  Its shared allocator metadata is not a
 # state-partition variable and can retain incompatible per-core reservations
-# when the preceding 96-vCPU test is followed by this 12-vCPU cluster.  Keep
-# this experiment on the conventional CXL buddy backend.
+# when the preceding single-guest 96-vCPU allocator test is followed by this
+# 12-vCPU-per-guest cluster.  Keep this experiment on the conventional CXL
+# buddy backend.
 ae_set_dsm_var DSM_CXL_LF_BUDDY OFF
 
 for cfg in $CONFIGS; do
@@ -224,96 +255,107 @@ for cfg in $CONFIGS; do
     # state forced into private DRAM, cross-machine sharing is impossible by
     # design (2-machine runs crash in virt_to_page), so it runs on 1 machine
     # — matching the original experiments (old logs used ./build/simulate.sh).
+    # The shared placements run at every requested cluster size.
     if [ "$cfg" = "All_DRAM" ]; then
-        cfg_machines=1
+        cfg_counts="1"
     else
-        cfg_machines="$NUM_MACHINES"
+        cfg_counts="$MACHINE_COUNTS"
     fi
-
-    echo ""
-    echo "########################################################"
-    echo "### Config: $cfg ($cfg_machines machine(s))"
-    echo "###   DSM_MALLOC_MODE=$malloc_mode  DSM_USER_MALLOC_MODE=$user_malloc_mode"
-    echo "###   THREADCTX/PGTABLE/STACK/OBJECT/PAGE=$type_mode"
-    echo "########################################################"
 
     ae_set_dsm_var DSM_MALLOC_MODE "$malloc_mode"
     ae_set_dsm_var DSM_USER_MALLOC_MODE "$user_malloc_mode"
     for t in THREADCTX PGTABLE STACK OBJECT PAGE; do
         ae_set_dsm_var "DSM_${t}_MODE" "$type_mode"
     done
-    # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the cluster size
-    sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t$cfg_machines/" "$DBX_CONFIG"
-    sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$DBX_NUM_WH/" "$DBX_CONFIG"
-    sed -i "s/^#define WARMUP[[:space:]].*/#define WARMUP\t\t\t\t\t\t$DBX_WARMUP/" "$DBX_CONFIG"
-    sed -i "s/^#define MAX_TXN_PER_PART[[:space:]].*/#define MAX_TXN_PER_PART\t\t\t$DBX_MAX_TXN/" "$DBX_CONFIG"
-    sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t50/" "$DBX_CONFIG"
-    DBX_BIND_LIST="$(dbx_bind_cpu_list "$cfg_machines")"
-    ae_build
 
-    for bench in $BENCHS; do
-        pattern="$(bench_done_pattern "$bench")"
-        logfile="$AE_LOG_DIR/${bench}_${cfg}.log"
-        # A targeted retry may reuse the same log directory.  Remove
-        # this point before boot so a failed retry cannot be parsed as the
-        # prior run's successful measurement.
-        rm -f -- "$logfile"
-        echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
-        if [ "$bench" = "dbx1000" ]; then
-            if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                ae_record_error "boot failed for $bench under $cfg"
-                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                    "-boot-failed-${bench}-${cfg}"
-                continue
-            fi
-            ae_send_command 0 "write dbx1000_bind_cpu.txt $DBX_BIND_LIST"
-            sleep 2
-            ae_send_command 0 "rundb.bin"
-            bench_timeout="$DBX_TIMEOUT"
-        elif [ "$bench" = "matrix_multiply" ]; then
-            # run_matrix_multiply.sh hardcodes the 2-machine setup (16 threads,
-            # eight per machine, bound to 0-7 and 12-19); on 1 machine the
-            # threads bound to CPUs >= 12
-            # never run and the app hangs at its barrier. Use the original
-            # single-machine parameters (8 threads, CPUs 0-11) instead.
-            if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                ae_record_error "boot failed for $bench under $cfg"
-                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                    "-boot-failed-${bench}-${cfg}"
-                continue
-            fi
-            if [ "$cfg_machines" -eq 1 ]; then
-                ae_send_command 0 "write matrix_multiply_bind_cpu.txt 0-11"
+    for cfg_machines in $cfg_counts; do
+        echo ""
+        echo "########################################################"
+        echo "### Config: $cfg ($cfg_machines machine(s))"
+        echo "###   DSM_MALLOC_MODE=$malloc_mode  DSM_USER_MALLOC_MODE=$user_malloc_mode"
+        echo "###   THREADCTX/PGTABLE/STACK/OBJECT/PAGE=$type_mode"
+        echo "########################################################"
+
+        # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the cluster
+        # size, so each (config, cluster size) point rebuilds.
+        sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t$cfg_machines/" "$DBX_CONFIG"
+        sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$DBX_NUM_WH/" "$DBX_CONFIG"
+        sed -i "s/^#define WARMUP[[:space:]].*/#define WARMUP\t\t\t\t\t\t$DBX_WARMUP/" "$DBX_CONFIG"
+        sed -i "s/^#define MAX_TXN_PER_PART[[:space:]].*/#define MAX_TXN_PER_PART\t\t\t$DBX_MAX_TXN/" "$DBX_CONFIG"
+        sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t50/" "$DBX_CONFIG"
+        DBX_BIND_LIST="$(dbx_bind_cpu_list "$cfg_machines")"
+        ae_build
+
+        for bench in $BENCHS; do
+            pattern="$(bench_done_pattern "$bench")"
+            logfile="$AE_LOG_DIR/${bench}_${cfg}_m${cfg_machines}.log"
+            point="${bench}-${cfg}-m${cfg_machines}"
+            # A targeted retry may reuse the same log directory.  Remove
+            # this point before boot so a failed retry cannot be parsed as the
+            # prior run's successful measurement.
+            rm -f -- "$logfile"
+            echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
+            if [ "$bench" = "dbx1000" ]; then
+                if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
+                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
+                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                        "-boot-failed-${point}"
+                    continue
+                fi
+                ae_send_command 0 "write dbx1000_bind_cpu.txt $DBX_BIND_LIST"
                 sleep 2
-                ae_send_command 0 "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t 8"
+                ae_send_command 0 "rundb.bin"
+                bench_timeout="$DBX_TIMEOUT"
+            elif [ "$bench" = "matrix_multiply" ]; then
+                # Do not source run_matrix_multiply.sh: it hardcodes the old
+                # 2-machine bind list (0-7,12-19 / -t 16).  Scale eight workers
+                # per machine for the multi-machine ablation; keep the original
+                # single-machine Private baseline (8 threads on CPUs 0-11).
+                if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
+                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
+                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                        "-boot-failed-${point}"
+                    continue
+                fi
+                if [ "$cfg_machines" -eq 1 ]; then
+                    ae_send_command 0 "write matrix_multiply_bind_cpu.txt 0-11"
+                    sleep 2
+                    ae_send_command 0 "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t 8"
+                else
+                    matrix_bind="$(worker_bind_cpu_list "$cfg_machines")"
+                    matrix_threads=$((MATRIX_THREADS_PER_MACHINE * cfg_machines))
+                    ae_send_command 0 "write matrix_multiply_bind_cpu.txt $matrix_bind"
+                    sleep 2
+                    ae_send_command 0 \
+                        "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t $matrix_threads"
+                fi
+                bench_timeout="$TIMEOUT"
             else
+                if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
+                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
+                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                        "-boot-failed-${point}"
+                    continue
+                fi
                 ae_send_command 0 "source run_${bench}.sh"
+                bench_timeout="$TIMEOUT"
             fi
-            bench_timeout="$TIMEOUT"
-        else
-            if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                ae_record_error "boot failed for $bench under $cfg"
+            if wait_for_bench \
+                "$bench" "$pattern" "$bench_timeout" "$bench done" "$cfg_machines"; then
+                sleep 3   # let trailing output (e.g. summary lines) flush
+                cp "$(ae_machine_log 0)" "$logfile"
+            else
+                # rc 1 (timeout) or 3 (guest error/crash) — the specific reason
+                # is already recorded above; save the log and skip to the next
+                # test.
+                cp "$(ae_machine_log 0)" "$logfile" || true
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                    "-boot-failed-${bench}-${cfg}"
-                continue
+                    "-failed-${point}"
+                echo "[WARN] $bench under $cfg ($cfg_machines machines) did not complete; skipping to next test" >&2
+                ae_record_error "$bench under $cfg ($cfg_machines machines) did not produce a complete result"
             fi
-            ae_send_command 0 "source run_${bench}.sh"
-            bench_timeout="$TIMEOUT"
-        fi
-        if wait_for_bench \
-            "$bench" "$pattern" "$bench_timeout" "$bench done" "$cfg_machines"; then
-            sleep 3   # let trailing output (e.g. summary lines) flush
-            cp "$(ae_machine_log 0)" "$logfile"
-        else
-            # rc 1 (timeout) or 3 (guest error/crash) — the specific reason is
-            # already recorded above; save the log and skip to the next test.
-            cp "$(ae_machine_log 0)" "$logfile" || true
-            ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                "-failed-${bench}-${cfg}"
-            echo "[WARN] $bench under $cfg did not complete; skipping to next test" >&2
-            ae_record_error "$bench under $cfg did not produce a complete result"
-        fi
-        ae_kill_cluster
+            ae_kill_cluster
+        done
     done
 done
 
@@ -322,9 +364,17 @@ ae_restore_build_configs
 echo ""
 echo "=== Parsing logs and generating figure ==="
 plot_args=(--log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR")
+# shellcheck disable=SC2086
+plot_args+=(--machine-counts $MACHINE_COUNTS)
 for bench in $BENCHS; do
     for cfg in $CONFIGS; do
-        plot_args+=(--require-point "$bench/$cfg")
+        if [ "$cfg" = "All_DRAM" ]; then
+            plot_args+=(--require-point "$bench/$cfg/1")
+        else
+            for count in $MACHINE_COUNTS; do
+                plot_args+=(--require-point "$bench/$cfg/$count")
+            done
+        fi
     done
 done
 if [ "$FULL_PLOT_REQUEST" != "1" ]; then

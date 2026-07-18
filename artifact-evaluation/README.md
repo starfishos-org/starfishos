@@ -109,7 +109,7 @@ directory; prior runs are preserved until removed with `./artifact-evaluation/ru
 
 | Option | Effect |
 | --- | --- |
-| *(default)* | Run the ready set: ipc-cdf, sched-notify, memory-allocator, state-partition, auto-scale, resource-util, recover-fs |
+| *(default)* | Run the ready set: ipc-cdf, queue-saturation, sched-notify, memory-allocator, state-partition, auto-scale, resource-util, recover-fs, dbx1000-cross-warehouse |
 | `--run-subset-of-tests N[,N...]` | Run only numbered experiments (comma-separated; spaces trimmed). See table below. |
 | `--clean` | Remove `artifact-evaluation/*/out/` and legacy flat `logs/`, `csv/`, `figures/` under each experiment. Alone: clean and exit. With a run or `--plot-only`: clean first, then continue. |
 | `--plot-only` | Re-plot from the latest `out/<timestamp>/` without re-running QEMU |
@@ -154,10 +154,12 @@ Each numbered experiment writes paper figures as `.png` files under
 | 1 | 1-ipc-cdf | `ipc_cdf`, `ipc_read_breakdown` | Figure 11 | ipc-cdf |
 | 2 | 2-sched-notify-latency | `sched_notify_latency` | Section 8.2 (text) | sched-notify |
 | 3 | 3-memory-allocator | `allocator-all` | Figure 12 | memory-allocator |
-| 4 | 4-state-partition | `state_partition` | Figure 13 | state-partition |
+| 4 | 4-state-partition | `state_partition` | Figure 13 (camera-ready: 4- and 8-machine panels) | state-partition |
 | 5 | 5-auto-scale | `auto-scale-matrix`, `db1000`, `gemini-chcore`, `auto-scale-legend` | Figure 14 | auto-scale |
 | 6 | 6-resource-util | `real` | Figure 15 | resource-util |
 | 7 | 7-recover-fs | `recovery-performance-single` | Figure 16 | recover-fs |
+| 8 | 8-dbx1000-cross-warehouse | `dbx1000-cross-warehouse` | Camera-ready revision (Reviewer B Q3) | TPC-C cross-warehouse ratio sweep |
+| 9 | 9-queue-saturation | `queue_saturation` | Camera-ready revision (Reviewer B, Fig. 11b) | per-service-queue tail latency + saturation throughput |
 
 The persistent CXLFS backing file is tied to the checkout's built ramdisk.
 Before every AE boot it is recreated when the repository changes or

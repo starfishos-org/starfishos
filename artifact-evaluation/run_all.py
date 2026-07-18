@@ -58,6 +58,7 @@ EXPERIMENT_NUMBERS: Dict[int, str] = {
     6: "resource-util",
     7: "recover-fs",
     8: "dbx1000-cross-warehouse",
+    9: "queue-saturation",
 }
 
 PAPER_ORDER = [
@@ -68,19 +69,22 @@ PAPER_ORDER = [
     "resource-util",
     "recover-fs",
 ]
+# Default one-click set: the paper figures plus the camera-ready revision-plan
+# experiments (8-machine cross-warehouse sweep, per-service-queue saturation).
 READY_PAPER = [
     "ipc-cdf",
+    "queue-saturation",
     "sched-notify",
     "memory-allocator",
     "state-partition",
     "auto-scale",
     "resource-util",
     "recover-fs",
+    "dbx1000-cross-warehouse",
 ]
 EXTRA_ORDER = [
     "basic",
     "sched-notify",
-    "dbx1000-cross-warehouse",
 ]
 
 LEGACY_OUTPUT_DIRS = ("logs", "csv", "figures")
@@ -123,7 +127,10 @@ EXPERIMENTS: Dict[str, Experiment] = {
         "allocator fig00",
     ),
     "state-partition": Experiment(
-        "state-partition", "4-state-partition", "ready", 36000,
+        # Camera-ready ablation runs the three shared placements at both 4 and
+        # 8 machines (12 vCPUs each) plus the single-machine Private baseline;
+        # allow headroom for 7 builds + 6 benches × 7 placement points.
+        "state-partition", "4-state-partition", "ready", 86400,
         "state_partition",
     ),
     "auto-scale": Experiment(
@@ -140,7 +147,11 @@ EXPERIMENTS: Dict[str, Experiment] = {
     ),
     "dbx1000-cross-warehouse": Experiment(
         "dbx1000-cross-warehouse", "8-dbx1000-cross-warehouse", "ready", 21600,
-        "(extra) cross-warehouse", is_paper=False,
+        "(camera-ready) cross-warehouse sweep",
+    ),
+    "queue-saturation": Experiment(
+        "queue-saturation", "9-queue-saturation", "ready", 10800,
+        "(camera-ready) queue tail latency + saturation",
     ),
 }
 
@@ -280,7 +291,8 @@ def plot_cmd(name: str) -> Optional[List[str]]:
         base = ["python3", str(plot_py)]
 
     if out is None:
-        if name in ("ipc-cdf", "sched-notify", "memory-allocator", "recover-fs"):
+        if name in ("ipc-cdf", "queue-saturation", "sched-notify",
+                    "memory-allocator", "recover-fs"):
             return base
         return None
 
@@ -299,7 +311,7 @@ def plot_cmd(name: str) -> Optional[List[str]]:
             "--fig-dir", str(fig_dir),
         ]
 
-    if name in ("ipc-cdf", "sched-notify"):
+    if name in ("ipc-cdf", "queue-saturation", "sched-notify"):
         return base + [
             "--log-dir", str(log_dir),
             "--csv-dir", str(csv_dir),

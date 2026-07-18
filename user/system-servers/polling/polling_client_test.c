@@ -17,9 +17,9 @@
  */
 #define ENABLE_BREAKDOWN 1
 
-#define WRITE_SIZE 4096  /* 4KiB file */
-#define NUM_ITERS  1000
-#define TEST_PATH  "test.txt"
+#define WRITE_SIZE        4096  /* 4KiB file */
+#define DEFAULT_NUM_ITERS 1000
+#define TEST_PATH         "test.txt"
 
 static inline uint64_t rdtsc(void)
 {
@@ -40,8 +40,9 @@ struct worker_thread_arg {
     struct polling_shm_region *shm; /* NULL = direct mode */
     int tid;
     int count;
+    int iters;                      /* iterations this worker runs */
     const char *mode_tag;           /* "direct" / "local" / "cross" */
-    struct iter_perf perf[NUM_ITERS];
+    struct iter_perf *perf;         /* one sample per iteration */
 };
 
 /* ---- Direct mode: normal IPC to tmpfs ---- */
@@ -55,7 +56,7 @@ void *worker_direct(void *arg)
     int fd = open(TEST_PATH, O_RDWR, 0);
     if (fd < 0) { wta->count = 0; return NULL; }
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         lseek(fd, 0, SEEK_SET);
 
         uint64_t t0 = rdtsc();
@@ -83,7 +84,7 @@ void *worker_empty_polling(void *arg)
     struct polling_shm_region *shm = wta->shm;
     int count = 0;
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         struct polling_request req = { .type = POLLING_REQ_EMPTY };
 
         uint64_t t0 = rdtsc();
@@ -111,7 +112,7 @@ void *worker_polling(void *arg)
     char buf[WRITE_SIZE];
     int count = 0;
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         int fd = polling_fs_open(shm, TEST_PATH, O_RDWR, 0);
         if (fd < 0) {
             printf("[thread %d] open failed at iter %d\n", wta->tid, i);
@@ -166,7 +167,7 @@ void *worker_direct_write(void *arg)
     int fd = open(TEST_PATH, O_RDWR, 0);
     if (fd < 0) { wta->count = 0; return NULL; }
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         lseek(fd, 0, SEEK_SET);
 
         uint64_t t0 = rdtsc();
@@ -198,7 +199,7 @@ void *worker_polling_write(void *arg)
     for (int i = 0; i < WRITE_SIZE; i++)
         buf[i] = (char)('a' + (i % 26));
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         int fd = polling_fs_open(shm, TEST_PATH, O_RDWR, 0);
         if (fd < 0) {
             printf("[thread %d] open failed at iter %d\n", wta->tid, i);
@@ -248,7 +249,7 @@ void *worker_direct_empty(void *arg)
         return NULL;
     }
 
-    for (int i = 0; i < NUM_ITERS; i++) {
+    for (int i = 0; i < wta->iters; i++) {
         uint64_t t0 = rdtsc();
         chcore_fs_noop(fd);
         uint64_t t1 = rdtsc();
@@ -268,20 +269,24 @@ void *worker_direct_empty(void *arg)
 struct args {
     int shm_id;
     int num_threads;
+    int num_iters;    /* iterations per worker thread */
     int direct;       /* 1 = direct IPC mode (no polling queue) */
     int empty;        /* 1 = POLLING_REQ_EMPTY only (no FS read), implies polling */
     int write_mode;   /* 1 = write 4KiB instead of read */
+    int quiet;        /* 1 = summary/throughput only (no CDF/breakdown dump) */
     const char *mode; /* "direct" / "local" / "cross" (for output tags) */
 };
 
 void print_usage()
 {
-    printf("Usage: polling_client.bin [-d] [-e] [-w] [-s <shm_id>] [-t <threads>] [-m <mode_tag>]\n");
+    printf("Usage: polling_client.bin [-d] [-e] [-w] [-q] [-s <shm_id>] [-t <threads>] [-n <iters>] [-m <mode_tag>]\n");
     printf("  -d          direct mode (normal IPC, no polling queue)\n");
     printf("  -e          empty polling request (POLLING_REQ_EMPTY), no file I/O in loop\n");
     printf("  -w          write 4KiB instead of read\n");
+    printf("  -q          quiet: print [SUMMARY]/[TPUT] only, skip CDF/breakdown dumps\n");
     printf("  -s <id>     shared memory id (default 0)\n");
     printf("  -t <n>      number of worker threads (default 1)\n");
+    printf("  -n <iters>  iterations per worker thread (default %d)\n", DEFAULT_NUM_ITERS);
     printf("  -m <tag>    mode tag for output: direct/local/cross or t1/e1 etc.\n");
 }
 
@@ -289,9 +294,11 @@ void parse_args(int argc, char *argv[], struct args *args)
 {
     args->shm_id = 0;
     args->num_threads = 1;
+    args->num_iters = DEFAULT_NUM_ITERS;
     args->direct = 0;
     args->empty = 0;
     args->write_mode = 0;
+    args->quiet = 0;
     args->mode = "polling";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) {
@@ -300,10 +307,14 @@ void parse_args(int argc, char *argv[], struct args *args)
             args->empty = 1;
         } else if (strcmp(argv[i], "-w") == 0) {
             args->write_mode = 1;
+        } else if (strcmp(argv[i], "-q") == 0) {
+            args->quiet = 1;
         } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
             args->shm_id = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
             args->num_threads = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            args->num_iters = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-m") == 0 && i + 1 < argc) {
             args->mode = argv[++i];
         } else {
@@ -311,12 +322,16 @@ void parse_args(int argc, char *argv[], struct args *args)
             exit(1);
         }
     }
+    if (args->num_iters <= 0) {
+        print_usage();
+        exit(1);
+    }
 }
 
 /* ---- Output results ---- */
 
 static void print_results(struct worker_thread_arg *wta, int num_threads,
-                          const char *mode)
+                          const char *mode, int quiet, uint64_t wall_cycles)
 {
     int total = 0;
     for (int i = 0; i < num_threads; i++)
@@ -339,6 +354,15 @@ static void print_results(struct worker_thread_arg *wta, int num_threads,
            all_total[(int)(total * 0.90)],
            all_total[(int)(total * 0.99)],
            all_total[total - 1]);
+
+    /* Aggregate wall clock across all workers (for saturation throughput) */
+    printf("[TPUT] mode=%s total=%d threads=%d wall_cycles=%lu\n",
+           mode, total, num_threads, wall_cycles);
+
+    if (quiet) {
+        free(all_total);
+        return;
+    }
 
     /* CDF of t_total */
     printf("[CDF_BEGIN] mode=%s count=%d\n", mode, total);
@@ -397,9 +421,9 @@ int main(int argc, char *argv[])
         if (!shm) return -1;
     }
 
-    printf("[client] mode=%s shm_id=%d threads=%d direct=%d empty=%d write=%d breakdown=%d\n",
-           args.mode, args.shm_id, nt, args.direct, args.empty,
-           args.write_mode, ENABLE_BREAKDOWN);
+    printf("[client] mode=%s shm_id=%d threads=%d iters=%d direct=%d empty=%d write=%d quiet=%d breakdown=%d\n",
+           args.mode, args.shm_id, nt, args.num_iters, args.direct, args.empty,
+           args.write_mode, args.quiet, ENABLE_BREAKDOWN);
 
     /* Create test file */
     if (args.direct) {
@@ -433,19 +457,32 @@ int main(int argc, char *argv[])
         wta[i].shm = shm;
         wta[i].tid = i;
         wta[i].count = 0;
+        wta[i].iters = args.num_iters;
         wta[i].mode_tag = args.mode;
-        pthread_create(&tid[i], NULL, select_fn(&args), &wta[i]);
+        wta[i].perf = (struct iter_perf *)malloc(
+            sizeof(struct iter_perf) * args.num_iters);
+        if (!wta[i].perf) {
+            printf("Failed to allocate perf samples for thread %d\n", i);
+            return -1;
+        }
     }
+
+    uint64_t wall_start = rdtsc();
+    for (int i = 0; i < nt; i++)
+        pthread_create(&tid[i], NULL, select_fn(&args), &wta[i]);
 
     for (int i = 0; i < nt; i++)
         pthread_join(tid[i], NULL);
+    uint64_t wall_cycles = rdtsc() - wall_start;
 
-    print_results(wta, nt, args.mode);
+    print_results(wta, nt, args.mode, args.quiet, wall_cycles);
 
     if (!args.direct)
         polling_print_debug_info(shm);
     printf("polling_client: done\n");
 
+    for (int i = 0; i < nt; i++)
+        free(wta[i].perf);
     free(tid);
     free(wta);
     return 0;
