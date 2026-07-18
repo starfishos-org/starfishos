@@ -249,6 +249,7 @@ run_single_app() {
 
 ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
+ae_prepare_microbench_guest_cpu
 ae_ensure_base_build
 ae_save_build_configs
 cleanup() {
@@ -318,7 +319,7 @@ run_single_baselines() {
         marker="$(single_marker "$bench")"
         rm -f -- "$AE_LOG_DIR/${bench}_single.log"
         echo "### single: $bench"
-        if ! ae_boot_cluster 1; then
+        if ! ae_boot_cluster 1 "$AE_MICROBENCH_GUEST_CPU_NUM"; then
             failed=1
             ae_kill_cluster
             continue
@@ -353,7 +354,7 @@ run_stress_type() {
     for bench in $(stress_type_benches "$type"); do
         rm -f -- "$AE_LOG_DIR/${bench}_stress.log"
     done
-    ae_boot_cluster 1 || { ae_kill_cluster; return 1; }
+    ae_boot_cluster 1 "$AE_MICROBENCH_GUEST_CPU_NUM" || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source single_stress_type${type}.sh"
     for bench in $(stress_type_benches "$type"); do
         marker="$(single_marker "$bench")"
@@ -384,7 +385,7 @@ run_cross_type() {
         bench="${entry%%:*}"
         rm -f -- "$AE_LOG_DIR/${bench}_p3os.log"
     done
-    ae_boot_cluster 2 || { ae_kill_cluster; return 1; }
+    ae_boot_cluster 2 "$AE_MICROBENCH_GUEST_CPU_NUM" || { ae_kill_cluster; return 1; }
     ae_send_command 0 "source cross_stress_type${type}_m0.sh"
     ae_send_command 1 "source cross_stress_type${type}_m1.sh"
     for entry in $(cross_type_bench_machines "$type"); do

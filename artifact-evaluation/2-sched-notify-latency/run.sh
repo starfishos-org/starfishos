@@ -12,13 +12,13 @@ SESSION="${SESSION:-${USER}-sched-notify-ae}"
 NUM_MACHINES=2
 NRUNS="${NRUNS:-3}"
 SAMPLES="${SAMPLES:-8}"
+GUEST_CPU_NUM="${GUEST_CPU_NUM:-12}"
 LOCAL_CPU="${LOCAL_CPU:-4}"
 REMOTE_CPU="${REMOTE_CPU:-12}"
 TIMEOUT="${TIMEOUT:-300}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
-COMMAND="${COMMAND:-sched_notify_microbench.bin $SAMPLES $LOCAL_CPU $REMOTE_CPU}"
 
 mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 echo "[AE] Output directory: $OUT_DIR"
@@ -102,7 +102,7 @@ wait_for_log() {
 launch_machine() {
     local machine="$1" run_log_dir="$2"
     local logfile="$run_log_dir/machine${machine}.log"
-    local command="MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
+    local command="cd '$REPO_ROOT' && CPU_NUM=$GUEST_CPU_NUM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
 
     if [ "$machine" -eq 0 ]; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"
@@ -150,8 +150,28 @@ ae_ensure_clean_tmux
 check_global_prepare
 enable_microbench_config
 
-echo "=== Configuration: source_cpu=0 local_cpu=$LOCAL_CPU "\
-"cross_machine_cpu=$REMOTE_CPU samples=$SAMPLES runs=$NRUNS ==="
+# chcore.ini defaults to 96 vCPUs; microbenchmarks use a smaller guest like
+# ipc-cdf to avoid rr_sched budget issues during boot.
+ae_prepare_microbench_guest_cpu
+GUEST_CPU_NUM="${CPU_NUM:-$GUEST_CPU_NUM}"
+
+if [ "$REMOTE_CPU" -ge "$GUEST_CPU_NUM" ]; then
+    echo "[AE] Clamping REMOTE_CPU from $REMOTE_CPU to $((GUEST_CPU_NUM - 1)) "\
+"(guest has $GUEST_CPU_NUM CPUs, indices 0..$((GUEST_CPU_NUM - 1)))"
+    REMOTE_CPU=$((GUEST_CPU_NUM - 1))
+fi
+if [ "$LOCAL_CPU" -le 0 ] || [ "$LOCAL_CPU" -ge "$GUEST_CPU_NUM" ]; then
+    echo "[AE] LOCAL_CPU=$LOCAL_CPU is invalid for guest CPU count $GUEST_CPU_NUM" >&2
+    exit 1
+fi
+if [ "$LOCAL_CPU" -eq "$REMOTE_CPU" ]; then
+    echo "[AE] LOCAL_CPU and REMOTE_CPU must differ" >&2
+    exit 1
+fi
+COMMAND="${COMMAND:-sched_notify_microbench.bin $SAMPLES $LOCAL_CPU $REMOTE_CPU}"
+
+echo "=== Configuration: guest_cpus=$GUEST_CPU_NUM source_cpu=0 "\
+"local_cpu=$LOCAL_CPU cross_machine_cpu=$REMOTE_CPU samples=$SAMPLES runs=$NRUNS ==="
 
 if [ "$SKIP_BUILD" = "1" ]; then
     echo "=== Skipping build (SKIP_BUILD=1) ==="

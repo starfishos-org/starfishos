@@ -18,6 +18,8 @@
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
 #   ae_save_build_configs / ae_restore_build_configs
+#   ae_prepare_microbench_guest_cpu / ae_prepare_paper_guest_cpu
+#   ae_set_paper_guest_cpu_config
 #
 # Conventions:
 #   AE_SESSION  - tmux session name (default: $USER-ae)
@@ -226,6 +228,12 @@ ae_set_dotconfig() {
     }
 }
 
+# Guest vCPU profiles used across AE scripts.  simulate.sh defaults to
+# chcore.ini (96 on the paper testbed) when CPU_NUM is unset; microbenchmarks
+# should call ae_prepare_microbench_guest_cpu before booting QEMU.
+AE_PAPER_GUEST_CPU_NUM="${AE_PAPER_GUEST_CPU_NUM:-96}"
+AE_MICROBENCH_GUEST_CPU_NUM="${AE_MICROBENCH_GUEST_CPU_NUM:-12}"
+
 # ae_set_ini_cpu_num 96
 # chcore.ini's cpu_num is passed by chbuild as a -D command-line arg, which
 # overrides the .config value — so the ini must be edited too when changing
@@ -237,6 +245,30 @@ ae_set_ini_cpu_num() {
         echo "Failed to set cpu_num=${val} in $AE_CHCORE_INI" >&2
         return 1
     }
+}
+
+# Runtime QEMU SMP count (simulate.sh: CPU_NUM overrides chcore.ini).
+ae_export_guest_cpu_num() {
+    local val="$1"
+    export CPU_NUM="$val"
+    echo "[AE] Guest QEMU CPUs: $val"
+}
+
+# Paper-scale cluster tests: 96 vCPUs unless the caller overrides CPU_NUM.
+ae_prepare_paper_guest_cpu() {
+    ae_export_guest_cpu_num "${CPU_NUM:-$AE_PAPER_GUEST_CPU_NUM}"
+}
+
+# ipc-cdf / sched-notify: small guest to avoid rr_sched budget issues at boot.
+ae_prepare_microbench_guest_cpu() {
+    ae_export_guest_cpu_num "${CPU_NUM:-$AE_MICROBENCH_GUEST_CPU_NUM}"
+}
+
+# Compile-time ceiling for builds that need the full paper CPU namespace.
+ae_set_paper_guest_cpu_config() {
+    local val="${1:-$AE_PAPER_GUEST_CPU_NUM}"
+    ae_set_ini_cpu_num "$val"
+    ae_set_dotconfig CHCORE_PLAT_CPU_NUM STRING "$val"
 }
 
 AE_CONFIG_BACKUP_DIR=""
@@ -274,6 +306,10 @@ ae_chbuild_with_fallback() {
     export CHBUILD_TIMEOUT="$build_timeout"
     export CHBUILD_LOG="$log"
     export CHBUILD_PROGRESS=1
+
+    # A killed/interrupted docker chbuild leaves /$USER-chbuild behind and
+    # blocks the next ./chbuild invocation (README troubleshooting).
+    docker rm -f "${USER}-chbuild" >/dev/null 2>&1 || true
 
     if "$AE_REPO_ROOT/scripts/chbuild-with-fallback.sh" "$@"; then
         return 0
@@ -633,7 +669,7 @@ ae_kill_cluster() {
 # Kill every known AE / benchmark tmux session so a timed-out experiment
 # cannot leave QEMU holding ivshmem and break the next one.
 ae_kill_all_ae_sessions() {
-    local s
+    local s pane_start seen=" "
     for s in \
         "${USER}-ae" \
         "${USER}-ipc-ae" \
@@ -646,7 +682,51 @@ ae_kill_all_ae_sessions() {
             echo "[AE] killing tmux session $s"
             tmux kill-session -t "$s" 2>/dev/null || true
         fi
+        seen+="$s "
     done
+
+    # A caller may override SESSION/AE_SESSION, so fixed names alone are not
+    # enough for interrupt cleanup.  Kill only sessions whose pane was started
+    # from this checkout and launches the ChCore simulator; unrelated tmux
+    # work is left untouched.
+    while IFS=$'\t' read -r s pane_start; do
+        [ -n "$s" ] || continue
+        [[ "$seen" == *" $s "* ]] && continue
+        case "$pane_start" in
+            *"$AE_REPO_ROOT"*"simulate.sh"*)
+                echo "[AE] killing artifact tmux session $s"
+                tmux kill-session -t "$s" 2>/dev/null || true
+                seen+="$s "
+                ;;
+        esac
+    done < <(tmux list-panes -a -F '#S\t#{pane_start_command}' 2>/dev/null | awk -F '\t' '!seen[$1]++')
+}
+
+# Emergency path for an interrupted one-click run.  tmux owns a separate
+# process tree and each runner holds a flock parent, so killing only QEMU does
+# not necessarily release runner.lock.  Restrict the match to this checkout's
+# AE entry points and this user's AE lock; never kill unrelated processes.
+# AE_FORCE_STOP_SKIP_PID may name the current run_all.py process so its signal
+# handler can finish this cleanup itself.
+ae_force_stop_artifact_runners() {
+    local pid args skip_pid="${AE_FORCE_STOP_SKIP_PID:-}"
+
+    ae_kill_all_ae_sessions
+    ae_reap_leftover_qemu KILL
+
+    while read -r pid args; do
+        [ -n "$pid" ] || continue
+        [ "$pid" = "$$" ] && continue
+        [ -n "$skip_pid" ] && [ "$pid" = "$skip_pid" ] && continue
+        case "$args" in
+            *"$AE_REPO_ROOT/artifact-evaluation/run_all.py"*|\
+            *"$AE_REPO_ROOT/artifact-evaluation/"*"/run.sh"*|\
+            *"starfishos-ae-lock"*"runner.lock"*)
+                echo "[AE] forcibly stopping artifact runner pid $pid"
+                kill -KILL "$pid" 2>/dev/null || true
+                ;;
+        esac
+    done < <(ps -u "$USER" -o pid=,args= 2>/dev/null)
 }
 
 # True when any ChCore guest QEMU (-name chcore-*) is still running.
@@ -759,6 +839,7 @@ ae_ensure_base_build() {
 
     if [ "$force_build" = "1" ]; then
         echo "[AE] FORCE_BASE_BUILD=1 — running scripts/quick-build.sh (make prepare build step)"
+        docker rm -f "${USER}-chbuild" >/dev/null 2>&1 || true
         ./scripts/quick-build.sh
         return $?
     fi
@@ -776,6 +857,7 @@ ae_ensure_base_build() {
         echo "[AE]   missing $kernel_img"
     fi
     # quick-build.sh: distclean + defconfig x86_64 + build
+    docker rm -f "${USER}-chbuild" >/dev/null 2>&1 || true
     ./scripts/quick-build.sh
     if [ ! -f "$kernel_img" ]; then
         echo "[AE] quick-build finished but $kernel_img is still missing" >&2

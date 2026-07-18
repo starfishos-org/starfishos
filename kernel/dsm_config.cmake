@@ -7,10 +7,10 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "TEMP": all on temp allocator (for debugging / bring-up)
 # "MIXED_DEFAULT_DRAM": mixed and default to DRAM
 # "MIXED_DEFAULT_CXL": mixed and default to CXL
-set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
+set(DSM_MALLOC_MODE "CXL")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL
-set(DSM_USER_MALLOC_MODE "DEFAULT_DRAM")
+set(DSM_USER_MALLOC_MODE "DEFAULT_CXL")
 
 set(DSM_THREADCTX_MODE "CXL")
 set(DSM_PGTABLE_MODE "CXL")
@@ -25,11 +25,11 @@ set(USE_DEV_AS_DRAM "ON")
 
 # If "ON", CXL memory pool uses lock-free buddy allocator;
 # if "OFF", use original lock-based buddy allocator.
-set(DSM_CXL_LF_BUDDY "ON")
+set(DSM_CXL_LF_BUDDY "OFF")
 
 # If "ON", enable per-slab in-flight undo log for crash recovery.
 # Adds FLUSH/FENCE overhead on slab alloc/free hot path.
-set(SLAB_CRASH_RECOVERY "ON")
+set(SLAB_CRASH_RECOVERY "OFF")
 
 # If "ON", enable cross-machine scheduler timing probes (set_affinity → dequeue latency).
 # Requires PHOENIX_SCHED_TIMING in kernel; pairs with PHOENIX_TIMING in user/demos/phoenix-2.0.

@@ -19,6 +19,7 @@ TARGET_CPU="${TARGET_CPU:-4}"
 TIMEOUT="${TIMEOUT:-300}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 NUM_MACHINES=2
+GUEST_CPU_NUM="${GUEST_CPU_NUM:-12}"
 
 mkdir -p "$LOG_DIR" "$CSV_DIR"
 
@@ -55,7 +56,7 @@ wait_for_log() {
 launch_machine() {
     local machine="$1" run_log_dir="$2"
     local logfile="$run_log_dir/machine${machine}.log"
-    local command="MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
+    local command="CPU_NUM=$GUEST_CPU_NUM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
 
     if [ "$machine" -eq 0 ]; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"

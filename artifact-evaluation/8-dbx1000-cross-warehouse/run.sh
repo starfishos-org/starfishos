@@ -106,6 +106,7 @@ bind_cpu_list() {
 cd "$AE_REPO_ROOT"
 ae_ensure_clean_tmux
 ae_check_global_prepare
+ae_prepare_microbench_guest_cpu
 ae_save_build_configs
 
 echo "=== Enabling PRINT_VMSPACE_STATS in kernel ==="
@@ -127,7 +128,7 @@ for ratio in $RATIOS; do
     set_dbx_define PERC_REMOTE_NEW_ORDER "$ratio"
     ae_build
 
-    if ! AE_EXTRA_ENV="DRAM_SIZE=$DRAM_SIZE" ae_boot_cluster "$NUM_MACHINES"; then
+    if ! AE_EXTRA_ENV="DRAM_SIZE=$DRAM_SIZE" ae_boot_cluster "$NUM_MACHINES" "$AE_MICROBENCH_GUEST_CPU_NUM"; then
         echo "[WARN] ratio=${ratio}% cluster failed to boot; archiving partial logs and continuing" >&2
         ae_archive_logs "$NUM_MACHINES" "$AE_LOG_DIR" "_r${ratio}" || true
         ae_kill_cluster

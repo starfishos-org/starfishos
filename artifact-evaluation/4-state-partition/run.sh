@@ -34,6 +34,10 @@ ae_init_output_dirs "$AE_DIR"
 AE_LOG_DIR="$LOG_DIR"
 NUM_MACHINES="${NUM_MACHINES:-2}"
 TIMEOUT="${TIMEOUT:-1200}"
+# State-partition uses a 2-machine cluster with 12 vCPUs per QEMU.  Its
+# global CPU layout is therefore 0-11 on machine 0 and 12-23 on machine 1,
+# matching DBx1000's 0-7,12-19 thread binding below.
+STATE_PARTITION_CPU_NUM="${STATE_PARTITION_CPU_NUM:-${AE_MICROBENCH_GUEST_CPU_NUM:-12}}"
 # The default is the complete 6 x 4 matrix used by the paper figure.  The
 # DBx1000 compile-time configuration is reduced below for this two-machine
 # state-placement experiment; the 64-warehouse auto-scale configuration would
@@ -203,6 +207,15 @@ cd "$AE_REPO_ROOT"
 ae_ensure_clean_tmux
 ae_check_global_prepare
 ae_save_build_configs
+# Keep the kernel's per-machine CPU stride and QEMU's SMP count in sync.
+# The saved configuration is restored by cleanup after this experiment.
+ae_set_paper_guest_cpu_config "$STATE_PARTITION_CPU_NUM"
+ae_export_guest_cpu_num "$STATE_PARTITION_CPU_NUM"
+# LLFree is evaluated by test 3.  Its shared allocator metadata is not a
+# state-partition variable and can retain incompatible per-core reservations
+# when the preceding 96-vCPU test is followed by this 12-vCPU cluster.  Keep
+# this experiment on the conventional CXL buddy backend.
+ae_set_dsm_var DSM_CXL_LF_BUDDY OFF
 
 for cfg in $CONFIGS; do
     read -r malloc_mode user_malloc_mode type_mode <<< "$(config_params "$cfg")"
@@ -247,7 +260,7 @@ for cfg in $CONFIGS; do
         rm -f -- "$logfile"
         echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
         if [ "$bench" = "dbx1000" ]; then
-            if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines"; then
+            if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
                 ae_record_error "boot failed for $bench under $cfg"
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
                     "-boot-failed-${bench}-${cfg}"
@@ -263,7 +276,7 @@ for cfg in $CONFIGS; do
             # threads bound to CPUs >= 12
             # never run and the app hangs at its barrier. Use the original
             # single-machine parameters (8 threads, CPUs 0-11) instead.
-            if ! ae_boot_cluster "$cfg_machines"; then
+            if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
                 ae_record_error "boot failed for $bench under $cfg"
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
                     "-boot-failed-${bench}-${cfg}"
@@ -278,7 +291,7 @@ for cfg in $CONFIGS; do
             fi
             bench_timeout="$TIMEOUT"
         else
-            if ! ae_boot_cluster "$cfg_machines"; then
+            if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
                 ae_record_error "boot failed for $bench under $cfg"
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
                     "-boot-failed-${bench}-${cfg}"

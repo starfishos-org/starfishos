@@ -86,6 +86,7 @@ bash artifact-evaluation/install-host-deps.sh
 # Log out and back in so docker + kvm group membership apply.
 
 # One-click entry point
+./artifact-evaluation/run-all.sh --clean # clean old output directories
 ./artifact-evaluation/run-all.sh
 ```
 
@@ -134,12 +135,10 @@ python3 artifact-evaluation/run_all.py --dry-run --clean --run-subset-of-tests 1
 Each experiment launches QEMU (and sometimes `chbuild` via Docker) in its own
 tmux session. If you want to **stop an in-progress `run_all.py`**, or you hit a
 **Docker container name conflict** (for example
-`The container name "/wfn-chbuild" is already in use`), stop all tmux sessions
-first:
+`The container name "/wfn-chbuild" is already in use`), stop all tmux sessions:
 
 ```bash
-# This kills all tmux sessions.
-tmux kill-server
+./artifact-evaluation/stop.sh
 ```
 
 Then re-run `./artifact-evaluation/run-all.sh` to continue.

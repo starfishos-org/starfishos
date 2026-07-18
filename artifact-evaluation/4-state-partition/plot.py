@@ -23,6 +23,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 BENCHS = [
     "leveldb",
     "dbx1000",

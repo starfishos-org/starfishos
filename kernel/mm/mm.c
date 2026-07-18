@@ -161,6 +161,25 @@ void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool, page_type_t type,
             pool, page_meta_start, phys_to_virt(free_page_start), npages, type);
 }
 
+/*
+ * CXL pools are shared by all DSM machines.  After machine 0 initializes a
+ * conventional buddy pool, followers must not initialize it again: that
+ * clears the shared page metadata/free lists while allocations are live.
+ * Ordinary buddy has no per-machine handle, so attach is validation only.
+ */
+static void attach_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
+                                          page_type_t type,
+                                          paddr_t free_mem_start,
+                                          paddr_t free_mem_end)
+{
+    (void)free_mem_start;
+    (void)free_mem_end;
+    BUG_ON(pool->type != type);
+    BUG_ON(pool->pool_start_addr == 0);
+    BUG_ON(pool->page_metadata == NULL);
+    BUG_ON(pool->pool_mem_size == 0);
+}
+
 void dram_mm_init()
 {
 #ifdef USE_DRAM
@@ -280,8 +299,23 @@ void ext_mm_init()
         global_cxl_mem[i] = &(dsm_meta->mem_pool[i]);
     }
 
+    /*
+     * The CXL buddy metadata is shared by every machine.  It therefore has
+     * exactly one initializer.  Checking DSM_STATE alone is not sufficient:
+     * when two QEMUs boot together they can both observe UNINITED and both
+     * clear/build the same page metadata, corrupting page->pool and the free
+     * lists.  Machine 0 owns initialization; every follower waits for its
+     * release-store below and then takes the attach path.
+     */
+    if (CUR_MACHINE_ID != 0) {
+        while (__atomic_load_n(&dsm_meta->state, __ATOMIC_ACQUIRE)
+               < DSM_CONFIG_STATE_MM_INITED)
+            asm volatile("pause" ::: "memory");
+    }
+
     /* memory model has been inited */
-    if (DSM_STATE >= DSM_CONFIG_STATE_MM_INITED) {
+    if (__atomic_load_n(&dsm_meta->state, __ATOMIC_ACQUIRE)
+        >= DSM_CONFIG_STATE_MM_INITED) {
         kinfo(ANSI_COLOR_MAGENTA "[CXL MEMORY] cxl mem pool has been inited" ANSI_COLOR_RESET "\n");
         /*
          * Shared pool metadata already exists in SHM (initialized by machine 0),
@@ -299,10 +333,10 @@ void ext_mm_init()
                             free_mem_start,
                             free_mem_end);
 #else
-            init_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
-                                        CXL_MEM_PAGE,
-                                        free_mem_start,
-                                        free_mem_end);
+            attach_buddy_for_one_mem_pool(global_cxl_mem[cxlmem_map_idx],
+                                          CXL_MEM_PAGE,
+                                          free_mem_start,
+                                          free_mem_end);
 #endif
         }
         init_cxl_slab();
@@ -336,8 +370,10 @@ void ext_mm_init()
 
     init_cxl_slab();
 
-    /* mark metadata as inited */
-    DSM_STATE = DSM_CONFIG_STATE_MM_INITED;
+    /* Publish fully initialized shared metadata to follower machines. */
+    __atomic_store_n(&dsm_meta->state,
+                     DSM_CONFIG_STATE_MM_INITED,
+                     __ATOMIC_RELEASE);
 
 skip_init:
     return;

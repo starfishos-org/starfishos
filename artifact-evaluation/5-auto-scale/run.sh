@@ -209,6 +209,7 @@ wait_for_app() {
 
 ae_ensure_clean_tmux
 ae_check_global_prepare || exit 1
+ae_prepare_microbench_guest_cpu
 ae_save_build_configs
 cleanup() {
     local rc=$? cleanup_failed=0
@@ -290,7 +291,7 @@ sweep_app_config() {
         # PHOENIX_SCHED_TIMING is disabled above, so waiting for each shell is
         # safe and prevents four or more QEMUs from entering late kernel/SMP
         # initialization at once.  The concurrent path strands machine 3.
-        if ! AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n"; then
+        if ! AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n" "$AE_MICROBENCH_GUEST_CPU_NUM"; then
             echo "[AE] boot failed for $app/$config/N=$n" >&2
             ae_archive_logs "$n" "$AE_LOG_DIR" \
                 "-boot-failed-${app}-${config}-N${n}"

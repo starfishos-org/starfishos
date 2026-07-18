@@ -11,6 +11,9 @@ CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
 FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
 SESSION="${SESSION:-${USER}-ipc-ae}"
 NUM_MACHINES=2
+# chcore.ini may request 96 vCPUs, but the IPC artifact only needs a small
+# guest and large CPU counts have triggered rr_sched budget BUGs during boot.
+IPC_CPU_NUM="${IPC_CPU_NUM:-${AE_MICROBENCH_GUEST_CPU_NUM:-12}}"
 TIMEOUT="${TIMEOUT:-600}"
 INPUT_TIMEOUT="${INPUT_TIMEOUT:-30}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
@@ -63,6 +66,12 @@ disable_kernel_tests() {
     echo "=== CHCORE_KERNEL_TEST=OFF for IPC artifact ==="
 }
 
+kernel_tests_disabled_in_image() {
+    strings "$REPO_ROOT/build/kernel.img" 2>/dev/null \
+        | grep -q 'kernel tests start' && return 1
+    return 0
+}
+
 wait_for_log_text() {
     local machine="$1"
     local pattern="$2"
@@ -73,6 +82,16 @@ wait_for_log_text() {
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
         if ! tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "tmux session $SESSION exited while waiting for $label" >&2
+            tail -120 "$logfile" >&2 || true
+            return 1
+        fi
+        if ! tmux list-panes -t "$SESSION:$machine" >/dev/null 2>&1; then
+            echo "tmux window $SESSION:$machine died while waiting for $label" >&2
+            tail -120 "$logfile" >&2 || true
+            return 1
+        fi
+        if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -Eq "$AE_ERROR_PATTERN"; then
+            echo "Guest error while waiting for $label" >&2
             tail -120 "$logfile" >&2 || true
             return 1
         fi
@@ -91,6 +110,12 @@ wait_for_log_text() {
     return 1
 }
 
+cluster_alive() {
+    tmux has-session -t "$SESSION" 2>/dev/null \
+        && tmux list-panes -t "$SESSION:0" >/dev/null 2>&1 \
+        && tmux list-panes -t "$SESSION:1" >/dev/null 2>&1
+}
+
 done_count() {
     local logfile="$1"
     grep -c "polling_client: done" "$logfile" 2>/dev/null || true
@@ -107,6 +132,11 @@ guest_faulted() {
 send_client_command() {
     local machine="$1" command="$2" logfile="$3"
     local prev_sz=-1 cur_sz quiet=0 waited=0 try sent
+
+    if ! cluster_alive; then
+        echo "IPC cluster is not alive; cannot send command to machine $machine" >&2
+        return 1
+    fi
 
     # Serial output can still be draining when the shell banner appears.
     while [ "$quiet" -lt 2 ] && [ "$waited" -lt 60 ]; do
@@ -185,40 +215,12 @@ run_client() {
 }
 
 check_global_prepare() {
-    local cxl_file="/dev/shm/ivshmem-$USER"
-    local hostfs_file="/dev/shm/ivshmem-hostfs-$USER"
-    local doorbell_socket="/tmp/ivshmem-doorbell-$USER"
-    local server_pid_file="/tmp/ivshmem-server-$USER.pid"
-    local numa_files=(
-        "/dev/shm/numa0.0-$USER"
-        "/dev/shm/numa0.1-$USER"
-        "/dev/shm/numa1.0-$USER"
-        "/dev/shm/numa1.1-$USER"
-        "/dev/shm/numa2.0-$USER"
-        "/dev/shm/numa2.1-$USER"
-        "/dev/shm/numa3.0-$USER"
-        "/dev/shm/numa3.1-$USER"
-    )
-    local f
-
-    echo "=== Checking global AE environment ==="
-    for f in "$cxl_file" "$hostfs_file" "$doorbell_socket" "${numa_files[@]}"; do
-        if [ ! -e "$f" ]; then
-            echo "Missing global AE resource: $f" >&2
-            echo "Run ./artifact-evaluation/prepare.sh once before this test." >&2
-            return 1
-        fi
-    done
-    if [ ! -f "$server_pid_file" ] || ! ps -p "$(cat "$server_pid_file")" >/dev/null 2>&1; then
-        echo "ivshmem doorbell server is not running." >&2
-        echo "Run ./artifact-evaluation/prepare.sh before this test." >&2
-        return 1
-    fi
-
+    ae_check_global_prepare
 }
 
 reset_dsm_metadata() {
     echo "=== Resetting DSM metadata before QEMU boot ==="
+    ae_ensure_cxlfs_device || return 1
     make clean-dsm-meta
 }
 
@@ -226,8 +228,14 @@ stop_cluster() {
     ae_stop_tmux_and_reap "$SESSION"
 }
 
+simulate_cmd() {
+    local machine="$1"
+    local logfile="$2"
+    printf "cd '%s' && CPU_NUM=%s MACHINE_NUM=%s ./build/simulate.sh %s 2>&1 | tee -a '%s'" \
+        "$REPO_ROOT" "$IPC_CPU_NUM" "$NUM_MACHINES" "$machine" "$logfile"
+}
+
 start_cluster() {
-    local mode="$1"
     local machine0_log="$LOG_DIR/machine0.log"
     local machine1_log="$LOG_DIR/machine1.log"
     local machine0_start
@@ -235,26 +243,25 @@ start_cluster() {
 
     stop_cluster || return 1
     if ae_has_chcore_qemu; then
-        echo "Refusing to boot $mode: leftover ChCore QEMU still running" >&2
+        echo "Refusing to boot IPC cluster: leftover ChCore QEMU still running" >&2
         return 1
     fi
     reset_dsm_metadata
 
-    echo "=== Booting two QEMU machines for $mode ==="
+    echo "=== Booting two QEMU machines for IPC artifact (cpu=${IPC_CPU_NUM}) ==="
     machine0_start=$(($(wc -l < "$machine0_log") + 1))
-    tmux new-session -d -s "$SESSION" -n 0 \
-        "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 0 2>&1 | tee -a '$machine0_log'"
-    wait_for_log_text 0 "DSM] machine 0 " "DSM machine 0 joined" "$machine0_start"
-    # The complete shell banner is sometimes split by concurrent serial
-    # writes (for example, "Welcome to \nChCore shell!").  Its stable prefix
-    # is emitted only after the polling server and shell are ready.
-    wait_for_log_text 0 "Welcome to" "Machine 0 shell ready" "$machine0_start"
+    tmux new-session -d -s "$SESSION" -n 0 "$(simulate_cmd 0 "$machine0_log")"
+    wait_for_log_text 0 "DSM] machine 0 " "DSM machine 0 joined" "$machine0_start" || return 1
+    # Kernel malloc tests (when CHCORE_KERNEL_TEST=ON) run before the shell.
+    # Wait for polling server registration as an intermediate milestone.
+    wait_for_log_text 0 "booting polling server" "Machine 0 polling server starting" "$machine0_start" || return 1
+    wait_for_log_text 0 "Welcome to ChCore shell" "Machine 0 shell ready" "$machine0_start" || return 1
 
     machine1_start=$(($(wc -l < "$machine1_log") + 1))
-    tmux new-window -t "$SESSION" -n 1 \
-        "MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh 1 2>&1 | tee -a '$machine1_log'"
-    wait_for_log_text 1 "DSM] machine 1 " "DSM machine 1 joined" "$machine1_start"
-    wait_for_log_text 1 "Welcome to" "Machine 1 shell ready" "$machine1_start"
+    tmux new-window -t "$SESSION" -n 1 "$(simulate_cmd 1 "$machine1_log")"
+    wait_for_log_text 1 "DSM] machine 1 " "DSM machine 1 joined" "$machine1_start" || return 1
+    wait_for_log_text 1 "booting polling server" "Machine 1 polling server starting" "$machine1_start" || return 1
+    wait_for_log_text 1 "Welcome to ChCore shell" "Machine 1 shell ready" "$machine1_start" || return 1
 }
 
 run_mode() {
@@ -262,9 +269,11 @@ run_mode() {
     local mode="$2"
     local command="$3"
 
-    start_cluster "$mode"
+    if ! cluster_alive; then
+        echo "IPC cluster is not alive before $mode" >&2
+        return 1
+    fi
     run_client "$machine" "$mode" "$command"
-    stop_cluster
 }
 
 cd "$REPO_ROOT"
@@ -283,20 +292,35 @@ set_define "$RESP_SRC" ENABLE_SRV_TIMING 1
 disable_kernel_tests
 
 if [ "$SKIP_BUILD" = "1" ]; then
+    if ! kernel_tests_disabled_in_image; then
+        echo "SKIP_BUILD=1 but build/kernel.img still contains kernel malloc tests." >&2
+        echo "Rebuild once (omit SKIP_BUILD) so CHCORE_KERNEL_TEST=OFF takes effect." >&2
+        exit 1
+    fi
     echo "=== Skipping build (SKIP_BUILD=1) ==="
 else
     ae_build_with_config_restore
+    if ! kernel_tests_disabled_in_image; then
+        echo "kernel.img still contains kernel tests after rebuild" >&2
+        exit 1
+    fi
 fi
 
-# Continue across modes so partial logs still reach plot.py, but remember
-# failures so this script (and run_all.py) exit non-zero.
+# Boot once and reuse the same two-machine cluster for every mode.  Cross
+# machine polling needs machine 0's shm-0 server to stay up while machine 1
+# runs the client; rebooting between modes was flaky and looked like an IPC
+# connection failure when tmux/QEMU died between boots.
 failed=0
-run_mode 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
-run_mode 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
-run_mode 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
-run_mode 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
-run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
-run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
+start_cluster || failed=1
+if [ "$failed" -eq 0 ]; then
+    run_mode 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
+    run_mode 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
+    run_mode 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
+    run_mode 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
+    run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
+    run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
+fi
+stop_cluster
 
 echo "=== Parsing logs and generating figures ==="
 python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR"

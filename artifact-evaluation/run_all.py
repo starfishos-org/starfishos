@@ -32,9 +32,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import signal
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -348,13 +351,148 @@ def kill_ae_sessions() -> None:
     )
 
 
-def run_cmd(cmd: List[str], *, cwd: Path = REPO_ROOT) -> int:
-    return subprocess.run(cmd, cwd=str(cwd), check=False).returncode
+def abort_ae_sessions() -> None:
+    """Immediately tear down AE guests and release abandoned runner locks.
+
+    The normal cleanup path gives QEMU time to exit gracefully, which is
+    useful between successful experiments but makes Ctrl-C appear ignored.
+    This path intentionally skips those waits.
+    """
+    env = os.environ.copy()
+    env["AE_FORCE_STOP_SKIP_PID"] = str(os.getpid())
+    subprocess.run(
+        [
+            "bash", "-c",
+            f'source "{AE_ROOT}/common.sh" && '
+            "ae_force_stop_artifact_runners",
+        ],
+        cwd=str(REPO_ROOT),
+        env=env,
+        check=False,
+    )
+
+
+def interrupt_handler(_signum: int, _frame: object) -> None:
+    """Route both Ctrl-C and `kill <run_all_pid>` through one cleanup path."""
+    raise KeyboardInterrupt
+
+
+def run_cmd(
+    cmd: List[str],
+    *,
+    cwd: Path = REPO_ROOT,
+    env: Optional[Dict[str, str]] = None,
+) -> int:
+    """Run one stage in its own process group, with responsive Ctrl-C."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(cwd),
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        log("[run-all] interrupt received; stopping current command...")
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            log("[run-all] current command did not exit in 3s; sending SIGKILL")
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise
+
+
+@dataclass
+class BuildConfigSnapshot:
+    """A stable configuration baseline for an entire multi-test AE run.
+
+    Individual experiments deliberately change these files while selecting a
+    workload.  Restoring this snapshot before every experiment prevents an
+    interrupted experiment (or an incomplete local cleanup path) from
+    affecting the vCPU/build configuration of the next one.
+    """
+
+    directory: Path
+
+    FILES = (
+        Path(".config"),
+        Path("chcore.ini"),
+        Path("kernel/dsm_config.cmake"),
+        Path("user/demos/config.cmake"),
+    )
+
+    @classmethod
+    def create(cls) -> "BuildConfigSnapshot":
+        directory = Path(tempfile.mkdtemp(prefix="starfishos-ae-config-"))
+        snapshot = cls(directory)
+        for relative in snapshot.FILES:
+            source = REPO_ROOT / relative
+            if not source.is_file():
+                snapshot.remove()
+                raise RuntimeError(f"cannot snapshot missing AE config: {source}")
+            destination = directory / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        log(f"[run-all] saved per-test config baseline: {directory}")
+        return snapshot
+
+    def restore(self) -> None:
+        for relative in self.FILES:
+            source = self.directory / relative
+            destination = REPO_ROOT / relative
+            if not source.is_file():
+                raise RuntimeError(f"AE config snapshot is incomplete: {source}")
+            shutil.copy2(source, destination)
+        log("[run-all] restored config baseline before experiment")
+
+    def set_guest_cpu_num(self, cpu_num: int) -> None:
+        """Set both the compile-time CPU stride and QEMU default for one test."""
+        replacements = (
+            (Path(".config"), r"^CHCORE_PLAT_CPU_NUM:STRING=.*$",
+             f"CHCORE_PLAT_CPU_NUM:STRING={cpu_num}"),
+            (Path("chcore.ini"), r"^cpu_num\s*=.*$", f"cpu_num = {cpu_num}"),
+        )
+        for relative, pattern, replacement in replacements:
+            path = REPO_ROOT / relative
+            updated, count = re.subn(pattern, replacement, path.read_text(), flags=re.MULTILINE)
+            if count != 1:
+                raise RuntimeError(f"failed to set CPU profile in {path}")
+            path.write_text(updated)
+        log(f"[run-all] configured this experiment for {cpu_num} vCPUs per QEMU")
+
+    def disable_llfree(self) -> None:
+        """Start every experiment from the non-LLFree allocator baseline."""
+        path = REPO_ROOT / "kernel/dsm_config.cmake"
+        updated, count = re.subn(
+            r'^set\(DSM_CXL_LF_BUDDY\s+"[A-Z]+"\)$',
+            'set(DSM_CXL_LF_BUDDY "OFF")',
+            path.read_text(),
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise RuntimeError(f"failed to disable LLFree in {path}")
+        path.write_text(updated)
+
+    def remove(self) -> None:
+        shutil.rmtree(self.directory, ignore_errors=True)
 
 
 def needs_graph_dataset(names: List[str]) -> bool:
     """Only auto-scale currently consumes the ~11 GiB Gemini graph."""
     return "auto-scale" in names
+
+
+def guest_cpu_num(name: str) -> int:
+    """AE CPU profile: allocator is 96 vCPU; every other test uses 12."""
+    return 96 if name == "memory-allocator" else 12
 
 
 def ensure_prepare(*, skip: bool, include_graph: bool,
@@ -417,6 +555,7 @@ def run_experiment(
     *,
     budget: int,
     dry_run: bool,
+    config_snapshot: Optional[BuildConfigSnapshot] = None,
 ) -> str:
     exp = EXPERIMENTS[name]
     script = run_script(name)
@@ -439,16 +578,31 @@ def run_experiment(
         return f"MISSING({script.name})"
 
     if dry_run:
+        log(
+            f"[dry-run] would configure {guest_cpu_num(name)} vCPUs per QEMU "
+            "for this experiment"
+        )
         log(f"[dry-run] would run: timeout --kill-after=60 {budget} {script}")
         return "DRY_RUN"
+
+    if config_snapshot is not None:
+        try:
+            config_snapshot.restore()
+            config_snapshot.set_guest_cpu_num(guest_cpu_num(name))
+            config_snapshot.disable_llfree()
+        except RuntimeError as exc:
+            log(f"[run-all] failed to restore config before {name}: {exc}")
+            return "CONFIG_RESTORE_FAILED"
 
     if not ensure_runtime_resources():
         log(f"[run-all] global AE resources unavailable before {name}")
         return "PREPARE_FAILED"
 
     kill_ae_sessions()
+    env = os.environ.copy()
+    env["CPU_NUM"] = str(guest_cpu_num(name))
     rc = run_cmd(
-        ["timeout", "--kill-after=60", str(budget), str(script)],
+        ["timeout", "--kill-after=60", str(budget), str(script)], env=env,
     )
     if rc == 0:
         return "OK"
@@ -612,28 +766,47 @@ def main(argv: Optional[List[str]] = None) -> int:
     status: Dict[str, str] = {}
     plot_status: Dict[str, str] = {}
     overall = 0
+    config_snapshot: Optional[BuildConfigSnapshot] = None
 
-    if do_run:
-        for name in names:
-            exp = EXPERIMENTS[name]
-            status[name] = run_experiment(
-                name,
-                budget=budget_for(exp, args.budget),
-                dry_run=args.dry_run,
-            )
-            st = status[name]
-            if st not in ("OK", "DRY_RUN", "TODO(stub)") and not st.startswith("TODO"):
+    if do_run and not args.dry_run:
+        try:
+            config_snapshot = BuildConfigSnapshot.create()
+        except RuntimeError as exc:
+            log(f"[run-all] unable to create per-test config baseline: {exc}")
+            return 1
+
+    try:
+        if do_run:
+            for name in names:
+                exp = EXPERIMENTS[name]
+                status[name] = run_experiment(
+                    name,
+                    budget=budget_for(exp, args.budget),
+                    dry_run=args.dry_run,
+                    config_snapshot=config_snapshot,
+                )
+                st = status[name]
+                if st not in ("OK", "DRY_RUN", "TODO(stub)") and not st.startswith("TODO"):
+                    overall = 1
+                plot_status[name] = run_plot(name, dry_run=args.dry_run)
+                pst = plot_status[name]
+                if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
+                    overall = 1
+        else:
+            for name in names:
+                plot_status[name] = run_plot(name, dry_run=args.dry_run)
+                pst = plot_status[name]
+                if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
+                    overall = 1
+    finally:
+        if config_snapshot is not None:
+            try:
+                config_snapshot.restore()
+                log("[run-all] restored config baseline after all experiments")
+            except RuntimeError as exc:
+                log(f"[run-all] failed to restore final config baseline: {exc}")
                 overall = 1
-            plot_status[name] = run_plot(name, dry_run=args.dry_run)
-            pst = plot_status[name]
-            if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
-                overall = 1
-    else:
-        for name in names:
-            plot_status[name] = run_plot(name, dry_run=args.dry_run)
-            pst = plot_status[name]
-            if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
-                overall = 1
+            config_snapshot.remove()
 
     log("")
     log("#" * 60)
@@ -656,4 +829,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    signal.signal(signal.SIGINT, interrupt_handler)
+    signal.signal(signal.SIGTERM, interrupt_handler)
+    signal.signal(signal.SIGHUP, interrupt_handler)
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # Do not let a second Ctrl-C / TERM interrupt the forced cleanup.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        log("\n[run-all] interrupted; forcibly stopping AE tmux/QEMU state.")
+        abort_ae_sessions()
+        sys.exit(130)

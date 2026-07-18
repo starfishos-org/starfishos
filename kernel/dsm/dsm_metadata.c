@@ -8,6 +8,33 @@
 
 int machine_id = -1;
 
+/*
+ * The first machine reaches user-space startup before the AE launcher starts
+ * its next QEMU.  Do not let it enqueue service threads against a partially
+ * published cluster_cpu_num: those threads may target otherwise-valid CPUs
+ * such as 8 or 9 and be rejected by rr_sched as out of range.  The join
+ * banner is emitted before this barrier, so the host launcher can still
+ * observe machine 0 and start the remaining guests.
+ */
+static void dsm_wait_for_cluster_cpu_topology(void)
+{
+    u32 expected_machines;
+    u32 expected_cpus;
+
+    expected_machines = FW_MACHINE_NUM > 0 ? (u32)FW_MACHINE_NUM : 1;
+    if (expected_machines <= 1)
+        return;
+
+    expected_cpus = expected_machines * PLAT_CPU_NUM;
+    while (__atomic_load_n(&dsm_meta->cluster_machine_num, __ATOMIC_ACQUIRE)
+           < expected_machines) {
+    }
+    while (__atomic_load_n(&dsm_meta->cluster_cpu_num, __ATOMIC_ACQUIRE)
+           < expected_cpus) {
+    }
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+}
+
 void dsm_add_machine()
 {
     BUG_ON(!dsm_meta);
@@ -121,6 +148,8 @@ void dsm_add_machine()
           "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
           ANSI_COLOR_RESET,
           CUR_MACHINE_ID, CPU_RANGE_LOW, CPU_RANGE_HIGH);
+
+    dsm_wait_for_cluster_cpu_topology();
 
 #ifdef PHOENIX_SCHED_TIMING
     /*

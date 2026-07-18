@@ -62,11 +62,8 @@ sed -i 's/^CHCORE_BUILD_USER_MALLOC_TESTS:BOOL=.*/CHCORE_BUILD_USER_MALLOC_TESTS
 grep -q '^CHCORE_BUILD_USER_MALLOC_TESTS:BOOL=ON$' "$PROJECT_CONFIG"
 
 echo "[AE] Setting compile-time CPU maximum to $CPU_NUM"
-sed -i "s/^cpu_num[[:space:]]*=.*/cpu_num = $CPU_NUM/" "$PROJECT_INI"
-grep -q "^cpu_num[[:space:]]*=[[:space:]]*$CPU_NUM$" "$PROJECT_INI"
-sed -i "s/^CHCORE_PLAT_CPU_NUM:STRING=.*/CHCORE_PLAT_CPU_NUM:STRING=$CPU_NUM/" \
-    "$PROJECT_CONFIG"
-grep -q "^CHCORE_PLAT_CPU_NUM:STRING=$CPU_NUM$" "$PROJECT_CONFIG"
+ae_set_paper_guest_cpu_config "$CPU_NUM"
+ae_export_guest_cpu_num "$CPU_NUM"
 
 echo "[AE] Saving kernel/dsm_config.cmake"
 save_config

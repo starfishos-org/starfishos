@@ -15,7 +15,7 @@ Measures four end-to-end latencies on a two-machine cluster:
 Example overrides:
 
 ```bash
-NRUNS=3 SAMPLES=8 LOCAL_CPU=4 REMOTE_CPU=12 \
+NRUNS=3 SAMPLES=8 LOCAL_CPU=4 REMOTE_CPU=12 GUEST_CPU_NUM=12 \
   ./artifact-evaluation/2-sched-notify-latency/run.sh
 ```
 
@@ -57,5 +57,6 @@ python3 artifact-evaluation/run_all.py --run-subset-of-tests 2
 
 ## Env knobs
 
-`NRUNS`, `SAMPLES`, `LOCAL_CPU`, `REMOTE_CPU`, `SKIP_BUILD`, `KEEP_QEMU`,
+`NRUNS`, `SAMPLES`, `LOCAL_CPU`, `REMOTE_CPU`, `GUEST_CPU_NUM` (default 12,
+overrides chcore.ini for QEMU boot), `SKIP_BUILD`, `KEEP_QEMU`,
 `TIMEOUT`, `OUT_DIR`, `LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`.
