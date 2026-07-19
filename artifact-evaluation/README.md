@@ -102,6 +102,61 @@ bash artifact-evaluation/install-host-deps.sh
 
 **Note:** Do not run `./artifact-evaluation/run-all.sh` inside tmux; each experiment launches its own tmux session for QEMU, and nesting leads to session conflicts.
 
+### Restricted Tigon administration without general sudo
+
+On a shared host, do not grant the evaluation account passwordless access to
+the Tigon scripts in this checkout. The checkout is writable by that account,
+so such a sudoers rule is equivalent to unrestricted root access. Instead, an
+administrator can install the root-owned `starfishos-tigon` helper and its
+root-owned runtime snapshot. The helper accepts only four exact operations:
+
+```bash
+sudo -n /usr/local/libexec/starfishos-tigon start
+sudo -n /usr/local/libexec/starfishos-tigon reset
+sudo -n /usr/local/libexec/starfishos-tigon stop
+sudo -n /usr/local/libexec/starfishos-tigon status
+```
+
+The helper must be owned by `root:root`, must not be group/other writable, and
+must never execute code from this writable checkout. Grant only the exact
+helper commands in sudoers and validate the rule with `visudo -cf`. The AE
+account does not need to belong to the `sudo` group.
+
+`run-all.sh` detects this restricted configuration by checking that the fixed
+helper exists and that all four exact commands are authorized by sudoers. The
+check is policy-only and does not start a VM. The wrapper then exports the
+restricted-mode marker and `TIGON_SETUP=0`; the caller does not need to set the
+variable or invoke `start`/`stop` manually:
+
+```bash
+./artifact-evaluation/run-all.sh --clean
+./artifact-evaluation/run-all.sh
+```
+
+Arguments and experiment selectors remain owned by `run_all.py`. Invalid
+arguments, `--clean`, `--list`, `--plot-only`, `--dry-run`, and subsets without
+the auto-scale experiment never start Tigon. During auto-scale, the Linux and
+TCP baselines run first; only then does its script start the prepared eight-VM
+environment, run the Tigon baseline, and immediately stop it. Failure and
+Ctrl-C use the auto-scale exit cleanup path. If the environment was already
+running, the script reuses it and leaves it running; it only stops an
+environment that it started itself.
+
+In restricted mode, `TIGON_SETUP=0` is required internally: setup mode builds
+an image and changes host VM, network, mount, and CPU state. The root-owned
+helper owns those privileged operations, while the benchmark runner can only
+request an exact CXL-backing reset through the helper. Outside restricted
+mode, the original setup and direct `fallocate` reset paths remain available.
+`--clean` removes experiment outputs only and does not start or stop VMs.
+
+Use the helper directly to inspect the environment or to recover a pre-existing
+or degraded instance before retrying:
+
+```bash
+sudo -n /usr/local/libexec/starfishos-tigon status
+sudo -n /usr/local/libexec/starfishos-tigon stop
+```
+
 After finishing the one-click runner, each experiment creates a timestamped
 output directory:
 
