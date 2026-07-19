@@ -57,7 +57,9 @@ for entry in $files; do
     expected_size="${entry##*:}"
     dest="$DATASETS_DIR/$name"
 
-    if [ -f "$dest" ] && [ "$(stat -c%s "$dest" 2>/dev/null || stat -f%z "$dest")" = "$expected_size" ]; then
+    # -L: a dataset may legitimately be a symlink to shared storage; size the
+    # target like the -f test above does, not the link itself.
+    if [ -f "$dest" ] && [ "$(stat -Lc%s "$dest" 2>/dev/null || stat -Lf%z "$dest")" = "$expected_size" ]; then
         echo "skip (already present): $name"
         continue
     fi
