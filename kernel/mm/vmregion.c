@@ -927,6 +927,14 @@ void print_vmspace_memory_summary(struct vmspace *vmspace)
     rb_for_each(&vmspace->vmr_tree, node) {
         vmr = rb_entry(node, struct vmregion, tree_node);
         for (va = vmr->start; va < vmr->start + vmr->size; va += PAGE_SIZE) {
+            /*
+             * Count each VA once per backing location: a CXL page mapped by
+             * several machines' page tables is still one page.  This matches
+             * the per-VA semantics of the detailed [VMSPACE STATS] output
+             * that dsm-scripts/analysis/parse_vmspace_stats.py aggregates.
+             */
+            bool va_on_cxl = false;
+            bool va_on_machine[CLUSTER_MAX_MACHINE_NUM] = {false};
             for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
                 void *pgtbl = get_vmspace_pgtbl(vmspace, i);
                 if (!pgtbl)
@@ -937,11 +945,17 @@ void print_vmspace_memory_summary(struct vmspace *vmspace)
                 if (query_ret == 0 && pte && (pte->pteval & PAGE_PRESENT)) {
                     int mid = get_paddr_machine_id(pa);
                     if (mid == MACHINE_ID_SHARED_MEMORY) {
-                        shared_pages_count++;
+                        va_on_cxl = true;
                     } else if (mid >= 0 && mid < CLUSTER_MACHINE_NUM) {
-                        local_pages_count[mid]++;
+                        va_on_machine[mid] = true;
                     }
                 }
+            }
+            if (va_on_cxl)
+                shared_pages_count++;
+            for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+                if (va_on_machine[i])
+                    local_pages_count[i]++;
             }
         }
     }
@@ -1148,7 +1162,17 @@ void vmspace_deinit(void *ptr)
     vmspace = (struct vmspace *)ptr;
 
 #ifdef PRINT_VMSPACE_STATS
+#ifdef PRINT_VMSPACE_STATS_NO_DETAILS
+    /*
+     * Exit-time footprint for workloads that never call
+     * usys_print_vmspace_stats() themselves (e.g. Phoenix matrix_multiply
+     * in the AE Table 4 footprint pass): all mappings are still intact
+     * here, right before the vmregions are freed.
+     */
+    print_vmspace_memory_summary(vmspace);
+#else
     print_vmspace_stats(vmspace);
+#endif
 #endif
 
     struct vmregion *vmr;

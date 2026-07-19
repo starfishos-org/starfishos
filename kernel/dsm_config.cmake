@@ -7,7 +7,7 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "TEMP": all on temp allocator (for debugging / bring-up)
 # "MIXED_DEFAULT_DRAM": mixed and default to DRAM
 # "MIXED_DEFAULT_CXL": mixed and default to CXL
-set(DSM_MALLOC_MODE "CXL")
+set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL
 set(DSM_USER_MALLOC_MODE "DEFAULT_CXL")
@@ -33,4 +33,4 @@ set(SLAB_CRASH_RECOVERY "OFF")
 
 # If "ON", enable cross-machine scheduler timing probes (set_affinity → dequeue latency).
 # Requires PHOENIX_SCHED_TIMING in kernel; pairs with PHOENIX_TIMING in user/demos/phoenix-2.0.
-set(PHOENIX_SCHED_TIMING "ON")
+set(PHOENIX_SCHED_TIMING "OFF")

@@ -41,48 +41,93 @@ apt_failure_help() {
     echo "all host packages listed in this script are already installed." >&2
 }
 
+docker_present=0
+if command -v docker >/dev/null 2>&1 && $SUDO docker version >/dev/null 2>&1; then
+    docker_present=1
+fi
+
 if [ "${SKIP_APT:-0}" != "1" ]; then
     if ! apt_get update; then
         apt_failure_help
         exit 1
     fi
-    if ! apt_get install -y \
-        ca-certificates \
-        autoconf \
-        automake \
-        build-essential \
-        cmake \
-        curl \
-        docker.io \
-        git \
-        iproute2 \
-        libglib2.0-dev \
-        libtool \
-        libnuma-dev \
-        libpixman-1-dev \
-        libslirp-dev \
-        make \
-        ninja-build \
-        numactl \
-        openmpi-bin \
-        libopenmpi-dev \
-        perl \
-        pkg-config \
-        psmisc \
-        python3 \
-        python3-matplotlib \
-        python3-numpy \
-        python3-pandas \
-        python3-pip \
-        tmux \
-        xz-utils \
+    pkgs=(
+        ca-certificates
+        autoconf
+        automake
+        build-essential
+        cmake
+        curl
+        git
+        iproute2
+        libglib2.0-dev
+        libtool
+        libnuma-dev
+        libpixman-1-dev
+        libslirp-dev
+        make
+        ninja-build
+        numactl
+        openmpi-bin
+        libopenmpi-dev
+        perl
+        pkg-config
+        psmisc
+        python3
+        python3-matplotlib
+        python3-numpy
+        python3-pandas
+        python3-pip
+        tmux
+        xz-utils
         zlib1g-dev
-    then
+    )
+    if [ "$docker_present" -eq 1 ]; then
+        echo "Docker is already installed and working; skipping docker.io (avoids conflicting with an existing docker-ce install)."
+    else
+        pkgs+=(docker.io)
+    fi
+    if ! apt_get install -y "${pkgs[@]}"; then
         apt_failure_help
         exit 1
     fi
 else
     echo "SKIP_APT=1: skipping apt update/install; assuming host packages exist."
+fi
+
+# The plotting scripts need `import numpy, pandas, matplotlib` to work.  A
+# user-site NumPy 2.x (~/.local, e.g. from an earlier `pip install --user`)
+# shadows Ubuntu's NumPy 1.x while imports still pick up the distro's
+# NumPy-1-built C extensions (pandas itself, numexpr, bottleneck).  Depending
+# on which packages sit in the user site this either hard-fails the import or
+# "succeeds" while spraying "_ARRAY_API not found" tracebacks on stderr (the
+# optional accelerators fail to load), so check stderr as well as the exit
+# status.  apt cannot repair the mix — user-site packages always win — so
+# make the user site self-consistent instead.
+verify_python_plotting_stack() {
+    local probe_err
+    probe_err="$(python3 -c 'import numpy, pandas, matplotlib' 2>&1)" || return 1
+    if printf '%s' "$probe_err" | grep -q '_ARRAY_API not found'; then
+        return 1
+    fi
+}
+
+if ! verify_python_plotting_stack; then
+    echo "Python plotting stack failed to import (user-site NumPy 2 mixed with"
+    echo "system NumPy 1.x extensions is the usual cause); repairing with pip --user."
+    python3 -m pip install --user --upgrade \
+            numpy pandas matplotlib numexpr bottleneck \
+        || python3 -m pip install --user --break-system-packages --upgrade \
+            numpy pandas matplotlib numexpr bottleneck \
+        || {
+            echo "pip repair of the Python plotting stack failed." >&2
+            exit 1
+        }
+    if ! verify_python_plotting_stack; then
+        echo "Python plotting stack still fails to import after pip repair." >&2
+        exit 1
+    fi
+    echo "Python plotting stack repaired via user-site packages."
 fi
 
 if command -v systemctl >/dev/null 2>&1; then

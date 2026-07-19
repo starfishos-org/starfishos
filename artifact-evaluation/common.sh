@@ -541,21 +541,15 @@ _ae_boot_cluster_once() {
     local n="$1"
     local cpu_num="${2:-}"
     local i env_prefix="${AE_EXTRA_ENV:+$AE_EXTRA_ENV }"
-    local wait_shell_each="${AE_WAIT_SHELL_PER_MACHINE:-0}"
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
 
-    # PHOENIX_SCHED_TIMING makes every guest stop immediately after its DSM
-    # join message until all MACHINE_NUM peers reach the TSC calibration
-    # barrier.  Waiting for machine 0's shell before launching machine 1 would
-    # therefore deadlock by construction.  Callers which need serialized late
-    # boot must disable that optional instrumentation before building.
-    if [ "$wait_shell_each" = "1" ] \
-        && grep -Eq '^set\(PHOENIX_SCHED_TIMING[[:space:]]+"?ON"?\)' \
-            "$AE_DSM_CONFIG"; then
-        echo "[AE] AE_WAIT_SHELL_PER_MACHINE=1 is incompatible with PHOENIX_SCHED_TIMING=ON" >&2
-        return 1
-    fi
+    # The kernel blocks every machine right after its DSM join banner until
+    # all MACHINE_NUM peers have joined (dsm_wait_for_cluster_cpu_topology in
+    # kernel/dsm/dsm_metadata.c), so no guest can reach its shell before the
+    # whole cluster is up.  Launch is therefore serialized on the join banner
+    # only; shells are awaited once every machine has joined.  Do not wait for
+    # a shell in between: that deadlocks by construction for N > 1.
 
     ae_ensure_clean_tmux || return 1
     ae_ensure_doorbell || return 1
@@ -574,24 +568,16 @@ _ae_boot_cluster_once() {
     tmux new-session -d -s "$AE_SESSION" -n 0 \
         "cd '$AE_REPO_ROOT' && ${env_prefix}MACHINE_NUM=$n ./build/simulate.sh 0"
     ae_wait_in_log 0 "DSM] machine 0 " "$AE_BOOT_TIMEOUT" "DSM machine 0 joined" || return 1
-    if [ "$wait_shell_each" = "1" ]; then
-        ae_wait_for_shell 0 || return 1
-    fi
 
     for i in $(seq 1 $((n - 1))); do
         tmux new-window -t "$AE_SESSION" -n "$i" \
             "cd '$AE_REPO_ROOT' && ${env_prefix}MACHINE_NUM=$n ./build/simulate.sh $i"
         ae_wait_in_log "$i" "DSM] machine $i " "$AE_BOOT_TIMEOUT" "DSM machine $i joined" || return 1
-        if [ "$wait_shell_each" = "1" ]; then
-            ae_wait_for_shell "$i" || return 1
-        fi
     done
 
-    if [ "$wait_shell_each" != "1" ]; then
-        for i in $(seq 0 $((n - 1))); do
-            ae_wait_for_shell "$i" || return 1
-        done
-    fi
+    for i in $(seq 0 $((n - 1))); do
+        ae_wait_for_shell "$i" || return 1
+    done
 }
 
 # Retry intermittent secondary-machine boot/shell stalls. Failures from a

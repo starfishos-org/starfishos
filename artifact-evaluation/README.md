@@ -28,6 +28,16 @@ groups, installs plotting deps (`matplotlib`, `numpy`, `pandas`), builds QEMU
 `/usr/local/qemu-6.2/bin/ivshmem-server`. Log out and back in before using
 Docker or `/dev/kvm` without `sudo`.
 
+If a working `docker` is already present (e.g. an existing `docker-ce`
+install), the script skips installing the `docker.io` package instead of
+letting apt fail on the `docker.io`/`docker-ce` package conflict.
+
+After installing packages the script verifies that `numpy`, `pandas`, and
+`matplotlib` actually import. If a user-site NumPy 2.x (`~/.local`) is mixed
+with the distro's NumPy 1.x C extensions — imports then fail with
+`_ARRAY_API not found` — it repairs the stack by installing consistent
+versions (plus `numexpr`/`bottleneck`) into the user site via `pip --user`.
+
 The installer waits up to 60 seconds for apt/dpkg locks. Use
 `APT_LOCK_TIMEOUT=<seconds>` to wait longer. On a pre-provisioned host,
 `SKIP_APT=1` skips package installation but still verifies/installs QEMU and

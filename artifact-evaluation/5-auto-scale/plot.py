@@ -47,8 +47,25 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MultipleLocator
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 SYSTEM_NAME = "Starfish"
 X_TICKS = [1, 2, 4, 6, 8]
+
+# --- Table 4 footprint (logs/footprint/<app>_machine<i>.log) ---------------
+# Every [VMSPACE MEMORY] block is complete: the kernel walks all machines'
+# page tables from the calling CPU, so blocks normally appear only in the
+# log of the machine that ran the syscall (or the exit-time deinit).
+FOOTPRINT_APPS = ("matrix", "db1000", "gemini")
+FOOTPRINT_PROC_HINTS = {
+    "matrix": "matrix_multiply",
+    "db1000": "rundb",
+    "gemini": "pagerank",
+}
+PAT_VM_PROC = re.compile(r"\[VMSPACE MEMORY\] Process: (\S+)")
+PAT_VM_CXL = re.compile(r"\[VMSPACE MEMORY\] CXL \(shared\): (\d+) pages")
+PAT_VM_MACHINE = re.compile(r"\[VMSPACE MEMORY\] Machine (\d+): (\d+) pages")
+PAGE_KB = 4
 
 LOG_NAME_RE = re.compile(
     r"^(?P<app>matrix|db1000|gemini)_"
@@ -282,6 +299,99 @@ def collect_from_logs(log_dir: Path, results_dir: Path,
     return written
 
 
+# ── Table 4 footprint ───────────────────────────────────────────────────────
+
+def _footprint_blocks(text: str):
+    """Yield [VMSPACE MEMORY] blocks as {proc, cxl, machines} in log order."""
+    blocks = []
+    proc = None
+    cur = None
+    for line in text.splitlines():
+        m = PAT_VM_PROC.search(line)
+        if m:
+            proc = m.group(1)
+            continue
+        m = PAT_VM_CXL.search(line)
+        if m:
+            cur = {"proc": proc, "cxl": int(m.group(1)), "machines": {}}
+            blocks.append(cur)
+            continue
+        m = PAT_VM_MACHINE.search(line)
+        if m and cur is not None:
+            cur["machines"][int(m.group(1))] = int(m.group(2))
+    return blocks
+
+
+def _best_footprint_block(footprint_dir: Path, app: str):
+    """Pick the app's steady-state block: the largest matching one anywhere.
+
+    Blocks grow as the workload touches memory (post-init < post-warmup <
+    post-execution / exit), so the block with the largest total page count is
+    the end-of-run footprint regardless of which machine's log carries it.
+    """
+    hint = FOOTPRINT_PROC_HINTS[app]
+    best = None
+    for path in sorted(footprint_dir.glob(f"{app}_machine*.log")):
+        for block in _footprint_blocks(path.read_text(errors="replace")):
+            if not block["proc"] or hint not in block["proc"]:
+                continue
+            total = block["cxl"] + sum(block["machines"].values())
+            if best is None or total > best[0]:
+                best = (total, block)
+    return best[1] if best else None
+
+
+def collect_footprint(footprint_dir: Path, results_dir: Path,
+                      required: Iterable[str], allow_partial=False):
+    """Write csv/table4_footprint.csv from the footprint pass logs."""
+    rows = []
+    missing = []
+    for app in FOOTPRINT_APPS:
+        block = _best_footprint_block(footprint_dir, app)
+        if block is None:
+            if app in set(required):
+                missing.append(app)
+            elif any(footprint_dir.glob(f"{app}_machine*.log")):
+                print(f"[WARN] no [VMSPACE MEMORY] block for {app} "
+                      f"in {footprint_dir}")
+            continue
+        cxl_mib = block["cxl"] * PAGE_KB / 1024.0
+        dram_mib = sum(block["machines"].values()) * PAGE_KB / 1024.0
+        rows.append({
+            "app": app,
+            "cxl_mib": cxl_mib,
+            "dram_mib": dram_mib,
+            "total_gib": (cxl_mib + dram_mib) / 1024.0,
+        })
+    if missing and not allow_partial:
+        raise SystemExit(
+            "Missing Table 4 footprint data for: " + ", ".join(missing)
+        )
+
+    if not rows:
+        print(f"[WARN] no footprint data under {footprint_dir}; "
+              "skipping table4_footprint.csv")
+        return None
+
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out = results_dir / "table4_footprint.csv"
+    with out.open("w") as f:
+        f.write("app,cxl_mib,dram_mib,total_gib\n")
+        for r in rows:
+            f.write(f"{r['app']},{r['cxl_mib']:.1f},{r['dram_mib']:.1f},"
+                    f"{r['total_gib']:.2f}\n")
+    print(f"Wrote {out} ({len(rows)} apps)")
+
+    print("Table 4 (memory usage in auto-scaling apps):")
+    print(f"  {'App':<10} {'Total':>10} {'CXL':>10}")
+    for r in rows:
+        print(f"  {r['app']:<10} {r['total_gib']:>8.2f}G {r['cxl_mib']:>8.1f}M")
+    print("  Note: the paper fixes DBx1000's and Tigon's CXL usage to "
+          "500 MiB (Table 4 caption); Tigon runs on Linux VMs and is not "
+          "measurable with StarfishOS's vmspace stats.")
+    return out
+
+
 # ── auto-scale-matrix ───────────────────────────────────────────────────────
 
 def _missing_points(series, required):
@@ -450,6 +560,10 @@ def main():
                     help="debug only: plot available series/points")
     ap.add_argument("--require-log", action="append", default=[], metavar="BASENAME",
                     help="require this requested sweep log to contain its matching metric; repeatable")
+    ap.add_argument("--require-footprint", action="append", default=[],
+                    metavar="APP", choices=FOOTPRINT_APPS,
+                    help="require Table 4 footprint data for this app "
+                         "(from --log-dir/footprint/); repeatable")
     args = ap.parse_args()
 
     fig_dir = args.fig_dir
@@ -458,6 +572,8 @@ def main():
     fig_dir.mkdir(parents=True, exist_ok=True)
     if args.require_log and not args.log_dir:
         ap.error("--require-log requires --log-dir")
+    if args.require_footprint and not args.log_dir:
+        ap.error("--require-footprint requires --log-dir")
     if args.log_dir:
         written = collect_from_logs(
             args.log_dir, csv_dir, args.require_log
@@ -465,6 +581,14 @@ def main():
         args.matrix_data = args.matrix_data or written.get("matrix")
         args.db1000_data = args.db1000_data or written.get("db1000")
         args.gemini_data = args.gemini_data or written.get("gemini")
+        footprint_dir = args.log_dir / "footprint"
+        if footprint_dir.is_dir() or args.require_footprint:
+            if not footprint_dir.is_dir():
+                raise SystemExit(
+                    f"--require-footprint given but {footprint_dir} is missing"
+                )
+            collect_footprint(footprint_dir, csv_dir, args.require_footprint,
+                              args.allow_partial)
 
     drew = False
     if args.matrix_data:

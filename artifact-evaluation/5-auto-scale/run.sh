@@ -20,6 +20,10 @@
 #   ./artifact-evaluation/prepare.sh          # once
 #   ./artifact-evaluation/5-auto-scale/run.sh
 #
+# After the sweep, a footprint pass reruns each app once with
+# PRINT_VMSPACE_STATS enabled and records the paper Table 4 memory usage
+# (per-app CXL / DRAM pages) under logs/footprint/ -> csv/table4_footprint.csv.
+#
 # Env overrides:
 #   APPS="matrix db1000 gemini"   MACHINES="1 2 4 6 8"
 #   CONFIGS="Mixed CXL"           TIMEOUT=1200
@@ -27,6 +31,9 @@
 #   TIGON_DIR=/path/to/tigon       default: AE ../deps/tigon submodule
 #   TIGON_SETUP=1                  set 0 to reuse already-running Tigon VMs
 #   TIGON_IMAGE_ATTEMPTS=3         retry transient mkosi download failures
+#   RUN_FOOTPRINT=1                set 0 to skip the Table 4 footprint pass
+#   FOOTPRINT_CONFIG=Mixed         placement used for the footprint pass
+#   FOOTPRINT_MACHINES=<max MACHINES>  cluster size for the footprint pass
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
@@ -44,6 +51,8 @@ CONFIGS="${CONFIGS-Mixed CXL}"
 RUN_BASELINES="${RUN_BASELINES-1}"
 BASELINE_STAGES="${BASELINE_STAGES-linux,matrix-tcp,tigon}"
 TIGON_SETUP="${TIGON_SETUP-1}"
+RUN_FOOTPRINT="${RUN_FOOTPRINT-1}"
+FOOTPRINT_CONFIG="${FOOTPRINT_CONFIG-Mixed}"
 
 # Validate every scope selector before taking the global runner lock or
 # changing host/repository state.  A reordered or whitespace-normalized full
@@ -92,6 +101,28 @@ validate_scope_list() {
 validate_scope_list APPS "$APPS" matrix db1000 gemini || exit 1
 validate_scope_list MACHINES "$MACHINES" 1 2 4 6 8 || exit 1
 validate_scope_list CONFIGS "$CONFIGS" Mixed CXL || exit 1
+
+# The Table 4 footprint pass defaults to the largest requested cluster size.
+if [ -z "${FOOTPRINT_MACHINES:-}" ]; then
+    FOOTPRINT_MACHINES=1
+    for n in $MACHINES; do
+        if [ "$n" -gt "$FOOTPRINT_MACHINES" ]; then
+            FOOTPRINT_MACHINES="$n"
+        fi
+    done
+fi
+case "$RUN_FOOTPRINT" in
+    0|1) ;;
+    *) echo "[AE] RUN_FOOTPRINT must be 0 or 1" >&2; exit 1 ;;
+esac
+case "$FOOTPRINT_CONFIG" in
+    Mixed|CXL) ;;
+    *) echo "[AE] FOOTPRINT_CONFIG must be Mixed or CXL" >&2; exit 1 ;;
+esac
+case "$FOOTPRINT_MACHINES" in
+    1|2|4|6|8) ;;
+    *) echo "[AE] FOOTPRINT_MACHINES must be one of 1 2 4 6 8" >&2; exit 1 ;;
+esac
 
 validate_baseline_stages() {
     local raw="$1" baseline_stage baseline_stage_count=0
@@ -153,8 +184,12 @@ ae_acquire_run_lock "auto-scale" || exit 1
 
 mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
+KERNEL_CMAKE="$AE_REPO_ROOT/kernel/CMakeLists.txt"
+GEMINI_CMAKE="$AE_REPO_ROOT/user/demos/GeminiGraph/CMakeLists.txt"
 TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/dbx1000-config.h"
+cp "$KERNEL_CMAKE" "$TMP_DIR/kernel-CMakeLists.txt"
+cp "$GEMINI_CMAKE" "$TMP_DIR/gemini-CMakeLists.txt"
 
 # config -> "DSM_MALLOC_MODE DSM_USER_MALLOC_MODE" (per ae-figure-mapping).
 config_params() {
@@ -216,10 +251,14 @@ cleanup() {
     trap - EXIT
     ae_kill_cluster || cleanup_failed=1
     if [ -d "$TMP_DIR" ]; then
-        if cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG"; then
+        local restore_ok=1
+        cp "$TMP_DIR/dbx1000-config.h" "$DBX_CONFIG" || restore_ok=0
+        cp "$TMP_DIR/kernel-CMakeLists.txt" "$KERNEL_CMAKE" || restore_ok=0
+        cp "$TMP_DIR/gemini-CMakeLists.txt" "$GEMINI_CMAKE" || restore_ok=0
+        if [ "$restore_ok" = "1" ]; then
             rm -rf "$TMP_DIR"
         else
-            echo "[AE] failed to restore DBx1000 config; backup retained at $TMP_DIR" >&2
+            echo "[AE] failed to restore source snapshots; backup retained at $TMP_DIR" >&2
             cleanup_failed=1
         fi
     fi
@@ -232,9 +271,8 @@ cleanup() {
 trap cleanup EXIT
 
 # Auto-scale consumes Phoenix's userspace timing but not the optional kernel
-# set_affinity-to-dequeue probe.  Its cross-machine TSC barrier deliberately
-# releases every guest's late boot at once, which defeats the serialized shell
-# boot used below and can strand a secondary QEMU during SMP initialization.
+# set_affinity-to-dequeue probe, so leave that instrumentation out of the
+# sweep builds.
 ae_set_dsm_var PHOENIX_SCHED_TIMING OFF
 
 worker_bind_cpu_list() {
@@ -288,10 +326,10 @@ sweep_app_config() {
             set_dbx_define PERC_REMOTE_NEW_ORDER 15
             ae_build || { echo "[AE] build failed for $app/$config/N=$n" >&2; return 1; }
         fi
-        # PHOENIX_SCHED_TIMING is disabled above, so waiting for each shell is
-        # safe and prevents four or more QEMUs from entering late kernel/SMP
-        # initialization at once.  The concurrent path strands machine 3.
-        if ! AE_WAIT_SHELL_PER_MACHINE=1 ae_boot_cluster "$n" "$AE_MICROBENCH_GUEST_CPU_NUM"; then
+        # The kernel holds every machine at its join banner until the whole
+        # cluster has joined, so per-machine shell waits would deadlock; the
+        # default join-serialized boot path is the only viable one.
+        if ! ae_boot_cluster "$n" "$AE_MICROBENCH_GUEST_CPU_NUM"; then
             echo "[AE] boot failed for $app/$config/N=$n" >&2
             ae_archive_logs "$n" "$AE_LOG_DIR" \
                 "-boot-failed-${app}-${config}-N${n}"
@@ -330,6 +368,121 @@ for app in $APPS; do
         sweep_app_config "$app" "$config"
     done
 done
+
+# --- Table 4 footprint pass -------------------------------------------------
+# Rerun each app once at FOOTPRINT_MACHINES under FOOTPRINT_CONFIG with
+# vmspace statistics compiled in, so every workload reports its CXL/DRAM
+# page counts ([VMSPACE MEMORY] blocks).  dbx1000 and gemini call
+# usys_print_vmspace_stats() themselves; matrix relies on the exit-time
+# summary printed by vmspace_deinit under PRINT_VMSPACE_STATS_NO_DETAILS.
+# This is a separate pass so the stats instrumentation cannot perturb the
+# Figure 14 performance sweep above.
+
+enable_vmspace_stats() {
+    sed -i \
+        -e 's|^# *\(target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)\)|\1|' \
+        -e 's|^# *\(target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)\)|\1|' \
+        "$KERNEL_CMAKE"
+    grep -q '^target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)' "$KERNEL_CMAKE" || {
+        echo "[AE] failed to enable PRINT_VMSPACE_STATS in $KERNEL_CMAKE" >&2
+        return 1
+    }
+    grep -q '^target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)' "$KERNEL_CMAKE" || {
+        echo "[AE] failed to enable PRINT_VMSPACE_STATS_NO_DETAILS in $KERNEL_CMAKE" >&2
+        return 1
+    }
+}
+
+enable_gemini_vmspace_stats() {
+    sed -i 's|^# *\(add_definitions(-DPRINT_VMSPACE_STATS)\)|\1|' "$GEMINI_CMAKE"
+    grep -q '^add_definitions(-DPRINT_VMSPACE_STATS)' "$GEMINI_CMAKE" || {
+        echo "[AE] failed to enable PRINT_VMSPACE_STATS in $GEMINI_CMAKE" >&2
+        return 1
+    }
+}
+
+restore_vmspace_stats() {
+    cp "$TMP_DIR/kernel-CMakeLists.txt" "$KERNEL_CMAKE"
+    cp "$TMP_DIR/gemini-CMakeLists.txt" "$GEMINI_CMAKE"
+}
+
+run_footprint_stage() {
+    local n="$FOOTPRINT_MACHINES" config="$FOOTPRINT_CONFIG"
+    local fp_dir="$AE_LOG_DIR/footprint"
+    local params malloc user_malloc cmd marker app built=0 i
+
+    params="$(config_params "$config")"
+    malloc="${params%% *}"; user_malloc="${params##* }"
+    mkdir -p "$fp_dir"
+
+    echo ""
+    echo "############################################################"
+    echo "### Table 4 footprint pass: $config, N=$n, apps: $APPS"
+    echo "############################################################"
+    enable_vmspace_stats || return 1
+    enable_gemini_vmspace_stats || return 1
+    ae_set_dsm_var DSM_MALLOC_MODE "$malloc"
+    ae_set_dsm_var DSM_USER_MALLOC_MODE "$user_malloc"
+
+    for app in $APPS; do
+        marker="$(app_marker "$app")"
+        if [ "$app" = "db1000" ]; then
+            set_dbx_define NUM_MACHINES "$n"
+            set_dbx_define NUM_WH "$((DBX_WAREHOUSES_PER_MACHINE * n))"
+            set_dbx_define WARMUP "$((DBX_WARMUP_PER_MACHINE * n))"
+            set_dbx_define PERC_REMOTE_PAYMENT 15
+            set_dbx_define PERC_REMOTE_NEW_ORDER 15
+            ae_build || { echo "[AE] footprint build failed for $app" >&2; return 1; }
+            built=1
+        elif [ "$built" = "0" ]; then
+            ae_build || { echo "[AE] footprint build failed for $app" >&2; return 1; }
+            built=1
+        fi
+
+        echo "### footprint: $app ($config, N=$n)"
+        if ! ae_boot_cluster "$n" "$AE_MICROBENCH_GUEST_CPU_NUM"; then
+            echo "[AE] footprint boot failed for $app" >&2
+            ae_archive_logs "$n" "$fp_dir" "-boot-failed-${app}"
+            ae_kill_cluster
+            return 1
+        fi
+        case "$app" in
+            matrix) ae_send_command 0 "write matrix_multiply_bind_cpu.txt $(worker_bind_cpu_list "$n")" ;;
+            db1000) ae_send_command 0 "write dbx1000_bind_cpu.txt $(worker_bind_cpu_list "$n")" ;;
+            gemini) ae_send_command 0 "write gemini_bind_cpu.txt $(worker_bind_cpu_list "$n")" ;;
+        esac
+        cmd="$(app_cmd "$app" "$n")"
+        ae_send_command 0 "$cmd"
+        if ! wait_for_app "$app" "$marker" "footprint $app N=$n" "$n"; then
+            cp "$(ae_machine_log 0)" "$fp_dir/${app}_machine0.log" || true
+            ae_kill_cluster
+            return 1
+        fi
+        # Wait for the post-run [VMSPACE MEMORY] block.  matrix only prints
+        # it when the process exits (shortly after "finalize:"); db1000 and
+        # gemini print it in-process right around their completion markers.
+        if [ "$app" = "matrix" ]; then
+            if ! AE_LOG_STALL_S=0 ae_wait_in_log 0 'VMSPACE MEMORY' 300 \
+                    "footprint stats $app" "$n"; then
+                echo "[AE] WARNING: no exit-time vmspace stats seen for $app on machine 0" >&2
+            fi
+        fi
+        sleep 10   # let trailing vmspace stats flush on all machines
+        for i in $(seq 0 $((n - 1))); do
+            cp "$(ae_machine_log "$i")" "$fp_dir/${app}_machine${i}.log" || true
+        done
+        ae_kill_cluster
+    done
+
+    # Leave the tree stats-free for the baseline stages and later builds.
+    restore_vmspace_stats
+}
+
+FOOTPRINT_RAN=0
+if [ "$RUN_FOOTPRINT" = "1" ]; then
+    run_footprint_stage
+    FOOTPRINT_RAN=1
+fi
 
 if [ "$RUN_BASELINES" = "1" ]; then
     tigon_pending=0
@@ -399,6 +552,11 @@ if ls "$AE_LOG_DIR"/*_N*.log >/dev/null 2>&1; then
     for required_plot_log in "${required_plot_logs[@]}"; do
         plot_args+=(--require-log "$required_plot_log")
     done
+    if [ "$FOOTPRINT_RAN" = "1" ]; then
+        for app in $APPS; do
+            plot_args+=(--require-footprint "$app")
+        done
+    fi
     if [ "$FULL_PLOT_REQUEST" != "1" ]; then
         # APPS/MACHINES/CONFIGS are documented subset controls.  Such a run is
         # successful when every requested measurement succeeds, even though it
@@ -420,5 +578,8 @@ fi
 
 echo ""
 echo "auto-scale figures target: $FIG_DIR/{auto-scale-matrix,db1000,gemini-chcore}.png + auto-scale-legend.png"
+if [ "$FOOTPRINT_RAN" = "1" ]; then
+    echo "Table 4 footprint target: $CSV_DIR/table4_footprint.csv"
+fi
 echo "Artifact output: $OUT_DIR"
 ae_finish
