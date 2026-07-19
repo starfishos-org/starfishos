@@ -1304,6 +1304,48 @@ def _validate_tigon_vm_start_preconditions(
             interfaces_before, ip_forward_before)
 
 
+TIGON_CXL_BACKING = Path("/mnt/cxl_mem/mem_1")
+
+
+def _reset_tigon_cxl_backing():
+    """Zero the emulated CXL region so the next benchmark attaches cleanly.
+
+    cxlalloc asserts local view == global order at attach time, and the guest
+    cxl_init/cxl_recover_meta reset (hard-coded to a 2 GiB layout) does not
+    fully clear the 64 GiB region, so any allocator state left by a previous
+    benchmark makes the next run's late attacher abort with "Local view
+    inconsistent with global order".  A fresh VM boot only works because the
+    backing starts out zeroed; punching a hole through the tmpfs backing
+    restores exactly that state (shared mappings read back zeros) and also
+    releases the pages.
+    """
+    try:
+        size = TIGON_CXL_BACKING.stat().st_size
+    except OSError as exc:
+        raise SystemExit(
+            f"cannot inspect Tigon CXL backing {TIGON_CXL_BACKING}: {exc}; "
+            "are the Tigon VMs running?"
+        ) from exc
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "fallocate", "--punch-hole", "--offset", "0",
+             "--length", str(size), "--", str(TIGON_CXL_BACKING)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SystemExit(f"cannot reset Tigon CXL backing: {exc}") from exc
+    if result.returncode:
+        raise SystemExit(
+            f"failed to reset Tigon CXL backing {TIGON_CXL_BACKING} "
+            f"(exit {result.returncode}): {result.stderr.strip()}"
+        )
+    print(f"[AE] Reset Tigon CXL backing {TIGON_CXL_BACKING}", flush=True)
+
+
 def collect_tigon(log_dir: Path, tigon: Path, setup: bool):
     pending = [n for n in MACHINES if not result_exists(
         log_dir / f"db1000_Tigon_N{n}.log", "db1000", "Tigon", n, "mops")]
@@ -1382,6 +1424,7 @@ def collect_tigon(log_dir: Path, tigon: Path, setup: bool):
         if result_exists(path, "db1000", "Tigon", n, "mops"):
             print(f"[AE] Reusing completed result: {path.name}", flush=True)
             continue
+        _reset_tigon_cxl_backing()
         cmd = ["bash", "scripts/run.sh", "TPCC", "TwoPLPasha", str(n), "3",
                "mixed", "10", "15", "1", "0", "1", "Clock", "OnDemand",
                "200000000", "1", "WriteThrough", "None", "30", "10",
