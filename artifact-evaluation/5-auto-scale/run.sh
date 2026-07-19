@@ -217,9 +217,9 @@ app_marker() {
         # matrix_multiply prints library: / finalize:, not "inter library:"
         matrix) echo "finalize:" ;;
         db1000) echo "thp=" ;;
-        # Wait for the final checksum record, not just the preceding timing.
-        # The escaped '[' is a grep basic-regex literal.
-        gemini) echo 'pr\[' ;;
+        # Graph teardown releases per-machine private replicas on their owner;
+        # do not kill the cluster at the preceding checksum line.
+        gemini) echo 'Pagerank is done.' ;;
     esac
 }
 
