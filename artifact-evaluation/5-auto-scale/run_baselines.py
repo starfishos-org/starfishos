@@ -1305,6 +1305,8 @@ def _validate_tigon_vm_start_preconditions(
 
 
 TIGON_CXL_BACKING = Path("/mnt/cxl_mem/mem_1")
+TIGON_ADMIN_HELPER = Path("/usr/local/libexec/starfishos-tigon")
+USE_TIGON_ADMIN_HELPER = os.environ.get("STARFISHOS_RESTRICTED_TIGON") == "1"
 
 
 def _reset_tigon_cxl_backing():
@@ -1327,9 +1329,14 @@ def _reset_tigon_cxl_backing():
             "are the Tigon VMs running?"
         ) from exc
     try:
-        result = subprocess.run(
+        command = (
+            ["sudo", "-n", str(TIGON_ADMIN_HELPER), "reset"]
+            if USE_TIGON_ADMIN_HELPER else
             ["sudo", "-n", "fallocate", "--punch-hole", "--offset", "0",
-             "--length", str(size), "--", str(TIGON_CXL_BACKING)],
+             "--length", str(size), "--", str(TIGON_CXL_BACKING)]
+        )
+        result = subprocess.run(
+            command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -1337,7 +1344,12 @@ def _reset_tigon_cxl_backing():
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise SystemExit(f"cannot reset Tigon CXL backing: {exc}") from exc
+        operation = (
+            "invoke the Tigon reset helper"
+            if USE_TIGON_ADMIN_HELPER else
+            "reset Tigon CXL backing"
+        )
+        raise SystemExit(f"cannot {operation}: {exc}") from exc
     if result.returncode:
         raise SystemExit(
             f"failed to reset Tigon CXL backing {TIGON_CXL_BACKING} "

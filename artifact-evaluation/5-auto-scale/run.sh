@@ -51,6 +51,9 @@ CONFIGS="${CONFIGS-Mixed CXL}"
 RUN_BASELINES="${RUN_BASELINES-1}"
 BASELINE_STAGES="${BASELINE_STAGES-linux,matrix-tcp,tigon}"
 TIGON_SETUP="${TIGON_SETUP-1}"
+STARFISHOS_RESTRICTED_TIGON="${STARFISHOS_RESTRICTED_TIGON-0}"
+readonly TIGON_ADMIN_HELPER=/usr/local/libexec/starfishos-tigon
+TIGON_STARTED_HERE=0
 RUN_FOOTPRINT="${RUN_FOOTPRINT-1}"
 FOOTPRINT_CONFIG="${FOOTPRINT_CONFIG-Mixed}"
 
@@ -173,6 +176,10 @@ case "$TIGON_SETUP" in
     0|1) ;;
     *) echo "[AE] TIGON_SETUP must be 0 or 1" >&2; exit 1 ;;
 esac
+case "$STARFISHOS_RESTRICTED_TIGON" in
+    0|1) ;;
+    *) echo "[AE] STARFISHOS_RESTRICTED_TIGON must be 0 or 1" >&2; exit 1 ;;
+esac
 baseline_stage_list=","
 if [ "$RUN_BASELINES" = "1" ]; then
     validate_baseline_stages "$BASELINE_STAGES" || exit 1
@@ -190,6 +197,56 @@ TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/dbx1000-config.h"
 cp "$KERNEL_CMAKE" "$TMP_DIR/kernel-CMakeLists.txt"
 cp "$GEMINI_CMAKE" "$TMP_DIR/gemini-CMakeLists.txt"
+
+start_restricted_tigon() {
+    local status="" status_rc=0 state="" line
+
+    [ "$STARFISHOS_RESTRICTED_TIGON" = "1" ] || return 0
+    status="$(sudo -n "$TIGON_ADMIN_HELPER" status 2>&1)" || status_rc=$?
+    while IFS= read -r line; do
+        case "$line" in
+            state=*) state="${line#state=}"; break ;;
+        esac
+    done <<< "$status"
+    if [ "$status_rc" -ne 0 ] && [ "$state" != "degraded" ]; then
+        echo "[AE] cannot query restricted Tigon helper:" >&2
+        printf '%s\n' "$status" >&2
+        return 1
+    fi
+
+    case "$state" in
+        stopped)
+            echo "[AE] Starting restricted Tigon environment for the Tigon baseline..."
+            if ! sudo -n "$TIGON_ADMIN_HELPER" start; then
+                echo "[AE] restricted Tigon start failed" >&2
+                return 1
+            fi
+            TIGON_STARTED_HERE=1
+            ;;
+        running)
+            echo "[AE] Reusing the pre-existing restricted Tigon environment."
+            ;;
+        degraded)
+            echo "[AE] restricted Tigon environment is degraded; run helper stop before retrying" >&2
+            return 1
+            ;;
+        *)
+            echo "[AE] restricted Tigon helper returned an unknown state:" >&2
+            printf '%s\n' "$status" >&2
+            return 1
+            ;;
+    esac
+}
+
+stop_restricted_tigon() {
+    [ "$TIGON_STARTED_HERE" -eq 1 ] || return 0
+    echo "[AE] Stopping restricted Tigon environment..."
+    if ! sudo -n "$TIGON_ADMIN_HELPER" stop; then
+        echo "[AE] restricted Tigon stop failed" >&2
+        return 1
+    fi
+    TIGON_STARTED_HERE=0
+}
 
 # config -> "DSM_MALLOC_MODE DSM_USER_MALLOC_MODE" (per ae-figure-mapping).
 config_params() {
@@ -249,6 +306,7 @@ ae_save_build_configs
 cleanup() {
     local rc=$? cleanup_failed=0
     trap - EXIT
+    stop_restricted_tigon || cleanup_failed=1
     ae_kill_cluster || cleanup_failed=1
     if [ -d "$TMP_DIR" ]; then
         local restore_ok=1
@@ -486,7 +544,9 @@ fi
 
 if [ "$RUN_BASELINES" = "1" ]; then
     tigon_pending=0
-    if [ "$TIGON_SETUP" = "1" ] && [[ "$baseline_stage_list" == *,tigon,* ]]; then
+    if { [ "$TIGON_SETUP" = "1" ] \
+            || [ "$STARFISHOS_RESTRICTED_TIGON" = "1" ]; } \
+            && [[ "$baseline_stage_list" == *,tigon,* ]]; then
         for n in 1 2 4 6 8; do
             tigon_log="$AE_LOG_DIR/db1000_Tigon_N${n}.log"
             if ! grep -qE "^AE_RESULT app=db1000 series=Tigon n=${n} value=[-+0-9.eE]+ unit=mops$" \
@@ -496,26 +556,52 @@ if [ "$RUN_BASELINES" = "1" ]; then
             fi
         done
     fi
-    if [ "$tigon_pending" = "1" ]; then
-        # The StarfishOS sweep uses about 191 GiB of tmpfs-backed memory.  Tigon
-        # subsequently preallocates eight 10-GiB guests on node 0; retaining
-        # the now-unused StarfishOS files can starve the final VM.  The helper
-        # refuses any file still mapped by a process and removes only this
-        # user's exact StarfishOS resource names.
-        ae_release_memdev_backing || exit 1
-    fi
     echo ""
     echo "=== Collecting Linux / TCP / Tigon baselines ==="
-    baseline_args=(
+    baseline_common_args=(
         --log-dir "$AE_LOG_DIR"
-        --stages "$BASELINE_STAGES"
         --graph "${GRAPH_DATASET:-$AE_REPO_ROOT/datasets/twitter-2010.bin}"
         --tigon-dir "${TIGON_DIR:-$AE_REPO_ROOT/artifact-evaluation/deps/tigon}"
     )
-    if [ "$TIGON_SETUP" = "0" ]; then
-        baseline_args+=(--skip-tigon-setup)
+    if [ "$STARFISHOS_RESTRICTED_TIGON" = "1" ] \
+            && [[ "$baseline_stage_list" == *,tigon,* ]]; then
+        non_tigon_stages=""
+        for baseline_stage in linux matrix-tcp; do
+            if [[ "$baseline_stage_list" == *,"$baseline_stage",* ]]; then
+                [ -z "$non_tigon_stages" ] \
+                    || non_tigon_stages+=","
+                non_tigon_stages+="$baseline_stage"
+            fi
+        done
+        if [ -n "$non_tigon_stages" ]; then
+            python3 "$AE_DIR/run_baselines.py" \
+                "${baseline_common_args[@]}" --stages "$non_tigon_stages"
+        fi
+        if [ "$tigon_pending" = "1" ]; then
+            # The StarfishOS sweep uses about 191 GiB of tmpfs-backed memory.
+            # Release it immediately before Tigon preallocates its eight VMs.
+            ae_release_memdev_backing || exit 1
+            if ! start_restricted_tigon; then
+                exit 1
+            fi
+            python3 "$AE_DIR/run_baselines.py" \
+                "${baseline_common_args[@]}" --stages tigon --skip-tigon-setup
+            if ! stop_restricted_tigon; then
+                exit 1
+            fi
+        else
+            echo "[AE] Reusing all completed Tigon results without starting VMs."
+        fi
+    else
+        baseline_args=("${baseline_common_args[@]}" --stages "$BASELINE_STAGES")
+        if [ "$TIGON_SETUP" = "0" ]; then
+            baseline_args+=(--skip-tigon-setup)
+        fi
+        if [ "$tigon_pending" = "1" ]; then
+            ae_release_memdev_backing || exit 1
+        fi
+        python3 "$AE_DIR/run_baselines.py" "${baseline_args[@]}"
     fi
-    python3 "$AE_DIR/run_baselines.py" "${baseline_args[@]}"
 fi
 
 # Convert archived sweep logs into the data files plot.py consumes, then draw.
