@@ -17,18 +17,20 @@
 static struct dq_node *alloc_node_try(struct polling_shm_region *shm)
 {
     while (1) {
-        qptr_t head = atomic_load_explicit(&shm->alloc.free_list,
-                                           memory_order_acquire);
-        if (head == QPTR_NULL)
+        qtagptr_t head = atomic_load_explicit(&shm->alloc.free_list,
+                                              memory_order_acquire);
+        qptr_t head_off = qtagptr_offset(head);
+        if (head_off == QPTR_NULL)
             return NULL;
 
-        struct dq_node *node = qptr_to_ptr(shm, head);
-        qptr_t next = atomic_load_explicit(&node->next,
-                                           memory_order_relaxed);
+        struct dq_node *node = qptr_to_ptr(shm, head_off);
+        qptr_t next = qtagptr_offset(atomic_load_explicit(
+                &node->next, memory_order_relaxed));
+        qtagptr_t desired = qtagptr_advance(head, next);
 
         if (atomic_compare_exchange_weak_explicit(
-                    &shm->alloc.free_list, &head, next,
-                    memory_order_release, memory_order_relaxed)) {
+                    &shm->alloc.free_list, &head, desired,
+                    memory_order_acq_rel, memory_order_acquire)) {
             return node;
         }
     }
@@ -45,7 +47,8 @@ struct dq_node *dq_alloc_node(struct polling_shm_region *shm)
         if (node != NULL)
             return node;
         if (++spins % 10000000 == 0) {
-            qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
+            qptr_t f = qtagptr_offset(atomic_load_explicit(
+                    &shm->alloc.free_list, memory_order_relaxed));
             printf("[alloc_stuck] spins=%d free_list=%d\n", spins, f);
         }
         sched_yield();
@@ -60,12 +63,18 @@ void dq_free_node(struct polling_shm_region *shm, struct dq_node *node)
     qptr_t node_off = ptr_to_qptr(shm, node);
     atomic_store_explicit(&node->status, DQ_FREE, memory_order_relaxed);
     while (1) {
-        qptr_t head = atomic_load_explicit(&shm->alloc.free_list,
-                                           memory_order_acquire);
-        atomic_store_explicit(&node->next, head, memory_order_relaxed);
+        qtagptr_t head = atomic_load_explicit(&shm->alloc.free_list,
+                                              memory_order_acquire);
+        qtagptr_t node_next = atomic_load_explicit(&node->next,
+                                                   memory_order_relaxed);
+        atomic_store_explicit(&node->next,
+                              qtagptr_advance(node_next,
+                                              qtagptr_offset(head)),
+                              memory_order_relaxed);
+        qtagptr_t desired = qtagptr_advance(head, node_off);
         if (atomic_compare_exchange_weak_explicit(
-                    &shm->alloc.free_list, &head, node_off,
-                    memory_order_release, memory_order_relaxed)) {
+                    &shm->alloc.free_list, &head, desired,
+                    memory_order_acq_rel, memory_order_acquire)) {
             return;
         }
     }
@@ -95,18 +104,24 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
 
     /* Step 1: init node with payload */
     memcpy(&node->req, req, sizeof(struct polling_request));
-    atomic_store_explicit(&node->next, QPTR_NULL, memory_order_relaxed);
+    qtagptr_t node_next = atomic_load_explicit(&node->next,
+                                               memory_order_relaxed);
+    atomic_store_explicit(&node->next,
+                          qtagptr_advance(node_next, QPTR_NULL),
+                          memory_order_relaxed);
     atomic_store_explicit(&node->status, DQ_INIT, memory_order_release);
     FLUSH(node);
 
     /* Step 2: link into queue */
     int enq_spins = 0;
     while (1) {
-        qptr_t last = atomic_load_explicit(&shm->queue.tail,
-                                           memory_order_acquire);
-        struct dq_node *last_node = qptr_to_ptr(shm, last);
-        qptr_t next = atomic_load_explicit(&last_node->next,
-                                           memory_order_acquire);
+        qtagptr_t last = atomic_load_explicit(&shm->queue.tail,
+                                              memory_order_acquire);
+        qptr_t last_off = qtagptr_offset(last);
+        struct dq_node *last_node = qptr_to_ptr(shm, last_off);
+        qtagptr_t next_tag = atomic_load_explicit(&last_node->next,
+                                                  memory_order_acquire);
+        qptr_t next = qtagptr_offset(next_tag);
 
         /* Re-check tail consistency */
         if (last != atomic_load_explicit(&shm->queue.tail,
@@ -115,32 +130,37 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
 
         if (next == QPTR_NULL) {
             /* Try to link our node to tail->next */
-            qptr_t expected = QPTR_NULL;
+            qtagptr_t expected = next_tag;
             if (atomic_compare_exchange_strong_explicit(
-                        &last_node->next, &expected, node_off,
+                        &last_node->next, &expected,
+                        qtagptr_advance(next_tag, node_off),
                         memory_order_release, memory_order_relaxed)) {
                 FLUSH(&last_node->next);
                 /* Swing tail to our node */
-                qptr_t exp_last = last;
+                qtagptr_t exp_last = last;
                 atomic_compare_exchange_strong_explicit(
-                        &shm->queue.tail, &exp_last, node_off,
+                        &shm->queue.tail, &exp_last,
+                        qtagptr_advance(last, node_off),
                         memory_order_release, memory_order_relaxed);
                 return;
             }
         } else {
             /* Help a crashed/slow enqueuer by advancing tail */
             FLUSH(&last_node->next);
-            qptr_t exp_last = last;
+            qtagptr_t exp_last = last;
             atomic_compare_exchange_strong_explicit(
-                    &shm->queue.tail, &exp_last, next,
+                    &shm->queue.tail, &exp_last,
+                    qtagptr_advance(last, next),
                     memory_order_release, memory_order_relaxed);
         }
 
         if (++enq_spins % 10000000 == 0) {
-            qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
-            qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
+            qptr_t h = qtagptr_offset(atomic_load_explicit(
+                    &shm->queue.head, memory_order_relaxed));
+            qptr_t t = qtagptr_offset(atomic_load_explicit(
+                    &shm->queue.tail, memory_order_relaxed));
             printf("[enq_stuck] spins=%d last=%d next=%d h=%d t=%d node_off=%d\n",
-                   enq_spins, last, next, h, t, node_off);
+                   enq_spins, last_off, next, h, t, node_off);
         }
     }
 }
@@ -236,25 +256,27 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
         if (!defer_try_free(shm))
             return NULL;
 
-        qptr_t first = atomic_load_explicit(&shm->queue.head,
-                                            memory_order_acquire);
-        qptr_t last = atomic_load_explicit(&shm->queue.tail,
-                                           memory_order_acquire);
-        struct dq_node *first_node = qptr_to_ptr(shm, first);
-        qptr_t next = atomic_load_explicit(&first_node->next,
-                                           memory_order_acquire);
+        qtagptr_t first = atomic_load_explicit(&shm->queue.head,
+                                               memory_order_acquire);
+        qtagptr_t last = atomic_load_explicit(&shm->queue.tail,
+                                              memory_order_acquire);
+        qptr_t first_off = qtagptr_offset(first);
+        qptr_t last_off = qtagptr_offset(last);
+        struct dq_node *first_node = qptr_to_ptr(shm, first_off);
+        qptr_t next = qtagptr_offset(atomic_load_explicit(
+                &first_node->next, memory_order_acquire));
 
         if (first != atomic_load_explicit(&shm->queue.head,
                                           memory_order_acquire))
             continue;
 
-        if (first == last) {
+        if (first_off == last_off) {
             if (next == QPTR_NULL)
                 return NULL;
             FLUSH(&first_node->next);
-            qptr_t exp = last;
+            qtagptr_t exp = last;
             atomic_compare_exchange_strong_explicit(
-                    &shm->queue.tail, &exp, next,
+                    &shm->queue.tail, &exp, qtagptr_advance(last, next),
                     memory_order_release, memory_order_relaxed);
         } else {
             struct dq_node *n = qptr_to_ptr(shm, next);
@@ -265,18 +287,20 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
                         memory_order_acquire, memory_order_relaxed)) {
                 FLUSH(&n->status);
 
-                qptr_t exp_first = first;
+                qtagptr_t exp_first = first;
                 atomic_compare_exchange_strong_explicit(
-                        &shm->queue.head, &exp_first, next,
+                        &shm->queue.head, &exp_first,
+                        qtagptr_advance(first, next),
                         memory_order_release, memory_order_relaxed);
 
-                defer_node(first);
+                defer_node(first_off);
                 return n;
             }
 
-            qptr_t exp_first = first;
+            qtagptr_t exp_first = first;
             atomic_compare_exchange_strong_explicit(
-                    &shm->queue.head, &exp_first, next,
+                    &shm->queue.head, &exp_first,
+                    qtagptr_advance(first, next),
                     memory_order_release, memory_order_relaxed);
         }
     }
@@ -288,9 +312,12 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
 
 void debug_print_shm_region(struct polling_shm_region *shm)
 {
-    qptr_t h = atomic_load_explicit(&shm->queue.head, memory_order_relaxed);
-    qptr_t t = atomic_load_explicit(&shm->queue.tail, memory_order_relaxed);
-    qptr_t f = atomic_load_explicit(&shm->alloc.free_list, memory_order_relaxed);
+    qptr_t h = qtagptr_offset(atomic_load_explicit(
+            &shm->queue.head, memory_order_relaxed));
+    qptr_t t = qtagptr_offset(atomic_load_explicit(
+            &shm->queue.tail, memory_order_relaxed));
+    qptr_t f = qtagptr_offset(atomic_load_explicit(
+            &shm->alloc.free_list, memory_order_relaxed));
     printf("durable_queue: head=%d, tail=%d, free_list=%d, nodes=%d\n",
            h, t, f, shm->alloc.node_count);
 }

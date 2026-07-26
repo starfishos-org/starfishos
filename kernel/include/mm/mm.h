@@ -36,6 +36,12 @@ void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace,
                                             mid_t machine_id, paddr_t src_pa,
                                             paddr_t dst_pa, size_t len,
                                             vaddr_t fault_va);
-paddr_t migrate_pages_to_shm(mid_t target_mid, struct vmspace *vmspace,
-                              paddr_t src_pa, size_t len, vaddr_t fault_va);
+struct polling_tlb_batch_entry;
+/*
+ * Returns 0 when the whole batch was migrated.  A non-zero return means the
+ * remote machine applied nothing, so none of the destination pages hold data.
+ */
+int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
+                               struct polling_tlb_batch_entry *entries,
+                               u64 count);
 #endif

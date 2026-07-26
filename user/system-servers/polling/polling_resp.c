@@ -41,6 +41,9 @@ void handle_polling_request(struct dq_node *node)
     case POLLING_KERNEL_REQ_FLUSH_TLB:
         handle_polling_kernel_flush_tlb(node);
         break;
+    case POLLING_KERNEL_REQ_FLUSH_TLB_BATCH:
+        handle_polling_kernel_flush_tlb_batch(node);
+        break;
     case POLLING_PRINT_DEBUG_INFO:
         handle_polling_print_debug_info(node);
         break;
@@ -82,8 +85,11 @@ void handle_polling_fs_read(struct dq_node *node)
 {
     int fd = node->req.read.fd;
     size_t count = node->req.read.count;
+    off_t offset = node->req.read.offset;
+    int positioned = node->req.read.positioned;
 
-    ssize_t ret = read(fd, node->resp.read.buf, count);
+    ssize_t ret = positioned ? pread(fd, node->resp.read.buf, count, offset)
+                             : read(fd, node->resp.read.buf, count);
 
     node->resp.read.count = ret;
 }
@@ -132,8 +138,45 @@ void handle_polling_kernel_flush_tlb(struct dq_node *node)
     node->resp.flush_tlb.reply_received = 1;
 }
 
+void handle_polling_kernel_flush_tlb_batch(struct dq_node *node)
+{
+    struct memcpy_flush_tlb_op ops[POLLING_TLB_BATCH_MAX];
+    u64 vmspace = node->req.flush_tlb_batch.memcpy_vmspace;
+    u64 len = node->req.flush_tlb_batch.memcpy_len;
+    u64 count = node->req.flush_tlb_batch.count;
+    extern int my_id;
+    int ret;
+    u64 i;
+
+    if (count == 0 || count > POLLING_TLB_BATCH_MAX) {
+        printf("[polling] bad flush_tlb_batch count: %lu\n", count);
+        ret = -1;
+        goto reply;
+    }
+
+    /*
+     * req and resp share a union, so the whole request has to be copied out
+     * before anything is written back (see the note above handle_polling_fs_open).
+     */
+    for (i = 0; i < count; i++) {
+        ops[i].src_pa = node->req.flush_tlb_batch.entries[i].src_pa;
+        ops[i].dst_pa = node->req.flush_tlb_batch.entries[i].dst_pa;
+        ops[i].len = len;
+        ops[i].fault_va = node->req.flush_tlb_batch.entries[i].fault_va;
+        ops[i].vmspace_ptr = vmspace;
+    }
+
+    ret = usys_memcpy_and_flush_tlb_batch(ops, count);
+
+reply:
+    assert(my_id >= 0);
+    node->resp.flush_tlb.reply_result = ret;
+    node->resp.flush_tlb.reply_from = my_id;
+    node->resp.flush_tlb.reply_received = 1;
+}
+
 /* Set to 1 to dump server-side timing data in polling_print_debug_info() */
-#define ENABLE_SRV_TIMING 1
+#define ENABLE_SRV_TIMING 0
 
 void handle_polling_print_debug_info(struct dq_node *node)
 {
@@ -154,6 +197,16 @@ void handle_polling_print_debug_info(struct dq_node *node)
 void handle_batch_reads(struct dq_node **batch, int count)
 {
     if (count <= 0) return;
+
+    /* The batch IPC format has no offset field. Preserve positioned-read
+     * semantics by using the regular handler for the whole batch. */
+    for (int i = 0; i < count; i++) {
+        if (batch[i]->req.read.positioned) {
+            for (int j = 0; j < count; j++)
+                handle_polling_fs_read(batch[j]);
+            return;
+        }
+    }
 
     /* Use the first fd to get the IPC connection to tmpfs */
     int first_fd = batch[0]->req.read.fd;

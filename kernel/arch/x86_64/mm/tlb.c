@@ -401,6 +401,56 @@ void flush_tlb_of_vmspace(struct vmspace *vmspace)
     flush_tlb_by_pcid_global(vmspace);
 }
 
+/*
+ * Drop every TLB entry tagged with @pcid on every CPU.
+ *
+ * ChCore loads CR3 with bit 63 set (see set_page_table), so a page table
+ * switch never flushes the incoming PCID.  procmgr hands out PCIDs from a
+ * recycling id_manager, and every process shares the same virtual layout
+ * (code at 0x400000, stack at 0x500000000000, heap at 0x600000000000), so a
+ * PCID handed to a new process can still have live entries from the dead
+ * process that used it -- entries that translate without faulting, giving the
+ * new process silent reads of the dead one's pages.
+ *
+ * flush_tlb_by_pcid_global() only visits vmspace->history_cpus, which is
+ * empty for a vmspace that has not run yet.  A newly assigned PCID therefore
+ * has to be cleared everywhere before its first use.
+ */
+void flush_tlb_by_pcid_all_cpus(u64 pcid)
+{
+    /* The dummy args are unused when flushing a whole PCID context. */
+    u64 dummy_va = 0;
+    u64 page_cnt = -1;
+    u64 dummy_vmspace = 0;
+    u32 cpuid;
+    u32 i;
+    u32 target_count = 0;
+    u8 cpu_mask[PLAT_CPU_NUM] = {0};
+
+    flush_local_tlb_opt(dummy_va, page_cnt, pcid);
+
+    cpuid = smp_get_cpu_id();
+    for (i = 0; i < PLAT_CPU_NUM; ++i) {
+        if (i == cpuid)
+            continue;
+        /* IPI_tx: step-1 */
+        prepare_ipi_tx(i);
+        /* IPI_tx: step-2 */
+        set_ipi_tx_arg(i, 0, dummy_va);
+        set_ipi_tx_arg(i, 1, page_cnt);
+        set_ipi_tx_arg(i, 2, pcid);
+        set_ipi_tx_arg(i, 3, dummy_vmspace);
+        /* IPI_tx: step-3 */
+        start_ipi_tx(i, IPI_TLB_SHOOTDOWN);
+        cpu_mask[i] = 1;
+        target_count++;
+    }
+
+    if (target_count > 0) {
+        wait_ipi_finish_mask(cpuid, cpu_mask, target_count);
+    }
+}
+
 void flush_tlbs(struct vmspace *vmspace, vaddr_t start_va, size_t len)
 {
     flush_tlb_local_and_remote(vmspace, start_va, len);
@@ -561,67 +611,101 @@ static void memcpy_and_flush_tlb_on_remote_machine_msi(
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
 }
 
-/* Internal implementation for polling mode */
-static void memcpy_and_flush_tlb_on_remote_machine_polling(
-        struct vmspace *vmspace, mid_t target_mid, paddr_t src_pa,
-        paddr_t dst_pa, size_t len, vaddr_t fault_va)
+/*
+ * Batched variant of the polling path: one request carries a run of pages.
+ *
+ * Returns the remote machine's result, or -EIO when the request could not be
+ * delivered at all.  sys_memcpy_and_flush_tlb_batch() is all-or-nothing, so a
+ * non-zero result means no entry in the batch was applied.
+ */
+static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
+        struct vmspace *vmspace, mid_t target_mid,
+        struct polling_tlb_batch_entry *entries, u64 count)
 {
     mid_t my_id = machine_id;
+    struct polling_request req;
+    struct dq_node *msg;
+    u64 i;
+    int ret;
 
-    if (target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id)
-        return;
+    if (target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id) {
+        kwarn("[TLB] Invalid batch migration target: %d\n", target_mid);
+        return -EIO;
+    }
 
     struct polling_shm_region *target_shm =
             (struct polling_shm_region *)dsm_meta->shm_data[target_mid].data;
 
     if (!target_shm) {
         kwarn("[TLB] Polling shm region is NULL: target_shm=%p\n", target_shm);
-        return;
+        return -EIO;
     }
 
-    struct polling_request req = {
-            .type = POLLING_KERNEL_REQ_FLUSH_TLB,
-            .flush_tlb =
-                    {
-                            .memcpy_src_pa = src_pa,
-                            .memcpy_dst_pa = dst_pa,
-                            .memcpy_len = len,
-                            .memcpy_fault_va = fault_va,
-                            .memcpy_vmspace = (u64)vmspace,
-                    },
-    };
+    req.type = POLLING_KERNEL_REQ_FLUSH_TLB_BATCH;
+    req.flush_tlb_batch.memcpy_vmspace = (u64)vmspace;
+    req.flush_tlb_batch.memcpy_len = PAGE_SIZE;
+    req.flush_tlb_batch.count = count;
+    for (i = 0; i < count; i++)
+        req.flush_tlb_batch.entries[i] = entries[i];
 
-    struct dq_node *msg = dq_alloc_node(target_shm);
-
+    msg = dq_alloc_node(target_shm);
     dq_enqueue(target_shm, msg, &req);
-
     dq_wait_for_done(msg);
+    /*
+     * Read the reply before releasing the node: once it is CONSUMED the server
+     * may recycle it and overwrite the response.
+     */
+    ret = msg->resp.flush_tlb.reply_result;
+    /*
+     * The server defers recycling a node until its producer marks it CONSUMED.
+     * Skipping this leaves the node at DQ_DONE forever, and once it reaches the
+     * eviction slot of the server's deferred-free ring that machine stops
+     * dequeuing anything at all.
+     */
+    dq_mark_consumed(msg);
+
+    if (ret != 0)
+        kwarn("[TLB] Batch migration of %lu pages to machine %d failed: %d\n",
+              count, target_mid, ret);
+    return ret;
 }
 
-/* Migrate pages to shared memory: wrapper function with simplified interface */
-paddr_t migrate_pages_to_shm(mid_t target_mid, struct vmspace *vmspace,
-                              paddr_t src_pa, size_t len, vaddr_t fault_va)
+/*
+ * Migrate a run of pages to shared memory in one round trip.
+ *
+ * Entries must already carry src_pa/dst_pa/fault_va; the caller owns the
+ * destination pages and the migrating-VA reservations.  The remote machine
+ * pays two all-CPU TLB shootdowns for the whole batch instead of two per page.
+ *
+ * Returns 0 when every entry was migrated.  On a non-zero return nothing was
+ * migrated and the caller must not map any dst_pa: those pages were never
+ * written, so mapping them would hand the process uninitialized memory.
+ */
+int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
+                               struct polling_tlb_batch_entry *entries,
+                               u64 count)
 {
-    void *new_va;
-    paddr_t dst_pa;
-
-    /* Allocate shared memory page on current machine */
-    new_va = get_pages(0, __MT_SHARED__);
-    BUG_ON(new_va == NULL);
-    dst_pa = virt_to_phys(new_va);
-
-    /* Call the underlying function to perform memcpy and flush TLB */
     extern enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
-    enum ivshmem_msg_mode mode = ivshmem_get_msg_mode();
+    u64 i;
 
-    if (mode == IVSHMEM_MSG_MODE_MSI) {
-        memcpy_and_flush_tlb_on_remote_machine_msi(
-                vmspace, target_mid, src_pa, dst_pa, len, fault_va);
-    } else {
-        memcpy_and_flush_tlb_on_remote_machine_polling(
-                vmspace, target_mid, src_pa, dst_pa, len, fault_va);
+    if (count == 0)
+        return 0;
+
+    if (ivshmem_get_msg_mode() == IVSHMEM_MSG_MODE_MSI) {
+        /*
+         * MSI transport has no batch message; fall back to one page at a time.
+         * That path carries no result either, so it keeps the historical
+         * behaviour of assuming success.
+         */
+        for (i = 0; i < count; i++)
+            memcpy_and_flush_tlb_on_remote_machine_msi(
+                    vmspace, target_mid, entries[i].src_pa, entries[i].dst_pa,
+                    PAGE_SIZE, entries[i].fault_va);
+        return 0;
     }
 
-    return dst_pa;
+    return memcpy_and_flush_tlb_batch_on_remote_machine_polling(
+            vmspace, target_mid, entries, count);
 }
+
 #endif

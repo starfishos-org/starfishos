@@ -19,6 +19,11 @@
 #include <common/vars.h>
 #include <sched/fpu.h>
 #include <drivers/ivshmem.h>
+/* GP_FORENSICS: temporary, for the #GP user-stack dump.  Remove with it. */
+#include <mm/page_table_func.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#endif
 
 /* idt and idtr */
 struct gate_desc idt[T_NUM] __attribute__((aligned(16)));
@@ -375,7 +380,107 @@ void trap_c(arch_exec_ctx_t *ec)
                   ec->reg[RBX],
                   ec->reg[R14]);
 
+            /*
+             * GP_FORENSICS: temporary instrumentation for the intermittent
+             * #GP on the `ret` of __syscall0(SYS_sched_yield).  A #GP on
+             * `ret` means the popped return address is non-canonical, so
+             * dump the user stack slot it read plus the scheduler state that
+             * would explain how it got there.  Remove once the bug is fixed.
+             */
+            kinfo("[GPF] full ec: rsi=0x%lx rbp=0x%lx r8=0x%lx r9=0x%lx "
+                  "r10=0x%lx r11=0x%lx\n",
+                  ec->reg[RSI], ec->reg[RBP], ec->reg[R8], ec->reg[R9],
+                  ec->reg[R10], ec->reg[R11]);
+            kinfo("[GPF] r12=0x%lx r13=0x%lx r15=0x%lx rflags=0x%lx\n",
+                  ec->reg[R12], ec->reg[R13], ec->reg[R15], ec->reg[RFLAGS]);
+#ifdef DSM_ENABLED
+            kinfo("[GPF] faulting cpu (local)=%d machine=%d\n",
+                  smp_get_cpu_id(), CUR_MACHINE_ID);
+#else
+            kinfo("[GPF] faulting cpu (local)=%d\n", smp_get_cpu_id());
+#endif
+
             if (current_thread && current_thread->vmspace) {
+                /*
+                 * Dump the user stack around RSP.  ec->reg[RSP] is where
+                 * `ret` read its target from, so [RSP] is the culprit value.
+                 * Probe every page through the page table first: an
+                 * unmapped read here would fault inside the fault handler.
+                 */
+                void *pgtbl;
+                vaddr_t sp = (vaddr_t)ec->reg[RSP];
+                long i;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+                pgtbl = get_vmspace_pgtbl(current_thread->vmspace,
+                                          CUR_MACHINE_ID);
+#else
+                pgtbl = current_thread->vmspace->pgtbl;
+#endif
+                kinfo("[GPF] user stack around RSP 0x%lx (ret reads [RSP]):\n",
+                      sp);
+                for (i = -4; i <= 8; i++) {
+                    vaddr_t va = sp + i * 8;
+                    paddr_t pa = 0;
+                    pte_t *entry = NULL;
+
+                    if (query_in_pgtbl(pgtbl, va, &pa, &entry) != 0) {
+                        kinfo("[GPF]   [RSP%+ld] 0x%lx = <unmapped>\n",
+                              i * 8, va);
+                        continue;
+                    }
+                    /*
+                     * Read the same slot two ways:
+                     *   via_va - the user VA, i.e. through this CPU's TLB
+                     *   via_pa - the physical page the page table actually
+                     *            names, reached through the kernel direct
+                     *            map (a different translation)
+                     * A mismatch means this CPU's TLB entry for the user VA
+                     * is stale, i.e. it still points at a dead address
+                     * space's page -- the PCID-reuse hazard.  Equal values
+                     * mean the memory itself really holds the bad value.
+                     */
+                    {
+                        u64 via_va = *(volatile u64 *)va;
+                        u64 via_pa = *(volatile u64 *)phys_to_virt(pa);
+
+                        kinfo("[GPF]   [RSP%+ld] 0x%lx pa=0x%lx "
+                              "via_va=0x%lx via_pa=0x%lx%s%s\n",
+                              i * 8, va, pa, via_va, via_pa,
+                              via_va != via_pa ? "  *** STALE TLB ***" : "",
+                              i == 0 ? "   <-- ret target" : "");
+                    }
+                }
+
+                /*
+                 * Double-resume check: if the same thread is current on two
+                 * CPUs, two cores are executing one user stack, which would
+                 * explain a clobbered return slot.
+                 */
+                for (i = 0; i < PLAT_CPU_NUM; i++) {
+                    if (current_threads[i] == current_thread
+                        && i != (long)smp_get_cpu_id()) {
+                        kinfo("[GPF] !!! thread %p is ALSO current on cpu %ld "
+                              "(double resume)\n",
+                              current_thread, i);
+                    }
+                }
+                kinfo("[GPF] current_threads[]:\n");
+                for (i = 0; i < PLAT_CPU_NUM; i++)
+                    kinfo("[GPF]   cpu %ld -> %p\n", i, current_threads[i]);
+
+                kinfo("[GPF] ctx: affinity=%d cpuid=%u queue_cpuid=%u "
+                      "state=%u exit_state=%u kstack=%u fpu_owner=%d\n",
+                      current_thread->thread_ctx->affinity,
+                      current_thread->thread_ctx->cpuid,
+                      current_thread->queue_cpuid,
+                      current_thread->thread_ctx->state,
+                      current_thread->thread_ctx->thread_exit_state,
+                      current_thread->thread_ctx->kernel_stack_state,
+                      current_thread->thread_ctx->is_fpu_owner);
+                kinfo("[GPF] sched history (cpu chain): ");
+                display_sched_history(current_thread);
+
                 kprint_vmr(current_thread->vmspace);
                 kinfo("process: %p\n", current_cap_group);
                 print_thread(current_thread);

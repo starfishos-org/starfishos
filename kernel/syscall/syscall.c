@@ -5,6 +5,7 @@
 #include <mm/kmalloc.h>
 #include <mm/mm.h>
 #include <mm/nvm.h>
+#include <mm/remote_free.h>
 #include <common/kprint.h>
 #include <common/debug.h>
 #include <object/memory.h>
@@ -412,6 +413,15 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         }
         if (is_radix_pmo(pmo))
             commit_page_to_pmo(pmo, index, (paddr_t)dst_pa);
+        /*
+         * src_pa is deliberately not released here, unlike the path below.
+         * That one is serialized by the migration entry it installs: a local
+         * fault on this VA sees it and waits.  Here there is no PTE and no
+         * migration entry, and the lock is dropped around the memcpy, so a
+         * local fault can read src_pa out of the PMO and map it in that
+         * window — freeing it would hand the fault a dangling page.  The
+         * page leaks until the PMO is destroyed.
+         */
         return 0;
     }
     /* Clear the present bit to invalidate the PTE */
@@ -447,9 +457,10 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     t_stage3 = t_stage3_end - t_stage3_start;
 #endif
 
-    // struct page *page = virt_to_page(src_va);
-    // kinfo("page: %p, page->pool: %p (type: %d), page->order: %d\n", page, page->pool, page->pool->type, page->order);
-    // free_pages(src_va);
+    /*
+     * src_pa is released in stage 4, once the PMO no longer points at it.
+     * Freeing it here would race with the remap below.
+     */
 
     /* Stage 4: Remap to dst_pa (must re-acquire lock and re-query pte) */
 #ifdef TLB_FLUSH_LATENCY_DEBUG
@@ -486,6 +497,37 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         /* Only update PMO if it's a radix PMO */
         if (is_radix_pmo(pmo)) {
             commit_page_to_pmo(pmo, index, dst_pa);
+            /*
+             * The page has moved to CXL: the radix entry that owned src_pa
+             * has just been replaced and the PTE above no longer points
+             * there, so nothing refers to it any more.  Nothing on another
+             * machine can either — a machine never maps another machine's
+             * DRAM directly, it migrates the page first, which is what
+             * brought us here.
+             *
+             * Freeing it is only safe because no second PMO can be pointing
+             * at it.  pmo_clone() of a PMO_ANONYM shares the radix leaves
+             * outright (radix_deep_copy with phy_alloc=0) and, unlike the
+             * PMO_SHM case, does not call page_refcnt_add, so a forked pair
+             * would both hold src_pa with ref_cnt still 1 and this free would
+             * pull the page out from under the other process.  That cannot
+             * happen here: CHCORE_FORK_ENABLED is never defined in a DSM
+             * build (pgfault_handler.c #errors on fork + MULTI_PAGETABLE),
+             * so anonymous pages have exactly one owner.  The guard below
+             * makes enabling fork a build failure rather than a silent
+             * use-after-free.
+             *
+             * Migration always runs on the machine that owns src_pa, so this
+             * is normally a plain local free.
+             *
+             * Only the radix case can do this: a continuous PMO keeps its
+             * own copy of the address in dram_cache, which is not updated
+             * here.
+             */
+#ifdef CHCORE_FORK_ENABLED
+#error "Migration frees src_pa; PMO_ANONYM clone must refcount pages first"
+#endif
+            free_machine_page((paddr_t)src_pa);
         }
     }
 
@@ -564,6 +606,38 @@ struct vmspace_flush_range {
     size_t total_len;
 };
 
+/*
+ * Restore the first @done entries to their original mapping.
+ *
+ * Bailing out of phase 1 half-way would otherwise leave those VAs as migration
+ * entries with nobody left to complete them, stranding every thread that later
+ * faults on them.
+ */
+static void undo_migration_entries(struct memcpy_flush_tlb_op *ops, int done)
+{
+    int i;
+
+    for (i = 0; i < done; i++) {
+        struct vmspace *vmspace = (struct vmspace *)ops[i].vmspace_ptr;
+        pte_t *pte = NULL;
+
+        read_lock(&vmspace->vmspace_lock);
+        lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+        query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID),
+                       (vaddr_t)ops[i].fault_va, NULL, &pte);
+#else
+        query_in_pgtbl(vmspace->pgtbl, (vaddr_t)ops[i].fault_va, NULL, &pte);
+#endif
+        if (pte && is_migration_entry(pte)) {
+            remap_page_in_pgtbl(pte, ops[i].src_pa);
+            pte->pte_4K.present = 1;
+        }
+        unlock(&vmspace->pgtbl_lock);
+        read_unlock(&vmspace->vmspace_lock);
+    }
+}
+
 int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
 {
     struct memcpy_flush_tlb_op *kernel_ops;
@@ -632,6 +706,7 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
             read_unlock(&vmspace->vmspace_lock);
             kwarn("[SYS] query_in_pgtbl failed for operation %d: fault_va=0x%lx\n",
                   i, op->fault_va);
+            undo_migration_entries(kernel_ops, i);
             ret = -EINVAL;
             goto out;
         }
@@ -646,6 +721,12 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     tlb_ops = kmalloc(sizeof(struct tlb_flush_batch_op) * ops_count, __MT_DEFAULT__);
     if (!tlb_ops) {
         kwarn("[SYS] Failed to allocate memory for batch TLB flush operations\n");
+        /*
+         * Phase 1 turned every fault_va into a migration entry and nothing
+         * else will complete them; leaving them behind strands every thread
+         * that later faults on those addresses.
+         */
+        undo_migration_entries(kernel_ops, ops_count);
         ret = -ENOMEM;
         goto out;
     }
@@ -696,14 +777,17 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
 #else
         query_in_pgtbl(vmspace->pgtbl, (vaddr_t)op->fault_va, NULL, &pte);
 #endif
-        if (!pte) {
-            unlock(&vmspace->pgtbl_lock);
-            read_unlock(&vmspace->vmspace_lock);
-            kwarn("[SYS] query_in_pgtbl failed for remap operation %d\n", i);
-            ret = -EINVAL;
-            goto out;
-        }
-        
+        /*
+         * Phase 1 installed a migration entry at this exact VA under the same
+         * two locks, and a migration entry is never torn down by anyone else,
+         * so the lookup cannot fail here.  Treat it as fatal rather than
+         * returning: the pages have already been copied and earlier entries
+         * already committed, so a partial return would break the
+         * all-or-nothing contract this call has with its caller (see
+         * migrate_pages_to_shm_batch) and leave the requester unable to tell
+         * which pages are valid.  The assertion below is the same judgement.
+         */
+        BUG_ON(!pte);
         BUG_ON(!is_migration_entry(pte));
         remap_page_in_pgtbl(pte, op->dst_pa);
         pte->pte_4K.present = 1;
@@ -718,6 +802,9 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
             
             if (is_radix_pmo(pmo)) {
                 commit_page_to_pmo(pmo, index, op->dst_pa);
+                /* See sys_memcpy_and_flush_tlb: the PMO no longer holds
+                 * src_pa, so drop the reference it had on it. */
+                free_machine_page((paddr_t)op->src_pa);
             }
         }
         
@@ -731,9 +818,10 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
      */
     flush_tlbs_batch_on_all_cpus(tlb_ops, ops_count);
     kfree(tlb_ops);
-    
+    tlb_ops = NULL; /* the out path frees it again otherwise */
+
     kdebug("batch memcpy and flush tlb done: %lu operations\n", ops_count);
-    
+
 out:
     if (tlb_ops) {
         kfree(tlb_ops);

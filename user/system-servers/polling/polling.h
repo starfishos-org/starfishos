@@ -10,6 +10,7 @@
 #include <sys/ipc.h>
 #include <stdbool.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <fs_wrapper_defs.h>
 
@@ -34,6 +35,31 @@
 
 typedef int32_t qptr_t; /* byte offset from SHM base, -1 = NULL */
 #define QPTR_NULL ((qptr_t)-1)
+
+/*
+ * Queue nodes are recycled, so an offset alone is not a safe CAS value: the
+ * same offset can leave a lock-free data structure and later reappear while a
+ * producer still holds an old snapshot.  Pair mutable roots with a generation
+ * counter to reject those ABA snapshots.  Node links are tagged too: a
+ * producer can pause after validating the tail while that node is reclaimed
+ * and reused, so protecting only the queue roots is insufficient.
+ */
+typedef uint64_t qtagptr_t;
+
+static inline qtagptr_t qtagptr_make(uint32_t generation, qptr_t off)
+{
+    return ((uint64_t)generation << 32) | (uint32_t)off;
+}
+
+static inline qptr_t qtagptr_offset(qtagptr_t ptr)
+{
+    return (qptr_t)(uint32_t)ptr;
+}
+
+static inline qtagptr_t qtagptr_advance(qtagptr_t old, qptr_t off)
+{
+    return qtagptr_make((uint32_t)(old >> 32) + 1, off);
+}
 
 static inline void *qptr_to_ptr(void *shm_base, qptr_t off)
 {
@@ -62,6 +88,11 @@ enum dq_status {
 
 /* ---- Request / Response types (payload) ---- */
 
+/*
+ * Mirrors kernel/include/mm/shm.h byte for byte — the queue lives in CXL
+ * shared memory and both sides cast the same bytes.  Only ever append, and
+ * append to the kernel copy in the same order.
+ */
 enum polling_request_type {
     POLLING_FS_REQ_OPEN,
     POLLING_FS_REQ_READ,
@@ -70,6 +101,7 @@ enum polling_request_type {
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
     POLLING_PRINT_DEBUG_INFO,
+    POLLING_KERNEL_REQ_FLUSH_TLB_BATCH,
 };
 
 struct polling_fs_req_open {
@@ -81,6 +113,8 @@ struct polling_fs_req_open {
 struct polling_fs_req_read {
     int fd;
     size_t count;
+    off_t offset;
+    int positioned;
 };
 
 struct polling_fs_req_write {
@@ -111,6 +145,28 @@ struct memcpy_flush_tlb_op {
     u64 vmspace_ptr;
 };
 
+/*
+ * Batched page migration — see kernel/include/mm/shm.h for the rationale.
+ * 32 entries is 792 bytes, inside the union size already set by
+ * polling_fs_req_write::buf, so the node layout is unchanged.  The static
+ * assert further down enforces that; growing the node would change
+ * DQ_MAX_NODES and silently desynchronize the two sides.
+ */
+#define POLLING_TLB_BATCH_MAX 32
+
+struct polling_tlb_batch_entry {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 fault_va;
+};
+
+struct polling_kernel_req_flush_tlb_batch {
+    u64 memcpy_vmspace;
+    u64 memcpy_len; /* per-entry length, always PAGE_SIZE */
+    u64 count;
+    struct polling_tlb_batch_entry entries[POLLING_TLB_BATCH_MAX];
+};
+
 struct polling_req_print_debug_info {};
 
 struct polling_request {
@@ -123,6 +179,7 @@ struct polling_request {
         struct polling_req_empty empty;
         struct polling_kernel_req_flush_tlb flush_tlb;
         struct polling_req_print_debug_info print_debug_info;
+        struct polling_kernel_req_flush_tlb_batch flush_tlb_batch;
     } __attribute__((aligned(8)));
 };
 
@@ -175,7 +232,7 @@ struct polling_response {
  * The producer spins on status == DQ_DONE, then reads the response.
  */
 struct dq_node {
-    _Atomic qptr_t next;   /* offset-based pointer to next node */
+    _Atomic qtagptr_t next; /* ABA-safe offset-based pointer to next node */
     _Atomic int status;    /* enum dq_status */
     struct polling_request req;
     struct polling_response resp;
@@ -187,8 +244,8 @@ struct dq_node {
  * Doc: Queue { Node* head; Node* tail; }
  */
 struct durable_queue {
-    _Atomic qptr_t head;
-    _Atomic qptr_t tail;
+    _Atomic qtagptr_t head;
+    _Atomic qtagptr_t tail;
 } __attribute__((aligned(64)));
 
 /*
@@ -196,7 +253,7 @@ struct durable_queue {
  * Manages a pool of fixed-size nodes within the SHM region.
  */
 struct dq_allocator {
-    _Atomic qptr_t free_list; /* Treiber stack head */
+    _Atomic qtagptr_t free_list; /* ABA-safe Treiber stack head */
     int32_t node_size;        /* sizeof(dq_node), rounded up */
     int32_t node_count;       /* total nodes in pool */
     int32_t pool_offset;      /* byte offset of node pool from SHM base */
@@ -224,3 +281,24 @@ struct polling_shm_region {
 
 static_assert(DQ_MAX_NODES >= 2,
               "SHM too small: need at least 2 nodes (1 sentinel + 1 data)");
+
+/*
+ * Must match the kernel-side assert in kernel/include/mm/shm.h: a batch
+ * request that outgrows polling_fs_req_write would enlarge dq_node, change
+ * DQ_MAX_NODES, and desynchronize the shared node pool between the two sides.
+ */
+static_assert(sizeof(struct polling_kernel_req_flush_tlb_batch)
+                      <= sizeof(struct polling_fs_req_write),
+              "TLB batch request must not grow the queue node");
+
+/*
+ * The read request is produced only here, but it shares the request union with
+ * the requests the kernel produces, so its layout is still part of the shared
+ * ABI. The same assertions exist in kernel/include/mm/shm.h.
+ */
+static_assert(offsetof(struct polling_fs_req_read, count) == 8,
+              "polling_fs_req_read ABI drift");
+static_assert(offsetof(struct polling_fs_req_read, offset) == 16,
+              "polling_fs_req_read ABI drift");
+static_assert(offsetof(struct polling_fs_req_read, positioned) == 24,
+              "polling_fs_req_read ABI drift");

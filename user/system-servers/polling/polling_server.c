@@ -19,7 +19,7 @@
  * Uses rdtsc() for sub-microsecond precision (cycles).
  * Dumped via polling_print_debug_info() when client sends POLLING_PRINT_DEBUG_INFO.
  */
-#define ENABLE_SRV_TIMING 1
+#define ENABLE_SRV_TIMING 0
 
 static inline uint64_t rdtsc(void)
 {
@@ -55,22 +55,25 @@ void init_polling_shm_region(struct polling_shm_region *shm)
     /* Node 0 is the initial sentinel (dummy head) */
     qptr_t sentinel_off = pool_off;
     struct dq_node *sentinel = qptr_to_ptr(shm, sentinel_off);
-    atomic_init(&sentinel->next, QPTR_NULL);
+    atomic_init(&sentinel->next, qtagptr_make(0, QPTR_NULL));
     atomic_init(&sentinel->status, DQ_CONSUMED); /* sentinel never used by producer */
     memset(&sentinel->req, 0, sizeof(struct polling_request));
 
     /* Initialize queue: head = tail = sentinel */
-    atomic_init(&shm->queue.head, sentinel_off);
-    atomic_init(&shm->queue.tail, sentinel_off);
+    atomic_init(&shm->queue.head, qtagptr_make(0, sentinel_off));
+    atomic_init(&shm->queue.tail, qtagptr_make(0, sentinel_off));
 
     /* Build free list from node[1..max_nodes-1] (reverse order for LIFO) */
-    atomic_init(&shm->alloc.free_list, QPTR_NULL);
+    atomic_init(&shm->alloc.free_list, qtagptr_make(0, QPTR_NULL));
     for (int i = max_nodes - 1; i >= 1; i--) {
         qptr_t off = pool_off + i * node_size;
         struct dq_node *node = qptr_to_ptr(shm, off);
         atomic_init(&node->status, DQ_FREE);
-        atomic_init(&node->next, atomic_load(&shm->alloc.free_list));
-        atomic_store(&shm->alloc.free_list, off);
+        qtagptr_t free_list = atomic_load(&shm->alloc.free_list);
+        atomic_init(&node->next,
+                    qtagptr_make(0, qtagptr_offset(free_list)));
+        atomic_store(&shm->alloc.free_list,
+                     qtagptr_advance(free_list, off));
     }
 
     printf("[dq_init] pool_off=%d node_size=%d max_nodes=%d\n",
@@ -202,7 +205,8 @@ void *polling_reader_thread(void *arg)
 
 void dq_recover_crash(struct polling_shm_region *shm)
 {
-    qptr_t cur = atomic_load_explicit(&shm->queue.head, memory_order_acquire);
+    qptr_t cur = qtagptr_offset(atomic_load_explicit(
+            &shm->queue.head, memory_order_acquire));
     int recovered = 0;
 
     while (cur != QPTR_NULL) {
@@ -216,7 +220,8 @@ void dq_recover_crash(struct polling_shm_region *shm)
             recovered++;
         }
 
-        cur = atomic_load_explicit(&node->next, memory_order_acquire);
+        cur = qtagptr_offset(atomic_load_explicit(
+                &node->next, memory_order_acquire));
     }
 
     printf("[polling] dq_recover_crash: marked %d DOING nodes as CRASH\n",

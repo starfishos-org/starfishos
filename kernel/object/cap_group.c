@@ -14,6 +14,12 @@
 #include <sched/context.h>
 #include <dsm/tiering.h>
 
+/*
+ * Declared locally rather than via <arch/mm/tlb.h>, matching how this file
+ * already reaches flush_tlb_of_vmspace(): the header is x86_64-only.
+ */
+extern void flush_tlb_by_pcid_all_cpus(u64 pcid);
+
 /* tool functions */
 static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
 {
@@ -318,6 +324,14 @@ int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid, 
     }
 
     vmspace->pcid = pcid;
+    /*
+     * procmgr recycles PCIDs, and CR3 is loaded with the no-flush bit, so
+     * this PCID may still have entries cached from the process that used it
+     * before.  Every process shares the same virtual layout, so those stale
+     * entries would translate this process's addresses to the dead one's
+     * pages without ever faulting.  Drop them before the vmspace is used.
+     */
+    flush_tlb_by_pcid_all_cpus(pcid);
     vmspace_init(vmspace);
 
     r = cap_alloc(new_cap_group, vmspace, 0);
@@ -452,6 +466,8 @@ int sys_clone_cap_group(u64 clone_cap_group_args)
         goto out_free_obj_vmspace;
     BUG_ON(r != VMSPACE_OBJ_ID);
     child_vmspace->pcid = args.child_pcid;
+    /* Same PCID-reuse hazard as in create_cap_group(). */
+    flush_tlb_by_pcid_all_cpus(args.child_pcid);
     vmspace_init(child_vmspace);
 
     /* 3. Create a new main thread for the new cap group */

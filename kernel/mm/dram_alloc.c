@@ -11,6 +11,7 @@
 
 #include <mm/slab.h>
 #include <mm/buddy.h>
+#include <mm/remote_free.h>
 
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
@@ -27,12 +28,26 @@ void *get_dram_pages(int order)
     struct page *page = NULL;
     int i;
 
+    /* Take back pages that other machines freed on our behalf. */
+    remote_page_free_poll();
+
     /* Try to get continous physical memory pages from one physmem pool. */
     for (i = 0; i < physmem_map_num; ++i) {
         page = buddy_get_pages(global_dram_mem[i], order);
         if (page)
             break;
     }
+
+#ifdef DSM_ENABLED
+    /* Do not report OOM while returns from other machines are still queued. */
+    if (unlikely(!page) && drain_remote_page_free()) {
+        for (i = 0; i < physmem_map_num; ++i) {
+            page = buddy_get_pages(global_dram_mem[i], order);
+            if (page)
+                break;
+        }
+    }
+#endif
 
     if (unlikely(!page)) {
         kwarn("[OOM] Cannot get page from any memory pool!\n");

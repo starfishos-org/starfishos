@@ -9,7 +9,7 @@
 struct notification {
     u32 not_delivered_notifc_count;
     u32 waiting_threads_count;
-    struct durable_queue waiting_threads;
+    struct thread_durable_queue waiting_threads;
     /*
      * notifc_lock protects counter and list of waiting threads,
      * including the internal states of waiting threads.

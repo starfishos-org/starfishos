@@ -63,6 +63,8 @@ static void handle_read_direct(struct dq_node *node)
 {
 	int client_fd = node->req.read.fd;
 	size_t count = node->req.read.count;
+	off_t requested_offset = node->req.read.offset;
+	int positioned = node->req.read.positioned;
 
 	int fid = fs_wrapper_get_server_entry(POLLING_CLIENT_BADGE, client_fd);
 	if (fid < 0) {
@@ -85,7 +87,7 @@ static void handle_read_direct(struct dq_node *node)
 	pthread_mutex_lock(&entry->lock);
 	pthread_rwlock_rdlock(&entry->vnode->rwlock);
 
-	off_t offset = entry->offset;
+	off_t offset = positioned ? requested_offset : entry->offset;
 	ssize_t ret = 0;
 
 	if (offset < (off_t)entry->vnode->size) {
@@ -93,7 +95,8 @@ static void handle_read_direct(struct dq_node *node)
 			count = entry->vnode->size - offset;
 		ret = server_ops.read(entry->vnode->private, offset, count,
 				      node->resp.read.buf);
-		entry->offset += ret;
+		if (!positioned)
+			entry->offset += ret;
 	}
 
 	pthread_rwlock_unlock(&entry->vnode->rwlock);

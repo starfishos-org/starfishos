@@ -11,4 +11,5 @@ void handle_polling_fs_write(struct dq_node *node);
 void handle_polling_fs_close(struct dq_node *node);
 void handle_polling_fs_empty(struct dq_node *node);
 void handle_polling_kernel_flush_tlb(struct dq_node *node);
+void handle_polling_kernel_flush_tlb_batch(struct dq_node *node);
 void handle_polling_print_debug_info(struct dq_node *node);

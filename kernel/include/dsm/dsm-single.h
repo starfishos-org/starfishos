@@ -104,6 +104,32 @@ typedef struct {
 } dsm_machine_local_metadata_t;
 
 /**
+ * A batch of physical addresses handed back to the machine that owns them.
+ * The node lives in CXL so that both machines can reach it; the pages it
+ * names do not, which is why they travel as plain addresses.
+ *
+ * Sized to fill one 2 KiB slab object.
+ */
+#define DRAM_PAGE_FREE_BATCH_MAX (254)
+
+struct dram_page_free_batch {
+    /*
+     * Written by the producer, followed by the owner.  A plain pointer is
+     * portable because every machine maps CXL SHM at the same kernel VA --
+     * the same assumption that lets dsm_meta itself be a pointer.
+     */
+    struct dram_page_free_batch *next;
+    u32 count;
+    u32 owner;
+    paddr_t pas[DRAM_PAGE_FREE_BATCH_MAX];
+};
+
+/* One max-order slab object; anything larger takes a whole page instead. */
+_Static_assert(sizeof(struct dram_page_free_batch)
+                       == (1UL << SLAB_MAX_ORDER),
+               "dram_page_free_batch should fill exactly one slab object");
+
+/**
  * MSI message types for inter-machine communication
  */
 enum msi_msg_type {
@@ -191,9 +217,35 @@ typedef struct {
     } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM];
 
     /**
+     * 4d. Per-machine deferred remote-free stacks for local DRAM pages.
+     * A cross-machine process's anonymous PMO is backed by whichever
+     * machine first faulted on each page, so its radix tree holds pages
+     * from several machines' private DRAM. Only the owner has a struct
+     * page for those (global_dram_mem[] covers one machine's slice), so
+     * another machine cannot free them, and unlike the slab case above it
+     * cannot thread the list through the freed memory either: that DRAM is
+     * not addressable from here at all. It instead batches the physical
+     * addresses into nodes allocated from CXL and pushes those onto the
+     * owner's stack (lock-free Treiber stack); the owner drains it from
+     * its own DRAM allocation path. Each head sits on its own cache line.
+     *
+     * The head is a tagged pointer, not a bare one: nodes are freed by the
+     * owner back into the same CXL slab that producers allocate from, so a
+     * node can leave the stack and reappear at the same address while a
+     * producer still holds an old snapshot of the head. The generation in
+     * the high bits makes that producer's compare-and-swap fail instead of
+     * silently splicing a live chain. See kernel/mm/remote_free.c for the
+     * encoding.
+     */
+    struct {
+        volatile u64 head;
+        char pad[56];
+    } dram_page_remote_free[CLUSTER_MAX_MACHINE_NUM];
+
+    /**
      * 5. shared queue for scheduler (using durable_queue structure)
      */
-    struct durable_queue shared_queue[CLUSTER_MAX_CPU_NUM];
+    struct thread_durable_queue shared_queue[CLUSTER_MAX_CPU_NUM];
 
     /**
      * 5b. thread durable queue pool (for scheduler & notification)

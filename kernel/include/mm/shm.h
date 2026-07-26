@@ -2,6 +2,7 @@
 
 #include <common/types.h>
 #include <common/lock.h>
+#include <common/macro.h>
 #include <mm/mm.h>
 #include <posix/sys/types.h>
 
@@ -32,6 +33,36 @@
 typedef s32 qptr_t;
 #define QPTR_NULL ((qptr_t)-1)
 
+/*
+ * ABI NOTE: every declaration in this file down to struct polling_shm_region
+ * is shared, byte for byte, with user/system-servers/polling/polling.h.  The
+ * kernel is a producer on the same lock-free queues that the user-space
+ * polling server consumes, through CXL shared memory, so a field that changes
+ * width or position on one side and not the other does not fail to build — it
+ * silently makes the two sides read different bytes.  Change both together.
+ *
+ * Mutable queue roots and node links carry a generation counter beside the
+ * offset: nodes are recycled, so a bare offset is not a safe CAS value (the
+ * same offset can leave the structure and reappear while a producer still
+ * holds an old snapshot).  Bump the generation on every successful store.
+ */
+typedef u64 qtagptr_t;
+
+static inline qtagptr_t qtagptr_make(u32 generation, qptr_t off)
+{
+    return ((u64)generation << 32) | (u32)off;
+}
+
+static inline qptr_t qtagptr_offset(qtagptr_t ptr)
+{
+    return (qptr_t)(u32)ptr;
+}
+
+static inline qtagptr_t qtagptr_advance(qtagptr_t old, qptr_t off)
+{
+    return qtagptr_make((u32)(old >> 32) + 1, off);
+}
+
 /* FLUSH: use common/mem_sync.h (clwb) in kernel code */
 
 /* ---- Node status ---- */
@@ -48,6 +79,14 @@ enum dq_status {
 
 /* ---- Request / Response types ---- */
 
+/*
+ * Mirrored byte-for-byte by user/system-servers/polling/polling.h: the queue
+ * lives in CXL shared memory and both sides cast the same bytes.  Only ever
+ * append here, and append to the user-side copy in the same order.
+ *
+ * POLLING_PRINT_DEBUG_INFO is produced only by userspace, but it must keep its
+ * slot so the enumerator values on both sides agree.
+ */
 enum polling_request_type {
     POLLING_FS_REQ_OPEN,
     POLLING_FS_REQ_READ,
@@ -55,6 +94,8 @@ enum polling_request_type {
     POLLING_FS_REQ_CLOSE,
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
+    POLLING_PRINT_DEBUG_INFO,
+    POLLING_KERNEL_REQ_FLUSH_TLB_BATCH,
 };
 
 struct polling_fs_req_open {
@@ -63,9 +104,16 @@ struct polling_fs_req_open {
     int mode;
 };
 
+/*
+ * The kernel never produces a read request; it mirrors the user-side struct
+ * only so that the byte-for-byte claim above stays literally true.  `offset`
+ * is user-space `off_t`, i.e. a signed 64-bit value.
+ */
 struct polling_fs_req_read {
     int fd;
     size_t count;
+    s64 offset;
+    int positioned;
 };
 
 struct polling_fs_req_write {
@@ -88,6 +136,36 @@ struct polling_kernel_req_flush_tlb {
     u64 memcpy_vmspace;
 };
 
+/*
+ * Batched page migration.
+ *
+ * One page per request costs two all-CPU TLB shootdown IPIs on the remote
+ * machine (see sys_memcpy_and_flush_tlb), which dwarfs the 4 KiB copy itself.
+ * Carrying a run of pages in a single request amortizes both the RPC and those
+ * two shootdowns over the whole batch.
+ *
+ * 32 entries is 792 bytes, well inside the union whose size is already set by
+ * polling_fs_req_write::buf (PAGE_SIZE), so struct polling_request and the
+ * queue node keep their current size and the shared-memory layout is unchanged.
+ * The static assert below enforces that: growing the node would change
+ * DQ_MAX_NODES, and a pool size mismatch between the two sides is exactly the
+ * kind of silent cross-machine breakage the ABI note above describes.
+ */
+#define POLLING_TLB_BATCH_MAX 32
+
+struct polling_tlb_batch_entry {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 fault_va;
+};
+
+struct polling_kernel_req_flush_tlb_batch {
+    u64 memcpy_vmspace;
+    u64 memcpy_len; /* per-entry length, always PAGE_SIZE */
+    u64 count;
+    struct polling_tlb_batch_entry entries[POLLING_TLB_BATCH_MAX];
+};
+
 struct polling_request {
     enum polling_request_type type;
     union {
@@ -97,6 +175,7 @@ struct polling_request {
         struct polling_fs_req_close close;
         struct polling_req_empty empty;
         struct polling_kernel_req_flush_tlb flush_tlb;
+        struct polling_kernel_req_flush_tlb_batch flush_tlb_batch;
     } __attribute__((aligned(8)));
 };
 
@@ -140,8 +219,8 @@ struct polling_response {
  * Queue Node (kernel side — non-atomic fields, kernel uses its own atomic ops).
  */
 struct dq_node {
-    qptr_t next;   /* offset-based pointer */
-    int status;    /* enum dq_status */
+    qtagptr_t next; /* ABA-safe offset-based pointer */
+    int status;     /* enum dq_status */
     struct polling_request req;
     struct polling_response resp;
 };
@@ -150,8 +229,8 @@ struct dq_node {
  * Durable Queue: { head, tail, queue_lock }
  */
 struct durable_queue {
-    qptr_t head;
-    qptr_t tail;
+    qtagptr_t head;
+    qtagptr_t tail;
     struct lock queue_lock;  /* Lock for enqueus/dequeue operations */
 } __attribute__((aligned(64)));
 
@@ -159,7 +238,7 @@ struct durable_queue {
  * Node allocator (Treiber stack free list).
  */
 struct dq_allocator {
-    qptr_t free_list;
+    qtagptr_t free_list; /* ABA-safe Treiber stack head */
     s32 node_size;
     s32 node_count;
     s32 pool_offset;
@@ -173,6 +252,39 @@ struct polling_shm_region {
     struct dq_allocator alloc;
     /* node pool follows */
 };
+
+/*
+ * Guard the layout the user-space polling server assumes.  These fired
+ * nowhere when the server switched its queue links to tagged pointers and the
+ * kernel did not: the kernel kept writing status/req at the old offsets, the
+ * server kept reading the new ones, and cross-machine page migration hung with
+ * no diagnostic at all.  Keep the two headers in lockstep.
+ */
+_Static_assert(sizeof(qtagptr_t) == 8, "queue link must stay 64-bit");
+_Static_assert(offsetof(struct dq_node, status) == 8, "dq_node ABI drift");
+_Static_assert(offsetof(struct dq_node, req) == 16, "dq_node ABI drift");
+_Static_assert(sizeof(struct polling_kernel_req_flush_tlb_batch)
+                       <= sizeof(struct polling_fs_req_write),
+               "TLB batch request must not grow the queue node");
+/*
+ * The read request is produced only by user space, but it shares the request
+ * union, so its layout still has to match: the same assertions exist in
+ * user/system-servers/polling/polling.h.
+ */
+_Static_assert(offsetof(struct polling_fs_req_read, count) == 8,
+               "polling_fs_req_read ABI drift");
+_Static_assert(offsetof(struct polling_fs_req_read, offset) == 16,
+               "polling_fs_req_read ABI drift");
+_Static_assert(offsetof(struct polling_fs_req_read, positioned) == 24,
+               "polling_fs_req_read ABI drift");
+_Static_assert(offsetof(struct durable_queue, tail) == 8,
+               "durable_queue ABI drift");
+_Static_assert(sizeof(struct durable_queue) == 64, "durable_queue ABI drift");
+_Static_assert(offsetof(struct dq_allocator, node_size) == 8,
+               "dq_allocator ABI drift");
+_Static_assert(sizeof(struct dq_allocator) == 64, "dq_allocator ABI drift");
+_Static_assert(sizeof(struct polling_shm_region) == 128,
+               "polling_shm_region ABI drift");
 
 #define DQ_POOL_OFFSET \
     ((s32)sizeof(struct polling_shm_region))
@@ -207,6 +319,18 @@ struct thread_dq_node {
     int status;         /* enum dq_status */
     u64 thread_pa;      /* physical address of the thread struct */
 } __attribute__((aligned(16)));
+
+/*
+ * Scheduler and notification waiting lists.  These are kernel-to-kernel only,
+ * never read by a user-space server, so they keep plain offsets and must not
+ * be expressed with struct durable_queue: sharing that type once meant a
+ * change made for the polling ABI silently rewrote the scheduler's queues too.
+ */
+struct thread_durable_queue {
+    qptr_t head;
+    qptr_t tail;
+    struct lock queue_lock;
+} __attribute__((aligned(64)));
 
 /*
  * Pool of thread_dq_nodes, stored in CXL SHM.
@@ -244,16 +368,16 @@ struct dq_node *dq_alloc_node(struct polling_shm_region *shm);
 void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
                 struct polling_request *req);
 void dq_wait_for_done(struct dq_node *node);
+void dq_mark_consumed(struct dq_node *node);
 
 /* Forward declaration for durable queue operations */
 struct thread;
-struct durable_queue;
 
 /* Kernel-side thread durable queue operations (for sched & notification) */
 void thread_dq_pool_init(void);
-int thread_dq_init(struct durable_queue *q);
-void thread_dq_enqueue(struct durable_queue *q, struct thread *thread);
-struct thread *thread_dq_dequeue(struct durable_queue *q);
+int thread_dq_init(struct thread_durable_queue *q);
+void thread_dq_enqueue(struct thread_durable_queue *q, struct thread *thread);
+struct thread *thread_dq_dequeue(struct thread_durable_queue *q);
 void thread_dq_cancel_node(qptr_t node_off);
 
 #ifndef MAX_SHM_NUM

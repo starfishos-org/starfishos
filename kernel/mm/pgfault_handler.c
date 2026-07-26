@@ -10,6 +10,7 @@
 #include <mm/kmalloc.h>
 #include <mm/buddy.h>
 #include <mm/mm.h>
+#include <mm/shm.h>
 #include <mm/nvm.h>
 #include <mm/vmspace.h>
 #include <mm/nvm.h>
@@ -273,13 +274,27 @@ static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va, mid_t *sender_m
     return found;
 }
 
-/* Check if a VA is migrating and add it if not (atomic operation) */
-/* Returns true if VA was already migrating, false if successfully added */
-static bool check_and_add_migrating_va(struct vmspace *vmspace, vaddr_t va, mid_t *sender_machine_id)
+/* Result of trying to reserve a VA for migration. */
+#define MIGRATING_VA_RESERVED  0 /* this thread now owns the migration */
+#define MIGRATING_VA_BUSY      1 /* somebody else is already migrating it */
+
+/*
+ * Check if a VA is migrating and reserve it if not (atomic operation).
+ *
+ * Returns MIGRATING_VA_RESERVED when the caller owns the reservation (and must
+ * eventually call remove_migrating_va), MIGRATING_VA_BUSY when another thread
+ * already owns it (*sender_machine_id is then filled in), or -ENOMEM when the
+ * reservation could not be recorded.  The last case must not be folded into
+ * either of the others: reporting RESERVED without an entry silently drops the
+ * mutual exclusion, and reporting BUSY sends the caller off to wait for a
+ * migration that nobody is performing.
+ */
+static int check_and_add_migrating_va(struct vmspace *vmspace, vaddr_t va, mid_t *sender_machine_id)
 {
     struct migrating_va_entry *entry;
     bool found = false;
-    
+    int ret;
+
     lock(&vmspace->migrating_va_lock);
     /* First check if already in the list */
     for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
@@ -291,9 +306,11 @@ static bool check_and_add_migrating_va(struct vmspace *vmspace, vaddr_t va, mid_
             break;
         }
     }
-    
-    /* If not found, add it to the list */
-    if (!found) {
+
+    if (found) {
+        ret = MIGRATING_VA_BUSY;
+    } else {
+        /* If not found, add it to the list */
         entry = kmalloc(sizeof(*entry), __MT_SHARED__);
         if (entry) {
             entry->va = va;
@@ -301,11 +318,14 @@ static bool check_and_add_migrating_va(struct vmspace *vmspace, vaddr_t va, mid_
             init_list_head(&entry->list_node);
             list_add(&entry->list_node, &vmspace->migrating_va_list);
             // kinfo(ANSI_COLOR_RED "[MIGRATION] add migrating va 0x%lx to migrating list\n" ANSI_COLOR_RESET, va);
+            ret = MIGRATING_VA_RESERVED;
+        } else {
+            ret = -ENOMEM;
         }
     }
     unlock(&vmspace->migrating_va_lock);
-    
-    return found;
+
+    return ret;
 }
 
 /* Remove a virtual address from the migrating list */
@@ -784,12 +804,26 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             
-            /* Atomically check and add: if already migrating, 
-             * returns true with sender_machine_id.
-             * If not migrating, adds it to the list and returns false.
-            */
+            /* Atomically check and reserve; see check_and_add_migrating_va(). */
             mid_t sender_mid = MACHINE_ID_INVALID;
-            if (check_and_add_migrating_va(vmspace, fault_addr, &sender_mid)) {
+            int reserve_ret =
+                    check_and_add_migrating_va(vmspace, fault_addr, &sender_mid);
+            if (reserve_ret < 0) {
+                /*
+                 * The reservation could not be recorded, so this migration
+                 * cannot be made exclusive against other threads.  Nothing has
+                 * been changed anywhere, so return and let the instruction
+                 * fault again rather than proceeding unreserved.  Returning an
+                 * error instead would kill the process (or panic, for a kernel
+                 * -mode fault) over a transient allocation failure.
+                 */
+                kwarn("[MIGRATION] cannot reserve va 0x%lx for migration: %d;"
+                      " retrying the fault\n",
+                      fault_addr, reserve_ret);
+                CPU_PAUSE();
+                return 0;
+            }
+            if (reserve_ret == MIGRATING_VA_BUSY) {
                 /**
                  * Case2.2: page is already being migrated by other thread,
                  * then wait until this page finish migration
@@ -912,12 +946,113 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         return 0;
                     }
                 }
+                /*
+                 * Snapshot the VMR bound while the vmspace lock still covers
+                 * vmr; the read-ahead loop below runs unlocked and must not
+                 * dereference it there.
+                 */
+                vaddr_t vmr_end = vmr->start + vmr->size;
                 unlock(&vmspace->pgtbl_lock);
                 read_unlock(&vmspace->vmspace_lock);
-                
-                /* Send message to the sender machine to migrate pages */
-                new_pa = migrate_pages_to_shm(mid, vmspace, pa, PAGE_SIZE, fault_addr);
-                
+
+                /*
+                 * Migrate a run of pages, not just the faulting one.
+                 *
+                 * Each request costs the source machine two all-CPU TLB
+                 * shootdown IPIs (see sys_memcpy_and_flush_tlb), which dwarf
+                 * the 4 KiB copy; batching amortizes both those shootdowns and
+                 * the round trip over the whole run.  Reading ahead is nearly
+                 * free because a page only ever moves DRAM -> CXL (Case 1
+                 * direct-maps anything already shared, and nothing migrates
+                 * back), so a page pulled in early would have had to move
+                 * anyway.
+                 */
+                struct polling_tlb_batch_entry batch[POLLING_TLB_BATCH_MAX];
+                u64 batch_count;
+                u64 bi;
+                vaddr_t next_va;
+                void *dst_va;
+                int migrate_ret;
+
+                dst_va = get_pages(0, __MT_SHARED__);
+                BUG_ON(dst_va == NULL);
+                batch[0].src_pa = pa;
+                batch[0].dst_pa = virt_to_phys(dst_va);
+                batch[0].fault_va = fault_addr; /* already page aligned above */
+                batch_count = 1;
+
+                for (next_va = batch[0].fault_va + PAGE_SIZE;
+                     batch_count < POLLING_TLB_BATCH_MAX && next_va < vmr_end;
+                     next_va += PAGE_SIZE) {
+                    mid_t owner = MACHINE_ID_INVALID;
+                    paddr_t cand_pa = 0;
+                    pte_t *cand_pte = NULL;
+
+                    /*
+                     * Reserve before inspecting: a VA another thread already
+                     * owns ends the run, and holding the reservation keeps
+                     * anyone else from starting on it while we look.  A failed
+                     * reservation ends the run too — read-ahead is optional,
+                     * so there is nothing to report.
+                     */
+                    if (check_and_add_migrating_va(vmspace, next_va, NULL)
+                        != MIGRATING_VA_RESERVED)
+                        break;
+
+                    read_lock(&vmspace->vmspace_lock);
+                    lock(&vmspace->pgtbl_lock);
+                    if (query_in_pgtbl(get_vmspace_pgtbl(vmspace, mid), next_va,
+                                       &cand_pa, &cand_pte) == 0
+                        && cand_pte && cand_pte->pte_4K.present
+                        && !is_migration_entry(cand_pte))
+                        owner = get_paddr_machine_id(cand_pa);
+                    unlock(&vmspace->pgtbl_lock);
+                    read_unlock(&vmspace->vmspace_lock);
+
+                    /* Stop at the first page that is not still owned by mid. */
+                    if (owner != mid) {
+                        remove_migrating_va(vmspace, next_va);
+                        break;
+                    }
+
+                    dst_va = get_pages(0, __MT_SHARED__);
+                    if (dst_va == NULL) {
+                        remove_migrating_va(vmspace, next_va);
+                        break;
+                    }
+                    batch[batch_count].src_pa = cand_pa;
+                    batch[batch_count].dst_pa = virt_to_phys(dst_va);
+                    batch[batch_count].fault_va = next_va;
+                    batch_count++;
+                }
+
+                migrate_ret = migrate_pages_to_shm_batch(
+                        mid, vmspace, batch, batch_count);
+                if (migrate_ret != 0) {
+                    /*
+                     * The remote machine applied nothing (the batch syscall is
+                     * all-or-nothing), so every dst page is still uninitialized
+                     * and the source mappings are untouched.  Mapping them here
+                     * would hand the process blank memory in place of its data.
+                     *
+                     * Give the pages back and drop the reservations instead.
+                     * That releases any Case 2.2 waiter, which then finds this
+                     * machine's PTE unchanged and re-faults, exactly like this
+                     * thread does when it returns 0 here.  Reporting an error
+                     * would kill the process (or panic, for a kernel-mode
+                     * fault) over what is usually a transient remote failure.
+                     */
+                    kwarn("[MIGRATION] batch of %lu pages from machine %d failed"
+                          " (%d); faulting va 0x%lx, retrying the fault\n",
+                          batch_count, mid, migrate_ret, fault_addr);
+                    for (bi = 0; bi < batch_count; bi++) {
+                        free_pages((void *)phys_to_virt(batch[bi].dst_pa));
+                        remove_migrating_va(vmspace, batch[bi].fault_va);
+                    }
+                    CPU_PAUSE();
+                    return 0;
+                }
+
                 /* Re-acquire locks */
                 read_lock(&vmspace->vmspace_lock);
                 lock(&vmspace->pgtbl_lock);
@@ -925,15 +1060,25 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Get the page table of the current machine */
                 pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
 
-                /* Map the page to the page table */
-                map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                /* Map every migrated page into the page table */
+                for (bi = 0; bi < batch_count; bi++)
+                    map_page_in_pgtbl(pgtbl, batch[bi].fault_va,
+                                      batch[bi].dst_pa, perm, &pte);
 
                 /* Unlock the page table and vmspace lock */
                 unlock(&vmspace->pgtbl_lock);
                 read_unlock(&vmspace->vmspace_lock);
 
-                /* Remove from migrating list */
-                remove_migrating_va(vmspace, fault_addr);
+                /*
+                 * Release the reservations only once every mapping is in
+                 * place: a Case 2.2 waiter on this machine returns as soon as
+                 * the VA leaves the migrating list and does no mapping of its
+                 * own when the sender is the current machine.
+                 */
+                for (bi = 0; bi < batch_count; bi++)
+                    remove_migrating_va(vmspace, batch[bi].fault_va);
+
+                new_pa = batch[0].dst_pa;
 
 #ifdef PGFAULT_STATS_DEBUG
                 u64 case2_end_cycles = get_cycles();

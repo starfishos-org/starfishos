@@ -89,21 +89,21 @@ void shm_init(void)
         /* Sentinel node at node[0] */
         qptr_t sentinel_off = pool_off;
         struct dq_node *sentinel = qptr_to_ptr(shm, sentinel_off);
-        sentinel->next = QPTR_NULL;
+        sentinel->next = qtagptr_make(0, QPTR_NULL);
         sentinel->status = DQ_CONSUMED;
 
         /* Queue: head = tail = sentinel */
-        shm->queue.head = sentinel_off;
-        shm->queue.tail = sentinel_off;
+        shm->queue.head = qtagptr_make(0, sentinel_off);
+        shm->queue.tail = qtagptr_make(0, sentinel_off);
 
         /* Build free list from node[1..max_nodes-1] */
-        shm->alloc.free_list = QPTR_NULL;
+        shm->alloc.free_list = qtagptr_make(0, QPTR_NULL);
         for (int j = max_nodes - 1; j >= 1; j--) {
             qptr_t off = pool_off + j * node_size;
             struct dq_node *node = qptr_to_ptr(shm, off);
             node->status = DQ_FREE;
-            node->next = shm->alloc.free_list;
-            shm->alloc.free_list = off;
+            node->next = qtagptr_make(0, qtagptr_offset(shm->alloc.free_list));
+            shm->alloc.free_list = qtagptr_advance(shm->alloc.free_list, off);
         }
 
         kdebug("[SHM] Initialized durable queue for machine %d at %p"
@@ -194,14 +194,18 @@ int sys_mmap_shm(u32 shm_id, void *addr)
 static struct dq_node *alloc_node_try(struct polling_shm_region *shm)
 {
     while (1) {
-        s32 head = atomic_load_32(&shm->alloc.free_list);
-        if (head == QPTR_NULL)
+        qtagptr_t head = (qtagptr_t)atomic_load_64((s64 *)&shm->alloc.free_list);
+        qptr_t head_off = qtagptr_offset(head);
+        if (head_off == QPTR_NULL)
             return NULL;
 
-        struct dq_node *node = qptr_to_ptr(shm, head);
-        s32 next = atomic_load_32(&node->next);
+        struct dq_node *node = qptr_to_ptr(shm, head_off);
+        qptr_t next = qtagptr_offset((qtagptr_t)atomic_load_64((s64 *)&node->next));
+        qtagptr_t desired = qtagptr_advance(head, next);
 
-        if (compare_and_swap_32(&shm->alloc.free_list, head, next) == head) {
+        if ((qtagptr_t)compare_and_swap_64(
+                    (s64 *)&shm->alloc.free_list, (s64)head, (s64)desired)
+            == head) {
             return node;
         }
     }
@@ -229,29 +233,38 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
 
     /* Step 1: init node */
     memcpy(&node->req, req, sizeof(struct polling_request));
-    atomic_store_32(&node->next, QPTR_NULL);
+    atomic_store_64((s64 *)&node->next,
+                    (s64)qtagptr_advance(
+                            (qtagptr_t)atomic_load_64((s64 *)&node->next),
+                            QPTR_NULL));
     atomic_store_32(&node->status, DQ_INIT);
     FLUSH(node);
 
     /* Step 2: link into queue */
     while (1) {
-        s32 last = atomic_load_32(&shm->queue.tail);
-        struct dq_node *last_node = qptr_to_ptr(shm, last);
-        s32 next = atomic_load_32(&last_node->next);
+        qtagptr_t last = (qtagptr_t)atomic_load_64((s64 *)&shm->queue.tail);
+        struct dq_node *last_node = qptr_to_ptr(shm, qtagptr_offset(last));
+        qtagptr_t next_tag =
+                (qtagptr_t)atomic_load_64((s64 *)&last_node->next);
+        qptr_t next = qtagptr_offset(next_tag);
 
-        if (last != atomic_load_32(&shm->queue.tail))
+        if (last != (qtagptr_t)atomic_load_64((s64 *)&shm->queue.tail))
             continue;
 
         if (next == QPTR_NULL) {
-            if (compare_and_swap_32(&last_node->next, QPTR_NULL, node_off)
-                == QPTR_NULL) {
+            if ((qtagptr_t)compare_and_swap_64(
+                        (s64 *)&last_node->next, (s64)next_tag,
+                        (s64)qtagptr_advance(next_tag, node_off))
+                == next_tag) {
                 FLUSH(&last_node->next);
-                compare_and_swap_32(&shm->queue.tail, last, node_off);
+                compare_and_swap_64((s64 *)&shm->queue.tail, (s64)last,
+                                    (s64)qtagptr_advance(last, node_off));
                 return;
             }
         } else {
             FLUSH(&last_node->next);
-            compare_and_swap_32(&shm->queue.tail, last, next);
+            compare_and_swap_64((s64 *)&shm->queue.tail, (s64)last,
+                                (s64)qtagptr_advance(last, next));
         }
     }
 }
@@ -263,6 +276,16 @@ void dq_wait_for_done(struct dq_node *node)
         handle_ipi();
         CPU_PAUSE();
     }
+}
+
+/*
+ * Release a completed node back to the server.  The response has been read by
+ * this point; the server recycles the node only after seeing DQ_CONSUMED.
+ */
+void dq_mark_consumed(struct dq_node *node)
+{
+    atomic_store_32(&node->status, DQ_CONSUMED);
+    FLUSH(&node->status);
 }
 
 /* ================================================================
@@ -355,7 +378,7 @@ static void thread_dq_free_node(struct thread_dq_node *node)
 /*
  * Initialize a durable queue (set head = tail = new sentinel).
  */
-int thread_dq_init(struct durable_queue *q)
+int thread_dq_init(struct thread_durable_queue *q)
 {
     struct thread_dq_node *sentinel = thread_dq_alloc_node();
     if (!sentinel)
@@ -375,7 +398,7 @@ int thread_dq_init(struct durable_queue *q)
 /*
  * Enqueue a thread to the durable queue (Michael-Scott enqueue).
  */
-void thread_dq_enqueue(struct durable_queue *q, struct thread *thread)
+void thread_dq_enqueue(struct thread_durable_queue *q, struct thread *thread)
 {
     struct thread_dq_node *node = thread_dq_alloc_node();
     BUG_ON(!node);
@@ -414,7 +437,7 @@ void thread_dq_enqueue(struct durable_queue *q, struct thread *thread)
  * Dequeue a thread from the durable queue (Michael-Scott dequeue, skip cancelled nodes).
  * Returns NULL if empty, otherwise returns the thread struct pointer.
  */
-struct thread *thread_dq_dequeue(struct durable_queue *q)
+struct thread *thread_dq_dequeue(struct thread_durable_queue *q)
 {
     while (1) {
         qptr_t head = q->head;

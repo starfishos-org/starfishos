@@ -19,6 +19,7 @@
 #include <dsm/dsm-single.h>
 #include <lib/fw_cfg.h>
 #include <mm/shm.h>
+#include <mm/remote_free.h>
 #include <drivers/ivshmem.h>
 
 /* Global big kernel lock */
@@ -75,6 +76,10 @@ void main(u64 mbmagic, paddr_t mbaddr)
 
     ext_mm_init();
     kdebug("[ChCore] external mm init finished\n");
+
+    /* Allocates from CXL, so it has to follow ext_mm_init(). */
+    remote_page_free_init();
+    kdebug("[ChCore] remote page free init finished\n");
 
     pci_hostfs_list(NULL);
     kdebug("[ChCore] pci hostfs list finished\n");

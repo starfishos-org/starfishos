@@ -5,6 +5,7 @@
 #include <mm/uaccess.h>
 #include <mm/mm.h>
 #include <mm/kmalloc.h>
+#include <mm/remote_free.h>
 #include <mm/page_table_func.h>
 #include <common/lock.h>
 #include <arch/mmu.h>
@@ -1020,7 +1021,15 @@ paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index)
 
 static void __free_pmo_page(void *addr)
 {
-    kfree((void *)phys_to_virt(addr));
+    /*
+     * A cross-machine PMO backs each page on whichever machine first faulted
+     * on it, so under a DRAM-first user placement its radix tree holds pages
+     * from several machines' private DRAM.  Only the owning machine's buddy
+     * allocator has a struct page for those — freeing one here would not even
+     * find a pool in virt_to_page — so free_machine_page() queues them for
+     * their owner.  The queue is published by remote_page_free_flush() below.
+     */
+    free_machine_page((paddr_t)addr);
 }
 
 void pmo_deinit(void *pmo_ptr)
@@ -1036,7 +1045,7 @@ void pmo_deinit(void *pmo_ptr)
 
         /* PMO_DATA contains continous physical pages */
         start_addr = pmo->start;
-        kfree((void *)phys_to_virt(start_addr));
+        free_machine_page(start_addr);
     } else if (is_radix_pmo(pmo)) {
         struct radix *radix;
 
@@ -1061,6 +1070,14 @@ void pmo_deinit(void *pmo_ptr)
         kfree(rnode);
     }
 #endif /* RMAP_ENABLED */
+
+    /*
+     * Hand any pages that belong to other machines over now.  Batches are
+     * only visible to their owner once published, and nothing else in this
+     * teardown will do it.
+     */
+    remote_page_free_flush();
+
     /* The pmo struct itself will be free in __free_object */
 }
 
