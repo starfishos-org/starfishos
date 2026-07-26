@@ -213,6 +213,13 @@ Then re-run `./artifact-evaluation/run-all.sh` to continue.
 Each numbered experiment writes paper figures as `.png` files under
 `out/<timestamp>/figures/`.
 
+The `Paper` column uses the **SOSP'26 submission's** figure numbers, i.e. the
+ones the reviews refer to. The paper working tree has since drifted by three
+(`fig:eval-ipc` builds as Figure 14 locally). See
+[docs/06-paper-figure-map.md](../docs/06-paper-figure-map.md) for the full
+label ↔ figure ↔ experiment mapping and for which reviewer ask targets which
+figure.
+
 | # | Directory | Output Figure(s) | Paper | Description |
 | --- | --- | --- | --- | --- |
 | 0 | 0-basic | — | Table 3 (setup) | basic (CXL latency/bandwidth/MSI) |
