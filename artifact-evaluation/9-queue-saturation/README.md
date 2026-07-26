@@ -9,11 +9,20 @@ durable queue:
 | Queue | Request | What it measures |
 | --- | --- | --- |
 | `empty` | `POLLING_REQ_EMPTY` | raw service-queue enqueue/dequeue cost |
-| `read` | `POLLING_FS_REQ_READ` | 4 KiB read served by the tmpfs-backed polling FS service |
+| `read` | `POLLING_FS_REQ_READ` | positioned 4 KiB read served by the tmpfs-backed polling FS service |
 
-Each point reports client-side latency percentiles (p50–p99 tail latency)
-and aggregate throughput from the client's wall clock; the saturation
-throughput is the highest achieved rate in the sweep.
+The read worker opens one descriptor per client thread before measurement and
+uses offset-zero reads, so its timed interval contains only read requests (not
+an open/read/close mixture). Ready/go/finish/cleanup barriers exclude thread
+creation, descriptor setup, and cleanup from aggregate throughput.
+
+Each `(queue, threads)` point is repeated three times by default. The plotted
+client-side latency percentiles and aggregate throughput are medians across
+those repeats. A queue is labelled saturated only when the final two
+consecutive load intervals both gain at most `PLATEAU_THRESHOLD_PCT` (5% by
+default). Otherwise the result is explicitly reported as a peak-observed lower
+bound, not a saturation throughput. This prevents one noisy dip from being
+reported as a measured saturation point.
 
 ## Run
 
@@ -29,7 +38,7 @@ Each run creates `artifact-evaluation/9-queue-saturation/out/<timestamp>/`:
 | Directory | Contents |
 | --- | --- |
 | `logs/` | `machine0.log`, `machine1.log` |
-| `csv/` | `saturation.csv` — one row per (queue, threads) point |
+| `csv/` | `trials.csv` — raw repeats; `saturation.csv` — per-point medians; `queue_summary.csv` — saturation status and observed peak |
 | `figures/` | `queue_saturation.png` — throughput vs load + p99 vs throughput |
 
 ## Re-plot only
@@ -47,11 +56,15 @@ python3 artifact-evaluation/9-queue-saturation/plot.py \
   --fig-dir artifact-evaluation/9-queue-saturation/out/<timestamp>/figures
 ```
 
-`--allow-partial` is for debugging interrupted sweeps only.
+`--allow-partial` is for debugging interrupted sweeps only. It may omit missing
+points, but it still rejects inconsistent summary/throughput fields. A point is
+complete only after its successful client-exit marker is followed by a guest
+shell prompt.
 
 ## Env knobs
 
-`THREADS` (default `"1 2 4 8"`, must stay below the guest vCPU count because
-the client spin-waits), `QUEUES` (default `"empty read"`), `ITERS` (default
-20000 per thread), `TIMEOUT`, `SKIP_BUILD`, `QSAT_CPU_NUM`, `OUT_DIR`,
-`LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`.
+`THREADS` (default `"1 2 4 6 8 10"`, must stay below the guest vCPU count because
+the client spin-waits), `QUEUES` (default `"empty read"`), `REPEATS` (default
+3), `ITERS` (default 20000 per thread), `PLATEAU_THRESHOLD_PCT` (default 5),
+`TIMEOUT`, `SKIP_BUILD`, `QSAT_CPU_NUM`, `OUT_DIR`, `LOG_DIR`, `CSV_DIR`,
+`FIG_DIR`, `TS`. Repeated entries in `THREADS` or `QUEUES` are rejected.

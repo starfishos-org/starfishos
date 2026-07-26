@@ -21,6 +21,12 @@
 #define DEFAULT_NUM_ITERS 1000
 #define TEST_PATH         "test.txt"
 
+static int report_client_failure(void)
+{
+    printf("polling_client: failed\n");
+    return -1;
+}
+
 static inline uint64_t rdtsc(void)
 {
     uint32_t lo, hi;
@@ -40,10 +46,27 @@ struct worker_thread_arg {
     struct polling_shm_region *shm; /* NULL = direct mode */
     int tid;
     int count;
+    int failed;
     int iters;                      /* iterations this worker runs */
     const char *mode_tag;           /* "direct" / "local" / "cross" */
     struct iter_perf *perf;         /* one sample per iteration */
+    pthread_barrier_t *ready_barrier;
+    pthread_barrier_t *start_barrier;
+    pthread_barrier_t *finish_barrier;
+    pthread_barrier_t *cleanup_barrier;
 };
+
+static void wait_for_measurement_start(struct worker_thread_arg *wta)
+{
+    pthread_barrier_wait(wta->ready_barrier);
+    pthread_barrier_wait(wta->start_barrier);
+}
+
+static void finish_measurement(struct worker_thread_arg *wta)
+{
+    pthread_barrier_wait(wta->finish_barrier);
+    pthread_barrier_wait(wta->cleanup_barrier);
+}
 
 /* ---- Direct mode: normal IPC to tmpfs ---- */
 
@@ -54,7 +77,13 @@ void *worker_direct(void *arg)
     int count = 0;
 
     int fd = open(TEST_PATH, O_RDWR, 0);
-    if (fd < 0) { wta->count = 0; return NULL; }
+    wait_for_measurement_start(wta);
+    if (fd < 0) {
+        finish_measurement(wta);
+        wta->count = 0;
+        wta->failed = 1;
+        return NULL;
+    }
 
     for (int i = 0; i < wta->iters; i++) {
         lseek(fd, 0, SEEK_SET);
@@ -68,9 +97,11 @@ void *worker_direct(void *arg)
         wta->perf[i].t_wait    = 0;
         if (n != WRITE_SIZE) {
             printf("[thread %d] direct read %ld at iter %d\n", wta->tid, n, i);
+            wta->failed = 1;
         }
         count++;
     }
+    finish_measurement(wta);
     close(fd);
     wta->count = count;
     return NULL;
@@ -84,6 +115,7 @@ void *worker_empty_polling(void *arg)
     struct polling_shm_region *shm = wta->shm;
     int count = 0;
 
+    wait_for_measurement_start(wta);
     for (int i = 0; i < wta->iters; i++) {
         struct polling_request req = { .type = POLLING_REQ_EMPTY };
 
@@ -101,6 +133,7 @@ void *worker_empty_polling(void *arg)
         atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
         count++;
     }
+    finish_measurement(wta);
     wta->count = count;
     return NULL;
 }
@@ -112,19 +145,31 @@ void *worker_polling(void *arg)
     char buf[WRITE_SIZE];
     int count = 0;
 
-    for (int i = 0; i < wta->iters; i++) {
-        int fd = polling_fs_open(shm, TEST_PATH, O_RDWR, 0);
-        if (fd < 0) {
-            printf("[thread %d] open failed at iter %d\n", wta->tid, i);
-            break;
-        }
+    /* Open once before the timed interval. Positioned reads keep every
+     * operation at 4 KiB without injecting OPEN/CLOSE requests into the
+     * queue under measurement. */
+    int fd = polling_fs_open(shm, TEST_PATH, O_RDONLY, 0);
+    wait_for_measurement_start(wta);
+    if (fd < 0) {
+        finish_measurement(wta);
+        printf("[thread %d] open failed\n", wta->tid);
+        wta->count = 0;
+        wta->failed = 1;
+        return NULL;
+    }
 
+    for (int i = 0; i < wta->iters; i++) {
         size_t chunk = WRITE_SIZE < POLLING_FS_READ_BUF_SIZE
                      ? WRITE_SIZE : POLLING_FS_READ_BUF_SIZE;
 
         struct polling_request req = {
             .type = POLLING_FS_REQ_READ,
-            .read = { .fd = fd, .count = chunk },
+            .read = {
+                .fd = fd,
+                .count = chunk,
+                .offset = 0,
+                .positioned = 1,
+            },
         };
 
         uint64_t t0 = rdtsc();
@@ -139,16 +184,19 @@ void *worker_polling(void *arg)
         wta->perf[i].t_wait    = t3 - t2;
         wta->perf[i].t_total   = t3 - t0;
         ssize_t n = node->resp.read.count;
-        if (n > 0) memcpy(buf, node->resp.read.buf, n);
+        if (n > 0)
+            memcpy(buf, node->resp.read.buf, (size_t)n);
         atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
 
         if (n != WRITE_SIZE) {
             printf("[thread %d] read %ld at iter %d\n", wta->tid, n, i);
+            wta->failed = 1;
+            break;
         }
-
-        polling_fs_close(shm, fd);
         count++;
     }
+    finish_measurement(wta);
+    polling_fs_close(shm, fd);
     wta->count = count;
     return NULL;
 }
@@ -165,7 +213,13 @@ void *worker_direct_write(void *arg)
         buf[i] = (char)('a' + (i % 26));
 
     int fd = open(TEST_PATH, O_RDWR, 0);
-    if (fd < 0) { wta->count = 0; return NULL; }
+    wait_for_measurement_start(wta);
+    if (fd < 0) {
+        finish_measurement(wta);
+        wta->count = 0;
+        wta->failed = 1;
+        return NULL;
+    }
 
     for (int i = 0; i < wta->iters; i++) {
         lseek(fd, 0, SEEK_SET);
@@ -179,9 +233,11 @@ void *worker_direct_write(void *arg)
         wta->perf[i].t_wait    = 0;
         if (n != WRITE_SIZE) {
             printf("[thread %d] direct write %ld at iter %d\n", wta->tid, n, i);
+            wta->failed = 1;
         }
         count++;
     }
+    finish_measurement(wta);
     close(fd);
     wta->count = count;
     return NULL;
@@ -199,10 +255,12 @@ void *worker_polling_write(void *arg)
     for (int i = 0; i < WRITE_SIZE; i++)
         buf[i] = (char)('a' + (i % 26));
 
+    wait_for_measurement_start(wta);
     for (int i = 0; i < wta->iters; i++) {
         int fd = polling_fs_open(shm, TEST_PATH, O_RDWR, 0);
         if (fd < 0) {
             printf("[thread %d] open failed at iter %d\n", wta->tid, i);
+            wta->failed = 1;
             break;
         }
 
@@ -231,6 +289,7 @@ void *worker_polling_write(void *arg)
         polling_fs_close(shm, fd);
         count++;
     }
+    finish_measurement(wta);
     wta->count = count;
     return NULL;
 }
@@ -244,8 +303,11 @@ void *worker_direct_empty(void *arg)
 
     /* Open file once to establish IPC connection */
     int fd = open(TEST_PATH, O_RDWR, 0);
+    wait_for_measurement_start(wta);
     if (fd < 0) {
+        finish_measurement(wta);
         wta->count = 0;
+        wta->failed = 1;
         return NULL;
     }
 
@@ -259,6 +321,7 @@ void *worker_direct_empty(void *arg)
         wta->perf[i].t_wait    = 0;
         count++;
     }
+    finish_measurement(wta);
     close(fd);
     wta->count = count;
     return NULL;
@@ -319,11 +382,18 @@ void parse_args(int argc, char *argv[], struct args *args)
             args->mode = argv[++i];
         } else {
             print_usage();
+            report_client_failure();
             exit(1);
         }
     }
     if (args->num_iters <= 0) {
         print_usage();
+        report_client_failure();
+        exit(1);
+    }
+    if (args->num_threads <= 0) {
+        print_usage();
+        report_client_failure();
         exit(1);
     }
 }
@@ -349,10 +419,10 @@ static void print_results(struct worker_thread_arg *wta, int num_threads,
     printf("[SUMMARY] mode=%s total=%d threads=%d breakdown=%d\n",
            mode, total, num_threads, ENABLE_BREAKDOWN);
     printf("[SUMMARY] p50=%lu p75=%lu p90=%lu p99=%lu max=%lu (cycles)\n",
-           all_total[(int)(total * 0.50)],
-           all_total[(int)(total * 0.75)],
-           all_total[(int)(total * 0.90)],
-           all_total[(int)(total * 0.99)],
+           all_total[((long long)total * 50 + 99) / 100 - 1],
+           all_total[((long long)total * 75 + 99) / 100 - 1],
+           all_total[((long long)total * 90 + 99) / 100 - 1],
+           all_total[((long long)total * 99 + 99) / 100 - 1],
            all_total[total - 1]);
 
     /* Aggregate wall clock across all workers (for saturation throughput) */
@@ -418,7 +488,8 @@ int main(int argc, char *argv[])
     struct polling_shm_region *shm = NULL;
     if (!args.direct) {
         shm = map_polling_shm(args.shm_id);
-        if (!shm) return -1;
+        if (!shm)
+            return report_client_failure();
     }
 
     printf("[client] mode=%s shm_id=%d threads=%d iters=%d direct=%d empty=%d write=%d quiet=%d breakdown=%d\n",
@@ -428,7 +499,10 @@ int main(int argc, char *argv[])
     /* Create test file */
     if (args.direct) {
         int fd = open(TEST_PATH, O_RDWR | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) { printf("Failed to create file\n"); return -1; }
+        if (fd < 0) {
+            printf("Failed to create file\n");
+            return report_client_failure();
+        }
         if (!args.empty) {
             char buf[WRITE_SIZE];
             for (int i = 0; i < WRITE_SIZE; i++)
@@ -438,7 +512,10 @@ int main(int argc, char *argv[])
         close(fd);
     } else {
         int fd = polling_fs_open(shm, TEST_PATH, O_RDWR | O_CREAT | O_TRUNC, 0644);
-        if (fd < 0) { printf("Failed to create file\n"); return -1; }
+        if (fd < 0) {
+            printf("Failed to create file\n");
+            return report_client_failure();
+        }
         if (!args.empty) {
             char buf[WRITE_SIZE];
             for (int i = 0; i < WRITE_SIZE; i++)
@@ -453,37 +530,88 @@ int main(int argc, char *argv[])
     pthread_t *tid = (pthread_t *)malloc(sizeof(pthread_t) * nt);
     struct worker_thread_arg *wta =
         (struct worker_thread_arg *)malloc(sizeof(struct worker_thread_arg) * nt);
+    if (!tid || !wta) {
+        printf("Failed to allocate worker metadata\n");
+        free(tid);
+        free(wta);
+        return report_client_failure();
+    }
+
+    pthread_barrier_t ready_barrier;
+    pthread_barrier_t start_barrier;
+    pthread_barrier_t finish_barrier;
+    pthread_barrier_t cleanup_barrier;
+    if (pthread_barrier_init(&ready_barrier, NULL, nt + 1) != 0
+        || pthread_barrier_init(&start_barrier, NULL, nt + 1) != 0
+        || pthread_barrier_init(&finish_barrier, NULL, nt + 1) != 0
+        || pthread_barrier_init(&cleanup_barrier, NULL, nt + 1) != 0) {
+        printf("Failed to initialize worker barriers\n");
+        free(tid);
+        free(wta);
+        return report_client_failure();
+    }
     for (int i = 0; i < nt; i++) {
         wta[i].shm = shm;
         wta[i].tid = i;
         wta[i].count = 0;
+        wta[i].failed = 0;
         wta[i].iters = args.num_iters;
         wta[i].mode_tag = args.mode;
+        wta[i].ready_barrier = &ready_barrier;
+        wta[i].start_barrier = &start_barrier;
+        wta[i].finish_barrier = &finish_barrier;
+        wta[i].cleanup_barrier = &cleanup_barrier;
         wta[i].perf = (struct iter_perf *)malloc(
             sizeof(struct iter_perf) * args.num_iters);
         if (!wta[i].perf) {
             printf("Failed to allocate perf samples for thread %d\n", i);
-            return -1;
+            return report_client_failure();
         }
     }
 
-    uint64_t wall_start = rdtsc();
-    for (int i = 0; i < nt; i++)
-        pthread_create(&tid[i], NULL, select_fn(&args), &wta[i]);
+    for (int i = 0; i < nt; i++) {
+        if (pthread_create(&tid[i], NULL, select_fn(&args), &wta[i]) != 0) {
+            printf("Failed to create worker thread %d\n", i);
+            return report_client_failure();
+        }
+    }
 
+    pthread_barrier_wait(&ready_barrier);
+    uint64_t wall_start = rdtsc();
+    pthread_barrier_wait(&start_barrier);
+    pthread_barrier_wait(&finish_barrier);
+    uint64_t wall_cycles = rdtsc() - wall_start;
+    pthread_barrier_wait(&cleanup_barrier);
     for (int i = 0; i < nt; i++)
         pthread_join(tid[i], NULL);
-    uint64_t wall_cycles = rdtsc() - wall_start;
 
-    print_results(wta, nt, args.mode, args.quiet, wall_cycles);
+    int workers_ok = 1;
+    for (int i = 0; i < nt; i++) {
+        if (wta[i].failed || wta[i].count != args.num_iters) {
+            printf("[client] worker %d incomplete: count=%d expected=%d failed=%d\n",
+                   i, wta[i].count, args.num_iters, wta[i].failed);
+            workers_ok = 0;
+        }
+    }
+    if (!workers_ok) {
+        printf("polling_client: failed\n");
+    } else {
+        print_results(wta, nt, args.mode, args.quiet, wall_cycles);
 
-    if (!args.direct)
-        polling_print_debug_info(shm);
-    printf("polling_client: done\n");
+        if (!args.direct && !args.quiet)
+            polling_print_debug_info(shm);
+    }
 
     for (int i = 0; i < nt; i++)
         free(wta[i].perf);
     free(tid);
     free(wta);
-    return 0;
+    pthread_barrier_destroy(&ready_barrier);
+    pthread_barrier_destroy(&start_barrier);
+    pthread_barrier_destroy(&finish_barrier);
+    pthread_barrier_destroy(&cleanup_barrier);
+    if (workers_ok)
+        printf("polling_client: done\n");
+    printf("queue_client_exited:%s:%d\n", args.mode, workers_ok ? 0 : 1);
+    return workers_ok ? 0 : 1;
 }

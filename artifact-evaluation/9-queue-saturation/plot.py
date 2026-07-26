@@ -9,7 +9,9 @@ Inputs (in --log-dir, produced by run.sh):
                  sweep point, mode-tagged sat_<queue>_t<threads>
 
 Outputs:
-  csv/saturation.csv           one row per (queue, threads) point
+  csv/trials.csv               one row per raw repeat
+  csv/saturation.csv           per-(queue, threads) medians
+  csv/queue_summary.csv        saturation status and peak per queue
   figures/queue_saturation.png two panels: throughput vs offered load, and
                                p99 latency vs achieved throughput
 """
@@ -19,6 +21,7 @@ import argparse
 import csv
 import re
 from pathlib import Path
+from statistics import median
 
 import matplotlib
 
@@ -28,7 +31,8 @@ import matplotlib.pyplot as plt
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 DEFAULT_QUEUES = ["empty", "read"]
-DEFAULT_THREADS = [1, 2, 4, 8]
+DEFAULT_THREADS = [1, 2, 4, 6, 8, 10]
+DEFAULT_PLATEAU_THRESHOLD_PCT = 5.0
 
 QUEUE_LABEL = {
     "empty": "No-op service queue",
@@ -37,7 +41,7 @@ QUEUE_LABEL = {
 QUEUE_COLOR = {"empty": "#1f77b4", "read": "#d62728"}
 QUEUE_MARKER = {"empty": "o", "read": "s"}
 
-MODE_RE = re.compile(r"^sat_([a-z]+)_t(\d+)$")
+MODE_RE = re.compile(r"^sat_([a-z]+)_t(\d+)(?:_r(\d+))?$")
 
 
 def cpu_freq_hz(log: Path) -> float:
@@ -49,8 +53,8 @@ def cpu_freq_hz(log: Path) -> float:
     raise RuntimeError(f"missing CPU frequency in {log}")
 
 
-def parse_points(log: Path) -> dict[tuple[str, int], dict[str, float]]:
-    """Collect [SUMMARY] percentiles and [TPUT] wall clock per sweep tag."""
+def parse_points(log: Path) -> dict[tuple[str, int, int], dict[str, object]]:
+    """Collect internally consistent, process-complete sweep points."""
     freq = cpu_freq_hz(log)
     us = 1e6 / freq
     begin = re.compile(r"\[SUMMARY\]\s+mode=(\S+)\s+total=(\d+)\s+threads=(\d+)")
@@ -60,25 +64,49 @@ def parse_points(log: Path) -> dict[tuple[str, int], dict[str, float]]:
     tput = re.compile(
         r"\[TPUT\]\s+mode=(\S+)\s+total=(\d+)\s+threads=(\d+)\s+wall_cycles=(\d+)"
     )
+    exited = re.compile(r"^queue_client_exited:(\S+):(\d+)\s*$")
+    shell_prompt = re.compile(r"^\$[ \t]*$")
 
-    points: dict[tuple[str, int], dict[str, float]] = {}
-    current: tuple[str, int] | None = None
-    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+    points: dict[tuple[str, int, int], dict[str, object]] = {}
+    current: tuple[str, int, int] | None = None
+    pending_exit: tuple[str, int, int] | None = None
+    for lineno, raw_line in enumerate(
+        log.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
+        line = raw_line.rstrip("\r")
         match = begin.search(line)
         if match:
-            mode = MODE_RE.match(match.group(1))
+            tag = match.group(1)
+            mode = MODE_RE.fullmatch(tag)
             if mode is None:
                 current = None
                 continue
-            current = (mode.group(1), int(mode.group(2)))
+            tag_threads = int(mode.group(2))
+            summary_threads = int(match.group(3))
+            if tag_threads != summary_threads:
+                raise RuntimeError(
+                    f"{log}:{lineno}: SUMMARY tag threads {tag_threads} "
+                    f"!= threads {summary_threads} for {tag}"
+                )
+            current = (mode.group(1), tag_threads, int(mode.group(3) or 1))
+            if current in points:
+                raise RuntimeError(
+                    f"{log}:{lineno}: duplicate SUMMARY for {tag}"
+                )
             points[current] = {
+                "tag": tag,
                 "total": int(match.group(2)),
-                "threads": int(match.group(3)),
+                "threads": summary_threads,
             }
             continue
         match = values.search(line)
-        if match and current is not None and "p50_us" not in points[current]:
-            points[current].update(
+        if match and current is not None:
+            entry = points[current]
+            if "p50_us" in entry:
+                raise RuntimeError(
+                    f"{log}:{lineno}: duplicate percentile SUMMARY for {entry['tag']}"
+                )
+            entry.update(
                 p50_us=int(match.group(1)) * us,
                 p75_us=int(match.group(2)) * us,
                 p90_us=int(match.group(3)) * us,
@@ -88,31 +116,125 @@ def parse_points(log: Path) -> dict[tuple[str, int], dict[str, float]]:
             continue
         match = tput.search(line)
         if match:
-            mode = MODE_RE.match(match.group(1))
+            tag = match.group(1)
+            mode = MODE_RE.fullmatch(tag)
             if mode is None:
                 continue
-            key = (mode.group(1), int(mode.group(2)))
-            entry = points.setdefault(key, {})
+            tag_threads = int(mode.group(2))
+            tput_threads = int(match.group(3))
+            if tag_threads != tput_threads:
+                raise RuntimeError(
+                    f"{log}:{lineno}: TPUT tag threads {tag_threads} "
+                    f"!= threads {tput_threads} for {tag}"
+                )
+            key = (mode.group(1), tag_threads, int(mode.group(3) or 1))
+            if current != key or key not in points:
+                raise RuntimeError(
+                    f"{log}:{lineno}: TPUT {tag} has no matching preceding SUMMARY"
+                )
+            entry = points[key]
+            if entry["tag"] != tag:
+                raise RuntimeError(
+                    f"{log}:{lineno}: SUMMARY mode {entry['tag']} != TPUT mode {tag}"
+                )
             total = int(match.group(2))
+            if total != entry["total"] or tput_threads != entry["threads"]:
+                raise RuntimeError(
+                    f"{log}:{lineno}: SUMMARY/TPUT total or threads mismatch for {tag}"
+                )
+            if "wall_s" in entry:
+                raise RuntimeError(f"{log}:{lineno}: duplicate TPUT for {tag}")
             wall_s = int(match.group(4)) / freq
-            entry["total"] = total
             entry["wall_s"] = wall_s
             if wall_s > 0:
                 entry["kops"] = total / wall_s / 1e3
+            current = None
+            continue
+        match = exited.fullmatch(line)
+        if match:
+            tag = match.group(1)
+            mode = MODE_RE.fullmatch(tag)
+            pending_exit = None
+            if mode is None or int(match.group(2)) != 0:
+                continue
+            key = (mode.group(1), int(mode.group(2)), int(mode.group(3) or 1))
+            if key not in points or points[key]["tag"] != tag:
+                raise RuntimeError(
+                    f"{log}:{lineno}: successful exit has no matching point for {tag}"
+                )
+            if points[key].get("exit_zero"):
+                raise RuntimeError(f"{log}:{lineno}: duplicate successful exit for {tag}")
+            points[key]["exit_zero"] = True
+            pending_exit = key
+            continue
+        if pending_exit is not None and shell_prompt.fullmatch(line):
+            points[pending_exit]["shell_returned"] = True
+            pending_exit = None
     return points
 
 
-def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+def write_csv(
+    path: Path, rows: list[dict[str, object]], fields: list[str]
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["queue", "threads", "total_ops", "wall_s", "kops",
-              "p50_us", "p75_us", "p90_us", "p99_us", "max_us"]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def plot(fig_dir: Path, queues: list[str], series) -> None:
+def classify_saturation(
+    rows: list[dict[str, object]], threshold_pct: float
+) -> dict[str, object]:
+    """Call saturation only after the final two load steps stop scaling.
+
+    Requiring two consecutive low-gain intervals prevents one noisy dip from
+    turning an earlier sample maximum into a claimed saturation throughput.
+    Otherwise the sweep only establishes a lower bound on peak throughput.
+    """
+    required_intervals = 2
+    peak = max(rows, key=lambda row: float(row["kops"]))
+    gains_pct: list[float] = []
+    for previous_row, current_row in zip(rows, rows[1:]):
+        previous = float(previous_row["kops"])
+        if previous > 0:
+            gains_pct.append(
+                (float(current_row["kops"]) - previous) / previous * 100.0
+            )
+
+    recent_gains = gains_pct[-required_intervals:]
+    saturated = (
+        len(recent_gains) == required_intervals
+        and all(gain <= threshold_pct for gain in recent_gains)
+    )
+
+    return {
+        "status": "saturated" if saturated else "not_reached",
+        "peak_kops": float(peak["kops"]),
+        "peak_threads": int(peak["threads"]),
+        "peak_p99_us": float(peak["p99_us"]),
+        "last_gain_pct": gains_pct[-1] if gains_pct else None,
+        "recent_gains_pct": ";".join(f"{gain:.6f}" for gain in recent_gains),
+        "plateau_threshold_pct": threshold_pct,
+        "plateau_intervals_required": required_intervals,
+    }
+
+
+def write_queue_summary(path: Path, summaries: dict[str, dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "queue", "status", "peak_kops", "peak_threads", "peak_p99_us",
+        "last_gain_pct", "recent_gains_pct", "plateau_threshold_pct",
+        "plateau_intervals_required",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for queue, summary in summaries.items():
+            writer.writerow({"queue": queue, **summary})
+
+
+def plot(fig_dir: Path, queues: list[str], series, summaries) -> None:
     fig_dir.mkdir(parents=True, exist_ok=True)
     plt.rcdefaults()
     fig, (ax_tput, ax_tail) = plt.subplots(1, 2, figsize=(9.6, 3.8))
@@ -131,18 +253,21 @@ def plot(fig_dir: Path, queues: list[str], series) -> None:
                      linewidth=2, markersize=6, label=label)
         ax_tail.plot(kops, p99, marker=marker, color=color,
                      linewidth=2, markersize=6, label=label)
-        # Saturation throughput: the highest achieved rate in the sweep.
-        sat = max(rows, key=lambda r: r["kops"])
+        summary = summaries[queue]
+        peak = max(rows, key=lambda r: r["kops"])
+        saturated = summary["status"] == "saturated"
+        annotation = (f"sat. {peak['kops']:.0f} kops/s" if saturated
+                      else f"peak ≥ {peak['kops']:.0f} kops/s\n(no plateau)")
         ax_tput.annotate(
-            f"{sat['kops']:.0f} kops/s",
-            (sat["threads"], sat["kops"]),
+            annotation,
+            (peak["threads"], peak["kops"]),
             textcoords="offset points", xytext=(0, 8),
             ha="center", fontsize=10, color=color,
         )
 
     ax_tput.set_xlabel("Client threads")
     ax_tput.set_ylabel("Throughput (kops/s)")
-    ax_tput.set_title("Saturation throughput", fontsize=12)
+    ax_tput.set_title("Throughput scaling", fontsize=12)
     all_threads = sorted({r["threads"] for q in queues for r in series[q]})
     if all_threads:
         ax_tput.set_xticks(all_threads)
@@ -172,31 +297,61 @@ def main() -> None:
     parser.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
     parser.add_argument("--queues", nargs="+", default=DEFAULT_QUEUES)
     parser.add_argument("--threads", type=int, nargs="+", default=DEFAULT_THREADS)
+    parser.add_argument(
+        "--repeats", type=int, default=None,
+        help="expected repeats per point; auto-detected when omitted",
+    )
+    parser.add_argument(
+        "--plateau-threshold-pct", type=float,
+        default=DEFAULT_PLATEAU_THRESHOLD_PCT,
+        help="maximum final throughput gain considered a plateau (default: %(default)s)",
+    )
     parser.add_argument("--allow-partial", action="store_true",
                         help="debug only: plot whatever points parsed")
     args = parser.parse_args()
+    if len(set(args.threads)) != len(args.threads):
+        raise SystemExit("--threads must not contain duplicates")
+    if len(set(args.queues)) != len(args.queues):
+        raise SystemExit("--queues must not contain duplicates")
+    if args.plateau_threshold_pct < 0:
+        raise SystemExit("--plateau-threshold-pct must be non-negative")
+    if args.repeats is not None and args.repeats <= 0:
+        raise SystemExit("--repeats must be a positive integer")
 
     log = args.log_dir / "machine1.log"
     if not log.is_file():
         raise FileNotFoundError(f"expected client log: {log}")
 
     points = parse_points(log)
-    wanted = [(q, t) for q in args.queues for t in args.threads]
+    detected_repeats = max((key[2] for key in points), default=1)
+    repeats = args.repeats if args.repeats is not None else detected_repeats
+    wanted = [
+        (q, t, repeat)
+        for q in args.queues for t in args.threads
+        for repeat in range(1, repeats + 1)
+    ]
     complete = [key for key in wanted
                 if key in points and "p99_us" in points[key]
-                and "kops" in points[key]]
-    missing = [f"sat_{q}_t{t}" for q, t in wanted if (q, t) not in complete]
+                and "kops" in points[key]
+                and points[key].get("exit_zero") is True
+                and points[key].get("shell_returned") is True]
+    missing = [
+        f"sat_{q}_t{t}_r{repeat}"
+        for q, t, repeat in wanted if (q, t, repeat) not in complete
+    ]
     if missing and not args.allow_partial:
         raise SystemExit("incomplete queue-saturation sweep; missing: "
                          + ", ".join(missing))
 
-    rows = []
+    trial_rows = []
+    grouped: dict[tuple[str, int], list[dict[str, object]]] = {}
     series = {q: [] for q in args.queues}
-    for queue, threads in sorted(complete, key=lambda k: (k[0], k[1])):
-        p = points[queue, threads]
+    for queue, threads, repeat in sorted(complete):
+        p = points[queue, threads, repeat]
         row = {
             "queue": queue,
             "threads": threads,
+            "repeat": repeat,
             "total_ops": int(p["total"]),
             "wall_s": round(p["wall_s"], 6),
             "kops": round(p["kops"], 3),
@@ -206,20 +361,60 @@ def main() -> None:
             "p99_us": round(p["p99_us"], 3),
             "max_us": round(p["max_us"], 3),
         }
+        trial_rows.append(row)
+        grouped.setdefault((queue, threads), []).append(row)
+
+    rows = []
+    metric_fields = [
+        "wall_s", "kops", "p50_us", "p75_us", "p90_us", "p99_us", "max_us"
+    ]
+    for (queue, threads), trials in sorted(grouped.items()):
+        row: dict[str, object] = {
+            "queue": queue,
+            "threads": threads,
+            "repeats": len(trials),
+            "total_ops": int(median(int(t["total_ops"]) for t in trials)),
+        }
+        for field in metric_fields:
+            precision = 6 if field == "wall_s" else 3
+            row[field] = round(
+                median(float(t[field]) for t in trials), precision
+            )
         rows.append(row)
         series[queue].append(row)
 
     args.csv_dir.mkdir(parents=True, exist_ok=True)
-    write_csv(args.csv_dir / "saturation.csv", rows)
+    value_fields = [
+        "total_ops", "wall_s", "kops", "p50_us", "p75_us", "p90_us",
+        "p99_us", "max_us",
+    ]
+    write_csv(
+        args.csv_dir / "trials.csv", trial_rows,
+        ["queue", "threads", "repeat", *value_fields],
+    )
+    write_csv(
+        args.csv_dir / "saturation.csv", rows,
+        ["queue", "threads", "repeats", *value_fields],
+    )
 
+    summaries = {}
     for queue in args.queues:
         if not series[queue]:
             continue
-        sat = max(series[queue], key=lambda r: r["kops"])
-        print(f"{queue}: saturation throughput {sat['kops']:.1f} kops/s "
-              f"at {sat['threads']} threads (p99 {sat['p99_us']:.1f} µs)")
+        summary = classify_saturation(series[queue], args.plateau_threshold_pct)
+        summaries[queue] = summary
+        if summary["status"] == "saturated":
+            print(f"{queue}: saturation throughput {summary['peak_kops']:.1f} "
+                  f"kops/s at {summary['peak_threads']} threads "
+                  f"(p99 {summary['peak_p99_us']:.1f} µs)")
+        else:
+            print(f"{queue}: saturation not reached; peak observed "
+                  f"{summary['peak_kops']:.1f} kops/s at "
+                  f"{summary['peak_threads']} threads")
 
-    plot(args.fig_dir, args.queues, series)
+    write_queue_summary(args.csv_dir / "queue_summary.csv", summaries)
+
+    plot(args.fig_dir, args.queues, series, summaries)
     print(f"Wrote CSV to {args.csv_dir} and figures to {args.fig_dir}")
 
 
