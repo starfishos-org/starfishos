@@ -72,5 +72,14 @@ python3 artifact-evaluation/4-state-partition/plot.py \
 
 `BENCHS`, `CONFIGS`, `MACHINE_COUNTS` (default `"4 8"`; `NUM_MACHINES` is a
 legacy alias), `TIMEOUT`, `OUT_DIR`, `LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`,
-`DBX_NUM_WH` (default: largest machine count), `DBX_WARMUP`, `DBX_MAX_TXN`,
-`DBX_TIMEOUT`, `MATRIX_THREADS_PER_MACHINE` (default 8).
+`DBX_WH_PER_MACHINE` (default 8, i.e. one warehouse per worker), `DBX_NUM_WH`
+(pins a fixed warehouse total instead of scaling with the cluster),
+`DBX_WARMUP`, `DBX_MAX_TXN`, `DBX_TIMEOUT`,
+`MATRIX_THREADS_PER_MACHINE` (default 8).
+
+## Metric units
+
+`state_partition.csv` holds the raw metric per point: **LevelDB in ops/s**
+(derived from `micros/op`), DBx1000 in Mtxn/s, and the four Phoenix apps in
+microseconds. LevelDB's `MB/s` field is deliberately not used — it carries one
+decimal, so below ~1 MB/s every placement collapses onto the same value.

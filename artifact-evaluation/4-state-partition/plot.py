@@ -13,6 +13,8 @@ Inputs (in --log-dir, produced by run.sh):
 
 Outputs:
   csv/state_partition.csv    raw metric per (config, machines) row
+                             (LevelDB in ops/s, DBx1000 in Mtxn/s, the four
+                             Phoenix apps in microseconds)
   csv/normalized.csv         values normalized to All_DRAM (Private)
   figures/state_partition.png  one panel per cluster size
 """
@@ -50,6 +52,16 @@ CONFIGS = [
 
 SHARED_CONFIGS = [cfg for cfg in CONFIGS if cfg != "All_DRAM"]
 BASELINE_POINT = ("All_DRAM", 1)
+
+# The single db_bench benchmark run by user/script/run_leveldb.sh.  Pinning the
+# name keeps the metric tied to one phase: db_bench prints a "micros/op" line
+# per benchmark, and several of them print no "MB/s" at all, so "the last
+# micros/op line" would silently start reporting a different benchmark the
+# moment the workload grows a second one.
+LEVELDB_BENCH = "fillbatch"
+PAT_LEVELDB = re.compile(
+    r"^\s*" + LEVELDB_BENCH + r"\s*:\s*([\d.]+)\s*micros/op", re.MULTILINE
+)
 
 DEFAULT_MACHINE_COUNTS = [4, 8]
 
@@ -101,17 +113,33 @@ def log_is_valid(text: str, bench: str) -> bool:
             and "finalize:" not in text:
         print(f"[WARN] rejecting incomplete {bench} log without finalize marker")
         return False
+    if bench == "leveldb" and not PAT_LEVELDB.search(text):
+        # Reject rather than fall back to another benchmark's micros/op line:
+        # a silently substituted metric is worse than a missing point.
+        print(f"[WARN] rejecting leveldb log without a '{LEVELDB_BENCH}' result "
+              f"line (run_leveldb.sh must run --benchmarks={LEVELDB_BENCH})")
+        return False
     return True
 
 
 def extract_leveldb(text: str):
     # e.g. "fillbatch    :   5.234 micros/op;   21.1 MB/s"
+    #
+    # Read micros/op, not MB/s: LevelDB prints MB/s with a single decimal, so
+    # once the cluster slows below ~1 MB/s every placement collapses onto the
+    # same quantized value (all three shared configs read 0.4 at 4 machines and
+    # 0.2 at 8) and the comparison the figure exists for is lost.  micros/op
+    # keeps three decimals over the whole range.  Report it as ops/s so LevelDB
+    # stays a higher-is-better throughput metric: the entry size is fixed, so
+    # ops/s is proportional to MB/s and every normalized ratio is unchanged.
+    #
+    # Anchored to LEVELDB_BENCH rather than "the last micros/op line" so the
+    # figure cannot silently switch to another benchmark's number.
     val = None
-    for line in text.splitlines():
-        if "MB/s" in line:
-            m = re.search(r"([\d.]+)\s*MB/s", line)
-            if m:
-                val = float(m.group(1))
+    for m in PAT_LEVELDB.finditer(text):
+        micros = float(m.group(1))
+        if micros > 0:
+            val = 1e6 / micros
     return val
 
 

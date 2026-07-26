@@ -121,6 +121,10 @@ config_params() {
 # bench -> string that marks completion in machine 0's log
 bench_done_pattern() {
     case "$1" in
+        # run_leveldb.sh runs a single db_bench benchmark (fillbatch), whose
+        # one result line carries both micros/op and MB/s.  plot.py parses that
+        # same line by name; keep the two in step if the workload gains a
+        # second benchmark, or this marker will fire on the wrong one.
         leveldb)  echo "MB/s" ;;
         dbx1000)  echo "thp=" ;;
         # all four phoenix apps print "finalize: <us>" as their last timing line
@@ -171,27 +175,44 @@ for count in $MACHINE_COUNTS; do
     fi
 done
 
-# Every multi-machine partition must own at least one warehouse.  Keep the
-# total warehouse count fixed across all placement points (including the
-# single-machine All_DRAM baseline) so their working sets remain comparable;
-# the default is the largest requested cluster size.
-DBX_NUM_WH="${DBX_NUM_WH:-$MAX_MACHINES}"
-if ! [[ "$DBX_NUM_WH" =~ ^[1-9][0-9]*$ ]]; then
-    echo "DBX_NUM_WH must be a positive integer: $DBX_NUM_WH" >&2
+# Warehouses scale with the cluster, matching 5-auto-scale and the paper's
+# DBx1000 setup (eight warehouses per machine, one per worker).  A fixed total
+# instead makes every worker beyond the first cluster size contend for the same
+# warehouses: 64 workers over 8 warehouses aborted ~90% of transactions, so the
+# point measured TPC-C lock contention rather than state placement.
+# DBX_NUM_WH still pins a fixed total for a deliberate contention study.
+DBX_WH_PER_MACHINE="${DBX_WH_PER_MACHINE:-$MATRIX_THREADS_PER_MACHINE}"
+if ! [[ "$DBX_WH_PER_MACHINE" =~ ^[1-9][0-9]*$ ]]; then
+    echo "DBX_WH_PER_MACHINE must be a positive integer: $DBX_WH_PER_MACHINE" >&2
     exit 1
 fi
-for count in $MACHINE_COUNTS; do
-    if [ "$DBX_NUM_WH" -lt "$count" ]; then
-        echo "DBX_NUM_WH ($DBX_NUM_WH) must be >= every MACHINE_COUNTS entry ($count)" >&2
-        echo "DBx1000 requires at least one local warehouse per machine." >&2
+if [ -n "${DBX_NUM_WH:-}" ]; then
+    if ! [[ "$DBX_NUM_WH" =~ ^[1-9][0-9]*$ ]]; then
+        echo "DBX_NUM_WH must be a positive integer: $DBX_NUM_WH" >&2
         exit 1
     fi
-    if [ $((DBX_NUM_WH % count)) -ne 0 ]; then
-        echo "DBX_NUM_WH ($DBX_NUM_WH) must be divisible by every MACHINE_COUNTS entry ($count)" >&2
-        echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
-        exit 1
+    for count in $MACHINE_COUNTS; do
+        if [ "$DBX_NUM_WH" -lt "$count" ]; then
+            echo "DBX_NUM_WH ($DBX_NUM_WH) must be >= every MACHINE_COUNTS entry ($count)" >&2
+            echo "DBx1000 requires at least one local warehouse per machine." >&2
+            exit 1
+        fi
+        if [ $((DBX_NUM_WH % count)) -ne 0 ]; then
+            echo "DBX_NUM_WH ($DBX_NUM_WH) must be divisible by every MACHINE_COUNTS entry ($count)" >&2
+            echo "DBx1000 assigns warehouses to machines in equal contiguous slices." >&2
+            exit 1
+        fi
+    done
+fi
+
+# dbx_warehouses <machines>
+dbx_warehouses() {
+    if [ -n "${DBX_NUM_WH:-}" ]; then
+        echo "$DBX_NUM_WH"
+    else
+        echo "$((DBX_WH_PER_MACHINE * $1))"
     fi
-done
+}
 
 ae_acquire_run_lock "state-partition" || exit 1
 
@@ -279,7 +300,8 @@ for cfg in $CONFIGS; do
         # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the cluster
         # size, so each (config, cluster size) point rebuilds.
         sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t$cfg_machines/" "$DBX_CONFIG"
-        sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$DBX_NUM_WH/" "$DBX_CONFIG"
+        cfg_warehouses="$(dbx_warehouses "$cfg_machines")"
+        sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$cfg_warehouses/" "$DBX_CONFIG"
         sed -i "s/^#define WARMUP[[:space:]].*/#define WARMUP\t\t\t\t\t\t$DBX_WARMUP/" "$DBX_CONFIG"
         sed -i "s/^#define MAX_TXN_PER_PART[[:space:]].*/#define MAX_TXN_PER_PART\t\t\t$DBX_MAX_TXN/" "$DBX_CONFIG"
         sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t50/" "$DBX_CONFIG"
