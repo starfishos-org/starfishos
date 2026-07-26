@@ -105,19 +105,23 @@ fi
 if [[ -n "$CMD" ]]; then
     echo "=== Launch $N QEMU instances (automated) ==="
     tmux new-session -d -s "$SESSION" -n vm0 "$RUN_CMD 0 | tee exec_log0.log"
-    wait_for_pattern "exec_log0.log" "Welcome to ChCore shell!" 120 "machine 0 shell" || {
-        echo "FAILED: shell not ready on machine 0"
+    # Gate the peers on machine 0's DSM join banner, NOT on its shell prompt.
+    # Machine 0 prints the banner once it has published dsm_meta (which is what
+    # the peers need before they start), and then blocks in
+    # dsm_wait_for_cluster_cpu_topology() until every machine has joined -- so
+    # for N > 1 it never reaches a shell until the peers are already running.
+    wait_for_pattern "exec_log0.log" "DSM] machine 0 " 120 "machine 0 DSM metadata ready" || {
+        echo "FAILED: machine 0 did not publish DSM metadata"
         tail -10 "exec_log0.log" 2>/dev/null
         exit 1
     }
-    for ((i=1; i<N; i++)); do
-        sleep 10
-        tmux new-window -t "$SESSION" -n "vm${i}" "$RUN_CMD $i | tee exec_log${i}.log"
-    done
-
-    # Wait for DSM join
+    # Serialize on each peer's own join banner rather than a fixed sleep, the
+    # same way artifact-evaluation/common.sh:_ae_boot_cluster_once does: a
+    # machine prints its banner and then parks in the barrier, so this is a
+    # real synchronization point and it names the machine that failed.
     echo "=== Wait for DSM join ==="
-    for ((i=0; i<N; i++)); do
+    for ((i=1; i<N; i++)); do
+        tmux new-window -t "$SESSION" -n "vm${i}" "$RUN_CMD $i | tee exec_log${i}.log"
         wait_for_pattern "exec_log${i}.log" "DSM] machine $i " 180 "machine $i DSM join" || {
             echo "FAILED: machine $i did not join DSM"
             tail -10 "exec_log${i}.log" 2>/dev/null
@@ -125,7 +129,7 @@ if [[ -n "$CMD" ]]; then
         }
     done
 
-    # Wait for shell ready
+    # Wait for shell ready (only reachable once the whole cluster has joined)
     for ((i=0; i<N; i++)); do
         wait_for_pattern "exec_log${i}.log" "Welcome to ChCore shell!" 120 "machine $i shell" || {
             echo "FAILED: shell not ready on machine $i"
@@ -174,15 +178,22 @@ fi
 # ======== Interactive mode (tmux panes) ========
 echo "=== Launch $N QEMU instances (interactive) ==="
 tmux new-session -d -s "$SESSION" -n window0 "$RUN_CMD 0 | tee exec_log0.log"
-wait_for_pattern "exec_log0.log" "Welcome to ChCore shell!" 120 "machine 0 shell" || {
-    echo "FAILED: shell not ready on machine 0"
+# Same reason as the automated path: machine 0 blocks in
+# dsm_wait_for_cluster_cpu_topology() until the peers join, so waiting for its
+# shell here would deadlock.  The join banner already means dsm_meta is ready.
+wait_for_pattern "exec_log0.log" "DSM] machine 0 " 120 "machine 0 DSM metadata ready" || {
+    echo "FAILED: machine 0 did not publish DSM metadata"
     tail -10 "exec_log0.log" 2>/dev/null
     exit 1
 }
 for ((i=1; i<N; i++)); do
-    sleep 5
     tmux split-window -t "$SESSION:window0" "$RUN_CMD $i | tee exec_log${i}.log"
     tmux select-layout -t "$SESSION:window0" tiled
+    wait_for_pattern "exec_log${i}.log" "DSM] machine $i " 180 "machine $i DSM join" || {
+        echo "FAILED: machine $i did not join DSM"
+        tail -10 "exec_log${i}.log" 2>/dev/null
+        exit 1
+    }
 done
 
 tmux select-pane -t "$SESSION:window0.0"
