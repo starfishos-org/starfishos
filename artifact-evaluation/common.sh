@@ -14,9 +14,13 @@
 #   ae_stop_tmux_and_reap [sess] - kill one tmux session + reap stray QEMU
 #   ae_ensure_clean_tmux         - kill all AE/QEMU tmux sessions + stray QEMU
 #   ae_ensure_cxlfs_device       - recreate CXLFS when ramdisk build changed
-#   ae_init_output_dirs DIR      - mkdir out/<timestamp>/{logs,csv,figures}
+#   ae_init_output_dirs DIR      - mkdir out/<timestamp>/{logs,csv,figures,config}
 #   ae_set_dsm_var VAR VAL       - edit kernel/dsm_config.cmake
+#   ae_get_dsm_var VAR           - read the effective kernel/dsm_config.cmake value
 #   ae_set_dotconfig KEY TYPE VAL- edit .config (e.g. CHCORE_KERNEL_TEST BOOL ON)
+#   ae_manifest_set KEY VAL      - register an experiment knob for the manifest
+#   ae_manifest_set_vars VAR...  - register shell variables by name
+#   ae_write_run_manifest [K=V]  - write out/<timestamp>/config/ run manifest
 #   ae_save_build_configs / ae_restore_build_configs
 #   ae_prepare_microbench_guest_cpu / ae_prepare_paper_guest_cpu
 #   ae_set_paper_guest_cpu_config
@@ -119,6 +123,7 @@ ae_ensure_cxlfs_device() {
 #   <experiment>/out/<timestamp>/logs/     runtime QEMU and benchmark logs
 #   <experiment>/out/<timestamp>/csv/      parsed tables and intermediate data
 #   <experiment>/out/<timestamp>/figures/  plots (png)
+#   <experiment>/out/<timestamp>/config/   run manifest (see ae_write_run_manifest)
 ae_init_output_dirs() {
     local ae_dir="$1"
     TS="${TS:-$(date +%Y%m%d_%H%M%S)}"
@@ -126,7 +131,10 @@ ae_init_output_dirs() {
     LOG_DIR="${LOG_DIR:-$OUT_DIR/logs}"
     CSV_DIR="${CSV_DIR:-$OUT_DIR/csv}"
     FIG_DIR="${FIG_DIR:-$OUT_DIR/figures}"
-    mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR"
+    CONFIG_DIR="${CONFIG_DIR:-$OUT_DIR/config}"
+    mkdir -p "$LOG_DIR" "$CSV_DIR" "$FIG_DIR" "$CONFIG_DIR"
+    AE_CONFIG_DIR="$CONFIG_DIR"
+    AE_EXPERIMENT_NAME="$(basename "$ae_dir")"
     echo "[AE] Output directory: $OUT_DIR"
 }
 
@@ -200,6 +208,33 @@ ae_set_dsm_var() {
         echo "Failed to set ${var}=${val} in $AE_DSM_CONFIG" >&2
         return 1
     }
+}
+
+# ae_get_dsm_var DSM_MALLOC_MODE -> MIXED_DEFAULT_CXL
+# Reads the value currently in kernel/dsm_config.cmake, i.e. the one the next
+# build will use.  Prints "<unset>" when the variable is absent.
+ae_get_dsm_var() {
+    local var="$1" val
+    val="$(sed -n \
+        "s/^set(${var}[[:space:]]\\+\"\\?\\([^\")]*\\)\"\\?)[[:space:]]*\$/\\1/p" \
+        "$AE_DSM_CONFIG" 2>/dev/null | head -1)"
+    printf '%s' "${val:-<unset>}"
+}
+
+# ae_get_dotconfig CHCORE_PLAT_CPU_NUM -> 96 (type field ignored)
+ae_get_dotconfig() {
+    local key="$1" val
+    val="$(sed -n "s/^${key}:[A-Z]*=\\(.*\\)\$/\\1/p" "$AE_DOTCONFIG" 2>/dev/null | head -1)"
+    printf '%s' "${val:-<unset>}"
+}
+
+# ae_get_ini_cpu_num -> compile-time cpu_num from chcore.ini
+ae_get_ini_cpu_num() {
+    local val
+    val="$(sed -n 's/^cpu_num[[:space:]]*=[[:space:]]*\(.*\)$/\1/p' \
+        "$AE_CHCORE_INI" 2>/dev/null | head -1)"
+    val="${val%"${val##*[![:space:]]}"}"
+    printf '%s' "${val:-<unset>}"
 }
 
 # ae_set_demo_var CHCORE_DEMOS_REDIS ON
@@ -295,6 +330,219 @@ ae_restore_build_configs() {
         rm -rf "$AE_CONFIG_BACKUP_DIR"
         AE_CONFIG_BACKUP_DIR=""
     fi
+}
+
+# ── run manifest: make each out/<timestamp>/ self-describing ────────────────
+#
+# Experiments rewrite kernel/dsm_config.cmake (memory placement), .config and
+# chcore.ini before building, then restore the originals when they finish.  The
+# effective values therefore survive nowhere: neither in the checkout nor in
+# the guest serial logs.  A finished run directory then cannot be attributed to
+# a paper configuration after the fact -- e.g. MIXED_DEFAULT_CXL vs
+# MIXED_DEFAULT_DRAM for DSM_MALLOC_MODE.  Everything below records the values
+# that were actually in force into $OUT_DIR/config/:
+#
+#   placement.txt   one appended block per *distinct* effective placement, so a
+#                   sweep that varies placement per point records each variant
+#   run_config.json machine-readable manifest: git revision, host, guest CPU
+#                   profile, placement at write time, experiment knobs
+#   build/snapshotN verbatim copies of dsm_config.cmake, .config, chcore.ini
+#                   and user/demos/config.cmake, one directory per placement
+#                   snapshot (numbered as in placement.txt)
+#
+# Placement blocks are appended automatically from ae_boot_cluster, so every
+# experiment gets them without changes.  Experiment-specific knobs are declared
+# by the experiment via ae_manifest_set / ae_manifest_set_vars /
+# ae_write_run_manifest.
+
+AE_CONFIG_DIR="${AE_CONFIG_DIR:-}"
+AE_EXPERIMENT_NAME="${AE_EXPERIMENT_NAME:-}"
+AE_MANIFEST_KEYS=()
+AE_MANIFEST_VALUES=()
+AE_PLACEMENT_SNAPSHOT_N=0
+AE_LAST_PLACEMENT_BODY=""
+
+# Placement knobs written by the experiments' set_placement()-style helpers.
+AE_PLACEMENT_VARS=(
+    DSM_SHM_DEVICE
+    DSM_MALLOC_MODE
+    DSM_USER_MALLOC_MODE
+    DSM_THREADCTX_MODE
+    DSM_PGTABLE_MODE
+    DSM_STACK_MODE
+    DSM_OBJECT_MODE
+    DSM_PAGE_MODE
+    USE_DEV_AS_DRAM
+    DSM_CXL_LF_BUDDY
+    SLAB_CRASH_RECOVERY
+    PHOENIX_SCHED_TIMING
+)
+
+_ae_json_escape() {
+    local s="${1-}"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\t'/\\t}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\n'/\\n}"
+    printf '%s' "$s"
+}
+
+_ae_git() {
+    git -C "$AE_REPO_ROOT" "$@" 2>/dev/null || true
+}
+
+# ae_manifest_set NUM_MACHINES 8
+# Later calls with the same key overwrite the earlier value.
+ae_manifest_set() {
+    local key="$1" value="${2-}" i
+    for ((i = 0; i < ${#AE_MANIFEST_KEYS[@]}; i++)); do
+        if [ "${AE_MANIFEST_KEYS[$i]}" = "$key" ]; then
+            AE_MANIFEST_VALUES[$i]="$value"
+            return 0
+        fi
+    done
+    AE_MANIFEST_KEYS+=("$key")
+    AE_MANIFEST_VALUES+=("$value")
+}
+
+# ae_manifest_set_vars NUM_MACHINES NUM_WAREHOUSES ...
+# Records each named shell variable under its own name (unset -> "<unset>").
+ae_manifest_set_vars() {
+    local name
+    for name in "$@"; do
+        if [ -n "${!name+set}" ]; then
+            ae_manifest_set "$name" "${!name}"
+        else
+            ae_manifest_set "$name" "<unset>"
+        fi
+    done
+}
+
+# Effective placement + guest sizing, as KEY=VALUE lines.
+_ae_placement_body() {
+    local var
+    for var in "${AE_PLACEMENT_VARS[@]}"; do
+        printf '%s=%s\n' "$var" "$(ae_get_dsm_var "$var")"
+    done
+    printf 'CPU_NUM=%s\n' "${CPU_NUM:-<unset>}"
+    printf 'CHCORE_PLAT_CPU_NUM=%s\n' "$(ae_get_dotconfig CHCORE_PLAT_CPU_NUM)"
+    printf 'chcore_ini_cpu_num=%s\n' "$(ae_get_ini_cpu_num)"
+    printf 'AE_EXTRA_ENV=%s\n' "${AE_EXTRA_ENV:-}"
+}
+
+# Append a placement block when the effective placement differs from the last
+# recorded one.  A no-op before ae_init_output_dirs, and cheap enough to call
+# on every boot.
+ae_record_placement() {
+    local label="${1:-}" body file
+    [ -n "$AE_CONFIG_DIR" ] || return 0
+    body="$(_ae_placement_body)"
+    [ "$body" != "$AE_LAST_PLACEMENT_BODY" ] || return 0
+
+    file="$AE_CONFIG_DIR/placement.txt"
+    if [ ! -e "$file" ]; then
+        {
+            echo "# Effective memory-placement configuration for this run."
+            echo "# One block per distinct placement; a sweep that changes"
+            echo "# placement between points appends a new block each time."
+            echo "# Values are read from kernel/dsm_config.cmake, .config and"
+            echo "# chcore.ini at the moment the corresponding cluster booted."
+        } > "$file"
+    fi
+    AE_PLACEMENT_SNAPSHOT_N=$((AE_PLACEMENT_SNAPSHOT_N + 1))
+    {
+        printf '\n[snapshot %d] %s%s\n' \
+            "$AE_PLACEMENT_SNAPSHOT_N" "$(date -Is)" "${label:+  ($label)}"
+        printf '%s\n' "$body"
+    } >> "$file"
+    AE_LAST_PLACEMENT_BODY="$body"
+    _ae_snapshot_build_files "$AE_PLACEMENT_SNAPSHOT_N"
+    _ae_write_run_config_json
+}
+
+# Verbatim copies of the files that define the build, one directory per
+# placement snapshot so a sweep keeps the sources of every point it ran.
+_ae_snapshot_build_files() {
+    local dest="$AE_CONFIG_DIR/build/snapshot$1"
+    mkdir -p "$dest"
+    cp "$AE_DSM_CONFIG" "$dest/dsm_config.cmake" 2>/dev/null || true
+    cp "$AE_DEMOS_CONFIG" "$dest/demos-config.cmake" 2>/dev/null || true
+    cp "$AE_DOTCONFIG" "$dest/dotconfig" 2>/dev/null || true
+    cp "$AE_CHCORE_INI" "$dest/chcore.ini" 2>/dev/null || true
+}
+
+_ae_write_run_config_json() {
+    local file commit branch dirty var i sep
+
+    [ -n "$AE_CONFIG_DIR" ] || return 0
+    file="$AE_CONFIG_DIR/run_config.json"
+    commit="$(_ae_git rev-parse HEAD)"
+    branch="$(_ae_git rev-parse --abbrev-ref HEAD)"
+    if [ -n "$(_ae_git status --porcelain)" ]; then dirty=true; else dirty=false; fi
+
+    {
+        echo '{'
+        printf '  "schema": "starfishos-ae-run-config/1",\n'
+        printf '  "written_at": "%s",\n' "$(_ae_json_escape "$(date -Is)")"
+        printf '  "experiment": "%s",\n' "$(_ae_json_escape "$AE_EXPERIMENT_NAME")"
+        printf '  "out_dir": "%s",\n' "$(_ae_json_escape "${OUT_DIR:-}")"
+        printf '  "git": {\n'
+        printf '    "commit": "%s",\n' "$(_ae_json_escape "${commit:-<unknown>}")"
+        printf '    "branch": "%s",\n' "$(_ae_json_escape "${branch:-<unknown>}")"
+        printf '    "dirty": %s\n' "$dirty"
+        printf '  },\n'
+        printf '  "host": {\n'
+        printf '    "hostname": "%s",\n' "$(_ae_json_escape "$(hostname 2>/dev/null || true)")"
+        printf '    "user": "%s"\n' "$(_ae_json_escape "${USER:-}")"
+        printf '  },\n'
+        printf '  "guest": {\n'
+        printf '    "cpu_num": "%s",\n' "$(_ae_json_escape "${CPU_NUM:-<unset>}")"
+        printf '    "plat_cpu_num": "%s",\n' "$(_ae_json_escape "$(ae_get_dotconfig CHCORE_PLAT_CPU_NUM)")"
+        printf '    "ini_cpu_num": "%s",\n' "$(_ae_json_escape "$(ae_get_ini_cpu_num)")"
+        printf '    "extra_env": "%s"\n' "$(_ae_json_escape "${AE_EXTRA_ENV:-}")"
+        printf '  },\n'
+        # Placement as of this write; placement.txt holds every variant used.
+        printf '  "placement_note": "%s",\n' \
+            "effective placement at written_at; a sweep that varies placement records every variant in placement.txt"
+        printf '  "placement": {\n'
+        sep=''
+        for var in "${AE_PLACEMENT_VARS[@]}"; do
+            printf '%s    "%s": "%s"' "$sep" \
+                "$(_ae_json_escape "$var")" "$(_ae_json_escape "$(ae_get_dsm_var "$var")")"
+            sep=$',\n'
+        done
+        printf '\n  },\n'
+        printf '  "placement_snapshots": %d,\n' "$AE_PLACEMENT_SNAPSHOT_N"
+        printf '  "params": {'
+        sep=$'\n'
+        for ((i = 0; i < ${#AE_MANIFEST_KEYS[@]}; i++)); do
+            printf '%s    "%s": "%s"' "$sep" \
+                "$(_ae_json_escape "${AE_MANIFEST_KEYS[$i]}")" \
+                "$(_ae_json_escape "${AE_MANIFEST_VALUES[$i]}")"
+            sep=$',\n'
+        done
+        if [ "${#AE_MANIFEST_KEYS[@]}" -gt 0 ]; then printf '\n  '; fi
+        printf '}\n'
+        echo '}'
+    } > "$file"
+}
+
+# ae_write_run_manifest [KEY=VALUE ...]
+# Call after the experiment has applied its placement/build configuration (and
+# after ae_init_output_dirs), passing the knobs that define this run's point.
+ae_write_run_manifest() {
+    local kv
+    for kv in "$@"; do
+        ae_manifest_set "${kv%%=*}" "${kv#*=}"
+    done
+    if [ -z "$AE_CONFIG_DIR" ]; then
+        echo "[AE] ae_write_run_manifest: no output directory; call ae_init_output_dirs first" >&2
+        return 0
+    fi
+    ae_record_placement "manifest"
+    _ae_write_run_config_json
+    echo "[AE] Run manifest: $AE_CONFIG_DIR/run_config.json"
 }
 
 # Run chbuild via scripts/chbuild-with-fallback.sh (quick-build on any failure).
@@ -587,6 +835,10 @@ ae_boot_cluster() {
     local n="$1" cpu_num="${2:-}"
     local max_attempts="${AE_BOOT_RETRIES:-2}"
     local attempt before_to before_err
+
+    # Record what this cluster is about to run with, before anything can fail
+    # or restore the build configuration behind our back.
+    ae_record_placement "boot ${n} machine(s)" || true
 
     for attempt in $(seq 1 "$max_attempts"); do
         before_to="${#AE_TIMEOUT_ERRORS[@]}"

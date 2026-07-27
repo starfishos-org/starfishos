@@ -278,6 +278,15 @@ ae_export_guest_cpu_num "$GUEST_CPUS"
 set_placement
 enable_vmspace_stats
 
+# Record the effective configuration so this out/<timestamp>/ stays readable
+# after the build configs are restored (config/run_config.json + placement.txt).
+ae_manifest_set_vars \
+    DBX_SMOKE NUM_MACHINES BASELINE_MACHINES NUM_WAREHOUSES \
+    WAREHOUSES_PER_MACHINE THREADS_PER_MACHINE WARMUP WARMUP_PER_MACHINE \
+    MAX_TXN RATIOS REPETITIONS DRAM_SIZE GUEST_CPUS \
+    MALLOC_MODE USER_MALLOC_MODE TIMEOUT
+ae_write_run_manifest
+
 for ratio in "${RATIO_LIST[@]}"; do
     run_configuration "$NUM_MACHINES" "$ratio"
     run_configuration "$BASELINE_MACHINES" "$ratio"

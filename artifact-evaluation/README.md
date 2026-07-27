@@ -165,10 +165,38 @@ artifact-evaluation/<experiment>/out/<timestamp>/
   logs/      runtime QEMU and benchmark logs
   csv/       parsed tables and intermediate data
   figures/   plots (png only)
+  config/    what this run was actually configured with
 ```
 
 These directories are gitignored. Re-running creates a new `out/<timestamp>/`
 directory; prior runs are preserved until removed with `./artifact-evaluation/run-all.sh --clean`.
+
+#### `config/`: what a run was configured with
+
+Experiments rewrite `kernel/dsm_config.cmake`, `.config` and `chcore.ini`
+before building and restore the originals when they finish, so the effective
+memory placement is otherwise visible neither in the checkout nor in the guest
+serial logs. Each run therefore records it:
+
+```
+config/placement.txt    effective placement (DSM_MALLOC_MODE,
+                        DSM_USER_MALLOC_MODE, DSM_{THREADCTX,PGTABLE,STACK,
+                        OBJECT,PAGE}_MODE, ...) plus the guest CPU/DRAM
+                        profile; one block per distinct placement, so a sweep
+                        that varies placement between points records each
+                        variant
+config/run_config.json  the same placement in machine-readable form, plus the
+                        git revision, host, and the experiment's own knobs
+                        (machine/warehouse/thread counts, warmup, ratios,
+                        repetitions, ...)
+config/build/snapshotN  verbatim copies of dsm_config.cmake, .config,
+                        chcore.ini and user/demos/config.cmake, one directory
+                        per placement block above (same numbering)
+```
+
+Placement blocks are appended automatically whenever a cluster boots, so this
+applies to every experiment. Runs produced before this mechanism existed have
+no `config/` directory and cannot be attributed to a placement after the fact.
 
 ### CLI options
 

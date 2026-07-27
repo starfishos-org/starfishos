@@ -6,7 +6,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/../common.sh"
 AE_DIR="$DIR"
 ae_init_output_dirs "$AE_DIR"
-export OUT_DIR LOG_DIR CSV_DIR FIG_DIR
+export OUT_DIR LOG_DIR CSV_DIR FIG_DIR CONFIG_DIR
 
 "$DIR/run_msi.sh"
 
