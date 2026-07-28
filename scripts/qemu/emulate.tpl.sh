@@ -211,7 +211,7 @@ fi
 # DSM IVSHMEM (CMake sets @qemu_emulate_ivshmem_plain@=1 when qemu_options includes ivshmem-plain):
 # Build options from the post-stat/truncate byte sizes directly; do not sed placeholder strings.
 if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
-	qemu_options_updated="--enable-kvm -M q35 -name chcore-$vm_id -m $total_mem_size_qemu \
+	qemu_options_updated="--enable-kvm -M q35 -name chcore-$vm_id,debug-threads=on -m $total_mem_size_qemu \
 -object memory-backend-file,size=${cxl_size_bytes},share=on,mem-path=$ivshmem_dev,id=hostmem \
 -device ivshmem-plain,memdev=hostmem \
 -object memory-backend-file,size=${hostfs_size_bytes},share=on,mem-path=$ivshmem_hostfs_dev,id=hostfsmem \

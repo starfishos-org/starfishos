@@ -19,9 +19,15 @@ Allocate a new memory device by:
 ```
 
 - `mode=$1`: `cxl` or `cxl-new`
-- `memNumaNode=5`: the numa node to allocate memory
-- `size=32`: the size of the memory device
+- `size=64`: the size of the memory device (GB)
 - `devName="/dev/shm/ivshmem-$USER"`: the name of the memory device
+- `CXL_MEM_POLICY` / `CXL_MEM_NODES` (env, default `interleave` across `4,5`):
+  host NUMA placement of the shared CXL region. It is interleaved over both
+  memory-only nodes rather than pinned to one, because a single CXL node sits
+  much closer to one socket than to the others, which splits guest workers into
+  a fast and a slow mode — see `docs/09-host-numa-and-exp8-bimodality.md`.
+  Requested nodes that do not exist on the host are dropped automatically,
+  falling back to `--membind=4` and then to the default policy.
 
 # Run
 

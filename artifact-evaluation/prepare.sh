@@ -95,11 +95,19 @@ download_datasets() {
 }
 
 warn_host_layout() {
-    if [ ! -d /sys/devices/system/node/node4 ]; then
-        echo "WARNING: NUMA node 4 not found." >&2
-        echo "  config_memdev.sh binds the CXL ivshmem file with" >&2
-        echo "  numactl --membind=4; allocation may fail on this host." >&2
-        echo "  Edit memNumaNode in dsm-scripts/config_memdev.sh if needed." >&2
+    local node missing=""
+    for node in 4 5; do
+        [ -d "/sys/devices/system/node/node$node" ] || missing="$missing $node"
+    done
+    if [ -n "$missing" ]; then
+        echo "WARNING: NUMA node(s)$missing not found." >&2
+        echo "  config_memdev.sh places the CXL ivshmem file with" >&2
+        echo "  numactl --interleave=4,5 (memory-only nodes on the paper" >&2
+        echo "  testbed). Missing nodes are dropped automatically, falling back" >&2
+        echo "  to --membind=4 and then to the default policy, so this is not" >&2
+        echo "  fatal -- but with no far-memory node at all the shared region" >&2
+        echo "  lands on ordinary DRAM and guests lose CXL-like latency." >&2
+        echo "  Set CXL_MEM_NODES/CXL_MEM_POLICY to match this host." >&2
     fi
 
     # Rough capacity check: 8x16G NUMA + 64G CXL + 16G hostfs + 8G CXLFS ≈ 216G.

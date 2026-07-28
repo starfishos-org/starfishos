@@ -1,7 +1,38 @@
 #!/bin/bash
 
 mode=$1
-memNumaNode=4
+memNumaNode=4 # legacy single-node default, still used as the last-resort fallback
+
+# Host NUMA placement of the shared CXL region.  Putting it on CPU-less nodes is
+# deliberate -- they are real far memory, so guests see CXL-like latency.
+#
+# Default: *interleave* across both CXL nodes.  Pinning to one of them is
+# asymmetric: node 4 hangs off socket 0, so host node 0 reaches it in ~278 ns
+# while nodes 1-3 need 463-598 ns, and since guest vCPU threads float, whichever
+# workers land on node 0 run ~4x faster than the rest.  Node 5 mirrors node 4 on
+# socket 1, so interleaving evens the distance out for every socket.
+# See docs/09-host-numa-and-exp8-bimodality.md.
+#
+# Override with e.g. CXL_MEM_POLICY=membind CXL_MEM_NODES=4 to get the old
+# single-node behaviour.  Nodes that do not exist on this host are dropped
+# automatically (see resolve_cxl_mem_nodes), so this default degrades rather than
+# fails on a different topology.
+cxlMemPolicy="${CXL_MEM_POLICY:-interleave}"
+cxlMemNodes="${CXL_MEM_NODES:-4,5}"
+
+# Keep only the requested nodes that actually exist, so the default works on
+# hosts with fewer (or differently numbered) memory nodes.  Echoes the usable
+# comma-separated list, or nothing when none of them exist.
+resolve_cxl_mem_nodes() {
+  local requested="$1" node avail=()
+  for node in ${requested//,/ }; do
+    if [ -d "/sys/devices/system/node/node$node" ]; then
+      avail+=("$node")
+    fi
+  done
+  (IFS=,; echo "${avail[*]}")
+}
+
 size=64 # 64GB shared memory
 numa_size=16 # Default size of each numax.x (GB); can be overridden by numa_sizes.conf
 
@@ -97,9 +128,32 @@ new_cxl() {
   rm -rf $devName
   echo "Old Shared Memory Removed"
 
-  # Create shared memory (ivshmem) for CXL shared memory
-  numactl --membind=$memNumaNode dd if=/dev/zero of=$devName bs=1G count=$size
-  echo "New Shared Memory (on NUMA $memNumaNode) Malloced"
+  # Create shared memory (ivshmem) for CXL shared memory.  tmpfs pages are
+  # allocated on write under whatever policy is in force here, and mmap will not
+  # move them later, so this dd is what fixes the region's host placement.
+  local nodes numa_cmd=()
+  nodes=$(resolve_cxl_mem_nodes "$cxlMemNodes")
+  if [ -z "$nodes" ]; then
+    if [ -d "/sys/devices/system/node/node$memNumaNode" ]; then
+      echo "WARNING: CXL node(s) '$cxlMemNodes' not present on this host;" \
+        "falling back to --membind=$memNumaNode." >&2
+      numa_cmd=(numactl --membind="$memNumaNode")
+    else
+      echo "WARNING: CXL node(s) '$cxlMemNodes' not present on this host and" \
+        "neither is node $memNumaNode; allocating with the default policy." >&2
+      echo "  The shared region will land on ordinary DRAM, so guests will not" \
+        "see CXL-like latency. Set CXL_MEM_NODES to a far-memory node." >&2
+    fi
+  else
+    if [ "$nodes" != "$cxlMemNodes" ]; then
+      echo "WARNING: of CXL node(s) '$cxlMemNodes' only '$nodes' exist here;" \
+        "using those." >&2
+    fi
+    numa_cmd=(numactl --$cxlMemPolicy="$nodes")
+  fi
+
+  "${numa_cmd[@]}" dd if=/dev/zero of=$devName bs=1G count=$size
+  echo "New Shared Memory (${numa_cmd[*]:-default policy}) Malloced"
 }
 
 new_hostfs() {

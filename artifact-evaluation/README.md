@@ -50,9 +50,13 @@ Hardware Requirement:
   8×16 GiB NUMA DRAM files + 64 GiB CXL + 16 GiB hostfs + 8 GiB CXLFS.
   Plan for **≥ 216 GiB** free RAM/tmpfs for a full prepare; smaller hosts must
   shrink `dsm-scripts/numa_sizes.conf` / `chcore.ini` (some tests may then fail).
-- CXL ivshmem allocation uses `numactl --membind=4` (memory-only node on the
-  paper testbed). Hosts without NUMA node 4 must edit `memNumaNode` in
-  `dsm-scripts/config_memdev.sh`.
+- CXL ivshmem allocation uses `numactl --interleave=4,5` (the two memory-only
+  nodes on the paper testbed). Interleaving rather than pinning to one node is
+  deliberate: a single CXL node sits much closer to one socket than to the
+  others, which splits guest workers into a fast and a slow mode — see
+  `docs/09-host-numa-and-exp8-bimodality.md`. Hosts with a different topology
+  should set `CXL_MEM_NODES`/`CXL_MEM_POLICY`; nodes that do not exist are
+  dropped automatically, so the default degrades rather than fails.
 - CPU requirement: ≥ 96 CPUs for paper-scale runs (many AE scripts override
   `CPU_NUM`; smaller machines can still run microbenchmarks with reduced CPUs).
 

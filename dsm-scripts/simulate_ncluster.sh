@@ -92,7 +92,14 @@ sleep 3
 for ((i=0; i<N; i++)); do rm -f "exec_log${i}.log"; done
 rm -f exec_log.log
 
-RUN_CMD="MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} ./build/simulate.sh"
+# tmux windows do not inherit this shell's environment reliably, so forward the
+# host NUMA binding knobs (see scripts/qemu/qemu_wrapper.sh) explicitly.
+NUMA_ENV="CHCORE_QEMU_NUMA_BIND=${CHCORE_QEMU_NUMA_BIND:-0}"
+if [ -n "${CHCORE_QEMU_NUMA_NODES:-}" ]; then
+    NUMA_ENV="$NUMA_ENV CHCORE_QEMU_NUMA_NODES=${CHCORE_QEMU_NUMA_NODES}"
+fi
+
+RUN_CMD="MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} $NUMA_ENV ./build/simulate.sh"
 
 # ======== Single instance, interactive (no tmux) ========
 if [[ $N -eq 1 && -z "$CMD" ]]; then
