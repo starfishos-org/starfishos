@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Parse state-partition AE logs and plot paper Figure 13 (camera-ready).
 
-The camera-ready ablation runs the three shared placements at several
-cluster sizes (default 4 and 8 machines) and normalizes every point to the
-single-machine Private (All_DRAM) baseline, so the growing benefit of
-partitioned placements can be seen across cluster sizes.
+The camera-ready figure is the 8-machine panel (the default), but the plotter
+still takes any list of cluster sizes and draws one panel per size.  Private
+(All_DRAM) is the single-machine ideal and has its own baseline per cluster
+size, run at that size's total worker count; every point is normalized to the
+Private baseline of its own panel.
 
 Inputs (in --log-dir, produced by run.sh):
-  <bench>_<config>_m<machines>.log   one machine-0 log per point
-  <bench>_<config>.log               legacy single-size layout (fallback,
-                                     only with a single --machine-counts)
+  <bench>_<config>_m<machines>.log   one machine-0 log per point, keyed by the
+                                     panel (Private's m8 log is its
+                                     8-machine-equivalent baseline, measured on
+                                     one wider guest)
+  <bench>_<config>.log               legacy single-size layout (fallback, only
+                                     with an explicit single --machine-counts)
+  <bench>_All_DRAM_m1.log            legacy shared baseline (fallback for runs
+                                     predating the per-panel Private point;
+                                     warns, because it normalizes N x 8 worker
+                                     cluster points against 8 workers)
 
 Outputs:
   csv/state_partition.csv    raw metric per (config, machines) row
@@ -51,7 +59,12 @@ CONFIGS = [
 ]
 
 SHARED_CONFIGS = [cfg for cfg in CONFIGS if cfg != "All_DRAM"]
-BASELINE_POINT = ("All_DRAM", 1)
+BASELINE_CONFIG = "All_DRAM"
+
+
+def baseline_point(count):
+    """Private baseline of a panel: same total workers, one machine."""
+    return (BASELINE_CONFIG, count)
 
 # The single db_bench benchmark run by user/script/run_leveldb.sh.  Pinning the
 # name keeps the metric tied to one phase: db_bench prints a "micros/op" line
@@ -63,7 +76,7 @@ PAT_LEVELDB = re.compile(
     r"^\s*" + LEVELDB_BENCH + r"\s*:\s*([\d.]+)\s*micros/op", re.MULTILINE
 )
 
-DEFAULT_MACHINE_COUNTS = [4, 8]
+DEFAULT_MACHINE_COUNTS = [8]
 
 BENCH_LABEL = {
     "leveldb": "LevelDB",
@@ -95,12 +108,13 @@ FATAL_LOG_PATTERNS = (
 
 
 def experiment_points(machine_counts):
-    """All (config, machines) points: shared configs per size + baseline."""
+    """All (config, machines) points: every config at every cluster size."""
     points = []
     for cfg in SHARED_CONFIGS:
         for count in machine_counts:
             points.append((cfg, count))
-    points.append(BASELINE_POINT)
+    for count in machine_counts:
+        points.append(baseline_point(count))
     return points
 
 
@@ -117,7 +131,7 @@ def log_is_valid(text: str, bench: str) -> bool:
         # Reject rather than fall back to another benchmark's micros/op line:
         # a silently substituted metric is worse than a missing point.
         print(f"[WARN] rejecting leveldb log without a '{LEVELDB_BENCH}' result "
-              f"line (run_leveldb.sh must run --benchmarks={LEVELDB_BENCH})")
+              f"line (run.sh's bench_command must run --benchmarks={LEVELDB_BENCH})")
         return False
     return True
 
@@ -175,23 +189,41 @@ EXTRACTORS = {
 
 
 def point_log(log_dir: Path, bench: str, cfg: str, count: int,
-              machine_counts) -> Path:
-    """Per-point log path; legacy name accepted for single-size replots."""
+              machine_counts, allow_legacy_names: bool) -> Path:
+    """Per-point log path; legacy names accepted for replots of older runs."""
     preferred = log_dir / f"{bench}_{cfg}_m{count}.log"
     if preferred.exists():
         return preferred
+    # The unsuffixed name carries no cluster size, so it can only be read as
+    # the size the caller asked for.  Requires an explicit --machine-counts:
+    # the default is a single size too, and silently relabelling a legacy
+    # 2-machine log as the 8-machine point is worse than reporting it missing.
     legacy = log_dir / f"{bench}_{cfg}.log"
-    if len(machine_counts) == 1 and legacy.exists():
+    if allow_legacy_names and len(machine_counts) == 1 and legacy.exists():
         return legacy
+    # Runs that predate the per-panel Private point have one m1 baseline that
+    # every panel shared.  Accept it so those runs stay replottable, but say so
+    # loudly: it normalizes 32- and 64-worker cluster points against an
+    # 8-worker single-machine run, which reads scale-out speedup as placement
+    # benefit (Matrix Multiply came out at ~3x that way).
+    if cfg == BASELINE_CONFIG and count != 1:
+        shared_baseline = log_dir / f"{bench}_{cfg}_m1.log"
+        if shared_baseline.exists():
+            print(f"[WARN] {bench}: no per-panel Private baseline for "
+                  f"{count} machines; falling back to the legacy shared "
+                  f"{shared_baseline.name}. Its worker count does not match "
+                  f"the cluster points it normalizes.")
+            return shared_baseline
     return preferred
 
 
-def collect(log_dir: Path, machine_counts):
+def collect(log_dir: Path, machine_counts, allow_legacy_names: bool = False):
     points = experiment_points(machine_counts)
     data = {b: {p: None for p in points} for b in BENCHS}
     for bench in BENCHS:
         for cfg, count in points:
-            f = point_log(log_dir, bench, cfg, count, machine_counts)
+            f = point_log(log_dir, bench, cfg, count, machine_counts,
+                          allow_legacy_names)
             if not f.exists():
                 print(f"[WARN] missing log: {f}")
                 continue
@@ -239,7 +271,7 @@ def parse_required_points(raw_points, machine_counts, parser):
         if point[1] not in valid_points:
             parser.error(
                 f"--require-point {raw!r} does not match --machine-counts "
-                f"{machine_counts} (All_DRAM always uses 1 machine)"
+                f"{machine_counts}"
             )
         if point in seen:
             parser.error(f"duplicate --require-point: {raw}")
@@ -276,7 +308,7 @@ def load_paper_csv(path: Path, machine_counts):
         reader = csv.reader(source)
         header = next(reader)
         for cfg, row in zip(CONFIGS, reader):
-            point = BASELINE_POINT if cfg == "All_DRAM" else (cfg, count)
+            point = (cfg, count)
             for bench, value in zip(header, row):
                 if bench in data and value.strip():
                     data[bench][point] = float(value)
@@ -284,22 +316,26 @@ def load_paper_csv(path: Path, machine_counts):
 
 
 def normalize(data, machine_counts):
+    """Normalize each point to the Private baseline of its own panel."""
     points = experiment_points(machine_counts)
     norm = {b: {p: float("nan") for p in points} for b in BENCHS}
     for bench in BENCHS:
-        base = data[bench][BASELINE_POINT]
-        if not base:
-            if any(data[bench][p] is not None for p in points):
-                print(f"[WARN] cannot normalize {bench}: All_DRAM value missing/zero")
-            continue
-        for point in points:
-            v = data[bench][point]
-            if not v:
+        for count in machine_counts:
+            panel = [p for p in points if p[1] == count]
+            base = data[bench][baseline_point(count)]
+            if not base:
+                if any(data[bench][p] is not None for p in panel):
+                    print(f"[WARN] cannot normalize {bench} at {count} "
+                          "machines: All_DRAM value missing/zero")
                 continue
-            if bench in THROUGHPUT_BENCHS:
-                norm[bench][point] = v / base
-            else:
-                norm[bench][point] = base / v
+            for point in panel:
+                v = data[bench][point]
+                if not v:
+                    continue
+                if bench in THROUGHPUT_BENCHS:
+                    norm[bench][point] = v / base
+                else:
+                    norm[bench][point] = base / v
     return norm
 
 
@@ -331,24 +367,42 @@ def plot(norm, fig_dir: Path, machine_counts):
     out = fig_dir / "state_partition"
 
     # A panel per cluster size; each panel shows the three shared placements
-    # at that size plus the shared single-machine Private baseline (== 1.0).
+    # at that size plus that size's own Private baseline (== 1.0).
     def panel_points(count):
-        return [(cfg, count) for cfg in SHARED_CONFIGS] + [BASELINE_POINT]
+        return [(cfg, count) for cfg in SHARED_CONFIGS] + [baseline_point(count)]
 
     # Only plot benches that produced data (e.g. leveldb is skipped when it
-    # hangs / is excluded from BENCHS).
-    drawable = {
-        count: [b for b in BENCHS
-                if any(not np.isnan(norm[b][p]) for p in panel_points(count))]
-        for count in machine_counts
-    }
-    if not any(drawable.values()):
+    # hangs / is excluded from BENCHS).  The list is shared by every panel so
+    # multi-size runs keep the same x categories in the same order: a bench
+    # measurable at one size but not another leaves a gap rather than shifting
+    # every other group sideways in one panel only.
+    drawable = [b for b in BENCHS
+                if any(not np.isnan(norm[b][p])
+                       for count in machine_counts
+                       for p in panel_points(count))]
+    if not drawable:
         stale = out.with_suffix(".png")
         if stale.exists():
             stale.unlink()
         print("[WARN] no normalized data are drawable (an All_DRAM baseline "
               "is required); wrote CSV results and skipped the figure")
         return False
+
+    # The submitted 2-machine figure never exceeded the Private baseline, so
+    # the axis was fixed at 1.05.  The 8-machine panel does exceed it
+    # (Matrix Multiply reaches ~3x), and a fixed limit silently clips those
+    # bars flat at 1.0 — exactly the growth the figure exists to show.  Size
+    # the axis from the data instead, shared by every panel so the panels stay
+    # comparable, and pick a tick step that always lands on 1.0 so the Private
+    # baseline is readable as a gridline.
+    top = max(
+        [v for count in machine_counts for b in drawable
+         for v in (norm[b][p] for p in panel_points(count)) if not np.isnan(v)]
+        + [1.0]
+    )
+    ymax = top * 1.05
+    step = next((s for s in (0.25, 0.5, 1.0, 2.0, 5.0) if top / s <= 8), 10.0)
+    yticks = np.arange(0, ymax, step)
 
     plt.rcdefaults()
     plt.rcParams["ps.useafm"] = True
@@ -361,10 +415,7 @@ def plot(norm, fig_dir: Path, machine_counts):
     axes = axes[0]
 
     for ax, count in zip(axes, machine_counts):
-        benchs = drawable[count]
-        if not benchs:
-            ax.set_visible(False)
-            continue
+        benchs = drawable
         x = np.arange(len(benchs))
         points = panel_points(count)
         n_bar = len(points)
@@ -378,8 +429,8 @@ def plot(norm, fig_dir: Path, machine_counts):
                 color=colors[CONFIGS.index(cfg)],
                 edgecolor="black",
             )
-        ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
-        ax.set_ylim(0, 1.05)
+        ax.set_yticks(yticks)
+        ax.set_ylim(0, ymax)
         ax.grid(axis="y", linestyle="--", linewidth=0.8, alpha=0.5)
         ax.set_axisbelow(True)
         ax.set_xticks(x)
@@ -413,10 +464,13 @@ def main():
                     help="paper-format state_partition.csv (skip log parsing)")
     ap.add_argument("--csv-dir", type=Path, default=SCRIPT_DIR / "csv")
     ap.add_argument("--fig-dir", type=Path, default=SCRIPT_DIR / "figures")
+    # Default stays None so an omitted flag is distinguishable from an
+    # explicit one: the unsuffixed legacy log layout has no cluster size of its
+    # own, so adopting it is only safe when the caller named the size.
     ap.add_argument("--machine-counts", type=int, nargs="+",
-                    default=DEFAULT_MACHINE_COUNTS, metavar="N",
-                    help="cluster sizes of the shared placements "
-                         "(default: %(default)s; Private always uses 1)")
+                    default=None, metavar="N",
+                    help="cluster sizes plotted as panels; each has its own "
+                         f"Private baseline (default: {DEFAULT_MACHINE_COUNTS})")
     ap.add_argument("--allow-partial", action="store_true",
                     help="allow unrelated points to be absent; requested points stay mandatory")
     ap.add_argument("--require-point", action="append", default=[],
@@ -424,7 +478,9 @@ def main():
                     help="require this requested log to contain its metric; repeatable")
     args = ap.parse_args()
 
-    machine_counts = list(dict.fromkeys(args.machine_counts))
+    sized_explicitly = args.machine_counts is not None
+    machine_counts = list(dict.fromkeys(
+        args.machine_counts if sized_explicitly else DEFAULT_MACHINE_COUNTS))
     if any(count < 1 for count in machine_counts):
         ap.error("--machine-counts entries must be positive")
 
@@ -433,9 +489,15 @@ def main():
     required_points = parse_required_points(
         args.require_point, machine_counts, ap)
     if args.csv:
+        # The paper CSV records no cluster size either, so it must not inherit
+        # the default one; the size it was measured at has to be stated.
+        if not sized_explicitly:
+            ap.error("--csv holds one cluster size per config; pass the "
+                     "--machine-counts value it was measured at")
         data = load_paper_csv(args.csv, machine_counts)
     elif args.log_dir:
-        data = collect(args.log_dir, machine_counts)
+        data = collect(args.log_dir, machine_counts,
+                       allow_legacy_names=sized_explicitly)
     else:
         ap.error("either --log-dir or --csv is required")
     for bench in BENCHS:

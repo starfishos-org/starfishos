@@ -49,6 +49,32 @@
 
 #define PGFAULT_POLICY ONDEMAND
 
+/*
+ * How many pages one Case 2.3 fault may migrate: the faulting page plus up to
+ * PGFAULT_READAHEAD_MAX - 1 virtually contiguous pages still owned by the same
+ * remote machine.  1 disables read-ahead entirely.
+ *
+ * Deliberately separate from POLLING_TLB_BATCH_MAX.  That constant sizes
+ * entries[] inside struct polling_kernel_req_flush_tlb_batch, which is part of
+ * the byte-exact shared-memory polling ABI between the kernel and the polling
+ * server (it is defined a second time in user/system-servers/polling/polling.h
+ * and validated in polling_resp.c); changing it desynchronizes the two sides
+ * silently.  This constant only bounds how much of that array we fill, so
+ * varying it leaves every shared struct byte-identical.
+ *
+ * Override at build time, e.g. from kernel/CMakeLists.txt:
+ *   target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=1)
+ */
+#ifndef PGFAULT_READAHEAD_MAX
+#define PGFAULT_READAHEAD_MAX POLLING_TLB_BATCH_MAX
+#endif
+#if PGFAULT_READAHEAD_MAX < 1
+#error "PGFAULT_READAHEAD_MAX must be at least 1 (1 disables read-ahead)"
+#endif
+#if PGFAULT_READAHEAD_MAX > POLLING_TLB_BATCH_MAX
+#error "PGFAULT_READAHEAD_MAX must not exceed POLLING_TLB_BATCH_MAX"
+#endif
+
 /* Enable page fault statistics and debug logging */
 /* Define PGFAULT_STATS_DEBUG to enable detailed statistics printing */
 // #define PGFAULT_STATS_DEBUG
@@ -215,6 +241,82 @@ void print_pgfault_stats(void)
     printk("===================================\n");
 #endif
 }
+
+/*
+ * DSM_MIGRATE_STATS: cumulative, per-machine accounting of what the DSM page
+ * fault path actually did, so a placement configuration can be described by
+ * measurement rather than by its cmake variables.
+ *
+ * Deliberately not PGFAULT_STATS_DEBUG: that one keeps a 1000-sample ring per
+ * case, resets it whenever it prints, and reports latency percentiles.  It
+ * answers "how expensive is a migration"; these counters answer "how many
+ * migrations did this configuration cause at all", which needs monotonic
+ * totals that survive to the end of the run.  Both can be on at once.
+ *
+ * The dump is emitted from the fault path itself rather than from a timer, so
+ * it needs no new hook: one line per machine at most every DMS_DUMP_CYCLES,
+ * printed by whichever CPU faults first after the interval expires.  The
+ * consequence is that the totals stop advancing when faulting stops, so the
+ * last line of a log is up to one interval short of the true final value --
+ * fine at these magnitudes, and it also makes the tail of the run visible as
+ * a line that stops changing.
+ *
+ * Enable from kernel/CMakeLists.txt:
+ *   target_compile_definitions(${kernel_target} PRIVATE DSM_MIGRATE_STATS)
+ */
+#ifdef DSM_MIGRATE_STATS
+/* ~1e9 cycles is 0.3-0.5 s on this testbed; exactness does not matter. */
+#define DMS_DUMP_CYCLES 1000000000ULL
+
+static volatile s64 dms_alloc;      /* first touch: fresh page committed here */
+static volatile s64 dms_direct;     /* Case 1: already shared/local, just map */
+static volatile s64 dms_c21;        /* Case 2.1: waited on a migration entry */
+static volatile s64 dms_c22;        /* Case 2.2: waited on another thread */
+static volatile s64 dms_c23;        /* Case 2.3: migrations this machine ran */
+static volatile s64 dms_c23_pages;  /* pages those migrations actually pulled */
+static volatile s64 dms_c23_raced;  /* Case 2.3 that found the page moved */
+static volatile s64 dms_c23_cycles; /* cycles spent inside Case 2.3 */
+static volatile s64 dms_c22_cycles; /* cycles spent waiting in Case 2.2 */
+static volatile s64 dms_next_dump;
+
+#define DMS_ADD(counter, n) atomic_fetch_add_64(&(counter), (s64)(n))
+#define DMS_INC(counter)    DMS_ADD(counter, 1)
+
+static void dms_tick(void)
+{
+    u64 now = get_cycles();
+    s64 next = atomic_load_64((s64 *)&dms_next_dump);
+
+    if ((s64)now < next)
+        return;
+    /*
+     * Claim the interval before printing.  A CPU that loses the race skips
+     * this round rather than queueing behind it: the dump is a sample, and
+     * blocking a page fault on a serial console write would be the one way
+     * this instrumentation could change what it measures.
+     */
+    if (!atomic_bool_compare_exchange_64(
+                (s64 *)&dms_next_dump, next, (s64)now + (s64)DMS_DUMP_CYCLES))
+        return;
+
+    printk("[DMS] m=%d alloc=%lld direct=%lld c21=%lld c22=%lld c23=%lld "
+           "c23pg=%lld c23raced=%lld c23cyc=%lld c22cyc=%lld\n",
+           CUR_MACHINE_ID,
+           atomic_load_64((s64 *)&dms_alloc),
+           atomic_load_64((s64 *)&dms_direct),
+           atomic_load_64((s64 *)&dms_c21),
+           atomic_load_64((s64 *)&dms_c22),
+           atomic_load_64((s64 *)&dms_c23),
+           atomic_load_64((s64 *)&dms_c23_pages),
+           atomic_load_64((s64 *)&dms_c23_raced),
+           atomic_load_64((s64 *)&dms_c23_cycles),
+           atomic_load_64((s64 *)&dms_c22_cycles));
+}
+#else
+#define DMS_ADD(counter, n) do { } while (0)
+#define DMS_INC(counter)    do { } while (0)
+#define dms_tick()          do { } while (0)
+#endif /* DSM_MIGRATE_STATS */
 
 /* Wait until migration completes */
 static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fault_addr)
@@ -447,6 +549,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #endif
 #endif
     /*
+     * Sample the counters before taking any lock, so the dump can never be
+     * the reason a lock is held longer.
+     */
+    dms_tick();
+
+    /*
      * Grab lock here.
      * Because two threads (in same process) on different cores
      * may fault on the same page, so we need to prevent them
@@ -478,6 +586,38 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         BUG_ON(1);
         sys_exit_group(-1);
         ret = -EINVAL;
+        goto out_unlock_vmspace;
+    }
+
+    if (pmo->type == PMO_DEVICE) {
+        /*
+         * vmspace_map_range() already mapped this whole vmr -- but only into
+         * the page table of the machine that did the mapping, because
+         * fill_page_table() writes get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID).
+         * Reaching a translation fault means this is a different machine
+         * running the same vmspace (an IPC handler thread runs on the
+         * caller's CPU, so the fs server's CXLFS mapping is touched from
+         * every machine its clients run on), so just repeat the eager
+         * mapping here.
+         *
+         * Device memory must not enter the migration logic below: its pa is a
+         * BAR address, which belongs to neither the shared region nor any
+         * machine's DRAM, so get_paddr_machine_id() would return
+         * MACHINE_ID_INVALID and trip the BUG_ON after the Case-2.1 check.
+         * Nothing needs migrating anyway: pmo->start is read from this
+         * machine's own copy of the kernel-local cxlfs_pmos[], so it already
+         * holds this machine's BAR address for the same physical region.
+         *
+         * fill_page_table() takes pgtbl_lock, which nests inside the
+         * vmspace_lock still held here -- and vmr is only valid under it.
+         */
+        kwarn_once("%s: first PMO_DEVICE fault on this machine, vmr "
+                   "[0x%lx, 0x%lx) pa 0x%lx -- mapping it locally\n",
+                   __func__, vmr->start, vmr->start + vmr->size, pmo->start);
+        ret = fill_page_table(vmspace, vmr);
+        if (ret < 0)
+            kwarn("%s: failed to map device vmr [0x%lx, 0x%lx): %d\n",
+                  __func__, vmr->start, vmr->start + vmr->size, ret);
         goto out_unlock_vmspace;
     }
 
@@ -585,6 +725,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
          */
         kdebug("commit: index: %ld, 0x%lx\n", index, pa);
         commit_page_to_pmo(pmo, index, pa);
+        DMS_INC(dms_alloc);
 
 #ifdef MULTI_PAGETABLE_ENABLED
         map_page_in_pgtbl(pgtbl, fault_addr, pa, perm, &pte);
@@ -776,6 +917,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             /* Wait until migration completes */
             /* Note: migration_entry_wait will release and re-acquire locks internally */
             migration_entry_wait(pte, vmspace, fault_addr);
+            DMS_INC(dms_c21);
 #ifdef PGFAULT_STATS_DEBUG
             u64 end_cycles = get_cycles();
             u64 cycles = end_cycles - start_cycles;
@@ -795,9 +937,19 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #ifdef PGFAULT_STATS_DEBUG
         u64 case2_start_cycles = 0;
 #endif
+#ifdef DSM_MIGRATE_STATS
+        /*
+         * Own clock rather than reusing case2_start_cycles: the two flags are
+         * independent, and this one has to include the whole Case 2 path.
+         */
+        u64 dms_entry_cycles = 0;
+#endif
         if (mid != MACHINE_ID_SHARED_MEMORY && mid != CUR_MACHINE_ID) {
 #ifdef PGFAULT_STATS_DEBUG
             case2_start_cycles = get_cycles();
+#endif
+#ifdef DSM_MIGRATE_STATS
+            dms_entry_cycles = get_cycles();
 #endif
             /* Check if this VA is already being migrated by another thread */
             /* Release locks before checking/adding to avoid deadlock */
@@ -866,7 +1018,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     //     "DO NOTHING since sender machine (%d) == current machine (%d)\n", 
                     //     sender_mid, CUR_MACHINE_ID);
                 }
-                
+
+                DMS_INC(dms_c22);
+                DMS_ADD(dms_c22_cycles, get_cycles() - dms_entry_cycles);
 #ifdef PGFAULT_STATS_DEBUG
                 u64 case2_end_cycles = get_cycles();
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
@@ -905,6 +1059,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     unlock(&vmspace->pgtbl_lock);
                     read_unlock(&vmspace->vmspace_lock);
                     remove_migrating_va(vmspace, fault_addr);
+                    DMS_INC(dms_c23_raced);
+                    DMS_ADD(dms_c23_cycles, get_cycles() - dms_entry_cycles);
 #ifdef PGFAULT_STATS_DEBUG
                     u64 case2_end_cycles = get_cycles();
                     u64 case2_cycles = case2_end_cycles - case2_start_cycles;
@@ -936,6 +1092,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         unlock(&vmspace->pgtbl_lock);
                         read_unlock(&vmspace->vmspace_lock);
                         remove_migrating_va(vmspace, fault_addr);
+                        DMS_INC(dms_c23_raced);
+                        DMS_ADD(dms_c23_cycles, get_cycles() - dms_entry_cycles);
 #ifdef PGFAULT_STATS_DEBUG
                         u64 case2_end_cycles = get_cycles();
                         u64 case2_cycles = case2_end_cycles - case2_start_cycles;
@@ -965,7 +1123,12 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                  * free because a page only ever moves DRAM -> CXL (Case 1
                  * direct-maps anything already shared, and nothing migrates
                  * back), so a page pulled in early would have had to move
-                 * anyway.
+                 * anyway.  That last premise holds for sequential scans but
+                 * not for scattered access; PGFAULT_READAHEAD_MAX bounds the
+                 * run so the trade-off can be measured.  It is also coupled to
+                 * irreversibility: adding a CXL -> DRAM demotion path would
+                 * invalidate the "would have moved anyway" argument and this
+                 * loop would have to be revisited alongside it.
                  */
                 struct polling_tlb_batch_entry batch[POLLING_TLB_BATCH_MAX];
                 u64 batch_count;
@@ -982,7 +1145,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 batch_count = 1;
 
                 for (next_va = batch[0].fault_va + PAGE_SIZE;
-                     batch_count < POLLING_TLB_BATCH_MAX && next_va < vmr_end;
+                     batch_count < PGFAULT_READAHEAD_MAX && next_va < vmr_end;
                      next_va += PAGE_SIZE) {
                     mid_t owner = MACHINE_ID_INVALID;
                     paddr_t cand_pa = 0;
@@ -1080,6 +1243,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
                 new_pa = batch[0].dst_pa;
 
+                DMS_INC(dms_c23);
+                DMS_ADD(dms_c23_pages, batch_count);
+                DMS_ADD(dms_c23_cycles, get_cycles() - dms_entry_cycles);
 #ifdef PGFAULT_STATS_DEBUG
                 u64 case2_end_cycles = get_cycles();
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
@@ -1090,6 +1256,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         }
 
         /* Case1: Direct map (shared memory or local) - no stats */
+        DMS_INC(dms_direct);
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
 #else
         int mid = get_paddr_machine_id(pa);

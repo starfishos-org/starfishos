@@ -69,18 +69,25 @@ PAPER_ORDER = [
     "resource-util",
     "recover-fs",
 ]
-# Default one-click set: the paper figures plus the camera-ready revision-plan
-# experiments (8-machine cross-warehouse sweep, per-service-queue saturation).
+# Default one-click set: only the experiments that produce a paper figure,
+# i.e. the original submission figures plus the camera-ready revision-plan
+# additions (8-machine cross-warehouse sweep, per-service-queue saturation).
+# Excludes 0-basic (Table 3 setup check) and 2-sched-notify (Section 8.2 text,
+# no figure) — run those explicitly via --run-subset-of-tests if needed.
+#
+# auto-scale runs LAST on purpose.  It is the only experiment that starts the
+# Tigon baseline, which builds an mkosi image and brings up an eight-VM CXL-pod
+# environment, changing host VM, network, mount and CPU state.  If that stage
+# wedges the host, every other figure has already been produced and plotted.
 READY_PAPER = [
     "ipc-cdf",
     "queue-saturation",
-    "sched-notify",
     "memory-allocator",
     "state-partition",
-    "auto-scale",
     "resource-util",
     "recover-fs",
     "dbx1000-cross-warehouse",
+    "auto-scale",
 ]
 EXTRA_ORDER = [
     "basic",
@@ -107,6 +114,9 @@ class Experiment:
     budget_s: int
     paper_fig: str
     is_paper: bool = True
+    # Wall-clock ceiling under the default fast profile (see FAST_ENV).  None
+    # means the fast profile does not shrink this experiment.
+    fast_budget_s: Optional[int] = None
 
 
 EXPERIMENTS: Dict[str, Experiment] = {
@@ -124,18 +134,21 @@ EXPERIMENTS: Dict[str, Experiment] = {
     ),
     "memory-allocator": Experiment(
         "memory-allocator", "3-memory-allocator", "ready", 28800,
-        "allocator fig00",
+        "allocator fig00", fast_budget_s=18000,
     ),
     "state-partition": Experiment(
-        # Camera-ready ablation runs the three shared placements at both 4 and
-        # 8 machines (12 vCPUs each) plus the single-machine Private baseline;
-        # allow headroom for 7 builds + 6 benches × 7 placement points.
-        "state-partition", "4-state-partition", "ready", 86400,
+        # Camera-ready measures only the 8-machine panel: three shared
+        # placements at 8 x 12 vCPUs plus the single-machine Private baseline,
+        # i.e. 4 builds x 6 benchmarks.  run.sh owns that default
+        # (MACHINE_COUNTS), so there is no fast/full split here.  Measured at
+        # 0.85 h for this scope and 1.6 h for the wider MACHINE_COUNTS="4 8"
+        # sweep; 4 h leaves room for both plus the host's ~3x contention tail.
+        "state-partition", "4-state-partition", "ready", 14400,
         "state_partition",
     ),
     "auto-scale": Experiment(
         "auto-scale", "5-auto-scale", "ready", 64800,
-        "auto-scale-matrix / db1000 / gemini",
+        "auto-scale-matrix / db1000 / gemini", fast_budget_s=50400,
     ),
     "resource-util": Experiment(
         "resource-util", "6-resource-util", "ready", 43200,
@@ -147,12 +160,52 @@ EXPERIMENTS: Dict[str, Experiment] = {
     ),
     "dbx1000-cross-warehouse": Experiment(
         "dbx1000-cross-warehouse", "8-dbx1000-cross-warehouse", "ready", 21600,
-        "(camera-ready) cross-warehouse sweep",
+        "(camera-ready) cross-warehouse sweep", fast_budget_s=10800,
     ),
     "queue-saturation": Experiment(
         "queue-saturation", "9-queue-saturation", "ready", 10800,
-        "(camera-ready) queue tail latency + saturation",
+        "(camera-ready) queue tail latency + saturation", fast_budget_s=9000,
     ),
+}
+
+# Fast profile (the default; disable with --full).  Two levers only:
+#   1. one measurement per point instead of three, where a repeat knob exists;
+#   2. a thinned sweep axis, dropping points adjacent to ones that are kept.
+# Every value here is a documented scope control of the experiment's own
+# run.sh, so each script still validates it and switches its plotter to
+# --allow-partial by itself.  Figures keep every series; they lose error bars
+# and some x resolution.
+#
+# state-partition needs no entry here: Figure 13 is the 8-machine panel only,
+# so its run.sh already defaults to MACHINE_COUNTS="8" under --full as well.
+#
+# NOTE: dbx1000/All_DRAM/8 is currently broken and is deliberately NOT listed
+# in SKIP_POINTS.  A Private guest gets one 16 GiB DRAM device regardless of
+# DBX_DRAM_SIZE (kernel DRAM comes from dsm-scripts/numa_sizes.conf, not from
+# QEMU's -m), so the 8-machine panel's 64 warehouses OOM during the TPC-C load
+# and then fail the plot step via --require-point.  The point aborts early
+# rather than burning DBX_TIMEOUT: its "BUG: handle_trans_fault" matches
+# AE_ERROR_PATTERN, so ae_wait_in_log stops it in ~208 s (measured).
+# Masking that with SKIP_POINTS would silently drop DBx1000 from Figure 13,
+# because it also removes the Private baseline every other placement is
+# normalized against.  The OOM is being fixed properly instead; until then this
+# point is expected to fail loudly.  Set SKIP_POINTS=dbx1000/All_DRAM/8 in the
+# environment to opt back into skipping it.
+FAST_ENV: Dict[str, Dict[str, str]] = {
+    "memory-allocator": {"USER_BENCH_THREADS": "1 4 16 64 96"},
+    # The tigon baseline stays in: measured runtimes show the whole artifact
+    # fits comfortably in a day, so Figure 14 keeps its Tigon curve.  It is the
+    # slowest and most host-invasive stage (mkosi image build, eight-VM CXL-pod
+    # environment, host VM/network/mount/CPU state), so it is scheduled last
+    # twice over: run_baselines.py always runs linux -> matrix-tcp -> tigon,
+    # and auto-scale is the final entry in READY_PAPER.
+    "auto-scale": {"MACHINES": "1 2 4 8", "RUN_FOOTPRINT": "0"},
+    "dbx1000-cross-warehouse": {"DBX_REPETITIONS": "1"},
+    # queue-saturation keeps REPEATS=3: its plot.py drops the lowest and
+    # highest trial per point, and below three trials there is nothing left to
+    # trim, so it falls back to a plain mean.  That still plots, but it is not
+    # what the paper reports -- thin the thread axis here instead.
+    "queue-saturation": {"THREADS": "1 2 4 8 10"},
 }
 
 
@@ -342,14 +395,30 @@ def plot_cmd(name: str) -> Optional[List[str]]:
     return base
 
 
-def budget_for(exp: Experiment, global_budget: Optional[int]) -> int:
+def budget_for(exp: Experiment, global_budget: Optional[int], *,
+               fast: bool = True) -> int:
     key = f"BUDGET_{exp.name.upper().replace('-', '_')}"
     raw = os.environ.get(key)
     if raw:
         return int(raw)
     if global_budget is not None:
         return global_budget
+    if fast and exp.fast_budget_s is not None:
+        return exp.fast_budget_s
     return exp.budget_s
+
+
+def fast_env_for(name: str) -> Dict[str, str]:
+    """Fast-profile scope overrides for one experiment.
+
+    An override already present in the caller's environment wins, so an
+    evaluator can widen a single axis back without leaving the fast profile.
+    """
+    return {
+        var: value
+        for var, value in FAST_ENV.get(name, {}).items()
+        if var not in os.environ
+    }
 
 
 def kill_ae_sessions() -> None:
@@ -567,6 +636,7 @@ def run_experiment(
     *,
     budget: int,
     dry_run: bool,
+    fast: bool = True,
     config_snapshot: Optional[BuildConfigSnapshot] = None,
 ) -> str:
     exp = EXPERIMENTS[name]
@@ -579,6 +649,10 @@ def run_experiment(
     log(f"###   dir={exp.directory}  status={exp.status}  budget={budget}s")
     log(f"###   script={script}")
     log(f"###   output={ae_dir}")
+    overrides = fast_env_for(name) if fast else {}
+    if overrides:
+        rendered = " ".join(f"{k}={v!r}" for k, v in sorted(overrides.items()))
+        log(f"###   fast profile: {rendered}")
     log("#" * 60)
 
     if exp.status == "stub":
@@ -613,6 +687,7 @@ def run_experiment(
     kill_ae_sessions()
     env = os.environ.copy()
     env["CPU_NUM"] = str(guest_cpu_num(name))
+    env.update(overrides)
     rc = run_cmd(
         ["timeout", "--kill-after=60", str(budget), str(script)], env=env,
     )
@@ -710,6 +785,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Override wall-clock timeout (seconds) for each run.sh",
     )
+    parser.add_argument(
+        "--full",
+        dest="fast",
+        action="store_false",
+        default=not env_flag("AE_FULL"),
+        help="Disable the default fast profile and run every sweep point with "
+             "the paper's repetition counts (much longer; see --list)",
+    )
     return parser.parse_args(argv)
 
 
@@ -724,12 +807,26 @@ def main(argv: Optional[List[str]] = None) -> int:
             tag = "paper" if exp.is_paper else "extra"
             script = run_script(name)
             present = "run.sh" if script.is_file() else "MISSING run.sh"
+            fast_budget = budget_for(exp, None, fast=True)
+            note = ""
+            if fast_budget != exp.budget_s:
+                note = (f"  fast<={fast_budget // 3600}h "
+                        f"(full {exp.budget_s // 3600}h)")
+            elif name in FAST_ENV:
+                note = f"  fast<={fast_budget // 3600}h"
             log(
                 f"  {num}  {name:<26} {exp.status:<6} [{tag}]  "
-                f"{exp.directory}/{present}"
+                f"{exp.directory}/{present}{note}"
             )
         log("")
         log(f"Default run set (no --run-subset-of-tests): {' '.join(READY_PAPER)}")
+        log("Default profile: fast (pass --full for the paper's full sweeps)")
+        for name in READY_PAPER:
+            overrides = FAST_ENV.get(name)
+            if overrides:
+                rendered = " ".join(
+                    f"{k}={v!r}" for k, v in sorted(overrides.items()))
+                log(f"  fast {name:<26} {rendered}")
         return 0
 
     names = resolve_experiments(args.run_subset_of_tests)
@@ -745,6 +842,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         log("=== subset: (default ready set) ===")
     log(f"=== experiments: {' '.join(names)} ===")
+    log(f"=== profile: {'fast' if args.fast else 'full (paper sweeps)'} ===")
     log(
         f"=== stages: prepare={do_prepare} build={do_build} "
         f"run={do_run} plot=True dry_run={args.dry_run} clean={args.clean} ==="
@@ -793,8 +891,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 exp = EXPERIMENTS[name]
                 status[name] = run_experiment(
                     name,
-                    budget=budget_for(exp, args.budget),
+                    budget=budget_for(exp, args.budget, fast=args.fast),
                     dry_run=args.dry_run,
+                    fast=args.fast,
                     config_snapshot=config_snapshot,
                 )
                 st = status[name]

@@ -236,6 +236,8 @@ void clear_dram_cache(struct pmobject *pmo);
 
 paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index);
 
+int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr);
+
 struct vmregion *init_heap_vmr(struct vmspace *vmspace, vaddr_t va,
                                struct pmobject *pmo);
 void adjust_heap_vmr(struct vmspace *vmspace, unsigned long len);

@@ -1013,8 +1013,37 @@ paddr_t get_page_from_pmo(struct pmobject *pmo, u64 index)
         if (pa == 0) {
             pa = pmo->start + index * PAGE_SIZE;
         }
+    } else if (pmo->type == PMO_DEVICE) {
+        /*
+         * Device memory is one contiguous physical range starting at
+         * pmo->start, so it is addressed exactly like a continuous PMO --
+         * but is_continuous_pmo() rejects it, because is_unchangeable_pmo()
+         * claims PMO_DEVICE (and PMO_FORBID) first and is_radix_pmo() then
+         * excludes both.  Both types therefore reached neither branch above
+         * and fell through to the BUG() below; handle_trans_fault() hits that
+         * for the CXLFS region whenever the fs server is entered from a
+         * machine other than the one that mapped it.
+         */
+        pa = pmo->start + index * PAGE_SIZE;
+    } else if (pmo->type == PMO_FORBID) {
+        /*
+         * A forbidden area is backed by nothing at all, so "no page" (0) is
+         * the honest answer.  Callers must reject the access rather than
+         * commit a page for it; handle_trans_fault() and transform_vaddr()
+         * both screen PMO_FORBID out before getting here.
+         */
+        pa = 0;
     } else {
-        BUG("Not supported type\n");
+        /*
+         * Unreachable: the four cases are exhaustive over pmo->type, since
+         * is_radix_pmo() accepts everything is_continuous_pmo() and
+         * is_unchangeable_pmo() reject.  Keep the guard, but name the type so
+         * a future type -- or a torn read of a freed pmo -- is identifiable
+         * from the log instead of just "not supported".
+         */
+        BUG("pmo %p type %lu (radix_fallback=%d) index %lu size 0x%lx: "
+            "not supported type\n",
+            pmo, pmo->type, (int)pmo->radix_fallback, index, pmo->size);
     }
     return pa;
 }

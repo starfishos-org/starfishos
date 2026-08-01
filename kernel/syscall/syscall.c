@@ -390,6 +390,20 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
             return -EINVAL;
         }
         struct pmobject *pmo = vmr->pmo;
+        if (is_unchangeable_pmo(pmo)) {
+            /*
+             * PMO_DEVICE and PMO_FORBID have no page to migrate: device
+             * memory is a fixed BAR range each machine reaches at its own
+             * pa (handle_trans_fault maps it locally instead of asking for
+             * a migration), and a forbidden area is backed by nothing.
+             * Copying dst_pa over either would corrupt the mapping.
+             */
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            kwarn("[SYS] refusing to migrate pmo type %lu for fault_va=0x%lx\n",
+                  pmo->type, fault_va);
+            return -EINVAL;
+        }
         u64 index = (ROUND_DOWN((vaddr_t)fault_va, PAGE_SIZE) - vmr->start) / PAGE_SIZE;
         paddr_t pa = get_page_from_pmo(pmo, index);
         if (pa == 0) {

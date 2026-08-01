@@ -3,13 +3,28 @@
 # Artifact script for paper Figure 13: "Performance across state-partition
 # choices".
 #
-# Camera-ready / shepherd revision plan: Reviewer B asked to show
-# K-mix/U-mix vs Share at 4 AND 8 machines so the benefit can be seen
-# growing.  The three shared placements therefore run at every cluster size
-# in MACHINE_COUNTS (default "4 8"); Private (All_DRAM) remains the
-# single-machine ideal baseline shared by all panels.  Each QEMU guest uses
-# 12 vCPUs, so the largest default cluster is 8 x 12 = 96 vCPUs — matching
-# the paper testbed.
+# Camera-ready: only the 8-machine cluster is measured.  The three shared
+# placements run at every cluster size in MACHINE_COUNTS (default "8"); the
+# multi-size machinery is kept so a smaller ablation is one env var away
+# (MACHINE_COUNTS="4 8" reinstates the two-panel sweep).  Each QEMU guest uses
+# 12 vCPUs, so the default cluster is 8 x 12 = 96 vCPUs — matching the paper
+# testbed.
+#
+# All six benchmarks scale their worker count with the panel (8 per machine,
+# WORKERS_PER_MACHINE), so a panel really is a bigger cluster doing the same
+# fixed-size work.  Sourcing the ramdisk run_<bench>.sh scripts instead ran
+# LevelDB and the three non-Matrix Phoenix apps as a fixed single-machine
+# 8-thread workload, so their 4- and 8-machine panels were the identical run
+# and nothing but machine 0 was ever exercised.
+#
+# Private (All_DRAM) is the single-machine ideal baseline and gets its own
+# point per cluster size, at the SAME total worker count as the shared
+# placements at that size: one guest with <machines> x 12 vCPUs running
+# <machines> x 8 workers on the same CPU pattern (the per-machine segments
+# all live inside that one guest).  It used to be a single 12-vCPU / 8-worker run
+# reused by every panel, which normalized 32- and 64-worker cluster points
+# against an 8-worker baseline and reported scale-out speedup (Matrix
+# Multiply read ~3x) as if it were a placement effect.
 #
 # Runs 6 applications (LevelDB, DBx1000, PCA, Matrix Multiply, Linear
 # Regression, Word Count) under four state-partition configurations, then
@@ -31,9 +46,10 @@
 # Env overrides:
 #   BENCHS="leveldb dbx1000 pca matrix_multiply linear_regression word_count"
 #   CONFIGS="All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM"
-#   MACHINE_COUNTS="4 8"   TIMEOUT=1200
-#   (use MACHINE_COUNTS=2 for a smaller ablation / debug; NUM_MACHINES=N is
-#   accepted as a legacy alias for MACHINE_COUNTS="N")
+#   MACHINE_COUNTS="8"   TIMEOUT=1200
+#   (use MACHINE_COUNTS=2 for a smaller ablation / debug, or "4 8" for the
+#   two-panel sweep; NUM_MACHINES=N is accepted as a legacy alias for
+#   MACHINE_COUNTS="N")
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
@@ -41,9 +57,12 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
 ae_init_output_dirs "$AE_DIR"
 AE_LOG_DIR="$LOG_DIR"
-# Cluster sizes for the shared placements (Private always runs on 1 machine).
+# Cluster sizes.  Every config produces one point per size; the shared
+# placements run on that many machines, Private runs the same total worker
+# count on a single larger guest.  The figure only needs the 8-machine panel,
+# so that is the default; pass a space-separated list for a wider sweep.
 # NUM_MACHINES=N is kept as a legacy single-size alias.
-MACHINE_COUNTS="${MACHINE_COUNTS:-${NUM_MACHINES:-4 8}}"
+MACHINE_COUNTS="${MACHINE_COUNTS:-${NUM_MACHINES:-8}}"
 TIMEOUT="${TIMEOUT:-1200}"
 # Per-guest SMP is 12 vCPUs.  Global CPU layout is therefore
 # 0-11,12-23,...,(N-1)*12..(N*12-1).  DBx1000 and Matrix Multiply bind
@@ -107,6 +126,37 @@ validate_scope_list BENCHS "$BENCHS" \
 validate_scope_list CONFIGS "$CONFIGS" \
     All_CXL Kernel_DRAM_User_CXL Kernel_Page_CXL_Other_DRAM All_DRAM || exit 1
 
+# Points that are known not to be measurable on this host and are deliberately
+# left blank in the figure.  Format: BENCH/CONFIG/MACHINES, space separated.
+# The standing example is dbx1000/All_DRAM/8: the 8-machine panel's 64
+# warehouses do not fit in one machine's 16 GiB of local DRAM (see the
+# DBX_DRAM_SIZE note below), so the point OOMs during the TPC-C load.  It does
+# NOT burn DBX_TIMEOUT: the OOM path prints "BUG: handle_trans_fault", which
+# matches AE_ERROR_PATTERN, so ae_wait_in_log aborts the point early (measured
+# at ~208 s).  Skipping keeps it out of --require-point, but it also removes
+# the Private baseline that panel normalizes against, which silently drops
+# DBx1000 from the figure — prefer fixing the OOM over skipping.
+SKIP_POINTS="${SKIP_POINTS:-}"
+for entry in $SKIP_POINTS; do
+    IFS=/ read -r skip_bench skip_cfg skip_count <<< "$entry"
+    if ! [[ " $BENCHS " == *" $skip_bench "* ]] \
+            || ! [[ " $CONFIGS " == *" $skip_cfg "* ]] \
+            || ! [[ " $MACHINE_COUNTS " == *" $skip_count "* ]]; then
+        echo "[AE] SKIP_POINTS entry does not name a point of this run: $entry" >&2
+        echo "[AE] expected BENCH/CONFIG/MACHINES drawn from BENCHS, CONFIGS," \
+             "MACHINE_COUNTS" >&2
+        exit 1
+    fi
+done
+
+point_is_skipped() {
+    local want="$1/$2/$3" entry
+    for entry in $SKIP_POINTS; do
+        [ "$entry" = "$want" ] && return 0
+    done
+    return 1
+}
+
 # config -> DSM_MALLOC_MODE  DSM_USER_MALLOC_MODE  <5 type modes>
 config_params() {
     case "$1" in
@@ -121,7 +171,7 @@ config_params() {
 # bench -> string that marks completion in machine 0's log
 bench_done_pattern() {
     case "$1" in
-        # run_leveldb.sh runs a single db_bench benchmark (fillbatch), whose
+        # bench_command() runs a single db_bench benchmark (fillbatch), whose
         # one result line carries both micros/op and MB/s.  plot.py parses that
         # same line by name; keep the two in step if the workload gains a
         # second benchmark, or this marker will fire on the wrong one.
@@ -156,13 +206,48 @@ wait_for_bench() {
 # and launch it with threads bound across all machines (8 workers / 12 cores
 # per machine).
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
-DBX_TIMEOUT="${DBX_TIMEOUT:-3600}"
+# 1.5x the slowest successful dbx1000 point measured across the clean runs in
+# out/ (322 s, an 8-machine point under host contention; the median is ~115 s).
+# The old 3600 s was 31x the median and only served to make a hung or OOMing
+# point take an hour to report.
+DBX_TIMEOUT="${DBX_TIMEOUT:-480}"
 DBX_DRAM_SIZE="${DBX_DRAM_SIZE:-24G}"
-DBX_WARMUP="${DBX_WARMUP:-10000}"
+# NOTE: DBX_DRAM_SIZE sets QEMU's -m and the dram_size bootarg, but it does
+# NOT size the kernel's local DRAM pool.  Each machine's DRAM is exactly one
+# ivshmem device -- dsm_metadata.c takes dram_devices_map[CUR_MACHINE_ID],
+# whose size comes from dsm-scripts/numa_sizes.conf (16 GiB per device today).
+# So a Private guest has 16 GiB of local DRAM no matter what is passed here,
+# which is why it cannot hold a panel's whole TPC-C database on its own.
+# TPC-C setup follows the paper (and 8-dbx1000-cross-warehouse).  The warmup
+# matters for state placement: with a short warmup the measured interval is
+# dominated by the one-time first-touch DRAM->CXL page migration, which made
+# every DRAM-first placement look 10-30x slower than a single machine
+# (K-mix/U-mix at 8 machines: 0.01 Mtxn/s at warmup 10000 vs 0.48 Mtxn/s here).
+DBX_WARMUP="${DBX_WARMUP:-7040000}"
 DBX_MAX_TXN="${DBX_MAX_TXN:-10000}"
-# Matrix Multiply: eight workers per machine on the multi-machine configs;
-# Private (All_DRAM) keeps the original single-machine 8-thread binding.
-MATRIX_THREADS_PER_MACHINE="${MATRIX_THREADS_PER_MACHINE:-8}"
+DBX_ITEM_I_DATA_LEN="${DBX_ITEM_I_DATA_LEN:-1000}"
+# config.h is shared with 8-dbx1000-cross-warehouse, which writes its own
+# cross-warehouse ratio and timed measurement window into it.  Pin every knob
+# that experiment touches or this figure silently inherits them: a smoke run on
+# 2026-07-31 came up as transaction_cross_warehouse_mode=1 /
+# cross_warehouse_txn_pct=15 / measure_duration_sec=5, none of which the
+# Figure 13 data uses.  Mode 0 plus MEASURE_DURATION_SEC=0 is "run to
+# MAX_TXN_PER_PART", matching the paper.
+#
+# The pinned set must stay a superset of 8-dbx1000-cross-warehouse's
+# set_dbx_define calls; LOAD_UNUSED_TABLES is here for that reason even though
+# both experiments happen to want false today.
+DBX_CROSS_WAREHOUSE_RATIO_MODE="${DBX_CROSS_WAREHOUSE_RATIO_MODE:-false}"
+DBX_CROSS_WAREHOUSE_PCT="${DBX_CROSS_WAREHOUSE_PCT:-15}"
+DBX_MEASURE_DURATION_SEC="${DBX_MEASURE_DURATION_SEC:-0}"
+DBX_LOAD_UNUSED_TABLES="${DBX_LOAD_UNUSED_TABLES:-false}"
+# Worker threads per machine, for every benchmark: the `-t` / `--threads` of
+# the Phoenix apps, LevelDB and Matrix Multiply, and DBx1000's compile-time
+# THREADS_PER_MACHINE.  A point at cluster size N always runs N * this many
+# workers in total, whether they are spread over N machines (shared configs)
+# or run on one larger guest (Private).  MATRIX_THREADS_PER_MACHINE is the
+# legacy name from when only Matrix Multiply scaled.
+WORKERS_PER_MACHINE="${WORKERS_PER_MACHINE:-${MATRIX_THREADS_PER_MACHINE:-8}}"
 
 MAX_MACHINES=0
 for count in $MACHINE_COUNTS; do
@@ -181,7 +266,7 @@ done
 # warehouses: 64 workers over 8 warehouses aborted ~90% of transactions, so the
 # point measured TPC-C lock contention rather than state placement.
 # DBX_NUM_WH still pins a fixed total for a deliberate contention study.
-DBX_WH_PER_MACHINE="${DBX_WH_PER_MACHINE:-$MATRIX_THREADS_PER_MACHINE}"
+DBX_WH_PER_MACHINE="${DBX_WH_PER_MACHINE:-$WORKERS_PER_MACHINE}"
 if ! [[ "$DBX_WH_PER_MACHINE" =~ ^[1-9][0-9]*$ ]]; then
     echo "DBX_WH_PER_MACHINE must be a positive integer: $DBX_WH_PER_MACHINE" >&2
     exit 1
@@ -222,16 +307,60 @@ TMP_DIR="$(mktemp -d)"
 cp "$DBX_CONFIG" "$TMP_DIR/config.h"
 
 # Eight worker CPUs on each 12-vCPU machine segment: 0-7,12-19,24-31,...
+# This is a global CPU namespace consumed by every workload's bind file; for
+# Private the segments all live inside its one wide guest.
 worker_bind_cpu_list() {
     local n="$1" i parts=()
     for i in $(seq 0 $((n - 1))); do
-        parts+=("$((i * STATE_PARTITION_CPU_NUM))-$((i * STATE_PARTITION_CPU_NUM + MATRIX_THREADS_PER_MACHINE - 1))")
+        parts+=("$((i * STATE_PARTITION_CPU_NUM))-$((i * STATE_PARTITION_CPU_NUM + WORKERS_PER_MACHINE - 1))")
     done
     (IFS=,; echo "${parts[*]}")
 }
 
-dbx_bind_cpu_list() {
-    worker_bind_cpu_list "$1"
+# bench -> the guest CPU-binding file its launcher reads.
+bench_bind_file() {
+    case "$1" in
+        leveldb)            echo "leveldb_bind_cpu.txt" ;;
+        dbx1000)            echo "dbx1000_bind_cpu.txt" ;;
+        pca)                echo "pca_bind_cpu.txt" ;;
+        matrix_multiply)    echo "matrix_multiply_bind_cpu.txt" ;;
+        linear_regression)  echo "linear_regression_bind_cpu.txt" ;;
+        word_count)         echo "word_count_bind_cpu.txt" ;;
+        *) echo "Unknown bench: $1" >&2; return 1 ;;
+    esac
+}
+
+# bench <workers> -> the guest command line.
+#
+# Datasets are fixed, so a larger panel divides the same work over more
+# workers (strong scaling) — the same regime Matrix Multiply and DBx1000
+# already used.  This is what makes the 4- and 8-machine panels different
+# workloads at all: the ramdisk run_<bench>.sh scripts hardcode a binding that
+# does not depend on the panel — 0-11 / -t 8 for LevelDB and the three
+# non-Matrix Phoenix apps, 0-7,12-19 / -t 16 for Matrix Multiply — so sourcing
+# them ran the identical workload in both panels and the shared placements
+# never touched more than one or two machines.
+bench_command() {
+    local bench="$1" workers="$2" cmd
+    case "$bench" in
+        # Only the flags db_bench actually parses: an unrecognized one is a
+        # hard "Invalid flag" + exit(1) (benchmarks/db_bench.cc), not a
+        # warning.  In particular there is no --background_cpu in the pinned
+        # submodule (6fc338e), so background compaction is left unpinned, as
+        # it is in user/script/run_leveldb.sh.
+        leveldb)
+            echo "leveldb-dbbench.bin --benchmarks=fillbatch --num=100000" \
+                 "--db=/tmp --threads=$workers --write_num_is_total=1"
+            ;;
+        # DBx1000's worker count is compile-time (THREADS_PER_MACHINE *
+        # NUM_MACHINES), applied to config.h before the build below.
+        dbx1000)            echo "rundb.bin" ;;
+        pca)                echo "pca.bin -c 1000 -r 1000 -t $workers" ;;
+        matrix_multiply)    echo "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t $workers" ;;
+        linear_regression)  echo "linear_regression.bin -f key_file_100MB.txt -t $workers" ;;
+        word_count)         echo "word_count.bin -f word_100MB.txt -t $workers" ;;
+        *) echo "Unknown bench: $1" >&2; return 1 ;;
+    esac
 }
 
 cleanup() {
@@ -258,8 +387,10 @@ cd "$AE_REPO_ROOT"
 ae_ensure_clean_tmux
 ae_check_global_prepare
 ae_save_build_configs
-# Keep the kernel's per-machine CPU stride and QEMU's SMP count in sync.
-# The saved configuration is restored by cleanup after this experiment.
+# Keep the kernel's per-machine CPU stride and QEMU's SMP count in sync.  Each
+# point re-applies this for the guest it is about to boot (Private's baseline
+# guest is <panel> x STATE_PARTITION_CPU_NUM wide); the saved configuration is
+# restored by cleanup after this experiment.
 ae_set_paper_guest_cpu_config "$STATE_PARTITION_CPU_NUM"
 ae_export_guest_cpu_num "$STATE_PARTITION_CPU_NUM"
 # LLFree is evaluated by test 3.  Its shared allocator metadata is not a
@@ -272,96 +403,98 @@ ae_set_dsm_var DSM_CXL_LF_BUDDY OFF
 for cfg in $CONFIGS; do
     read -r malloc_mode user_malloc_mode type_mode <<< "$(config_params "$cfg")"
 
-    # Private (All_DRAM) is the single-machine ideal baseline: with all
-    # state forced into private DRAM, cross-machine sharing is impossible by
-    # design (2-machine runs crash in virt_to_page), so it runs on 1 machine
-    # — matching the original experiments (old logs used ./build/simulate.sh).
-    # The shared placements run at every requested cluster size.
-    if [ "$cfg" = "All_DRAM" ]; then
-        cfg_counts="1"
-    else
-        cfg_counts="$MACHINE_COUNTS"
-    fi
-
     ae_set_dsm_var DSM_MALLOC_MODE "$malloc_mode"
     ae_set_dsm_var DSM_USER_MALLOC_MODE "$user_malloc_mode"
     for t in THREADCTX PGTABLE STACK OBJECT PAGE; do
         ae_set_dsm_var "DSM_${t}_MODE" "$type_mode"
     done
 
-    for cfg_machines in $cfg_counts; do
+    for cfg_size in $MACHINE_COUNTS; do
+        # cfg_size is the panel (cluster size) this point belongs to; it fixes
+        # the total worker count.  Private realizes that panel on a single
+        # guest, so the machines it actually boots and the vCPUs that guest
+        # needs are derived from it rather than equal to it.
+        if [ "$cfg" = "All_DRAM" ]; then
+            # With all state forced into private DRAM, cross-machine sharing is
+            # impossible by design (2-machine runs crash in virt_to_page), so
+            # the baseline is always one machine — but one machine wide enough
+            # to hold the panel's whole worker set.
+            cfg_machines=1
+            cfg_cpus=$((cfg_size * STATE_PARTITION_CPU_NUM))
+        else
+            cfg_machines="$cfg_size"
+            cfg_cpus="$STATE_PARTITION_CPU_NUM"
+        fi
+        cfg_workers=$((WORKERS_PER_MACHINE * cfg_size))
+        cfg_bind_list="$(worker_bind_cpu_list "$cfg_size")"
+
         echo ""
         echo "########################################################"
-        echo "### Config: $cfg ($cfg_machines machine(s))"
+        echo "### Config: $cfg (panel: $cfg_size machine(s))"
+        echo "###   booting $cfg_machines machine(s) x $cfg_cpus vCPUs, $cfg_workers worker(s)"
         echo "###   DSM_MALLOC_MODE=$malloc_mode  DSM_USER_MALLOC_MODE=$user_malloc_mode"
         echo "###   THREADCTX/PGTABLE/STACK/OBJECT/PAGE=$type_mode"
         echo "########################################################"
 
-        # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the cluster
-        # size, so each (config, cluster size) point rebuilds.
+        # dbx1000's compile-time NUM_MACHINES/PART_CNT must match the booted
+        # cluster, and THREAD_CNT is THREADS_PER_MACHINE * NUM_MACHINES — so
+        # Private carries the panel's whole worker set as one machine's share.
+        # Each (config, panel) point therefore rebuilds.
         sed -i "s/^#define NUM_MACHINES[[:space:]].*/#define NUM_MACHINES\t\t\t$cfg_machines/" "$DBX_CONFIG"
-        cfg_warehouses="$(dbx_warehouses "$cfg_machines")"
+        sed -i "s/^#define THREADS_PER_MACHINE[[:space:]].*/#define THREADS_PER_MACHINE\t\t\t$((cfg_workers / cfg_machines))/" "$DBX_CONFIG"
+        cfg_warehouses="$(dbx_warehouses "$cfg_size")"
         sed -i "s/^#define NUM_WH[[:space:]].*/#define NUM_WH\t\t\t\t\t\t$cfg_warehouses/" "$DBX_CONFIG"
         sed -i "s/^#define WARMUP[[:space:]].*/#define WARMUP\t\t\t\t\t\t$DBX_WARMUP/" "$DBX_CONFIG"
         sed -i "s/^#define MAX_TXN_PER_PART[[:space:]].*/#define MAX_TXN_PER_PART\t\t\t$DBX_MAX_TXN/" "$DBX_CONFIG"
-        sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t50/" "$DBX_CONFIG"
-        DBX_BIND_LIST="$(dbx_bind_cpu_list "$cfg_machines")"
+        sed -i "s/^#define ITEM_I_DATA_LEN[[:space:]].*/#define ITEM_I_DATA_LEN\t\t\t$DBX_ITEM_I_DATA_LEN/" "$DBX_CONFIG"
+        sed -i "s/^#define USE_TRANSACTION_CROSS_WAREHOUSE_RATIO[[:space:]].*/#define USE_TRANSACTION_CROSS_WAREHOUSE_RATIO\t$DBX_CROSS_WAREHOUSE_RATIO_MODE/" "$DBX_CONFIG"
+        sed -i "s/^#define PERC_CROSS_WAREHOUSE_TXN[[:space:]].*/#define PERC_CROSS_WAREHOUSE_TXN\t\t$DBX_CROSS_WAREHOUSE_PCT/" "$DBX_CONFIG"
+        sed -i "s/^#define MEASURE_DURATION_SEC[[:space:]].*/#define MEASURE_DURATION_SEC\t\t\t$DBX_MEASURE_DURATION_SEC/" "$DBX_CONFIG"
+        sed -i "s/^#define LOAD_UNUSED_TABLES[[:space:]].*/#define LOAD_UNUSED_TABLES\t\t\t$DBX_LOAD_UNUSED_TABLES/" "$DBX_CONFIG"
+        # Compile-time CPU ceiling must cover the guest this point boots; the
+        # saved configuration is restored by cleanup.
+        ae_set_paper_guest_cpu_config "$cfg_cpus"
         ae_build
 
         for bench in $BENCHS; do
             pattern="$(bench_done_pattern "$bench")"
-            logfile="$AE_LOG_DIR/${bench}_${cfg}_m${cfg_machines}.log"
-            point="${bench}-${cfg}-m${cfg_machines}"
+            # Logs and plot points are keyed by the panel, not by the number of
+            # guests: Private's m8 log is its 8-machine-equivalent baseline.
+            logfile="$AE_LOG_DIR/${bench}_${cfg}_m${cfg_size}.log"
+            point="${bench}-${cfg}-m${cfg_size}"
+            if point_is_skipped "$bench" "$cfg" "$cfg_size"; then
+                echo "=== [$cfg] SKIPPING $bench at the $cfg_size-machine panel (SKIP_POINTS) ==="
+                continue
+            fi
             # A targeted retry may reuse the same log directory.  Remove
             # this point before boot so a failed retry cannot be parsed as the
-            # prior run's successful measurement.
+            # prior run's successful measurement.  After the skip check, so a
+            # skipped point keeps whatever an earlier run measured for it.
             rm -f -- "$logfile"
-            echo "=== [$cfg] running $bench on $cfg_machines machine(s) (done pattern: '$pattern') ==="
+            echo "=== [$cfg] running $bench for the $cfg_size-machine panel on $cfg_machines machine(s) (done pattern: '$pattern') ==="
             if [ "$bench" = "dbx1000" ]; then
-                if ! AE_EXTRA_ENV="DRAM_SIZE=$DBX_DRAM_SIZE" ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
-                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                        "-boot-failed-${point}"
-                    continue
-                fi
-                ae_send_command 0 "write dbx1000_bind_cpu.txt $DBX_BIND_LIST"
-                sleep 2
-                ae_send_command 0 "rundb.bin"
+                boot_env="DRAM_SIZE=$DBX_DRAM_SIZE"
                 bench_timeout="$DBX_TIMEOUT"
-            elif [ "$bench" = "matrix_multiply" ]; then
-                # Do not source run_matrix_multiply.sh: it hardcodes the old
-                # 2-machine bind list (0-7,12-19 / -t 16).  Scale eight workers
-                # per machine for the multi-machine ablation; keep the original
-                # single-machine Private baseline (8 threads on CPUs 0-11).
-                if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
-                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                        "-boot-failed-${point}"
-                    continue
-                fi
-                if [ "$cfg_machines" -eq 1 ]; then
-                    ae_send_command 0 "write matrix_multiply_bind_cpu.txt 0-11"
-                    sleep 2
-                    ae_send_command 0 "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t 8"
-                else
-                    matrix_bind="$(worker_bind_cpu_list "$cfg_machines")"
-                    matrix_threads=$((MATRIX_THREADS_PER_MACHINE * cfg_machines))
-                    ae_send_command 0 "write matrix_multiply_bind_cpu.txt $matrix_bind"
-                    sleep 2
-                    ae_send_command 0 \
-                        "matrix_multiply.bin -l 2000 -r 2000 -c 0 -t $matrix_threads"
-                fi
-                bench_timeout="$TIMEOUT"
             else
-                if ! ae_boot_cluster "$cfg_machines" "$STATE_PARTITION_CPU_NUM"; then
-                    ae_record_error "boot failed for $bench under $cfg ($cfg_machines machines)"
-                    ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
-                        "-boot-failed-${point}"
-                    continue
-                fi
-                ae_send_command 0 "source run_${bench}.sh"
+                boot_env=""
                 bench_timeout="$TIMEOUT"
             fi
+            if ! AE_EXTRA_ENV="$boot_env" \
+                    ae_boot_cluster "$cfg_machines" "$cfg_cpus"; then
+                ae_record_error "boot failed for $bench under $cfg (${cfg_size}-machine panel)"
+                ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
+                    "-boot-failed-${point}"
+                continue
+            fi
+            # Every config at a given panel runs the same worker count on the
+            # same CPU pattern (WORKERS_PER_MACHINE per 12-vCPU segment) — for
+            # Private those segments are all inside its one wide guest.  See
+            # bench_command() for why the ramdisk run_<bench>.sh scripts are
+            # deliberately not sourced.
+            ae_send_command 0 \
+                "write $(bench_bind_file "$bench") $cfg_bind_list"
+            sleep 2
+            ae_send_command 0 "$(bench_command "$bench" "$cfg_workers")"
             if wait_for_bench \
                 "$bench" "$pattern" "$bench_timeout" "$bench done" "$cfg_machines"; then
                 sleep 3   # let trailing output (e.g. summary lines) flush
@@ -373,8 +506,8 @@ for cfg in $CONFIGS; do
                 cp "$(ae_machine_log 0)" "$logfile" || true
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
                     "-failed-${point}"
-                echo "[WARN] $bench under $cfg ($cfg_machines machines) did not complete; skipping to next test" >&2
-                ae_record_error "$bench under $cfg ($cfg_machines machines) did not produce a complete result"
+                echo "[WARN] $bench under $cfg (${cfg_size}-machine panel) did not complete; skipping to next test" >&2
+                ae_record_error "$bench under $cfg (${cfg_size}-machine panel) did not produce a complete result"
             fi
             ae_kill_cluster
         done
@@ -390,19 +523,16 @@ plot_args=(--log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR")
 plot_args+=(--machine-counts $MACHINE_COUNTS)
 for bench in $BENCHS; do
     for cfg in $CONFIGS; do
-        if [ "$cfg" = "All_DRAM" ]; then
-            plot_args+=(--require-point "$bench/$cfg/1")
-        else
-            for count in $MACHINE_COUNTS; do
-                plot_args+=(--require-point "$bench/$cfg/$count")
-            done
-        fi
+        for count in $MACHINE_COUNTS; do
+            point_is_skipped "$bench" "$cfg" "$count" && continue
+            plot_args+=(--require-point "$bench/$cfg/$count")
+        done
     done
 done
-if [ "$FULL_PLOT_REQUEST" != "1" ]; then
-    # BENCHS/CONFIGS are supported subset controls.  Partial mode relaxes only
-    # the other 24-point completeness checks; every requested Cartesian point
-    # remains mandatory through --require-point.
+if [ "$FULL_PLOT_REQUEST" != "1" ] || [ -n "$SKIP_POINTS" ]; then
+    # BENCHS/CONFIGS/SKIP_POINTS are supported subset controls.  Partial mode
+    # relaxes only the completeness check over unrequested points; every point
+    # this run actually attempted remains mandatory through --require-point.
     echo "[AE] subset run requested; plotting only the available points."
     plot_args+=(--allow-partial)
 fi

@@ -46,7 +46,7 @@ That is the same plot as submitted Fig. 13 — it is *not* about the IPC figure.
 
 | Ask | Figure | Where | Status |
 | --- | --- | --- | --- |
-| "only 2 machines … show at 4 and 8 machines" | **Fig. 13** (state partition) | Reviewer B, details list | `4-state-partition` defaults to `MACHINE_COUNTS="4 8"`; §8.3 text still says "across two machines" (`8-eval.tex:329`) |
+| "only 2 machines … show at 4 and 8 machines" | **Fig. 13** (state partition) | Reviewer B, details list | `4-state-partition` now defaults to `MACHINE_COUNTS="8"` — the measured figure is the 8-machine panel only; pass `MACHINE_COUNTS="4 8"` to also produce the 4-machine panel the reviewer asked for. §8.3 text still says "across two machines" (`8-eval.tex:329`) |
 | "report tail latency and saturation throughput per service queue" | Fig. 11(b) | Reviewer B, details list | `9-queue-saturation`; **no machine-count change was requested** — it stays a 2-machine client/service pair |
 | "why is remote IPC 24 µs / queueing so large" | Fig. 11(b) | Reviewer E | same experiment |
 | "workload that does not partition cleanly" | new | Reviewer B Q3 | `8-dbx1000-cross-warehouse` |

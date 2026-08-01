@@ -57,7 +57,7 @@ Requires tmux and the ivshmem shared memory device. The `Makefile` wraps the com
 make run            # (alias: make r) single instance: reset memdev then ./build/simulate.sh
 make run-2clusters  # (alias: make r2) 2-cluster run
 make run-4clusters  # (alias: make r4) 4-cluster run
-make r2-perf / r4-perf   # apply perf CPU config (dsm-scripts/setup/config.sh) then run
+make r2-perf / r4-perf   # apply perf CPU config (dsm-scripts/config.sh) then run
 make start-ivshmem-server / kill-ivshmem-server
 ```
 
@@ -73,7 +73,7 @@ Automated benchmark mode does **not** clean up after finishing (success, timeout
 
 ```bash
 tmux kill-session -t "$USER-qemu" 2>/dev/null || true   # kill tmux session (and QEMU in its panes)
-make kill-ivshmem-server                                # or ./dsm-scripts/setup/kill_ivshmem_server.sh
+make kill-ivshmem-server                                # or ./dsm-scripts/kill_ivshmem_server.sh
 # verify no leftover QEMU (tmux sometimes fails to reap):
 ps -eo pid,cmd | grep -E '[q]emu-6.2|[q]emu_wrapper'    # should be empty
 ```
@@ -133,7 +133,7 @@ Place new files as follows to keep the repository root clean:
 |------|----------|----------|
 | DSM/CXL analysis scripts (Python) | `dsm-scripts/analysis/` | `parse_vmspace_stats.py`, `analyze_cxl_growth.py` |
 | Benchmark automation scripts (Shell) | `dsm-scripts/bench/` | `run_gemini_sweep.sh`, `run_mm_sweep.sh` |
-| DSM environment setup scripts | `dsm-scripts/setup/` | `config_memdev.sh`, `start_ivshmem_server.sh` |
+| DSM environment setup scripts | `dsm-scripts/` (flat, no `setup/` subdir) | `config_memdev.sh`, `start_ivshmem_server.sh` |
 | Benchmark expect scripts | `dsm-scripts/tests/` | `leveldb.exp`, `phoenix/pca.exp` |
 | Generic build/format helpers | `scripts/` | `quick-build.sh`, `codecal.sh` |
 | Project docs / design guides | `docs/` | `01-design-overview.md`, `05-implementation-map.md` |

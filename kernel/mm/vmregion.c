@@ -231,7 +231,14 @@ static void del_vmr_from_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
     free_vmregion(vmr);
 }
 
-static int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
+/*
+ * Eagerly map a vmr whose backing memory is already known: the whole range at
+ * once, into the current machine's page table only.  Under
+ * MULTI_PAGETABLE_ENABLED that makes it a per-machine operation, so
+ * handle_trans_fault() calls it again when such a vmr is first touched on
+ * another machine.
+ */
+int fill_page_table(struct vmspace *vmspace, struct vmregion *vmr)
 {
     size_t pm_size;
     paddr_t pa;

@@ -7,6 +7,14 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # "TEMP": all on temp allocator (for debugging / bring-up)
 # "MIXED_DEFAULT_DRAM": mixed and default to DRAM
 # "MIXED_DEFAULT_CXL": mixed and default to CXL
+#
+# NOTE: these two are the placement that every experiment which does not set
+# its own inherits -- artifact-evaluation/{0-basic,1-ipc-cdf,
+# 2-sched-notify-latency,3-memory-allocator,7-recover-fs,9-queue-saturation}
+# all build against whatever is committed here, and nothing in those scripts
+# would report the difference.  Changing these values silently re-measures
+# paper Figure 11a/11b and the allocator figure.  Override per experiment with
+# ae_set_dsm_var (see 4-state-partition/run.sh) instead of editing this file.
 set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL

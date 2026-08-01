@@ -61,6 +61,24 @@ target_compile_definitions(${kernel_target}
 # target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)
 # target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)
 
+# Cumulative per-machine DSM page-fault accounting: how many pages a placement
+# configuration actually migrated, rather than how expensive one migration is
+# (that is PGFAULT_STATS_DEBUG).  Prints one "[DMS] m=..." line per machine at
+# most twice a second, from the fault path itself.
+#
+# Left off by default: the dump is a serial-console printk, which costs
+# milliseconds in QEMU, and 1-ipc-cdf / 9-queue-saturation measure IPC tail
+# latency -- a few millisecond stalls per second land squarely in p99.  Enable
+# it for placement studies (dsm-scripts/bench/run_state_partition_probe.sh,
+# parsed by dsm-scripts/analysis/parse_migrate_stats.py), not for figure runs.
+# target_compile_definitions(${kernel_target} PRIVATE DSM_MIGRATE_STATS)
+
+# Case 2.3 DSM page-migration read-ahead depth, in pages; 1 disables read-ahead.
+# Leave commented to use the in-source default (POLLING_TLB_BATCH_MAX).  This
+# does NOT change POLLING_TLB_BATCH_MAX, which is part of the kernel/polling
+# shared-memory ABI and must stay 32 on both sides.
+# target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=32)
+
 # Include directories
 target_include_directories(${kernel_target} PRIVATE include)
 target_include_directories(${kernel_target} PRIVATE include/arch/${CHCORE_ARCH})

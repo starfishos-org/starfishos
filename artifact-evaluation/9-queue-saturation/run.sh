@@ -21,7 +21,7 @@
 #   ./artifact-evaluation/9-queue-saturation/run.sh
 #
 # Env overrides:
-#   THREADS="1 2 4 6 8 10"   QUEUES="empty read"   REPEATS=3
+#   THREADS="1 2 4 6 8 10 12"   QUEUES="empty read"   REPEATS=3
 #   ITERS=20000   TIMEOUT=600   CLIENT_MODE_FLAGS="-d"  # local direct IPC
 set -euo pipefail
 
@@ -50,11 +50,14 @@ archive_current_logs() {
 }
 
 NUM_MACHINES=2
-# Small guest as in ipc-cdf: large CPU counts have triggered rr_sched budget
-# BUGs during boot, and the client spin-waits so THREADS must stay below the
-# per-guest vCPU count.
-QSAT_CPU_NUM="${QSAT_CPU_NUM:-${AE_MICROBENCH_GUEST_CPU_NUM:-12}}"
-THREADS="${THREADS:-1 2 4 6 8 10}"
+# The client spin-waits, so THREADS must stay strictly below the per-guest vCPU
+# count -- these two defaults move together, and plot.py's DEFAULT_THREADS with
+# them.  32 vCPUs / 1..12 client threads is what the camera-ready sweep used
+# (out/qsat32_*_20260730); the ipc-cdf-sized 12-vCPU guest cannot reach 12
+# threads.  Large CPU counts have triggered rr_sched budget BUGs during boot,
+# so raise this only as far as a sweep actually needs.
+QSAT_CPU_NUM="${QSAT_CPU_NUM:-${AE_MICROBENCH_GUEST_CPU_NUM:-32}}"
+THREADS="${THREADS:-1 2 4 6 8 10 12}"
 QUEUES="${QUEUES:-empty read}"
 ITERS="${ITERS:-20000}"
 REPEATS="${REPEATS:-3}"
@@ -99,6 +102,13 @@ fi
 if ! [[ "$REPEATS" =~ ^[1-9][0-9]*$ ]]; then
     echo "REPEATS must be a positive integer: $REPEATS" >&2
     exit 1
+fi
+if [ "$REPEATS" -lt 3 ]; then
+    # Say it up front rather than after the sweep: plot.py trims the lowest
+    # and highest trial per point, which needs three, and falls back to a
+    # plain mean below that.  Fine for a debug run, not what the paper reports.
+    echo "[AE] REPEATS=$REPEATS (< 3): outlier trimming is disabled;" \
+         "saturation.csv will hold plain means." >&2
 fi
 if ! [[ "$PLATEAU_THRESHOLD_PCT" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
     echo "PLATEAU_THRESHOLD_PCT must be a non-negative number: $PLATEAU_THRESHOLD_PCT" >&2

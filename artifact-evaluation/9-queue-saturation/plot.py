@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse the queue-saturation sweep and plot tail latency vs throughput.
+"""Parse the queue-saturation sweep and plot throughput vs client threads.
 
 Camera-ready revision plan (Reviewer B on paper Figure 11b): tail latency
 and saturation throughput per service queue.
@@ -10,10 +10,9 @@ Inputs (in --log-dir, produced by run.sh):
 
 Outputs:
   csv/trials.csv               one row per raw repeat
-  csv/saturation.csv           per-(queue, threads) medians
+  csv/saturation.csv           per-(queue, threads) trimmed means
   csv/queue_summary.csv        saturation status and peak per queue
-  figures/queue_saturation.png two panels: throughput vs offered load, and
-                               p99 latency vs achieved throughput
+  figures/queue_saturation.png throughput vs client threads
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ import argparse
 import csv
 import re
 from pathlib import Path
-from statistics import median
+from statistics import mean
 
 import matplotlib
 
@@ -31,14 +30,22 @@ import matplotlib.pyplot as plt
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 DEFAULT_QUEUES = ["empty", "read"]
-DEFAULT_THREADS = [1, 2, 4, 6, 8, 10]
+# Must stay in step with run.sh's THREADS default, and run.sh rejects any entry
+# >= its guest vCPU count -- so this list and QSAT_CPU_NUM move together.  The
+# camera-ready sweep is 1..12 client threads on a 32-vCPU guest
+# (out/qsat32_*_20260730); naming a thread count run.sh will not produce makes
+# every standalone replot fail as "incomplete".
+DEFAULT_THREADS = [1, 2, 4, 6, 8, 10, 12]
 DEFAULT_PLATEAU_THRESHOLD_PCT = 5.0
+# Y-axis floor, so a run whose numbers land under the submitted figure's range
+# still renders at the submitted scale.  Not a ceiling -- see plot().
+PAPER_YMAX = 850.0
 
 QUEUE_LABEL = {
-    "empty": "No-op service queue",
-    "read": "FS read (4KiB) service queue",
+    "empty": "Empty IPC",
+    "read": "Read 4KiB",
 }
-QUEUE_COLOR = {"empty": "#1f77b4", "read": "#d62728"}
+QUEUE_COLOR = {"empty": "#1f77b4", "read": "#2ca02c"}
 QUEUE_MARKER = {"empty": "o", "read": "s"}
 
 MODE_RE = re.compile(r"^sat_([a-z]+)_t(\d+)(?:_r(\d+))?$")
@@ -234,10 +241,71 @@ def write_queue_summary(path: Path, summaries: dict[str, dict[str, object]]) -> 
             writer.writerow({"queue": queue, **summary})
 
 
-def plot(fig_dir: Path, queues: list[str], series, summaries) -> None:
+def aggregate_trials(
+    grouped: dict[tuple[str, int], list[dict[str, object]]],
+    queues: list[str],
+) -> tuple[list[dict[str, object]], dict[str, list[dict[str, object]]]]:
+    """Drop the lowest/highest-throughput trial, then average the rest.
+
+    With fewer than three trials there is nothing left after trimming, so the
+    plain mean of every trial is used instead and the row says so
+    (kept_repeats == repeats, empty dropped_*_kops).  A thin run is a debug
+    run, not a reason to throw away a sweep that already took hours; the
+    paper's REPEATS=3 is what actually gets trimmed.
+    """
+    rows: list[dict[str, object]] = []
+    series: dict[str, list[dict[str, object]]] = {queue: [] for queue in queues}
+    metric_fields = [
+        "wall_s", "kops", "p50_us", "p75_us", "p90_us", "p99_us", "max_us"
+    ]
+
+    for (queue, threads), trials in sorted(grouped.items()):
+        if queue not in series:
+            # parse_points may see queues the caller did not ask about.
+            continue
+        ordered = sorted(trials, key=lambda trial: float(trial["kops"]))
+        if len(ordered) >= 3:
+            kept = ordered[1:-1]
+            dropped_low = round(float(ordered[0]["kops"]), 3)
+            dropped_high = round(float(ordered[-1]["kops"]), 3)
+        else:
+            print(f"[WARN] {queue} at {threads} threads has {len(ordered)} "
+                  "trial(s); averaging all of them without dropping outliers "
+                  "(REPEATS=3 or more is what the paper reports)")
+            kept = ordered
+            dropped_low = dropped_high = ""
+        row: dict[str, object] = {
+            "queue": queue,
+            "threads": threads,
+            "repeats": len(trials),
+            "kept_repeats": len(kept),
+            "dropped_low_kops": dropped_low,
+            "dropped_high_kops": dropped_high,
+            "total_ops": int(round(mean(int(t["total_ops"]) for t in kept))),
+        }
+        for field in metric_fields:
+            precision = 6 if field == "wall_s" else 3
+            row[field] = round(mean(float(t[field]) for t in kept), precision)
+        rows.append(row)
+        series[queue].append(row)
+
+    return rows, series
+
+
+def plot(fig_dir: Path, queues: list[str], series, _summaries) -> None:
     fig_dir.mkdir(parents=True, exist_ok=True)
     plt.rcdefaults()
-    fig, (ax_tput, ax_tail) = plt.subplots(1, 2, figsize=(9.6, 3.8))
+    # Match p3os-paper/eval/ipc_cdf/plot_queue_saturation_1_10.py.
+    plt.rcParams.update(
+        {
+            "font.size": 14,
+            "axes.labelsize": 15,
+            "xtick.labelsize": 13,
+            "ytick.labelsize": 13,
+            "legend.fontsize": 14,
+        }
+    )
+    fig, ax_tput = plt.subplots(figsize=(3.7, 3.15))
 
     for queue in queues:
         rows = series[queue]
@@ -245,44 +313,31 @@ def plot(fig_dir: Path, queues: list[str], series, summaries) -> None:
             continue
         threads = [r["threads"] for r in rows]
         kops = [r["kops"] for r in rows]
-        p99 = [r["p99_us"] for r in rows]
         label = QUEUE_LABEL.get(queue, queue)
         color = QUEUE_COLOR.get(queue, None)
         marker = QUEUE_MARKER.get(queue, "o")
         ax_tput.plot(threads, kops, marker=marker, color=color,
                      linewidth=2, markersize=6, label=label)
-        ax_tail.plot(kops, p99, marker=marker, color=color,
-                     linewidth=2, markersize=6, label=label)
-        summary = summaries[queue]
-        peak = max(rows, key=lambda r: r["kops"])
-        saturated = summary["status"] == "saturated"
-        annotation = (f"sat. {peak['kops']:.0f} kops/s" if saturated
-                      else f"peak ≥ {peak['kops']:.0f} kops/s\n(no plateau)")
-        ax_tput.annotate(
-            annotation,
-            (peak["threads"], peak["kops"]),
-            textcoords="offset points", xytext=(0, 8),
-            ha="center", fontsize=10, color=color,
-        )
 
     ax_tput.set_xlabel("Client threads")
     ax_tput.set_ylabel("Throughput (kops/s)")
-    ax_tput.set_title("Throughput scaling", fontsize=12)
     all_threads = sorted({r["threads"] for q in queues for r in series[q]})
     if all_threads:
         ax_tput.set_xticks(all_threads)
-    ax_tput.set_ylim(bottom=0)
-    ax_tail.set_xlabel("Throughput (kops/s)")
-    ax_tail.set_ylabel("P99 latency (µs)")
-    ax_tail.set_title("Tail latency vs throughput", fontsize=12)
-    ax_tail.set_ylim(bottom=0)
-    for ax in (ax_tput, ax_tail):
-        ax.grid(True, linestyle=":", alpha=0.7)
-        ax.set_axisbelow(True)
-    handles, labels = ax_tput.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False,
-               fontsize=11, bbox_to_anchor=(0.5, 1.06))
-    fig.tight_layout()
+    # Size the axis from the data.  A fixed limit (this was 850, matching one
+    # particular measurement of the empty queue) silently clips the curve flat
+    # the moment a faster placement or a longer thread axis exceeds it, which
+    # hides exactly the saturation knee the figure exists to show.  PAPER_YMAX
+    # keeps the submitted look when the data fits under it.
+    all_kops = [r["kops"] for q in queues for r in series[q]]
+    ax_tput.set_ylim(0, max([PAPER_YMAX] + [k * 1.08 for k in all_kops]))
+    ax_tput.grid(True, alpha=0.28, linewidth=0.7)
+    ax_tput.set_axisbelow(True)
+    ax_tput.legend(
+        loc="upper right", frameon=False, fontsize=10, handlelength=1.6,
+        handletextpad=0.45, labelspacing=0.25, borderaxespad=0.3,
+    )
+    fig.subplots_adjust(left=0.19, right=0.985, top=0.98, bottom=0.19)
 
     out = fig_dir / "queue_saturation.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
@@ -364,24 +419,7 @@ def main() -> None:
         trial_rows.append(row)
         grouped.setdefault((queue, threads), []).append(row)
 
-    rows = []
-    metric_fields = [
-        "wall_s", "kops", "p50_us", "p75_us", "p90_us", "p99_us", "max_us"
-    ]
-    for (queue, threads), trials in sorted(grouped.items()):
-        row: dict[str, object] = {
-            "queue": queue,
-            "threads": threads,
-            "repeats": len(trials),
-            "total_ops": int(median(int(t["total_ops"]) for t in trials)),
-        }
-        for field in metric_fields:
-            precision = 6 if field == "wall_s" else 3
-            row[field] = round(
-                median(float(t[field]) for t in trials), precision
-            )
-        rows.append(row)
-        series[queue].append(row)
+    rows, series = aggregate_trials(grouped, args.queues)
 
     args.csv_dir.mkdir(parents=True, exist_ok=True)
     value_fields = [
@@ -394,7 +432,10 @@ def main() -> None:
     )
     write_csv(
         args.csv_dir / "saturation.csv", rows,
-        ["queue", "threads", "repeats", *value_fields],
+        [
+            "queue", "threads", "repeats", "kept_repeats",
+            "dropped_low_kops", "dropped_high_kops", *value_fields,
+        ],
     )
 
     summaries = {}

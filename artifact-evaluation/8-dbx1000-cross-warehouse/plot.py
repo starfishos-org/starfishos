@@ -17,12 +17,20 @@ import numpy as np
 
 PAGE_KB = 4
 PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
+# DBx1000 prints the aggregate as "%.2f", which quantizes the one-machine
+# baseline (~0.18) to two significant digits and reports a zero standard
+# deviation for any three boots that agree. Recompute from the per-thread
+# counters, which carry enough digits, and keep the aggregate as a fallback.
+PAT_THREAD = re.compile(
+    r"\[tid=\d+\] txn_cnt=(\d+),abort_cnt=\d+ run_time=([\d.eE+-]+)"
+)
 PAT_BIND = re.compile(r"bind (\d+) cpu:\s*([0-9 ]+)")
 PAT_INIT = re.compile(
     r"TPCC init: g_thread_cnt=(\d+), g_num_wh=(\d+), "
     r"transaction_cross_warehouse_mode=(\d+), "
     r"cross_warehouse_txn_pct=(\d+), warmup=(\d+), "
-    r"max_txn_per_part=(\d+), load_unused_tables=(\d+)"
+    r"max_txn_per_part=(\d+), load_unused_tables=(\d+), "
+    r"measure_duration_sec=(\d+)"
 )
 PAT_PROC = re.compile(r"\[VMSPACE MEMORY\] Process: (\S+)")
 PAT_CXL = re.compile(r"\[VMSPACE MEMORY\] CXL \(shared\): (\d+) pages")
@@ -42,9 +50,32 @@ def log_path(log_dir: Path, machine: int, machines: int, ratio: int, rep: int):
     return log_dir / f"machine{machine}_m{machines}_r{ratio}_rep{rep}.log"
 
 
-def parse_log(path: Path):
+def parse_log(path: Path, expected_threads: int | None = None):
     text = path.read_text(errors="replace")
-    throughputs = [float(value) for value in PAT_THP.findall(text)]
+    threads = [(int(txn), float(window)) for txn, window in PAT_THREAD.findall(text)]
+    # Keep only the final Stats::print() block, the same way every other
+    # parser here takes [-1]: a log that somehow holds two runs (a retry, an
+    # appended tmux capture) would otherwise have its throughput summed across
+    # both.  Without an expected count, fall back to the whole text.
+    if expected_threads and len(threads) >= expected_threads:
+        threads = threads[-expected_threads:]
+    if expected_threads and len(threads) != expected_threads:
+        raise DataError(
+            f"expected {expected_threads} per-thread stat lines in {path}, "
+            f"found {len(threads)} (truncated log?)"
+        )
+    if threads:
+        # Same formula as DBx1000's own aggregate (system/stats.cpp): total
+        # committed txns over the mean per-worker run_time.
+        mean_window = statistics.mean(window for _, window in threads)
+        throughput = (
+            sum(txn for txn, _ in threads) / mean_window / 1e6
+            if mean_window > 0
+            else None
+        )
+    else:
+        aggregate = PAT_THP.findall(text)
+        throughput = float(aggregate[-1]) if aggregate else None
     blocks = []
     current = None
     process = None
@@ -62,7 +93,7 @@ def parse_log(path: Path):
         if match and current is not None:
             current["dram"][int(match.group(1))] = int(match.group(2))
     rundb = [block for block in blocks if "rundb" in (block["process"] or "")]
-    return text, (throughputs[-1] if throughputs else None), (rundb[-1] if rundb else None)
+    return text, throughput, (rundb[-1] if rundb else None)
 
 
 def validate_point(
@@ -76,6 +107,7 @@ def validate_point(
     warmup: int,
     max_txn: int,
     cluster_machines: int,
+    measure_sec: int,
 ):
     primary_text = None
     for machine in range(machines):
@@ -101,6 +133,7 @@ def validate_point(
         warmup,
         max_txn,
         0,
+        measure_sec,
     )
     if not init or init[-1] != expected:
         raise DataError(f"wrong DBx1000 config in {primary}: expected={expected}, found={init[-1] if init else None}")
@@ -127,7 +160,7 @@ def validate_point(
     ):
         raise DataError(f"rundb did not return to the shell: {primary}")
 
-    _, throughput, block = parse_log(primary)
+    _, throughput, block = parse_log(primary, machines * threads_per_machine)
     if throughput is None or not math.isfinite(throughput) or throughput <= 0:
         raise DataError(f"invalid throughput in {primary}: {throughput}")
     if block is None or set(block["dram"]) != set(range(machines)):
@@ -160,12 +193,12 @@ def collect(args):
             cluster = validate_point(
                 args.log_dir, args.num_machines, ratio, rep,
                 args.num_warehouses, args.threads_per_machine, args.guest_cpus, args.warmup,
-                args.max_txn, args.num_machines,
+                args.max_txn, args.num_machines, args.measure_sec,
             )
             baseline = validate_point(
                 args.log_dir, 1, ratio, rep, warehouses_per_machine,
                 args.threads_per_machine, args.guest_cpus, warmup_per_machine, args.max_txn,
-                args.num_machines,
+                args.num_machines, args.measure_sec,
             )
             cluster_thp.append(cluster[0])
             baseline_thp.append(baseline[0])
@@ -265,6 +298,7 @@ def main():
     parser.add_argument("--guest-cpus", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=7040000)
     parser.add_argument("--max-txn", type=int, default=10000)
+    parser.add_argument("--measure-sec", type=int, default=0)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--ratios", nargs="+", type=int, default=[15, 50, 80])
     args = parser.parse_args()

@@ -5,7 +5,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AE_DIR="$REPO_ROOT/artifact-evaluation/3-memory-allocator"
 NRUNS="${NRUNS:-1}"
 RUN_OFFSET="${RUN_OFFSET:-0}"
-USER_BENCH_THREADS="${USER_BENCH_THREADS:-1 2 4 8 16 32 64 96}"
+# The paper figure's user-malloc x axis.  plot.py hardcodes the same list and
+# rejects a dataset that misses any of it, so a thinned sweep must tell the
+# plotter that it is a subset (see PAPER_USER_BENCH_THREADS below).
+PAPER_USER_BENCH_THREADS="1 2 4 8 16 32 64 96"
+USER_BENCH_THREADS="${USER_BENCH_THREADS:-$PAPER_USER_BENCH_THREADS}"
 CPU_NUM="${CPU_NUM:-96}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
 PROJECT_INI="$REPO_ROOT/chcore.ini"
@@ -111,6 +115,15 @@ for entry in "LLFree+CR:llfree_cr_on" "LLFree:llfree_cr_off" "Buddy:buddy_cr_off
 done
 
 echo "=== Drawing allocator-all figure ==="
+plot_args=(--csv "$CSV_FILE" --fig-dir "$FIG_DIR")
+# USER_BENCH_THREADS is a supported scope control.  Thinning it cannot satisfy
+# plot.py's full-dataset contract, so relax the completeness check for the
+# points this run deliberately did not measure; parse and rendering failures
+# still propagate.
+if [ "$(echo $USER_BENCH_THREADS)" != "$PAPER_USER_BENCH_THREADS" ]; then
+    echo "[AE] thinned USER_BENCH_THREADS; plotting only the available points."
+    plot_args+=(--allow-partial)
+fi
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-$USER}" \
-    python3 "$AE_DIR/plot.py" --csv "$CSV_FILE" --fig-dir "$FIG_DIR"
+    python3 "$AE_DIR/plot.py" "${plot_args[@]}"
 echo "Artifact output: $OUT_DIR"

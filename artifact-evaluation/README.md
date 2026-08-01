@@ -202,11 +202,133 @@ Placement blocks are appended automatically whenever a cluster boots, so this
 applies to every experiment. Runs produced before this mechanism existed have
 no `config/` directory and cannot be attributed to a placement after the fact.
 
+### Runtime and the default fast profile
+
+**The per-experiment budgets are timeouts, not estimates.** They are deliberately
+generous so a slow-but-healthy run is never killed; a run that actually hits one
+has hung. Do not plan a session around the budget column — plan around the
+measured column, which comes from the timestamps of past runs in `out/`:
+
+| Experiment | Paper figure | measured (`--full` scope) | budget (timeout) |
+| --- | --- | ---: | ---: |
+| 1-ipc-cdf | Figure 11 | *no data* | 3 h |
+| 3-memory-allocator | Figure 12 | *no data* | 8 h |
+| 4-state-partition | Figure 13 | **0.85 h** (8-machine panel, 24 points) | 4 h |
+| 5-auto-scale | Figure 14 | **7.9 h** (incl. Tigon + footprint) | 18 h |
+| 6-resource-util | Figure 15 | *never run end to end* | 12 h |
+| 7-recover-fs | Figure 16 | *no data* | 3 h |
+| 8-dbx1000-cross-warehouse | camera-ready | **1.3 h** (3 ratios × 3 reps) | 6 h |
+| 9-queue-saturation | camera-ready | **0.15 h** (6 thread points × 2 queues) | 3 h |
+
+Where measurements exist the budget is 2–15× the real time, and 5-auto-scale is
+the only experiment that is genuinely long — most of its 7.9 h is the Tigon
+baseline's mkosi image build and eight-VM environment. **A complete `--full` run
+of all eight figures is expected to take well under a day**, not the ~77 h the
+budgets sum to.
+
+Four experiments have no timing data because they have never been run through
+this harness; 6-resource-util additionally carries a `NOT YET VALIDATED AGAINST
+A LIVE RUN` caveat in its own `run.sh`. Their budgets are guesses. Treat a first
+run of those as unmeasured, and expect to debug rather than to reproduce.
+
+Per-point costs behind the measured numbers, useful for sizing a subset:
+
+- 4-state-partition: **~2.5 min per (benchmark, placement, panel) point**, very
+  stable across six historical runs (0.034–0.043 h/point).
+- 8-dbx1000-cross-warehouse: **~0.44 h per ratio** at 3 repetitions, linear in
+  the ratio count (3 ratios → 1.33 h, 5 ratios → 2.22 h).
+
+Most of the time is QEMU boot and benchmark execution, not compilation: the
+experiments already batch builds behind their sweeps. 6-resource-util builds
+**once** for all 36 points; 4-state-partition builds once per (placement, panel)
+and then runs all six benchmarks on that image; 5-auto-scale hoists the build
+out of its machine-count loop for matrix and gemini. The exception is DBx1000,
+whose `NUM_MACHINES`/`NUM_WH`/`WARMUP` are compile-time constants that must match
+the cluster being booted, so it rebuilds per machine count by necessity.
+
+Under the fast profile the same measured scopes drop to roughly: 8-dbx1000
+**~0.7 h** (extrapolated to 1 repetition), 5-auto-scale several hours less once
+Tigon is skipped. 4-state-partition is unaffected — it already measures only
+the 8-machine panel (0.85 h, measured); the two-panel sweep it used to run took
+1.6 h.
+
+The fast profile is on by default and applies two levers: one measurement per
+point instead of three where a repeat knob exists, and a thinned sweep axis
+that drops points adjacent to ones it keeps. Every value it sets is a
+documented scope control of the experiment's own `run.sh`, which validates it
+and switches its plotter to `--allow-partial` by itself:
+
+| Experiment | Fast-profile overrides |
+| --- | --- |
+| 3-memory-allocator | `USER_BENCH_THREADS="1 4 16 64 96"` (from 8 points) |
+| 5-auto-scale | `MACHINES="1 2 4 8"` (drops 6), `RUN_FOOTPRINT=0` |
+| 8-dbx1000-cross-warehouse | `DBX_REPETITIONS=1` (from 3) |
+| 9-queue-saturation | `THREADS="1 2 4 8 10"` (drops 6) |
+
+4-state-partition has no fast-profile override: Figure 13 is the 8-machine
+panel only, so its `run.sh` defaults to `MACHINE_COUNTS="8"` under `--full`
+too. Pass `MACHINE_COUNTS="4 8"` to also measure the 4-machine panel.
+
+**Known failure — `dbx1000/All_DRAM/8`.** A Private (All_DRAM) guest gets one
+16 GiB DRAM device regardless of `DBX_DRAM_SIZE`: kernel-local DRAM comes from
+`dsm-scripts/numa_sizes.conf`, not from QEMU's `-m`. The 8-machine panel's 64
+warehouses therefore OOM during the TPC-C load and fail the plot step through
+`--require-point`. The point aborts in about 208 s rather than burning
+`DBX_TIMEOUT`: its `BUG: handle_trans_fault` matches `AE_ERROR_PATTERN`, so
+`ae_wait_in_log` stops waiting as soon as it appears. This point is left
+failing on purpose rather than hidden with `SKIP_POINTS`, because skipping it
+also removes the Private baseline that every other placement in that panel is
+normalized against — which would quietly drop DBx1000 from Figure 13 instead of
+reporting a problem. The OOM is being fixed. To suppress it in the meantime:
+
+```bash
+SKIP_POINTS=dbx1000/All_DRAM/8 ./artifact-evaluation/run-all.sh
+```
+- **Table 4 (memory footprint) is not produced** — `RUN_FOOTPRINT=0`. This
+  costs no figure.
+- **9-queue-saturation keeps `REPEATS=3`.** Its `plot.py` drops the lowest and
+  highest trial per point and fails below three, so only its thread axis is
+  thinned.
+
+The Tigon baseline is **kept** in fast mode — the measured runtimes above show
+there is room for it — but it is scheduled as late as possible, twice over:
+
+- `run_baselines.py` always executes `linux` → `matrix-tcp` → `tigon`, in that
+  fixed order, regardless of how `BASELINE_STAGES` is spelled. Within
+  5-auto-scale the Tigon stage also comes after the StarfishOS sweep and the
+  footprint pass.
+- 5-auto-scale is the **last** entry in the default run set, so every other
+  figure is measured and plotted before any Tigon VM starts.
+
+This matters because the Tigon stage builds an mkosi image and brings up an
+eight-VM CXL-pod environment, changing host VM, network, mount and CPU state.
+If it fails or wedges the host, the other seven figures are already on disk.
+To skip it anyway — for a quick end-to-end check, or on a host where the
+eight-VM environment is unavailable — drop the stage explicitly:
+
+```bash
+BASELINE_STAGES=linux,matrix-tcp ./artifact-evaluation/run-all.sh
+```
+
+Figure 14 then has no Tigon curve, but keeps the Linux Ideal and Distributed
+baselines, and no restricted-sudo Tigon helper is needed.
+
+Any override already set in the environment wins over the fast profile, so a
+single axis can be widened without leaving it:
+
+```bash
+MACHINES="1 2 4 6 8" ./artifact-evaluation/run-all.sh
+```
+
+To reproduce the paper's numbers as published — full sweeps, error bars, and
+Table 4 — use `--full`.
+
 ### CLI options
 
 | Option | Effect |
 | --- | --- |
-| *(default)* | Run the ready set: ipc-cdf, queue-saturation, sched-notify, memory-allocator, state-partition, auto-scale, resource-util, recover-fs, dbx1000-cross-warehouse |
+| *(default)* | Run the ready set, in order: ipc-cdf, queue-saturation, memory-allocator, state-partition, resource-util, recover-fs, dbx1000-cross-warehouse, auto-scale (only experiments that produce a paper figure; excludes 0-basic and 2-sched-notify, which are setup/text-only), under the **fast profile** below. auto-scale is last because it is the only one that starts Tigon. |
+| `--full` | Disable the fast profile and run the paper's complete sweeps. Equivalent to `AE_FULL=1`. See the measured-runtime table above — the difference is hours, not the days the timeout budgets suggest. |
 | `--run-subset-of-tests N[,N...]` | Run only numbered experiments (comma-separated; spaces trimmed). See table below. |
 | `--clean` | Remove `artifact-evaluation/*/out/` and legacy flat `logs/`, `csv/`, `figures/` under each experiment. Alone: clean and exit. With a run or `--plot-only`: clean first, then continue. |
 | `--plot-only` | Re-plot from the latest `out/<timestamp>/` without re-running QEMU |
@@ -221,6 +343,7 @@ Examples:
 ```bash
 python3 artifact-evaluation/run_all.py --list
 python3 artifact-evaluation/run_all.py --clean
+python3 artifact-evaluation/run_all.py --full
 python3 artifact-evaluation/run_all.py --run-subset-of-tests 1,4,7
 python3 artifact-evaluation/run_all.py --no-prepare --no-build --run-subset-of-tests 1
 python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
@@ -258,7 +381,7 @@ figure.
 | 1 | 1-ipc-cdf | `ipc_cdf`, `ipc_read_breakdown` | Figure 11 | ipc-cdf |
 | 2 | 2-sched-notify-latency | `sched_notify_latency` | Section 8.2 (text) | sched-notify |
 | 3 | 3-memory-allocator | `allocator-all` | Figure 12 | memory-allocator |
-| 4 | 4-state-partition | `state_partition` | Figure 13 (camera-ready: 4- and 8-machine panels) | state-partition |
+| 4 | 4-state-partition | `state_partition` | Figure 13 (camera-ready: 8-machine panel) | state-partition |
 | 5 | 5-auto-scale | `auto-scale-matrix`, `db1000`, `gemini-chcore`, `auto-scale-legend` | Figure 14 | auto-scale |
 | 6 | 6-resource-util | `real` | Figure 15 | resource-util |
 | 7 | 7-recover-fs | `recovery-performance-single` | Figure 16 | recover-fs |
