@@ -76,3 +76,6 @@ artifact-evaluation/*/out/
 artifact-evaluation/5-auto-scale/linux-build/
 artifact-evaluation/2-sched-notify-latency/linux-results/
 
+
+# Audit reports: point-in-time internal reviews, kept local and not tracked
+docs/*-audit-*.md
