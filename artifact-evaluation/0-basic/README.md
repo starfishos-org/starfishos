@@ -29,7 +29,7 @@ Each run creates `artifact-evaluation/0-basic/out/<timestamp>/`:
 ## Re-plot MSI
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 0
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 0
 ```
 
 Or point `parse_msi.py` at a specific run:
@@ -46,7 +46,7 @@ Host-side DRAM/CXL bandwidth for the evaluation setup table.
 
 ```bash
 ./artifact-evaluation/0-basic/run_mlc.sh
-# or: python3 artifact-evaluation/run_all.py --run-subset-of-tests 0
+# or: ./artifact-evaluation/run-all.sh --run-subset-of-tests 0
 ```
 
 Set `MLC_BIN` if `mlc` is not on `PATH`. Missing MLC is skipped by default

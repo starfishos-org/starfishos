@@ -1,8 +1,8 @@
 # test-on-linux
 
 Linux (bare-metal) baselines used by the paper's **Ideal** and **Distributed**
-curves. Ports mirror `chcore-cxl/test-on-linux/`; each entry is a git submodule
-on the Linux-side branch (distinct from the ChCore ports under `user/demos/`).
+curves. Each entry is a public git submodule containing the Linux-side port,
+separate from the StarfishOS application ports under `user/demos/`.
 
 ## Init
 

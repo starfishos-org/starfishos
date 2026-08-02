@@ -128,14 +128,9 @@ validate_scope_list CONFIGS "$CONFIGS" \
 
 # Points that are known not to be measurable on this host and are deliberately
 # left blank in the figure.  Format: BENCH/CONFIG/MACHINES, space separated.
-# The standing example is dbx1000/All_DRAM/8: the 8-machine panel's 64
-# warehouses do not fit in one machine's 16 GiB of local DRAM (see the
-# DBX_DRAM_SIZE note below), so the point OOMs during the TPC-C load.  It does
-# NOT burn DBX_TIMEOUT: the OOM path prints "BUG: handle_trans_fault", which
-# matches AE_ERROR_PATTERN, so ae_wait_in_log aborts the point early (measured
-# at ~208 s).  Skipping keeps it out of --require-point, but it also removes
-# the Private baseline that panel normalizes against, which silently drops
-# DBx1000 from the figure — prefer fixing the OOM over skipping.
+# There are no default skips.  Skipping a Private point also removes the
+# baseline that benchmark normalizes against, so use this only for deliberate
+# subset/debug runs.
 SKIP_POINTS="${SKIP_POINTS:-}"
 for entry in $SKIP_POINTS; do
     IFS=/ read -r skip_bench skip_cfg skip_count <<< "$entry"
@@ -212,12 +207,15 @@ DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
 # point take an hour to report.
 DBX_TIMEOUT="${DBX_TIMEOUT:-480}"
 DBX_DRAM_SIZE="${DBX_DRAM_SIZE:-24G}"
+DBX_PRIVATE_DRAM_DEVICE="${DBX_PRIVATE_DRAM_DEVICE:-/dev/shm/numa0.0-$USER}"
+DBX_PRIVATE_DRAM_SIZE="${DBX_PRIVATE_DRAM_SIZE:-32G}"
 # NOTE: DBX_DRAM_SIZE sets QEMU's -m and the dram_size bootarg, but it does
 # NOT size the kernel's local DRAM pool.  Each machine's DRAM is exactly one
 # ivshmem device -- dsm_metadata.c takes dram_devices_map[CUR_MACHINE_ID],
 # whose size comes from dsm-scripts/numa_sizes.conf (16 GiB per device today).
-# So a Private guest has 16 GiB of local DRAM no matter what is passed here,
-# which is why it cannot hold a panel's whole TPC-C database on its own.
+# The 8-machine-equivalent Private DBx1000 point temporarily expands machine
+# 0's backing file to DBX_PRIVATE_DRAM_SIZE, then restores its original size as
+# soon as that one point stops.  Changing DBX_DRAM_SIZE alone does not do this.
 # TPC-C setup follows the paper (and 8-dbx1000-cross-warehouse).  The warmup
 # matters for state placement: with a short warmup the measured interval is
 # dominated by the one-time first-touch DRAM->CXL page migration, which made
@@ -299,6 +297,102 @@ dbx_warehouses() {
     fi
 }
 
+# Convert the integer binary sizes accepted by QEMU/coreutils (for example,
+# 32G or 34359738368) into bytes.  ivshmem BAR sizes must be powers of two, so
+# the temporary size is validated before the backing file is touched.
+binary_size_to_bytes() {
+    local raw="$1" number multiplier=1
+    case "$raw" in
+        *[Kk]) number="${raw%?}"; multiplier=$((1024)) ;;
+        *[Mm]) number="${raw%?}"; multiplier=$((1024 * 1024)) ;;
+        *[Gg]) number="${raw%?}"; multiplier=$((1024 * 1024 * 1024)) ;;
+        *)     number="$raw" ;;
+    esac
+    if ! [[ "$number" =~ ^[1-9][0-9]*$ ]]; then
+        echo "[AE] invalid binary size: $raw" >&2
+        return 1
+    fi
+    echo "$((number * multiplier))"
+}
+
+PRIVATE_DRAM_RESIZE_ACTIVE=0
+PRIVATE_DRAM_ORIGINAL_SIZE_BYTES=""
+
+expand_private_dram_for_dbx_m8() {
+    local target_bytes current_bytes owner
+
+    if [ "$PRIVATE_DRAM_RESIZE_ACTIVE" = "1" ]; then
+        echo "[AE] Private DRAM resize is already active" >&2
+        return 1
+    fi
+    if [ -L "$DBX_PRIVATE_DRAM_DEVICE" ] || [ ! -f "$DBX_PRIVATE_DRAM_DEVICE" ]; then
+        echo "[AE] invalid Private DRAM backing file: $DBX_PRIVATE_DRAM_DEVICE" >&2
+        return 1
+    fi
+    owner="$(stat -Lc '%u' -- "$DBX_PRIVATE_DRAM_DEVICE" 2>/dev/null || true)"
+    if [ "$owner" != "$UID" ]; then
+        echo "[AE] refusing Private DRAM backing file not owned by uid $UID: $DBX_PRIVATE_DRAM_DEVICE" >&2
+        return 1
+    fi
+    if ae_has_chcore_qemu; then
+        echo "[AE] refusing to resize Private DRAM while a ChCore QEMU is running" >&2
+        return 1
+    fi
+    target_bytes="$(binary_size_to_bytes "$DBX_PRIVATE_DRAM_SIZE")" || return 1
+    if (( (target_bytes & (target_bytes - 1)) != 0 )); then
+        echo "[AE] DBX_PRIVATE_DRAM_SIZE must be a power of two: $DBX_PRIVATE_DRAM_SIZE" >&2
+        return 1
+    fi
+    current_bytes="$(stat -Lc '%s' -- "$DBX_PRIVATE_DRAM_DEVICE")" || return 1
+    if [ "$target_bytes" -lt "$current_bytes" ]; then
+        echo "[AE] refusing to shrink Private DRAM for DBx1000: $current_bytes -> $target_bytes" >&2
+        return 1
+    fi
+    if [ "$target_bytes" -eq "$current_bytes" ]; then
+        echo "[AE] Private DRAM already has the requested size: $current_bytes bytes"
+        return 0
+    fi
+
+    PRIVATE_DRAM_ORIGINAL_SIZE_BYTES="$current_bytes"
+    PRIVATE_DRAM_RESIZE_ACTIVE=1
+    echo "[AE] Temporarily expanding $DBX_PRIVATE_DRAM_DEVICE: $current_bytes -> $target_bytes bytes"
+    if command -v numactl >/dev/null 2>&1 && command -v fallocate >/dev/null 2>&1; then
+        # numa0.0 is backed by host NUMA node 0.  Preallocation keeps the new
+        # half on that same node instead of first-touching it from arbitrary
+        # QEMU vCPU threads.
+        if ! numactl --membind=0 fallocate -l "$target_bytes" -- "$DBX_PRIVATE_DRAM_DEVICE"; then
+            restore_private_dram_backing || true
+            return 1
+        fi
+    elif ! truncate -s "$target_bytes" -- "$DBX_PRIVATE_DRAM_DEVICE"; then
+        restore_private_dram_backing || true
+        return 1
+    fi
+    if [ "$(stat -Lc '%s' -- "$DBX_PRIVATE_DRAM_DEVICE")" != "$target_bytes" ]; then
+        echo "[AE] Private DRAM backing-file expansion did not reach $target_bytes bytes" >&2
+        restore_private_dram_backing || true
+        return 1
+    fi
+}
+
+restore_private_dram_backing() {
+    local restore_bytes
+    [ "$PRIVATE_DRAM_RESIZE_ACTIVE" = "1" ] || return 0
+    restore_bytes="$PRIVATE_DRAM_ORIGINAL_SIZE_BYTES"
+    if ae_has_chcore_qemu; then
+        echo "[AE] cannot restore Private DRAM while a ChCore QEMU is running" >&2
+        return 1
+    fi
+    echo "[AE] Restoring $DBX_PRIVATE_DRAM_DEVICE to $restore_bytes bytes"
+    truncate -s "$restore_bytes" -- "$DBX_PRIVATE_DRAM_DEVICE" || return 1
+    if [ "$(stat -Lc '%s' -- "$DBX_PRIVATE_DRAM_DEVICE")" != "$restore_bytes" ]; then
+        echo "[AE] failed to restore Private DRAM backing-file size" >&2
+        return 1
+    fi
+    PRIVATE_DRAM_RESIZE_ACTIVE=0
+    PRIVATE_DRAM_ORIGINAL_SIZE_BYTES=""
+}
+
 ae_acquire_run_lock "state-partition" || exit 1
 
 mkdir -p "$AE_LOG_DIR" "$CSV_DIR" "$FIG_DIR"
@@ -367,6 +461,7 @@ cleanup() {
     local rc=$? cleanup_failed=0
     trap - EXIT
     ae_kill_cluster || cleanup_failed=1
+    restore_private_dram_backing || cleanup_failed=1
     if [ -d "$TMP_DIR" ]; then
         if cp "$TMP_DIR/config.h" "$DBX_CONFIG"; then
             rm -rf "$TMP_DIR"
@@ -458,6 +553,7 @@ for cfg in $CONFIGS; do
 
         for bench in $BENCHS; do
             pattern="$(bench_done_pattern "$bench")"
+            point_resized_private_dram=0
             # Logs and plot points are keyed by the panel, not by the number of
             # guests: Private's m8 log is its 8-machine-equivalent baseline.
             logfile="$AE_LOG_DIR/${bench}_${cfg}_m${cfg_size}.log"
@@ -472,6 +568,15 @@ for cfg in $CONFIGS; do
             # skipped point keeps whatever an earlier run measured for it.
             rm -f -- "$logfile"
             echo "=== [$cfg] running $bench for the $cfg_size-machine panel on $cfg_machines machine(s) (done pattern: '$pattern') ==="
+            if [ "$bench" = "dbx1000" ] && [ "$cfg" = "All_DRAM" ] \
+                    && [ "$cfg_size" = "8" ]; then
+                if ! expand_private_dram_for_dbx_m8; then
+                    ae_record_error "failed to expand Private DRAM for dbx1000/All_DRAM/8"
+                    restore_private_dram_backing || true
+                    continue
+                fi
+                point_resized_private_dram=1
+            fi
             if [ "$bench" = "dbx1000" ]; then
                 boot_env="DRAM_SIZE=$DBX_DRAM_SIZE"
                 bench_timeout="$DBX_TIMEOUT"
@@ -484,6 +589,12 @@ for cfg in $CONFIGS; do
                 ae_record_error "boot failed for $bench under $cfg (${cfg_size}-machine panel)"
                 ae_archive_logs "$cfg_machines" "$AE_LOG_DIR" \
                     "-boot-failed-${point}"
+                ae_kill_cluster
+                if [ "$point_resized_private_dram" = "1" ] \
+                        && ! restore_private_dram_backing; then
+                    ae_record_error "failed to restore Private DRAM after ${point} boot failure"
+                    exit 1
+                fi
                 continue
             fi
             # Every config at a given panel runs the same worker count on the
@@ -510,6 +621,11 @@ for cfg in $CONFIGS; do
                 ae_record_error "$bench under $cfg (${cfg_size}-machine panel) did not produce a complete result"
             fi
             ae_kill_cluster
+            if [ "$point_resized_private_dram" = "1" ] \
+                    && ! restore_private_dram_backing; then
+                ae_record_error "failed to restore Private DRAM after $point"
+                exit 1
+            fi
         done
     done
 done

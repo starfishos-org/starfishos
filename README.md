@@ -68,18 +68,7 @@ All configured submodules use public HTTPS URLs under
 `https://github.com/starfishos-org`. Initialize them before `docker build` as
 well as before the normal build; Docker copies the populated `user/` tree from
 the host build context. Demo entries intentionally omit `branch` metadata, so
-normal checkouts are always pinned by the superproject's recorded commit. The
-remote `starfishos-test` branches remain the integration branches for demo
-development.
-
-When changing a demo, push its commit to `starfishos-test` before recording the
-new gitlink in this repository. Enable Git's push guard once per clone, and
-keep it enabled for normal pushes:
-
-```bash
-git config push.recurseSubmodules check
-git push --recurse-submodules=check
-```
+normal checkouts are always pinned by the superproject's recorded commit.
 
 Each demo repository retains its pre-StarfishOS history and publishes the
 `starfishos-upstream-base` tag at the comparison baseline. For example:
@@ -101,11 +90,15 @@ The launcher defaults to 12 vCPUs per guest and a 64 GiB CXL backing file. Set `
 
 ## Artifact evaluation
 
+For the reviewer-oriented workflow, expected outputs, and the mapping from
+paper claims to experiments, start with [INSTRUCTIONS.md](INSTRUCTIONS.md).
+
 Follow the **From a fresh clone** section in
 [artifact-evaluation/README.md](artifact-evaluation/README.md), then:
 
 ```bash
-python3 artifact-evaluation/run_all.py    # default: validated ready experiments
+./artifact-evaluation/run-all.sh          # default: fast reviewer profile
+# Use --full for the complete paper sweeps, repetitions, and Table 4.
 ```
 
 Each subdirectory documents its inputs, overrides, outputs, and plot regeneration.
@@ -142,7 +135,8 @@ The documentation follows the paper:
 4. [Cross-machine applications](docs/04-cross-machine-applications.md) — migration and application state placement.
 5. [Implementation map](docs/05-implementation-map.md) — direct links from paper mechanisms to source.
 
-See [docs/README.md](docs/README.md) for the full index. If checked out alongside this repository, `../p3os-paper/` contains the Starfish manuscript and its source figures.
+See [docs/README.md](docs/README.md) for the full index. The paper snapshot used
+for artifact evaluation is included at [docs/starfish.pdf](docs/starfish.pdf).
 
 
 ## Publication

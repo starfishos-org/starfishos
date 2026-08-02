@@ -24,16 +24,6 @@ point per cluster size**, run at that size's **total worker count**: one
 guest with `machines x 12` vCPUs executing `machines x 8` workers on the same
 CPU pattern, with all the per-machine segments inside that one guest.
 
-Both of these changed on 2026-07-31.  Before that, Private was a single
-12-vCPU / 8-worker run reused by every panel — which normalized 32- and
-64-worker cluster points against an 8-worker baseline, so Matrix Multiply
-read ~3x and DBx1000 ~1.9x, mostly scale-out speedup reported as a placement
-effect — and LevelDB / PCA / Linear Regression / Word Count ran the identical
-single-machine 8-thread workload in every panel and under every config.
-Runs produced before this change (`out/20260726_*`, `out/20260727_*`,
-`out/merged_paperwarmup_*`) carry both problems; `plot.py` still replots
-them, warning per bench about the baseline.
-
 ## Run
 
 ```bash
@@ -67,7 +57,7 @@ Each run creates `artifact-evaluation/4-state-partition/out/<timestamp>/`:
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 4
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 4
 ```
 
 Or point `plot.py` at a specific run:
@@ -80,14 +70,10 @@ python3 artifact-evaluation/4-state-partition/plot.py \
 ```
 
 `--machine-counts N [N...]` selects the plotted cluster sizes (default `8`);
-each panel is normalized to its own `All_DRAM_m<N>` baseline.  Legacy
-single-size runs whose logs are named `<bench>_<config>.log` re-plot only when
-that size is passed **explicitly**, e.g. `--machine-counts 2` — those names
-carry no cluster size, so the default must not adopt them as the 8-machine
-point.  Runs that predate
-the per-panel Private point fall back to their one `All_DRAM_m1` log for every
-panel, with a per-bench warning — those numbers mix scale-out speedup into the
-placement comparison and are not camera-ready.
+each panel is normalized to its own `All_DRAM_m<N>` baseline. The current output
+layout records the machine count in every filename. A legacy single-size log
+named `<bench>_<config>.log` is accepted only when its machine count is supplied
+explicitly; use current-format outputs for artifact results.
 
 Paper CSV validation (legacy one-size layout):
 
@@ -109,17 +95,18 @@ legacy alias), `TIMEOUT`, `OUT_DIR`, `LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`,
 `WORKERS_PER_MACHINE` (default 8 — a panel of N machines runs 8N workers under
 every config and every benchmark; `MATRIX_THREADS_PER_MACHINE` is accepted as
 the legacy name from when only Matrix Multiply scaled),
-`DBX_DRAM_SIZE` (default 24G, per cluster guest) and
-`DBX_PRIVATE_DRAM_SIZE` (default `scale`: the Private baseline guest holds the
-whole TPC-C database alone, so it gets the cluster's aggregate
-`DBX_DRAM_SIZE x machines`; set a plain size such as `48G` to pin it).
+`DBX_DRAM_SIZE` (default 24G, QEMU RAM per DBx1000 guest),
+`DBX_PRIVATE_DRAM_DEVICE` (default `/dev/shm/numa0.0-$USER`) and
+`DBX_PRIVATE_DRAM_SIZE` (default 32G).  Only the
+`dbx1000/All_DRAM/8` point temporarily expands that backing file; the runner
+restores its original size after the point succeeds, fails, or is interrupted.
+This is separate from `DBX_DRAM_SIZE`: while `USE_DEV_AS_DRAM=ON`, the kernel's
+local buddy pool comes from the ivshmem backing file rather than QEMU `-m`.
 
 The three DBx1000 TPC-C defaults match the paper and `8-dbx1000-cross-warehouse`.
 Do not shorten `DBX_WARMUP` for a quicker sweep: the one-time first-touch
-DRAM->CXL migration then falls inside the measured interval and every DRAM-first
-placement reads as 10-30x slower than a single machine (measured 2026-07-26:
-K-mix/U-mix at 8 machines is 0.01 Mtxn/s with `DBX_WARMUP=10000` and
-0.48 Mtxn/s with 7040000).
+DRAM->CXL migration must finish before the measured interval for the placement
+comparison to represent steady state.
 
 ## Metric units
 

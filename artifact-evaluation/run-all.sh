@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Compatibility wrapper — the one-click entry point is run_all.py.
+# Reviewer one-click entry point. It detects the restricted Tigon policy and
+# then delegates argument parsing and experiment orchestration to run_all.py.
 #
-#   python3 artifact-evaluation/run_all.py
-#   ./artifact-evaluation/run_all.py
-#   ./artifact-evaluation/run-all.sh          # this file → run_all.py
+#   ./artifact-evaluation/run-all.sh
+#   ./artifact-evaluation/run-all.sh --full
 #
 set -euo pipefail
 AE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

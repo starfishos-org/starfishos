@@ -22,16 +22,6 @@
 # The runner enables and builds all paper workloads itself, including Redis,
 # Memcached/Memcachetest, and the restored TinyCNN submodule.
 #
-# ###########################################################################
-# ## CAVEAT — NOT YET VALIDATED AGAINST A LIVE RUN.
-# ## The (application -> stress type) demux and the per-application completion
-# ## markers below are derived from the stress scripts and config.exp, not from
-# ## an executed co-location run.  Before trusting the numbers:
-# ##   1. confirm which application's output lands in which log;
-# ##   2. confirm the completion markers (COND_MARKER);
-# ##   3. cross-check plot.py's EXTRACTORS against real app output.
-# ## The plotting path IS validated: it reproduces real.png from the paper CSV.
-# ###########################################################################
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"

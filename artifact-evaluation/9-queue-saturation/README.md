@@ -1,7 +1,7 @@
 # Per-service-queue tail latency and saturation throughput (camera-ready)
 
-Reviewer B (paper Figure 11b) asked for tail latency and saturation
-throughput per service queue.  This sweep drives the remote polling service
+This experiment reports tail latency and saturation throughput per service
+queue. The sweep drives the remote polling service
 queue on a two-machine cluster (client on machine 1, service on machine 0)
 with growing client concurrency for two request services sharing the CXL
 durable queue:
@@ -44,7 +44,7 @@ Each run creates `artifact-evaluation/9-queue-saturation/out/<timestamp>/`:
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 9
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 9
 ```
 
 Or point `plot.py` at a specific run:

@@ -23,7 +23,7 @@ Each run creates `artifact-evaluation/6-resource-util/out/<timestamp>/`:
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 6
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 6
 ```
 
 Or point `plot.py` at a specific run:

@@ -24,8 +24,8 @@ Allocate a new memory device by:
 - `CXL_MEM_POLICY` / `CXL_MEM_NODES` (env, default `interleave` across `4,5`):
   host NUMA placement of the shared CXL region. It is interleaved over both
   memory-only nodes rather than pinned to one, because a single CXL node sits
-  much closer to one socket than to the others, which splits guest workers into
-  a fast and a slow mode — see `docs/09-host-numa-and-exp8-bimodality.md`.
+  much closer to one socket than to the others and can introduce
+  socket-dependent performance.
   Requested nodes that do not exist on the host are dropped automatically,
   falling back to `--membind=4` and then to the default policy.
 
@@ -56,4 +56,3 @@ bind -n C-q kill-session
 
 
 Besides, if the start window number might mismatch, you can change the `window_start_index` in `simulate_2clusters.sh` or `simulate_4clusters.sh` to the correct number.
-

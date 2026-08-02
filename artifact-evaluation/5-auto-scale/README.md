@@ -38,7 +38,7 @@ Linux baseline build cache: `linux-build/` (gitignored).
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 5
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 5
 ```
 
 From sweep logs:

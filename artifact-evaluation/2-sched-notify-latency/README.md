@@ -35,7 +35,7 @@ Linux host baseline (`run_linux.sh`, optional) writes the same layout under
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 2
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 2
 ```
 
 Or point `plot.py` at a specific run:
@@ -52,7 +52,7 @@ python3 artifact-evaluation/2-sched-notify-latency/plot.py \
 ```bash
 ./artifact-evaluation/2-sched-notify-latency/run_linux.sh
 # or via one-click:
-python3 artifact-evaluation/run_all.py --run-subset-of-tests 2
+./artifact-evaluation/run-all.sh --run-subset-of-tests 2
 ```
 
 ## Env knobs

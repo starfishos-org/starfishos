@@ -79,3 +79,10 @@ artifact-evaluation/2-sched-notify-latency/linux-results/
 
 # Audit reports: point-in-time internal reviews, kept local and not tracked
 docs/*-audit-*.md
+
+# Local development notes and tool instructions are not part of the AE release.
+/AGENTS.md
+/CLAUDE.md
+/docs/06-paper-figure-map.md
+/docs/09-host-numa-and-exp8-bimodality.md
+/docs/10-exp8-cross-warehouse-ratio-mechanism.md

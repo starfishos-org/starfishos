@@ -53,10 +53,9 @@ Hardware Requirement:
 - CXL ivshmem allocation uses `numactl --interleave=4,5` (the two memory-only
   nodes on the paper testbed). Interleaving rather than pinning to one node is
   deliberate: a single CXL node sits much closer to one socket than to the
-  others, which splits guest workers into a fast and a slow mode — see
-  `docs/09-host-numa-and-exp8-bimodality.md`. Hosts with a different topology
-  should set `CXL_MEM_NODES`/`CXL_MEM_POLICY`; nodes that do not exist are
-  dropped automatically, so the default degrades rather than fails.
+  others and can introduce socket-dependent performance. Hosts with a different
+  topology should set `CXL_MEM_NODES`/`CXL_MEM_POLICY`; nodes that do not exist
+  are dropped automatically, so the default degrades rather than fails.
 - CPU requirement: ≥ 96 CPUs for paper-scale runs (many AE scripts override
   `CPU_NUM`; smaller machines can still run microbenchmarks with reduced CPUs).
 
@@ -83,7 +82,7 @@ docker build -t promisivia/treesls_chcore_builder:v2.3 .
 
 ---
 
-## Getting Start
+## From a fresh clone
 
 Do these steps once on a clean host before the one-click runner. Skipping
 submodules or host deps is the most common reason a first run fails.
@@ -206,30 +205,22 @@ no `config/` directory and cannot be attributed to a placement after the fact.
 
 **The per-experiment budgets are timeouts, not estimates.** They are deliberately
 generous so a slow-but-healthy run is never killed; a run that actually hits one
-has hung. Do not plan a session around the budget column — plan around the
-measured column, which comes from the timestamps of past runs in `out/`:
+should be inspected as a possible hang. Do not plan a session by adding the
+budgets. The following retained full-scope runs illustrate the expected order
+of magnitude on the reference host:
 
-| Experiment | Paper figure | measured (`--full` scope) | budget (timeout) |
-| --- | --- | ---: | ---: |
-| 1-ipc-cdf | Figure 11 | *no data* | 3 h |
-| 3-memory-allocator | Figure 12 | *no data* | 8 h |
-| 4-state-partition | Figure 13 | **0.85 h** (8-machine panel, 24 points) | 4 h |
-| 5-auto-scale | Figure 14 | **7.9 h** (incl. Tigon + footprint) | 18 h |
-| 6-resource-util | Figure 15 | *never run end to end* | 12 h |
-| 7-recover-fs | Figure 16 | *no data* | 3 h |
-| 8-dbx1000-cross-warehouse | camera-ready | **1.3 h** (3 ratios × 3 reps) | 6 h |
-| 9-queue-saturation | camera-ready | **0.15 h** (6 thread points × 2 queues) | 3 h |
+| Experiment | Scope | Observed runtime |
+| --- | --- | ---: |
+| 4-state-partition | 8-machine panel, 24 points | **0.85 h** |
+| 5-auto-scale | including Tigon and footprint | **7.9 h** |
+| 8-dbx1000-cross-warehouse | 3 ratios × 3 repetitions | **1.3 h** |
+| 9-queue-saturation | 6 thread points × 2 queues | **0.15 h** |
 
-Where measurements exist the budget is 2–15× the real time, and 5-auto-scale is
-the only experiment that is genuinely long — most of its 7.9 h is the Tigon
-baseline's mkosi image build and eight-VM environment. **A complete `--full` run
-of all eight figures is expected to take well under a day**, not the ~77 h the
-budgets sum to.
-
-Four experiments have no timing data because they have never been run through
-this harness; 6-resource-util additionally carries a `NOT YET VALIDATED AGAINST
-A LIVE RUN` caveat in its own `run.sh`. Their budgets are guesses. Treat a first
-run of those as unmeasured, and expect to debug rather than to reproduce.
+The auto-scale experiment is the longest retained measurement; most of its
+runtime is the Tigon baseline's mkosi image build and eight-VM environment.
+Build caches, selected axes, and host performance materially affect aggregate
+runtime, so run desired subsets first and use `--list` values strictly as
+timeouts.
 
 Per-point costs behind the measured numbers, useful for sizing a subset:
 
@@ -269,21 +260,14 @@ and switches its plotter to `--allow-partial` by itself:
 panel only, so its `run.sh` defaults to `MACHINE_COUNTS="8"` under `--full`
 too. Pass `MACHINE_COUNTS="4 8"` to also measure the 4-machine panel.
 
-**Known failure — `dbx1000/All_DRAM/8`.** A Private (All_DRAM) guest gets one
-16 GiB DRAM device regardless of `DBX_DRAM_SIZE`: kernel-local DRAM comes from
-`dsm-scripts/numa_sizes.conf`, not from QEMU's `-m`. The 8-machine panel's 64
-warehouses therefore OOM during the TPC-C load and fail the plot step through
-`--require-point`. The point aborts in about 208 s rather than burning
-`DBX_TIMEOUT`: its `BUG: handle_trans_fault` matches `AE_ERROR_PATTERN`, so
-`ae_wait_in_log` stops waiting as soon as it appears. This point is left
-failing on purpose rather than hidden with `SKIP_POINTS`, because skipping it
-also removes the Private baseline that every other placement in that panel is
-normalized against — which would quietly drop DBx1000 from Figure 13 instead of
-reporting a problem. The OOM is being fixed. To suppress it in the meantime:
+**Private DBx1000 baseline.** `dbx1000/All_DRAM/8` is supported. Its
+8-machine-equivalent Private baseline holds all 64 warehouses in one guest, so
+`4-state-partition/run.sh` temporarily expands that guest's local-DRAM backing
+file from 16 GiB to 32 GiB. The runner restores the original size after the
+point succeeds, fails, or is interrupted. Plan for about 16 GiB of additional
+temporary host memory on top of the normal prepared layout. There are no
+default skipped points.
 
-```bash
-SKIP_POINTS=dbx1000/All_DRAM/8 ./artifact-evaluation/run-all.sh
-```
 - **Table 4 (memory footprint) is not produced** — `RUN_FOOTPRINT=0`. This
   costs no figure.
 - **9-queue-saturation keeps `REPEATS=3`.** Its `plot.py` drops the lowest and
@@ -302,7 +286,8 @@ there is room for it — but it is scheduled as late as possible, twice over:
 
 This matters because the Tigon stage builds an mkosi image and brings up an
 eight-VM CXL-pod environment, changing host VM, network, mount and CPU state.
-If it fails or wedges the host, the other seven figures are already on disk.
+If it cannot complete or leaves host state requiring administrator cleanup, the
+other seven figures are already on disk.
 To skip it anyway — for a quick end-to-end check, or on a host where the
 eight-VM environment is unavailable — drop the stage explicitly:
 
@@ -341,13 +326,13 @@ Table 4 — use `--full`.
 Examples:
 
 ```bash
-python3 artifact-evaluation/run_all.py --list
-python3 artifact-evaluation/run_all.py --clean
-python3 artifact-evaluation/run_all.py --full
-python3 artifact-evaluation/run_all.py --run-subset-of-tests 1,4,7
-python3 artifact-evaluation/run_all.py --no-prepare --no-build --run-subset-of-tests 1
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
-python3 artifact-evaluation/run_all.py --dry-run --clean --run-subset-of-tests 1,4
+./artifact-evaluation/run-all.sh --list
+./artifact-evaluation/run-all.sh --clean
+./artifact-evaluation/run-all.sh --full
+./artifact-evaluation/run-all.sh --run-subset-of-tests 1,4,7
+./artifact-evaluation/run-all.sh --no-prepare --no-build --run-subset-of-tests 1
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 3
+./artifact-evaluation/run-all.sh --dry-run --clean --run-subset-of-tests 1,4
 ```
 
 ### Stopping runs and troubleshooting
@@ -368,12 +353,9 @@ Then re-run `./artifact-evaluation/run-all.sh` to continue.
 Each numbered experiment writes paper figures as `.png` files under
 `out/<timestamp>/figures/`.
 
-The `Paper` column uses the **SOSP'26 submission's** figure numbers, i.e. the
-ones the reviews refer to. The paper working tree has since drifted by three
-(`fig:eval-ipc` builds as Figure 14 locally). See
-[docs/06-paper-figure-map.md](../docs/06-paper-figure-map.md) for the full
-label ↔ figure ↔ experiment mapping and for which reviewer ask targets which
-figure.
+The `Paper` column uses the figure numbers in the submitted paper snapshot at
+`docs/starfish.pdf`. Experiments 8 and 9 are later evaluation additions and are
+therefore identified separately.
 
 | # | Directory | Output Figure(s) | Paper | Description |
 | --- | --- | --- | --- | --- |
@@ -385,8 +367,8 @@ figure.
 | 5 | 5-auto-scale | `auto-scale-matrix`, `db1000`, `gemini-chcore`, `auto-scale-legend` | Figure 14 | auto-scale |
 | 6 | 6-resource-util | `real` | Figure 15 | resource-util |
 | 7 | 7-recover-fs | `recovery-performance-single` | Figure 16 | recover-fs |
-| 8 | 8-dbx1000-cross-warehouse | `dbx1000-cross-warehouse` | Camera-ready revision (Reviewer B Q3) | TPC-C cross-warehouse ratio sweep |
-| 9 | 9-queue-saturation | `queue_saturation` | Camera-ready revision (Reviewer B, Fig. 11b) | per-service-queue tail latency + saturation throughput |
+| 8 | 8-dbx1000-cross-warehouse | `dbx1000-cross-warehouse` | Additional evaluation | TPC-C cross-warehouse ratio sweep |
+| 9 | 9-queue-saturation | `queue_saturation` | Additional evaluation | per-service-queue tail latency + saturation throughput |
 
 The persistent CXLFS backing file is tied to the checkout's built ramdisk.
 Before every AE boot it is recreated when the repository changes or

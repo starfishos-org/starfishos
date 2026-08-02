@@ -9,7 +9,6 @@ This guide follows the paper's order. Each chapter explains the mechanism first 
 | Collaborative system services | [03 — Services](03-collaborative-system-services.md) | `user/system-servers/` |
 | Cross-machine applications | [04 — Applications](04-cross-machine-applications.md) | `kernel/dsm/`, `user/demos/` |
 | Implementation cross-reference | [05 — Implementation map](05-implementation-map.md) | whole tree |
-| Evaluation figures | [06 — Paper figure map](06-paper-figure-map.md) | `artifact-evaluation/` |
 
 Read the [repository README](../README.md) for build, Docker, and artifact quick-start instructions. Older TreeSLS / CXL investigation notes were removed when this guide was introduced; use the chapters below as the current architecture reference.
 
@@ -20,4 +19,3 @@ Read the [repository README](../README.md) for build, Docker, and artifact quick
 - **Local state**: hot, per-machine state in private DRAM.
 - **DSM object**: the distributed representation of a kernel object, which determines placement and cross-machine behavior.
 - **Partial failure**: loss of one machine while surviving machines continue; it is not transparent application restart.
-

@@ -27,7 +27,7 @@ paper figure.
 ## Re-plot only
 
 ```bash
-python3 artifact-evaluation/run_all.py --plot-only --run-subset-of-tests 3
+./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 3
 ```
 
 Or point `plot.py` at a specific run:
