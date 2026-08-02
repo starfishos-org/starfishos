@@ -1,5 +1,6 @@
 #include <mm/vmspace.h>
 #include <mm/page.h>
+#include <dsm/dsm-single.h>
 
 #include <arch/mm/page_table.h>
 #include <arch/mm/tlb.h>
@@ -20,7 +21,8 @@ int dsm_demote_page(struct vmspace *vmspace, void *dst_va, void *src_va, bool re
 {
     pte_t *pte;
     pte_t old_pte_value;
-    query_in_pgtbl(vmspace->pgtbl, (vaddr_t)src_va, NULL, &pte);
+    query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID), (vaddr_t)src_va,
+                   NULL, &pte);
 
 retry:
     // TODO: check pte should not be changed here

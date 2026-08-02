@@ -624,6 +624,28 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
     /* A valid pmo, should handle page fault */
     perm = vmr->perm;
 
+    /*
+     * A write to a vmr the process is not allowed to write is a permission
+     * violation, not something to resolve.  Without this the handler would
+     * just re-install the same read-only PTE from vmr->perm and return 0,
+     * the instruction would retry, and the CPU would spin in the fault
+     * forever instead of the process being killed.
+     *
+     * Test vmr->perm, never the PTE: checkpointing write-protects pages for
+     * dirty tracking via set_write_in_pgtbl(), which touches PTEs only and
+     * runs exactly on the vmrs that do carry VMR_WRITE, so those faults must
+     * still fall through and be resolved here.
+     *
+     * Only for an already-present page.  On the first touch of a read-only
+     * mapping there is nothing mapped yet; let that fault install the
+     * read-only PTE (PMO_FILE deliberately widens perm below) and catch the
+     * write on the retry.
+     */
+    if (present && write && !(vmr->perm & VMR_WRITE)) {
+        ret = -EPERM;
+        goto out_unlock_vmspace;
+    }
+
     /* Get the offset in the pmo for faulting addr */
     offset = ROUND_DOWN(fault_addr, PAGE_SIZE) - vmr->start;
 
