@@ -208,8 +208,3 @@ names, scope controls, and experiment-specific validation.
 - The `dbx1000/All_DRAM/8` Private baseline temporarily expands one local-DRAM
   backing file from 16 GiB to 32 GiB and restores it afterward. Allow about
   16 GiB of additional temporary host memory for that point.
-- Exp8 enables host NUMA binding by default and interleaves the CXL backing
-  region across the configured memory-only nodes. Results collected with
-  different placement policies are not directly comparable.
-- Stop an interrupted run or clear stale QEMU/tmux state with
-  `./artifact-evaluation/stop.sh` before retrying.
