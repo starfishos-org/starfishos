@@ -1298,8 +1298,34 @@ int sys_handle_mprotect(u64 addr, size_t length, int prot)
 
     /* Modify the existing mappings in pgtbl */
     lock(&vmspace->pgtbl_lock);
+#ifdef MULTI_PAGETABLE_ENABLED
+    /*
+     * A vmspace holds one root page table per machine, so the new
+     * protection has to be applied to every one of them: a machine that
+     * already faulted this range in keeps its own PTEs, and leaving them
+     * untouched would let it go on writing through a range that was just
+     * made read-only.  Same iteration as the unmap path in vmregion.c.
+     */
+    for (int i = 0; i < CLUSTER_MACHINE_NUM; i++) {
+        void *pgtbl = get_vmspace_pgtbl(vmspace, i);
+        if (pgtbl != NULL) {
+            mprotect_in_pgtbl(pgtbl, addr, length, target_prot);
+        }
+    }
+#else
     mprotect_in_pgtbl(vmspace->pgtbl, addr, length, target_prot);
+#endif
     unlock(&vmspace->pgtbl_lock);
+
+    /*
+     * mprotect_in_pgtbl() has its own flush commented out, so without this
+     * the PTEs change but stale writable TLB entries survive and the new
+     * protection only takes effect once something else happens to flush.
+     * Local-machine flush only, matching the unmap path in vmregion.c: that
+     * path likewise clears every machine's page table and then flushes just
+     * this machine's CPUs.
+     */
+    flush_tlbs(vmspace, addr, length);
     ret = 0;
 
 out:
