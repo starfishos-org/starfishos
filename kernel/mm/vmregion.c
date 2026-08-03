@@ -425,7 +425,15 @@ static void defer_pmo_reclaim(struct vmspace *vmspace, struct pmobject *pmo)
     struct list_head drain;
     bool overflow = false;
 
-    entry = kmalloc(sizeof(*entry), __MT_DEFAULT__);
+    /* A multi-machine vmspace drains this list on whichever machine tears the
+     * vmspace down, which need not be the machine performing this unmap.
+     * Keep the small coordination node in CXL so that both its list links and
+     * its eventual kfree are valid cluster-wide.  The PMO's data pages retain
+     * their own placement and are returned to their owning DRAM allocator by
+     * pmo_deinit(). */
+    entry = kmalloc(sizeof(*entry),
+                    vmspace_is_multi_machine(vmspace) ? __MT_SHARED__
+                                                      : __MT_DEFAULT__);
     if (entry == NULL) {
         /*
          * Nothing safe to fall back to: freeing now is exactly the race this
