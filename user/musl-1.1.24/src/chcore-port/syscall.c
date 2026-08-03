@@ -428,9 +428,14 @@ u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr)
 	return chcore_syscall2(CHCORE_SYS_register_fs_client, target_machine_id, shm_config_ptr);
 }
 
-u32 usys_register_fs_server(u32 fs_cap)
+u32 usys_register_fs_server(u32 shard_id, u32 fs_cap)
 {
-	return chcore_syscall1(CHCORE_SYS_register_fs_server, fs_cap);
+	return chcore_syscall2(CHCORE_SYS_register_fs_server, shard_id, fs_cap);
+}
+
+s64 usys_get_fs_instance_generation(u32 shard_id)
+{
+	return chcore_syscall1(CHCORE_SYS_get_fs_instance_generation, shard_id);
 }
 
 #ifdef IPC_PERF_ENABLED

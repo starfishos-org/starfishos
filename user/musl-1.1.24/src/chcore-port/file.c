@@ -36,6 +36,81 @@ static inline bool fd_not_reserve(int fd)
 	return fd != AT_FDCWD && fd != AT_FDROOT;
 }
 
+/*
+ * Recreate a file session after FSM has published a replacement instance for
+ * the same persistent shard.  Never retain creation/truncation flags: the
+ * original open already performed those side effects.
+ */
+static int refresh_fs_fd(int fd, ipc_struct_t **ipc_out)
+{
+	struct fd_record_extension *ext;
+	ipc_struct_t *ipc;
+	ipc_msg_t *msg;
+	struct fs_request *req;
+	s64 generation;
+	int ret;
+
+	if (fd_not_exists(fd))
+		return -EBADF;
+	ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+	ipc = get_ipc_struct_by_mount_id(ext->mount_id);
+	if (!ipc)
+		return -EIO;
+	if (ipc->fs_shard_id < 0) {
+		*ipc_out = ipc;
+		return 0;
+	}
+	generation = usys_get_fs_instance_generation(ipc->fs_shard_id);
+	if (generation <= 0)
+		return -EAGAIN;
+	if (ext->fs_instance_generation == (u64)generation) {
+		*ipc_out = ipc;
+		return 0;
+	}
+
+	msg = ipc_create_msg(ipc, sizeof(struct fs_request), 0);
+	if (!msg)
+		return -EAGAIN;
+	req = (struct fs_request *)ipc_get_msg_data(msg);
+	memset(req, 0, sizeof(*req));
+	req->req = FS_REQ_OPEN;
+	req->open.new_fd = fd;
+	if (pathcpy(req->open.pathname, FS_REQ_PATH_BUF_LEN,
+		    ext->server_path, strlen(ext->server_path)) != 0) {
+		ipc_destroy_msg(msg);
+		return -ENAMETOOLONG;
+	}
+	req->open.flags = ext->open_flags & ~(O_CREAT | O_EXCL | O_TRUNC);
+	req->open.mode = ext->open_mode;
+	ret = ipc_call(ipc, msg);
+	ipc_destroy_msg(msg);
+	if (ret < 0)
+		return ret;
+
+	if (ext->offset != 0 && !(ext->open_flags & O_APPEND)) {
+		msg = ipc_create_msg(ipc, sizeof(struct fs_request), 0);
+		if (!msg)
+			return -EAGAIN;
+		req = (struct fs_request *)ipc_get_msg_data(msg);
+		memset(req, 0, sizeof(*req));
+		req->req = FS_REQ_LSEEK;
+		req->lseek.fd = fd;
+		req->lseek.offset = ext->offset;
+		req->lseek.whence = SEEK_SET;
+		ret = ipc_call(ipc, msg);
+		ipc_destroy_msg(msg);
+		if (ret < 0)
+			return ret;
+	}
+
+	ext->fs_instance_generation = ipc->fs_instance_generation;
+	printf("[FS_RECONNECT] fd %d shard %d attached to instance %lu\n",
+	       fd, ipc->fs_shard_id,
+	       (unsigned long)ext->fs_instance_generation);
+	*ipc_out = ipc;
+	return 0;
+}
+
 static inline int check_path_len(const char *path, int buffer_len)
 {
 	/* NOTE: max_len of full_path is FS_REQ_PATH_LEN */
@@ -194,7 +269,8 @@ int chcore_ftruncate(int fd, off_t length)
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, sizeof(struct fs_request), 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
@@ -223,7 +299,8 @@ off_t chcore_file_lseek(int fd, off_t offset, int whence)
 		return -ESPIPE;
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, sizeof(struct fs_request), 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
@@ -234,6 +311,8 @@ off_t chcore_file_lseek(int fd, off_t offset, int whence)
 
 	ret = ipc_call(_fs_ipc_struct, ipc_msg);
 	ipc_destroy_msg(ipc_msg);
+	if (ret >= 0)
+		fd_ext->offset = ret;
 
 	return ret;
 }
@@ -685,7 +764,8 @@ int chcore_file_pread(int fd, void *buf, size_t count, off_t offset)
 
 	BUG_ON(fd_ext->mount_id < 0);
 	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE);
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 	while (remain > 0) {
@@ -726,7 +806,8 @@ int chcore_file_pwrite(int fd, void *buf, size_t count, off_t offset)
 
 	BUG_ON(fd_ext->mount_id < 0);
 	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE); // san check
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 	while (remain > 0) {
@@ -788,7 +869,8 @@ int chcore_fsync(int fd)
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, sizeof(struct fs_request), 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
@@ -814,7 +896,8 @@ int chcore_fdatasync(int fd)
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	if (refresh_fs_fd(fd, &_fs_ipc_struct) < 0)
+		return -EAGAIN;
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, sizeof(struct fs_request), 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 
@@ -924,6 +1007,16 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	ret = ipc_call(mounted_fs_ipc_struct, ipc_msg);
 
 	if (ret >= 0) {
+		/* Pin this descriptor to the FS instance that opened it.  On a
+		 * replacement instance refresh_fs_fd() will reopen the same path. */
+		fd_ext->server_path[0] = '\0';
+		strncpy(fd_ext->server_path, server_path,
+			FS_REQ_PATH_BUF_LEN - 1);
+		fd_ext->open_flags = flags;
+		fd_ext->open_mode = mode;
+		fd_ext->offset = 0;
+		fd_ext->fs_instance_generation =
+			mounted_fs_ipc_struct->fs_instance_generation;
 		fd_dic[fd]->type = FD_TYPE_FILE;
 		fd_dic[fd]->fd_op = &file_ops;
 		ret = fd;		/* Return fd if succeed */
@@ -951,10 +1044,16 @@ static int chcore_file_read(int fd, void *buf, size_t count)
 		return -EBADF;
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+	int refresh_ret;
+
+	refresh_ret = refresh_fs_fd(fd, &_fs_ipc_struct);
+	if (refresh_ret < 0)
+		return refresh_ret;
 
 	BUG_ON(fd_ext->mount_id < 0);
 	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE); // san check
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	/* refresh_fs_fd() selected the current instance and may have recreated
+	 * the server-side fd mapping. */
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 	while (remain > 0) {
@@ -980,6 +1079,8 @@ static int chcore_file_read(int fd, void *buf, size_t count)
 	if (remain != (int)count || ret >= 0)
 		ret = count - remain;
 	ipc_destroy_msg(ipc_msg);
+	if (ret > 0)
+		fd_ext->offset += ret;
 	return ret;
 }
 
@@ -996,10 +1097,15 @@ static int chcore_file_write(int fd, void *buf, size_t count)
 		return -EBADF;
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+	int refresh_ret;
+
+	refresh_ret = refresh_fs_fd(fd, &_fs_ipc_struct);
+	if (refresh_ret < 0)
+		return refresh_ret;
 
 	BUG_ON(fd_ext->mount_id < 0);
 	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE); // san check
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	/* refresh_fs_fd() selected the current instance. */
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, IPC_SHM_AVAILABLE, 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 	while (remain > 0) {
@@ -1020,6 +1126,8 @@ static int chcore_file_write(int fd, void *buf, size_t count)
 	if (remain != (int)count || ret >= 0)
 		ret = count - remain;
 	ipc_destroy_msg(ipc_msg);
+	if (ret > 0)
+		fd_ext->offset += ret;
 	return ret;
 }
 
@@ -1035,8 +1143,12 @@ static int chcore_file_close(int fd)
 		return -EBADF;
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
+	int refresh_ret;
 
-	_fs_ipc_struct = get_ipc_struct_by_mount_id(fd_ext->mount_id);
+	refresh_ret = refresh_fs_fd(fd, &_fs_ipc_struct);
+	if (refresh_ret < 0)
+		return refresh_ret;
+
 	ipc_msg = ipc_create_msg(_fs_ipc_struct, sizeof(struct fs_request), 0);
 	fr_ptr = (struct fs_request *)ipc_get_msg_data(ipc_msg);
 

@@ -55,6 +55,16 @@ void shm_init(void)
         return;
     }
 
+    /*
+     * On machine-0 rejoin, all shared PMO descriptors, queue nodes, and p-log
+     * mappings still live in CXL. Recreating them would erase in-flight
+     * requests before the replacement service can publish ABORT.
+     */
+    if (dsm_machine_boot_generation(CUR_MACHINE_ID) > 1) {
+        kinfo("[SHM] Reusing persistent shared-memory services on rejoin\n");
+        return;
+    }
+
     for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM && i < MAX_SHM_NUM; i++) {
         struct pmobject *new_pmo =
                 obj_alloc(TYPE_PMO, sizeof(struct pmobject), __MT_SHARED__);
@@ -202,6 +212,9 @@ static struct dq_node *alloc_node_try(struct polling_shm_region *shm)
         s32 next = atomic_load_32(&node->next);
 
         if (compare_and_swap_32(&shm->alloc.free_list, head, next) == head) {
+            /* Persist removal before overwriting the allocated node. */
+            FLUSH(&shm->alloc.free_list);
+            FENCE;
             return node;
         }
     }
@@ -231,7 +244,7 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
     memcpy(&node->req, req, sizeof(struct polling_request));
     atomic_store_32(&node->next, QPTR_NULL);
     atomic_store_32(&node->status, DQ_INIT);
-    FLUSH(node);
+    FLUSH_RANGE(node, sizeof(*node));
 
     /* Step 2: link into queue */
     while (1) {
@@ -246,12 +259,18 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
             if (compare_and_swap_32(&last_node->next, QPTR_NULL, node_off)
                 == QPTR_NULL) {
                 FLUSH(&last_node->next);
+                FENCE;
                 compare_and_swap_32(&shm->queue.tail, last, node_off);
+                FLUSH(&shm->queue.tail);
+                FENCE;
                 return;
             }
         } else {
             FLUSH(&last_node->next);
+            FENCE;
             compare_and_swap_32(&shm->queue.tail, last, next);
+            FLUSH(&shm->queue.tail);
+            FENCE;
         }
     }
 }
@@ -446,8 +465,10 @@ struct thread *thread_dq_dequeue(struct durable_queue *q)
                     /* Extract thread pointer and free old sentinel */
                     u64 thread_pa = next_node->thread_pa;
                     thread_dq_free_node(head_node);
-
-                    return (struct thread *)phys_to_virt(thread_pa);
+                    struct thread *thread =
+                            (struct thread *)phys_to_virt(thread_pa);
+                    thread->notif_dq_node_off = QPTR_NULL;
+                    return thread;
                 }
             }
         }

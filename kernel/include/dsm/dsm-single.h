@@ -103,6 +103,42 @@ typedef struct {
     u64 local_mem_size;
 } dsm_machine_local_metadata_t;
 
+enum dsm_machine_state {
+    DSM_MACHINE_OFFLINE = 0,
+    DSM_MACHINE_JOINING,
+    DSM_MACHINE_REJOINING,
+    DSM_MACHINE_ONLINE,
+};
+
+/*
+ * This record is CXL-resident.  boot_generation distinguishes pointers and
+ * work published by an earlier incarnation of the same logical machine ID.
+ * Volatile DRAM state is deliberately not referenced from this structure.
+ */
+struct dsm_machine_lifecycle {
+    volatile u64 boot_generation;
+    volatile u32 state;
+    u32 _reserved;
+} __attribute__((aligned(16)));
+
+enum dsm_fs_instance_state {
+    DSM_FS_INSTANCE_OFFLINE = 0,
+    DSM_FS_INSTANCE_ONLINE,
+};
+
+/*
+ * Cluster-wide routing record for one persistent filesystem shard.  The
+ * shard ID identifies the CXL-resident data; host_machine_id identifies the
+ * machine currently running its disposable DRAM service projection.
+ */
+struct dsm_fs_instance_record {
+    struct thread *volatile server_thread;
+    volatile u64 instance_generation;
+    volatile u64 host_boot_generation;
+    volatile s32 host_machine_id;
+    volatile u32 state;
+} __attribute__((aligned(32)));
+
 /**
  * MSI message types for inter-machine communication
  */
@@ -156,6 +192,9 @@ typedef struct {
      * 3. local mem kernel addr of each machine
      */
     dsm_machine_local_metadata_t local_meta[CLUSTER_MAX_MACHINE_NUM];
+
+    /* Persistent identity and incarnation state for crash/rejoin. */
+    struct dsm_machine_lifecycle machine_lifecycle[CLUSTER_MAX_MACHINE_NUM];
 
     /**
      * 4. buddy and slab system of SHM
@@ -253,10 +292,12 @@ typedef struct {
         struct thread *lwip_thread;
     } local_service_table[CLUSTER_MAX_MACHINE_NUM];
 
-    /**
-     * 6. for fsm
-     */
+    /* Legacy direct pointers, kept for old users during the transition. */
     struct thread *tmpfs_thread[CLUSTER_MAX_MACHINE_NUM];
+
+    /* Persistent shard -> live filesystem instance routing. */
+    struct dsm_fs_instance_record
+            fs_instance_registry[CLUSTER_MAX_MACHINE_NUM];
 
     /**
      * 7. checkpoint data
@@ -359,6 +400,15 @@ static inline void dsm_init_mm(paddr_t shm_paddr, size_t shm_size,
     !(IS_SHM_PADDR(paddr) || IS_LOCAL_PADDR(paddr, CUR_MACHINE_ID)))
 
 void dsm_add_machine(void);
+void dsm_mark_machine_online(void);
+bool dsm_machine_is_rejoining(void);
+
+static inline u64 dsm_machine_boot_generation(mid_t mid)
+{
+    BUG_ON(mid < 0 || mid >= CLUSTER_MAX_MACHINE_NUM);
+    return __atomic_load_n(&dsm_meta->machine_lifecycle[mid].boot_generation,
+                           __ATOMIC_ACQUIRE);
+}
 
 static int inline cpuid_g2mid(u32 gcpuid)
 {

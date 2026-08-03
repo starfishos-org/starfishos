@@ -7,6 +7,12 @@
 #endif
 
 int machine_id = -1;
+static bool machine_rejoining;
+
+bool dsm_machine_is_rejoining(void)
+{
+    return machine_rejoining;
+}
 
 /*
  * The first machine reaches user-space startup before the AE launcher starts
@@ -37,10 +43,26 @@ static void dsm_wait_for_cluster_cpu_topology(void)
 
 void dsm_add_machine()
 {
+    struct dsm_machine_lifecycle *lifecycle;
+    u64 boot_generation;
+
     BUG_ON(!dsm_meta);
 
-    /* Initialize machine_to_peer_id array if this is the first machine */
-    if (CUR_MACHINE_ID == 0) {
+    /* Guard every per-machine shared metadata access below. */
+    if (CUR_MACHINE_ID < 0 || CUR_MACHINE_ID >= CLUSTER_MAX_MACHINE_NUM)
+        BUG("[DSM] machine id exceeds the supported range\n");
+
+    /*
+     * A logical ID below cluster_machine_num is an existing slot coming back
+     * after a guest crash.  Keep the cluster-wide CXL allocators and queues;
+     * this boot will recreate only its ordinary DRAM/BSS state.
+     */
+    machine_rejoining =
+            CUR_MACHINE_ID < __atomic_load_n(&dsm_meta->cluster_machine_num,
+                                             __ATOMIC_ACQUIRE);
+
+    /* Initialize cluster-wide state only for the first cold-boot machine. */
+    if (CUR_MACHINE_ID == 0 && !machine_rejoining) {
         /*
          * prepare_cxlmem resets only the metadata prefix, while the durable
          * queue pool lives farther into the shared region and can retain
@@ -53,16 +75,20 @@ void dsm_add_machine()
                          __ATOMIC_RELEASE);
         for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
             dsm_meta->machine_to_peer_id[i] = 0xFFFFFFFF; /* Uninitialized */
+            dsm_meta->machine_lifecycle[i].boot_generation = 0;
+            dsm_meta->machine_lifecycle[i].state = DSM_MACHINE_OFFLINE;
+            dsm_meta->tmpfs_thread[i] = NULL;
+            dsm_meta->fs_instance_registry[i].server_thread = NULL;
+            dsm_meta->fs_instance_registry[i].instance_generation = 0;
+            dsm_meta->fs_instance_registry[i].host_boot_generation = 0;
+            dsm_meta->fs_instance_registry[i].host_machine_id = -1;
+            dsm_meta->fs_instance_registry[i].state =
+                    DSM_FS_INSTANCE_OFFLINE;
         }
     }
 
     if (CUR_MACHINE_ID > dsm_meta->cluster_machine_num) {
         BUG("[DSM] machine id exceed\n");
-    }
-
-    /* Guard all dsm_meta->local_meta[CUR_MACHINE_ID] accesses below. */
-    if (CUR_MACHINE_ID >= CLUSTER_MAX_MACHINE_NUM) {
-        BUG("[DSM] machine id exceed max allowed num\n");
     }
 
     int init = CUR_MACHINE_ID == dsm_meta->cluster_machine_num;
@@ -82,6 +108,15 @@ void dsm_add_machine()
         CPU_RANGE_LOW = CUR_MACHINE_ID * PLAT_CPU_NUM;
         CPU_RANGE_HIGH = CPU_RANGE_LOW + PLAT_CPU_NUM - 1;
     }
+
+    lifecycle = &dsm_meta->machine_lifecycle[CUR_MACHINE_ID];
+    boot_generation = __atomic_add_fetch(&lifecycle->boot_generation,
+                                         1,
+                                         __ATOMIC_ACQ_REL);
+    __atomic_store_n(&lifecycle->state,
+                     machine_rejoining ? DSM_MACHINE_REJOINING
+                                        : DSM_MACHINE_JOINING,
+                     __ATOMIC_RELEASE);
 
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_low = CPU_RANGE_LOW;
     dsm_meta->local_meta[CUR_MACHINE_ID].cpu_range_high = CPU_RANGE_HIGH;
@@ -148,6 +183,11 @@ void dsm_add_machine()
           "\r[DSM] machine %d (cpu%d - cpu%d) join the cluster!\n"
           ANSI_COLOR_RESET,
           CUR_MACHINE_ID, CPU_RANGE_LOW, CPU_RANGE_HIGH);
+    kinfo("[DSM] machine %d %s with boot generation %llu; "
+          "preserving cluster CXL state\n",
+          CUR_MACHINE_ID,
+          machine_rejoining ? "rejoining" : "joining",
+          boot_generation);
 
     dsm_wait_for_cluster_cpu_topology();
 
@@ -171,4 +211,19 @@ void dsm_add_machine()
               CUR_MACHINE_ID, dsm_meta->tsc_sync[CUR_MACHINE_ID]);
     }
 #endif
+}
+
+void dsm_mark_machine_online(void)
+{
+    struct dsm_machine_lifecycle *lifecycle;
+
+    BUG_ON(!dsm_meta);
+    BUG_ON(CUR_MACHINE_ID < 0 || CUR_MACHINE_ID >= CLUSTER_MAX_MACHINE_NUM);
+
+    lifecycle = &dsm_meta->machine_lifecycle[CUR_MACHINE_ID];
+    __atomic_store_n(&lifecycle->state, DSM_MACHINE_ONLINE, __ATOMIC_RELEASE);
+    kinfo("[DSM] machine %d online at boot generation %llu%s\n",
+          CUR_MACHINE_ID,
+          __atomic_load_n(&lifecycle->boot_generation, __ATOMIC_ACQUIRE),
+          machine_rejoining ? " (rejoined)" : "");
 }

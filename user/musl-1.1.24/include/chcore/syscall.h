@@ -22,7 +22,8 @@ int usys_create_cap_group(u64 badge, char *name, u64 name_len, u64 pcid,
 int usys_register_server(u64 ipc_handler, u32 reigster_cb_cap, u64 destructor);
 u32 usys_register_client(u32 server_cap, u64 vm_config_ptr);
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
-u32 usys_register_fs_server(u32 fs_cap);
+u32 usys_register_fs_server(u32 shard_id, u32 fs_cap);
+s64 usys_get_fs_instance_generation(u32 shard_id);
 u64 usys_ipc_call(u32 conn_cap, u64 ipc_msg_ptr, u64 cap_num);
 void usys_ipc_return(u64 ret, u64 cap_num);
 int usys_ipc_register_cb_return(u64, u64, u64);
@@ -108,7 +109,8 @@ int usys_restore_process(char *pname, u64 pname_len);
 int usys_get_machine_id();
 u32 usys_get_machine_cpu_count(void);
 u32 usys_register_fs_client(u32 target_machine_id, u64 shm_config_ptr);
-u32 usys_register_fs_server(u32 fs_cap);
+u32 usys_register_fs_server(u32 shard_id, u32 fs_cap);
+s64 usys_get_fs_instance_generation(u32 shard_id);
 
 #ifdef IPC_PERF_ENABLED
 void usys_ipc_perf_start(void);

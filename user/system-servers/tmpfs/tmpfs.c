@@ -259,7 +259,7 @@ static long timespec_diff_ms(struct timespec *start, struct timespec *end)
 	       (end->tv_nsec - start->tv_nsec) / 1000000L;
 }
 
-static int replace_root_mount(void)
+static int replace_root_mount(int fs_machine)
 {
 	ipc_msg_t *msg = ipc_create_msg(fsm_ipc_struct,
 					 sizeof(struct fsm_request), 0);
@@ -271,7 +271,7 @@ static int replace_root_mount(void)
 	req->req = FSM_REQ_REPLACE_FS;
 	strcpy(req->mount_path, "/");
 	req->mount_path_len = 1;
-	req->target_machine_id = usys_get_machine_id();
+	req->target_machine_id = fs_machine;
 	int ret = ipc_call(fsm_ipc_struct, msg);
 	ipc_destroy_msg(msg);
 	return ret;
@@ -357,7 +357,7 @@ int recover_tmpfs(int crashed_machine_id)
 	info("[tmpfs] register server value = %u\n", reg_ret);
 
 	/* 5. Atomically switch pathname and fmap-fault routing to this server. */
-	ret = replace_root_mount();
+	ret = replace_root_mount(fs_machine);
 	if (ret < 0) {
 		error("[tmpfs] Failed to replace the root mount: %d\n", ret);
 		return ret;

@@ -950,6 +950,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_get_machine_cpu_count] = sys_get_machine_cpu_count,
         [SYS_register_fs_client] = sys_register_fs_client,
         [SYS_register_fs_server] = sys_register_fs_server,
+        [SYS_get_fs_instance_generation] = sys_get_fs_instance_generation,
 #ifdef IPC_PERF_ENABLED
         [SYS_ipc_perf_start] = sys_ipc_perf_start,
         [SYS_ipc_perf_end] = sys_ipc_perf_end,

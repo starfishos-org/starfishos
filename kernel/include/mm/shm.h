@@ -42,7 +42,8 @@ enum dq_status {
     DQ_DOING,
     DQ_DONE,
     DQ_CONSUMED,
-    DQ_CRASH,
+    DQ_ABORT,
+    DQ_CRASH = DQ_ABORT,
     DQ_CANCELLED,
 };
 
@@ -55,6 +56,8 @@ enum polling_request_type {
     POLLING_FS_REQ_CLOSE,
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
+    POLLING_PRINT_DEBUG_INFO,
+    POLLING_ABORT_TEST_BLOCK,
 };
 
 struct polling_fs_req_open {

@@ -12,6 +12,7 @@
 | Tiering/migration | `kernel/dsm/dsm_tiering.c`, `kernel/mm/pgfault_handler.c`, `kernel/dsm/dsm_migrate.c` | data movement and races |
 | Service startup | `user/system-servers/procmgr/` | primary/secondary service bootstrap |
 | Filesystem/recovery | `user/system-servers/{fs_base,tmpfs}/` | POSIX IPC, p-log, CXL restoration |
+| Machine lifecycle/rejoin | `kernel/dsm/dsm_metadata.c`, `kernel/include/dsm/dsm-single.h` | stable logical IDs, boot generations, CXL attach, DRAM rebuild |
 | Experiments | `artifact-evaluation/` | executable evaluation scripts |
 
 ## Configuration ownership
@@ -22,4 +23,3 @@
 4. `artifact-evaluation/*/run.sh`: experiment-specific instrumentation/build variants.
 
 A run-time environment variable does not change a compile-time policy; allocator experiments rebuild explicitly.
-

@@ -3,6 +3,11 @@
 
 #include <uapi/types.h>
 
+/* Kept in this dependency-light header for shared object layouts. */
+#ifndef CLUSTER_MAX_MACHINE_NUM
+#define CLUSTER_MAX_MACHINE_NUM (8)
+#endif
+
 enum mem_type {
     __MT_INVALID__ = 0,
     __MT_PRIVATE__ = 1,

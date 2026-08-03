@@ -45,9 +45,28 @@ static inline qptr_t ptr_to_qptr(void *shm_base, void *ptr)
     return (ptr == NULL) ? QPTR_NULL : (qptr_t)((char *)ptr - (char *)shm_base);
 }
 
-/* ---- Persistence stub (no-op for DRAM/CXL) ---- */
+/* ---- CXL persistence ---- */
 
-#define FLUSH(addr) do { /* no-op */ } while (0)
+#define DQ_CACHELINE_SIZE 64UL
+
+#ifndef DQ_PERSIST_RANGE
+static inline void dq_flush_range(const volatile void *addr, size_t len)
+{
+    uintptr_t p = (uintptr_t)addr & ~(DQ_CACHELINE_SIZE - 1);
+    uintptr_t end = ((uintptr_t)addr + len + DQ_CACHELINE_SIZE - 1)
+                    & ~(DQ_CACHELINE_SIZE - 1);
+
+    for (; p < end; p += DQ_CACHELINE_SIZE)
+        __asm__ volatile("clwb (%0)" :: "r"((void *)p) : "memory");
+    __asm__ volatile("sfence" ::: "memory");
+}
+
+#define FLUSH(addr) dq_flush_range((addr), sizeof(*(addr)))
+#define FLUSH_RANGE(addr, len) dq_flush_range((addr), (len))
+#else
+#define FLUSH(addr) DQ_PERSIST_RANGE((addr), sizeof(*(addr)))
+#define FLUSH_RANGE(addr, len) DQ_PERSIST_RANGE((addr), (len))
+#endif
 
 /* ---- Node status ---- */
 
@@ -57,7 +76,9 @@ enum dq_status {
     DQ_DOING,
     DQ_DONE,
     DQ_CONSUMED, /* producer finished reading response */
-    DQ_CRASH,
+    DQ_ABORT,
+    /* Compatibility name for older callers. */
+    DQ_CRASH = DQ_ABORT,
 };
 
 /* ---- Request / Response types (payload) ---- */
@@ -70,6 +91,8 @@ enum polling_request_type {
     POLLING_REQ_EMPTY,
     POLLING_KERNEL_REQ_FLUSH_TLB,
     POLLING_PRINT_DEBUG_INFO,
+    /* Test-only request that remains DOING until its service machine dies. */
+    POLLING_ABORT_TEST_BLOCK,
 };
 
 struct polling_fs_req_open {

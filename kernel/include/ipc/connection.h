@@ -165,7 +165,8 @@ int sys_register_server(unsigned long ipc_rountine,
                         unsigned long destructor);
 cap_t sys_register_client(cap_t server_cap, u64 vm_config_ptr);
 cap_t sys_register_fs_client(mid_t target_machine_id, u64 shm_config_ptr);
-cap_t sys_register_fs_server(cap_t fs_cap);
+cap_t sys_register_fs_server(mid_t shard_id, cap_t fs_cap);
+s64 sys_get_fs_instance_generation(mid_t shard_id);
 int sys_ipc_register_cb_return(u64, u64, u64);
 
 u64 sys_ipc_call(u32 conn_cap, struct ipc_msg *ipc_msg, u64 cap_num);

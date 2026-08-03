@@ -262,7 +262,7 @@ static void *tmpfs_polling_thread_func(void *arg)
 		idle_count = 0;
 		handle_request_direct(node);
 
-		FLUSH(node);
+		FLUSH_RANGE(node, sizeof(*node));
 		atomic_store_explicit(&node->status, DQ_DONE,
 				      memory_order_release);
 		FLUSH(&node->status);

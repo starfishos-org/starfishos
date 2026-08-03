@@ -14,6 +14,163 @@
 #include <sched/context.h>
 #include <dsm/tiering.h>
 
+#ifdef DSM_ENABLED
+#include <object/recycle.h>
+
+#define MAX_LOCAL_CROSS_MACHINE_TASKS 256
+
+/*
+ * This is deliberately an owner-local index.  The authoritative membership
+ * is in the CXL-resident cap_group below; the index only lets a surviving
+ * owner notice a generation change even when all of the task's local threads
+ * are asleep.  It is rebuilt with DRAM state after an owner reboot, so owner
+ * failure takeover remains a separate protocol.
+ */
+static struct cap_group *local_cross_machine_tasks[MAX_LOCAL_CROSS_MACHINE_TASKS];
+static struct lock local_cross_machine_tasks_lock;
+static volatile u32 local_cross_machine_task_count;
+
+static void cross_machine_task_register(struct cap_group *cap_group)
+{
+    int i;
+
+    lock(&local_cross_machine_tasks_lock);
+    for (i = 0; i < MAX_LOCAL_CROSS_MACHINE_TASKS; i++) {
+        if (!local_cross_machine_tasks[i]) {
+            local_cross_machine_tasks[i] = cap_group;
+            local_cross_machine_task_count++;
+            unlock(&local_cross_machine_tasks_lock);
+            return;
+        }
+    }
+    unlock(&local_cross_machine_tasks_lock);
+    BUG("Too many local cross-machine tasks\n");
+}
+
+void cross_machine_task_unregister(struct cap_group *cap_group)
+{
+    int i;
+
+    if (!cap_group->is_cross_machine
+        || cap_group->owner_machine_id != CUR_MACHINE_ID)
+        return;
+
+    lock(&local_cross_machine_tasks_lock);
+    for (i = 0; i < MAX_LOCAL_CROSS_MACHINE_TASKS; i++) {
+        if (local_cross_machine_tasks[i] == cap_group) {
+            local_cross_machine_tasks[i] = NULL;
+            BUG_ON(local_cross_machine_task_count == 0);
+            local_cross_machine_task_count--;
+            break;
+        }
+    }
+    unlock(&local_cross_machine_tasks_lock);
+}
+
+static mid_t cross_machine_task_failed_participant(struct cap_group *cap_group)
+{
+    u64 mask;
+    mid_t mid;
+
+    mask = __atomic_load_n(&cap_group->participant_mask, __ATOMIC_ACQUIRE);
+    for (mid = 0; mid < CLUSTER_MAX_MACHINE_NUM; mid++) {
+        if (!(mask & BIT(mid)))
+            continue;
+        if (__atomic_load_n(&cap_group->participant_generation[mid],
+                            __ATOMIC_ACQUIRE)
+            != dsm_machine_boot_generation(mid))
+            return mid;
+    }
+    return -1;
+}
+
+static void cross_machine_task_mark_failed(struct cap_group *cap_group,
+                                           mid_t failed_mid)
+{
+    /* State 2 is private initialization; state 1 is the release publication. */
+    if (__sync_val_compare_and_swap(&cap_group->cross_machine_failure, 0, 2)
+        == 0) {
+        cap_group->failed_machine_id = failed_mid;
+        __atomic_store_n(&cap_group->cross_machine_failure,
+                         1,
+                         __ATOMIC_RELEASE);
+        kinfo("[CROSS_TASK] task %s badge 0x%lx lost machine %d "
+              "(participant generation %llu, current generation %llu)\n",
+              cap_group->cap_group_name,
+              cap_group->badge,
+              failed_mid,
+              cap_group->participant_generation[failed_mid],
+              dsm_machine_boot_generation(failed_mid));
+    }
+}
+
+bool cross_machine_task_arrive(struct cap_group *cap_group)
+{
+    u64 bit;
+    u64 mask;
+    u64 generation;
+    mid_t failed_mid;
+
+    if (!cap_group || !cap_group->is_cross_machine)
+        return true;
+
+    if (__atomic_load_n(&cap_group->cross_machine_failure, __ATOMIC_ACQUIRE))
+        return false;
+
+    bit = BIT(CUR_MACHINE_ID);
+    mask = __atomic_load_n(&cap_group->participant_mask, __ATOMIC_ACQUIRE);
+    generation = dsm_machine_boot_generation(CUR_MACHINE_ID);
+    if (!(mask & bit)) {
+        __atomic_store_n(&cap_group->participant_generation[CUR_MACHINE_ID],
+                         generation,
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_or(&cap_group->participant_mask, bit, __ATOMIC_ACQ_REL);
+        kinfo("[CROSS_TASK] task %s badge 0x%lx joined machine %d "
+              "generation %llu\n",
+              cap_group->cap_group_name,
+              cap_group->badge,
+              CUR_MACHINE_ID,
+              generation);
+        return true;
+    }
+
+    failed_mid = cross_machine_task_failed_participant(cap_group);
+    if (failed_mid >= 0) {
+        cross_machine_task_mark_failed(cap_group, failed_mid);
+        return false;
+    }
+    return true;
+}
+
+void cross_machine_task_poll_failures(void)
+{
+    struct cap_group *cap_group;
+    mid_t failed_mid;
+    int i;
+
+    if (__atomic_load_n(&local_cross_machine_task_count, __ATOMIC_RELAXED) == 0)
+        return;
+
+    /* The owner-local list and its cap keep each pointer alive while scanned. */
+    lock(&local_cross_machine_tasks_lock);
+    for (i = 0; i < MAX_LOCAL_CROSS_MACHINE_TASKS; i++) {
+        cap_group = local_cross_machine_tasks[i];
+        if (!cap_group)
+            continue;
+
+        failed_mid = cross_machine_task_failed_participant(cap_group);
+        if (failed_mid >= 0)
+            cross_machine_task_mark_failed(cap_group, failed_mid);
+
+        if (__atomic_load_n(&cap_group->cross_machine_failure,
+                            __ATOMIC_ACQUIRE) == 1)
+            cap_group_request_cross_machine_exit(
+                    cap_group, cap_group->failed_machine_id, -EIO);
+    }
+    unlock(&local_cross_machine_tasks_lock);
+}
+#endif
+
 /* tool functions */
 static bool is_valid_slot_id(struct slot_table *slot_table, int slot_id)
 {
@@ -99,6 +256,22 @@ int cap_group_init(struct cap_group *cap_group, unsigned int size, u64 badge, bo
     cap_group->badge = badge;
     cap_group->is_cross_machine = is_cross_machine;
 
+#ifdef DSM_ENABLED
+    cap_group->owner_machine_id = CUR_MACHINE_ID;
+    cap_group->failed_machine_id = -1;
+    cap_group->owner_boot_generation = dsm_machine_boot_generation(CUR_MACHINE_ID);
+    cap_group->participant_mask = is_cross_machine ? BIT(CUR_MACHINE_ID) : 0;
+    memset((void *)cap_group->participant_generation,
+           0,
+           sizeof(cap_group->participant_generation));
+    if (is_cross_machine) {
+        cap_group->participant_generation[CUR_MACHINE_ID] =
+                cap_group->owner_boot_generation;
+        cap_group->cross_machine_failure = 0;
+        cross_machine_task_register(cap_group);
+    }
+#endif
+
     /* Initialize the futex for the new cap group. */
     cap_group->futex = kzalloc(sizeof(struct futex), mem_type);
     futex_init(cap_group->futex, mem_type);
@@ -112,6 +285,9 @@ void cap_group_deinit(void *ptr)
     struct slot_table *slot_table;
 
     cap_group = (struct cap_group *)ptr;
+#ifdef DSM_ENABLED
+    cross_machine_task_unregister(cap_group);
+#endif
     slot_table = &cap_group->slot_table;
     kfree(slot_table->slots);
     kfree(slot_table->slots_bmp);

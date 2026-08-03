@@ -71,6 +71,21 @@ struct cap_group {
      */
     bool is_cross_machine;
 
+#ifdef DSM_ENABLED
+    /*
+     * Failure-domain membership for a cross-machine process.  These fields
+     * live with the shared cap_group object in CXL.  A machine ID alone is
+     * insufficient: a replacement guest reuses the ID, so every participant
+     * is tagged with the boot generation in which it first ran this task.
+     */
+    mid_t owner_machine_id;
+    mid_t failed_machine_id;
+    u64 owner_boot_generation;
+    volatile u64 participant_mask;
+    volatile u64 participant_generation[CLUSTER_MAX_MACHINE_NUM];
+    volatile u32 cross_machine_failure;
+#endif
+
     /* Ensures the cap_group_exit function only be executed once */
     int notify_recycler;
 
@@ -145,3 +160,9 @@ struct cap_group *root_cap_group;
 int sys_create_cap_group(u64 badge, u64 cap_group_name, u64 name_len, u64 pcid, bool is_cross_machine);
 
 int sys_clone_cap_group(u64 clone_cap_group_args); /* Fork */
+
+#ifdef DSM_ENABLED
+bool cross_machine_task_arrive(struct cap_group *cap_group);
+void cross_machine_task_poll_failures(void);
+void cross_machine_task_unregister(struct cap_group *cap_group);
+#endif

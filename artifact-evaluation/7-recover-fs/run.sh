@@ -15,6 +15,10 @@ TIMEOUT="${TIMEOUT:-600}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
 BOOT_ONLY="${BOOT_ONLY:-0}"
+REJOIN_ONLY="${REJOIN_ONLY:-0}"
+CROSS_TASK_ONLY="${CROSS_TASK_ONLY:-0}"
+IPC_ABORT_ONLY="${IPC_ABORT_ONLY:-0}"
+CROSS_MATRIX_SIZE="${CROSS_MATRIX_SIZE:-8000}"
 DB_PATH="${DB_PATH:-/tmp/leveldb_recovery}"
 # Each LevelDB value is logged by tmpfs.  The p-log checkpoints CXL-resident
 # tmpfs state and truncates automatically at its 4 MiB capacity.
@@ -38,6 +42,8 @@ echo "[AE] Output directory: $OUT_DIR"
 : > "$LOG_DIR/machine0.log"
 : > "$LOG_DIR/machine1.log"
 : > "$LOG_DIR/machine0-detector.log"
+: > "$LOG_DIR/machine0-rejoin.log"
+: > "$LOG_DIR/machine1-rejoin.log"
 
 now_ns() { date +%s%N; }
 elapsed_ms() { awk -v start="$1" -v end="$2" 'BEGIN { printf "%.3f", (end - start) / 1000000 }'; }
@@ -73,14 +79,9 @@ qemu_pid_for_machine() {
 
 start_machine_detector() {
     local qemu_pid="$1" detector_log="$LOG_DIR/machine0-detector.log"
-    : > "$detector_log"
-    (
-        printf 'watching_qemu_pid=%s started_ns=%s\n' "$qemu_pid" "$(now_ns)" > "$detector_log"
-        while kill -0 "$qemu_pid" 2>/dev/null; do
-            sleep "$DETECTOR_INTERVAL"
-        done
-        printf 'machine0_qemu_exited detected_ns=%s\n' "$(now_ns)" >> "$detector_log"
-    ) &
+    "$REPO_ROOT/dsm-scripts/host-failure-detector.sh" \
+        --machine-id 0 --qemu-pid "$qemu_pid" --event-file "$detector_log" \
+        --interval "$DETECTOR_INTERVAL" &
     DETECTOR_PID=$!
 }
 
@@ -115,8 +116,15 @@ stop_cluster() {
 }
 
 cleanup() {
+    if [ -n "${DETECTOR_PID:-}" ]; then
+        kill "$DETECTOR_PID" 2>/dev/null || true
+        wait "$DETECTOR_PID" 2>/dev/null || true
+    fi
     if [ "$KEEP_QEMU" != "1" ]; then
         stop_cluster
+    fi
+    if declare -F ae_restore_build_configs >/dev/null; then
+        ae_restore_build_configs
     fi
 }
 trap cleanup EXIT
@@ -196,10 +204,9 @@ wait_for_log_count() {
 }
 
 launch_machine() {
-    local machine="$1" logfile
-    logfile="$LOG_DIR/machine${machine}.log"
+    local machine="$1" logfile="${2:-$LOG_DIR/machine${machine}.log}"
     local command="cd '$REPO_ROOT' && CPU_NUM=$AE_MICROBENCH_GUEST_CPU_NUM USE_DEV_AS_DRAM=$USE_DEV_AS_DRAM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
-    if [ "$machine" -eq 0 ]; then
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"
     else
         tmux new-window -t "$SESSION" -n "$machine" "$command"
@@ -230,6 +237,157 @@ start_cluster() {
         return 1
     fi
     echo "[AE] External detector will watch machine 0 QEMU PID $MACHINE0_QEMU_PID"
+}
+
+run_machine_rejoin_test() {
+    local m0_rejoin_log="$LOG_DIR/machine0-rejoin.log"
+    local m1_log="$LOG_DIR/machine1.log"
+    local m1_line detect_end_ns
+
+    m1_line=$(($(wc -l < "$m1_log") + 1))
+    tmux send-keys -t "$SESSION:1" 'echo REJOIN_SURVIVOR_BEFORE_OK' Enter
+    wait_for_log "$m1_log" 'REJOIN_SURVIVOR_BEFORE_OK' \
+        'surviving machine responsive before crash' "$m1_line"
+
+    start_machine_detector "$MACHINE0_QEMU_PID"
+    echo '=== Killing machine 0 QEMU for boot-rejoin test ==='
+    tmux kill-window -t "$SESSION:0"
+    wait_for_machine_detector
+    detect_end_ns="$(sed -nE 's/^machine0_qemu_exited detected_ns=([0-9]+)$/\1/p' \
+        "$LOG_DIR/machine0-detector.log" | tail -1)"
+    [ -n "$detect_end_ns" ] || {
+        echo 'External detector did not observe the machine-0 crash.' >&2
+        return 1
+    }
+
+    # Keep the ivshmem server and CXL backing file alive.  The replacement
+    # guest deliberately uses logical machine ID 0 again.
+    : > "$m0_rejoin_log"
+    launch_machine 0 "$m0_rejoin_log"
+    wait_for_log "$m0_rejoin_log" \
+        'DSM] machine 0 rejoining with boot generation 2;' \
+        'machine 0 recognized the persistent CXL incarnation'
+    wait_for_log "$m0_rejoin_log" \
+        'DSM] machine 0 online at boot generation 2 \(rejoined\)' \
+        'machine 0 rebuilt volatile state and came online'
+    wait_for_log "$m0_rejoin_log" '^\$ ' 'rejoined machine 0 shell ready'
+
+    m1_line=$(($(wc -l < "$m1_log") + 1))
+    tmux send-keys -t "$SESSION:1" 'echo REJOIN_SURVIVOR_AFTER_OK' Enter
+    wait_for_log "$m1_log" 'REJOIN_SURVIVOR_AFTER_OK' \
+        'surviving machine stayed responsive across rejoin' "$m1_line"
+
+    echo '[AE] PASS: machine 0 rejoined as the same logical ID with CXL state preserved.'
+}
+
+run_cross_machine_task_rejoin_test() {
+    local m0_log="$LOG_DIR/machine0.log"
+    local m1_rejoin_log="$LOG_DIR/machine1-rejoin.log"
+    local m0_line m1_pid checks=0
+
+    m0_line=$(($(wc -l < "$m0_log") + 1))
+    tmux send-keys -t "$SESSION:0" \
+        'write matrix_multiply_bind_cpu.txt 0-23' Enter
+    # Shell syntax is "# &": '&' selects a background job, then '#' marks
+    # its cap group and userspace allocations as cross-machine shared state.
+    tmux send-keys -t "$SESSION:0" \
+        "matrix_multiply.bin -l $CROSS_MATRIX_SIZE -r $CROSS_MATRIX_SIZE -t 16 -c 0 # &" Enter
+    wait_for_log "$LOG_DIR/machine1.log" \
+        '\[CROSS_TASK\].*joined machine 1 generation 1' \
+        'matrix task placed a worker on machine 1'
+
+    m1_pid="$(qemu_pid_for_machine 1)"
+    if [ -z "$m1_pid" ]; then
+        echo 'Could not locate machine 1 QEMU for the cross-task test.' >&2
+        return 1
+    fi
+
+    echo '=== Killing machine 1 while a cross-machine matrix task is active ==='
+    tmux kill-window -t "$SESSION:1"
+    while kill -0 "$m1_pid" 2>/dev/null; do
+        if [ "$checks" -ge $((TIMEOUT * 100)) ]; then
+            echo 'Timed out waiting for the machine-1 QEMU to exit.' >&2
+            return 1
+        fi
+        sleep "$DETECTOR_INTERVAL"
+        checks=$((checks + 1))
+    done
+
+    # Reuse logical ID 1 and preserve all CXL state.  Generation 2 is the
+    # failure signal consumed by the task membership protocol on machine 0.
+    : > "$m1_rejoin_log"
+    launch_machine 1 "$m1_rejoin_log"
+    wait_for_log "$m1_rejoin_log" \
+        'DSM] machine 1 rejoining with boot generation 2;' \
+        'machine 1 published a new boot generation'
+    wait_for_log "$m1_rejoin_log" \
+        'DSM] machine 1 online at boot generation 2 \(rejoined\)' \
+        'replacement machine 1 came online'
+    wait_for_log "$m0_log" \
+        '\[CROSS_TASK\].*lost machine 1.*participant generation 1, current generation 2' \
+        'owner detected the partial cross-machine task failure' "$m0_line"
+    wait_for_log "$m0_log" \
+        '\[CROSS_TASK\] recycled task .* and all capabilities' \
+        'owner recycler released the failed task resources' "$m0_line"
+
+    m0_line=$(($(wc -l < "$m0_log") + 1))
+    tmux send-keys -t "$SESSION:0" 'echo CROSS_TASK_SURVIVOR_OK' Enter
+    wait_for_log "$m0_log" 'CROSS_TASK_SURVIVOR_OK' \
+        'owner shell remained responsive after reclamation' "$m0_line"
+    wait_for_log "$m1_rejoin_log" '^\$ ' 'replacement machine 1 shell ready'
+
+    echo '[AE] PASS: partial cross-machine task failure was killed and reclaimed.'
+}
+
+run_ipc_abort_reconnect_test() {
+    local m0_log="$LOG_DIR/machine0.log"
+    local m1_log="$LOG_DIR/machine1.log"
+    local m1_rejoin_log="$LOG_DIR/machine1-rejoin.log"
+    local m0_line m1_line m1_pid checks=0
+
+    m0_line=$(($(wc -l < "$m0_log") + 1))
+    m1_line=$(($(wc -l < "$m1_log") + 1))
+    tmux send-keys -t "$SESSION:0" 'polling_reconnect_test.bin 1' Enter
+    wait_for_log "$m0_log" \
+        '\[IPC_ABORT_TEST\] client connected to service machine 1' \
+        'surviving app connected to the remote service' "$m0_line"
+    wait_for_log "$m1_log" \
+        '\[IPC_ABORT_TEST\] service request is DOING on machine 1' \
+        'remote service began the intentionally blocked request' "$m1_line"
+
+    m1_pid="$(qemu_pid_for_machine 1)"
+    if [ -z "$m1_pid" ]; then
+        echo 'Could not locate machine 1 QEMU for the IPC abort test.' >&2
+        return 1
+    fi
+
+    echo '=== Killing machine 1 with a remote service request in DOING ==='
+    tmux kill-window -t "$SESSION:1"
+    while kill -0 "$m1_pid" 2>/dev/null; do
+        if [ "$checks" -ge $((TIMEOUT * 100)) ]; then
+            echo 'Timed out waiting for the machine-1 QEMU to exit.' >&2
+            return 1
+        fi
+        sleep "$DETECTOR_INTERVAL"
+        checks=$((checks + 1))
+    done
+
+    : > "$m1_rejoin_log"
+    launch_machine 1 "$m1_rejoin_log"
+    wait_for_log "$m1_rejoin_log" \
+        'DSM] machine 1 online at boot generation 2 \(rejoined\)' \
+        'replacement service machine came online'
+    wait_for_log "$m1_rejoin_log" \
+        '\[polling\] recovery published ABORT for 1 DOING requests' \
+        'replacement service published the request abort'
+    wait_for_log "$m0_log" \
+        '\[IPC_ABORT_TEST\] app received -ECONNABORTED' \
+        'surviving app observed the explicit abort' "$m0_line"
+    wait_for_log "$m0_log" \
+        '\[IPC_ABORT_TEST\] PASS: app reconnected and service replied' \
+        'surviving app reconnected and completed a new request' "$m0_line"
+
+    echo '[AE] PASS: remote service failure returned abort and the app reconnected.'
 }
 
 benchmark_rate_ops() {
@@ -269,8 +427,31 @@ ae_ensure_clean_tmux
 check_global_prepare
 ae_prepare_microbench_guest_cpu
 if [ "$SKIP_BUILD" != "1" ]; then
-    ae_build_with_config_restore \
-        "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
+    # This experiment needs LevelDB only.  Keep the build self-contained so a
+    # missing Phoenix/Gemini/DBx1000 dataset cannot block the recovery test.
+    ae_save_build_configs
+    for demo in DBX1000 GEIMINIGRAPH PHOENIX; do
+        ae_set_demo_var "CHCORE_DEMOS_${demo}" OFF
+        ae_set_dotconfig "CHCORE_DEMOS_${demo}" BOOL OFF
+    done
+    if [ "$IPC_ABORT_ONLY" = "1" ]; then
+        ae_set_demo_var CHCORE_DEMOS_LEVELDB OFF
+        ae_set_dotconfig CHCORE_DEMOS_LEVELDB BOOL OFF
+        ae_build_with_config_restore \
+            "$REPO_ROOT/user/build/ramdisk/polling_reconnect_test.bin"
+    elif [ "$CROSS_TASK_ONLY" = "1" ]; then
+        ae_set_demo_var CHCORE_DEMOS_LEVELDB OFF
+        ae_set_dotconfig CHCORE_DEMOS_LEVELDB BOOL OFF
+        ae_set_demo_var CHCORE_DEMOS_PHOENIX ON
+        ae_set_dotconfig CHCORE_DEMOS_PHOENIX BOOL ON
+        ae_build_with_config_restore \
+            "$REPO_ROOT/user/build/ramdisk/matrix_multiply.bin"
+    else
+        ae_set_demo_var CHCORE_DEMOS_LEVELDB ON
+        ae_set_dotconfig CHCORE_DEMOS_LEVELDB BOOL ON
+        ae_build_with_config_restore \
+            "$REPO_ROOT/user/build/ramdisk/leveldb-dbbench.bin"
+    fi
 fi
 # start_cluster -> make clean-dsm-meta refreshes CXLFS when the ramdisk changed.
 
@@ -283,6 +464,21 @@ start_cluster
 
 if [ "$BOOT_ONLY" = "1" ]; then
     echo '[AE] Boot-only CXLFS IPC validation passed on both machines.'
+    exit 0
+fi
+
+if [ "$REJOIN_ONLY" = "1" ]; then
+    run_machine_rejoin_test
+    exit 0
+fi
+
+if [ "$CROSS_TASK_ONLY" = "1" ]; then
+    run_cross_machine_task_rejoin_test
+    exit 0
+fi
+
+if [ "$IPC_ABORT_ONLY" = "1" ]; then
+    run_ipc_abort_reconnect_test
     exit 0
 fi
 

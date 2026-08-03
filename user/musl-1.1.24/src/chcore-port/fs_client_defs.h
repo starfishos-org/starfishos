@@ -32,7 +32,12 @@ ipc_struct_t *get_ipc_struct_by_mount_id(int mount_id);
 
 struct fd_record_extension {
 	char path[MAX_PATH_LEN + 1];
+	char server_path[FS_REQ_PATH_BUF_LEN];
 	int mount_id;
+	int open_flags;
+	mode_t open_mode;
+	off_t offset;
+	u64 fs_instance_generation;
 };
 
 /* Return new fd_record_extension struct */

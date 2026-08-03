@@ -591,20 +591,60 @@ cap_t sys_register_fs_client(mid_t target_machine_id, u64 shm_config_ptr)
     if (target_machine_id < 0 || target_machine_id >= CLUSTER_MACHINE_NUM)
         return -EINVAL;
 
-    server = dsm_meta->tmpfs_thread[target_machine_id];
+    struct dsm_fs_instance_record *record =
+            &dsm_meta->fs_instance_registry[target_machine_id];
+    if (__atomic_load_n(&record->state, __ATOMIC_ACQUIRE)
+                    != DSM_FS_INSTANCE_ONLINE)
+        return -EIPCRETRY;
+    server = __atomic_load_n(&record->server_thread, __ATOMIC_ACQUIRE);
     if (server == NULL)
-        return -EINVAL;
+        return -EIPCRETRY;
 
     return sys_register_client_helper(client, server, shm_config_ptr, true);
 }
 
-cap_t sys_register_fs_server(cap_t fs_cap)
+cap_t sys_register_fs_server(mid_t shard_id, cap_t fs_cap)
 {
+    struct dsm_fs_instance_record *record;
     struct thread *tmpfs_thread = obj_get(current_cap_group, fs_cap, TYPE_THREAD);
-    dsm_meta->tmpfs_thread[CUR_MACHINE_ID] = tmpfs_thread;
+    u64 generation;
+
+    if (shard_id < 0 || shard_id >= CLUSTER_MACHINE_NUM || !tmpfs_thread)
+        return -EINVAL;
+
+    record = &dsm_meta->fs_instance_registry[shard_id];
+    __atomic_store_n(&record->state, DSM_FS_INSTANCE_OFFLINE,
+                     __ATOMIC_RELEASE);
+    generation = __atomic_add_fetch(&record->instance_generation, 1,
+                                    __ATOMIC_ACQ_REL);
+    record->host_machine_id = CUR_MACHINE_ID;
+    record->host_boot_generation =
+            dsm_machine_boot_generation(CUR_MACHINE_ID);
+    dsm_meta->tmpfs_thread[shard_id] = tmpfs_thread;
     tmpfs_thread->machine_id = CUR_MACHINE_ID;
+    __atomic_store_n(&record->server_thread, tmpfs_thread, __ATOMIC_RELEASE);
+    __atomic_store_n(&record->state, DSM_FS_INSTANCE_ONLINE,
+                     __ATOMIC_RELEASE);
+    kinfo("[FS_REGISTRY] shard %d -> machine %d instance %lu boot %lu\n",
+          shard_id,
+          CUR_MACHINE_ID,
+          generation,
+          record->host_boot_generation);
     obj_put(tmpfs_thread);
     return 0;
+}
+
+s64 sys_get_fs_instance_generation(mid_t shard_id)
+{
+    struct dsm_fs_instance_record *record;
+
+    if (shard_id < 0 || shard_id >= CLUSTER_MACHINE_NUM)
+        return -EINVAL;
+    record = &dsm_meta->fs_instance_registry[shard_id];
+    if (__atomic_load_n(&record->state, __ATOMIC_ACQUIRE)
+                    != DSM_FS_INSTANCE_ONLINE)
+        return -EAGAIN;
+    return __atomic_load_n(&record->instance_generation, __ATOMIC_ACQUIRE);
 }
 
 // TODO (tmac): why 8?

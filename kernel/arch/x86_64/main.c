@@ -164,6 +164,10 @@ void main(u64 mbmagic, paddr_t mbaddr)
     create_root_thread();
     kinfo("[ChCore] create initial thread done, machine id: %d\n",
           CUR_MACHINE_ID);
+#ifdef DSM_ENABLED
+    /* All volatile kernel state has now been rebuilt for this incarnation. */
+    dsm_mark_machine_online();
+#endif
 
 #ifdef RESTORE_ENABLED
 skip_create_root_thread:

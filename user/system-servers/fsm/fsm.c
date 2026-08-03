@@ -143,7 +143,7 @@ int fsm_mount_fs(const char *path, const char *mount_point)
 			snprintf(path, sizeof(path), "/%d", i);
 			set_mount_point(path, strlen(path), -1, i);
 		}
-		usys_register_fs_server(fs_cap);
+		usys_register_fs_server(machine_id, fs_cap);
 
 		info("CXLFS process cap acquired: %d\n", fs_cap);
 	} else {
@@ -284,8 +284,20 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 			pthread_rwlock_rdlock(&mount_point_infos_rwlock);
 			mpinfo = get_mount_point(fsm_req->path, parse_path_len);
 			pthread_mutex_lock(&fsm_client_cap_table_lock);
-			if (mpinfo->fs_cap == -1) {
+			if (mpinfo->target_machine_id >= 0) {
 				mount_id = mpinfo->target_machine_id + MAX_MOUNT_ID;
+				pthread_mutex_unlock(&fsm_client_cap_table_lock);
+				fsm_req->mount_id = mount_id;
+				fsm_req->target_machine_id = mpinfo->target_machine_id;
+				strncpy(fsm_req->mount_path, mpinfo->path,
+					mpinfo->path_len);
+				fsm_req->mount_path[mpinfo->path_len] = '\0';
+				fsm_req->mount_path_len = mpinfo->path_len;
+				if (fsm_req->mount_path_len == 1)
+					fsm_req->mount_path_len = 0;
+				fsm_req->new_cap_flag = 0;
+				pthread_rwlock_unlock(&mount_point_infos_rwlock);
+				ipc_return(ipc_msg, 0);
 			} else {
 				mount_id = fsm_get_client_cap(client_badge, mpinfo->fs_cap);
 			}
@@ -299,6 +311,7 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 
 				// Filling responses
 				fsm_req->mount_id = mount_id;
+				fsm_req->target_machine_id = mpinfo->target_machine_id;
 				strncpy(fsm_req->mount_path, mpinfo->path, mpinfo->path_len);
 				fsm_req->mount_path[mpinfo->path_len] = '\0';
 				fsm_req->mount_path_len = mpinfo->path_len;
@@ -319,6 +332,7 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				/* Client holds corresponding fs_cap */
 				pthread_mutex_unlock(&fsm_client_cap_table_lock);
 				fsm_req->mount_id = mount_id;
+				fsm_req->target_machine_id = mpinfo->target_machine_id;
 				strncpy(fsm_req->mount_path, mpinfo->path, mpinfo->path_len);
 				fsm_req->mount_path[mpinfo->path_len] = '\0';
 				fsm_req->mount_path_len = mpinfo->path_len;
@@ -388,8 +402,9 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 				mp->fs_cap = new_cap;
 				mp->_fs_ipc_struct = ipc_register_client(new_cap);
 				mp->target_machine_id = fsm_req->target_machine_id;
-				usys_register_fs_server(new_cap);
-				info("[FSM] Replaced FS for %s (new_cap=%d, mid=%d)\n",
+				usys_register_fs_server(fsm_req->target_machine_id,
+							new_cap);
+				info("[FSM] Replaced FS for %s (new_cap=%d, shard=%d)\n",
 				     mp->path, new_cap, mp->target_machine_id);
 				ret = 0;
 			} else {

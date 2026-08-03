@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include <errno.h>
 
 /* ================================================================
  * Node Allocator — Treiber stack (lock-free)
@@ -29,6 +30,8 @@ static struct dq_node *alloc_node_try(struct polling_shm_region *shm)
         if (atomic_compare_exchange_weak_explicit(
                     &shm->alloc.free_list, &head, next,
                     memory_order_release, memory_order_relaxed)) {
+            /* Persist removal before the caller overwrites this node. */
+            FLUSH(&shm->alloc.free_list);
             return node;
         }
     }
@@ -63,9 +66,12 @@ void dq_free_node(struct polling_shm_region *shm, struct dq_node *node)
         qptr_t head = atomic_load_explicit(&shm->alloc.free_list,
                                            memory_order_acquire);
         atomic_store_explicit(&node->next, head, memory_order_relaxed);
+        /* Publish initialized free-node metadata before the free-list link. */
+        FLUSH_RANGE(node, sizeof(node->next) + sizeof(node->status));
         if (atomic_compare_exchange_weak_explicit(
                     &shm->alloc.free_list, &head, node_off,
                     memory_order_release, memory_order_relaxed)) {
+            FLUSH(&shm->alloc.free_list);
             return;
         }
     }
@@ -97,7 +103,7 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
     memcpy(&node->req, req, sizeof(struct polling_request));
     atomic_store_explicit(&node->next, QPTR_NULL, memory_order_relaxed);
     atomic_store_explicit(&node->status, DQ_INIT, memory_order_release);
-    FLUSH(node);
+    FLUSH_RANGE(node, sizeof(*node));
 
     /* Step 2: link into queue */
     int enq_spins = 0;
@@ -125,6 +131,7 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
                 atomic_compare_exchange_strong_explicit(
                         &shm->queue.tail, &exp_last, node_off,
                         memory_order_release, memory_order_relaxed);
+                FLUSH(&shm->queue.tail);
                 return;
             }
         } else {
@@ -134,6 +141,7 @@ void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
             atomic_compare_exchange_strong_explicit(
                     &shm->queue.tail, &exp_last, next,
                     memory_order_release, memory_order_relaxed);
+            FLUSH(&shm->queue.tail);
         }
 
         if (++enq_spins % 10000000 == 0) {
@@ -156,8 +164,8 @@ void dq_wait_for_done(struct dq_node *node)
         int status = atomic_load_explicit(&node->status, memory_order_acquire);
         if (status == DQ_DONE)
             return;
-        if (status == DQ_CRASH) {
-            printf("[dq_wait] node crashed, server may have died\n");
+        if (status == DQ_ABORT) {
+            printf("[dq_wait] request aborted because its server failed\n");
             return;
         }
         if (++spins % 10000000 == 0) {
@@ -166,7 +174,7 @@ void dq_wait_for_done(struct dq_node *node)
     }
 }
 
-/* Returns 0 if DONE, -1 if CRASH */
+/* Returns 0 if DONE, -ECONNABORTED if the service aborted the request. */
 int dq_wait_for_done_or_crash(struct dq_node *node)
 {
     int spins = 0;
@@ -174,8 +182,8 @@ int dq_wait_for_done_or_crash(struct dq_node *node)
         int status = atomic_load_explicit(&node->status, memory_order_acquire);
         if (status == DQ_DONE)
             return 0;
-        if (status == DQ_CRASH)
-            return -1;
+        if (status == DQ_ABORT)
+            return -ECONNABORTED;
         if (++spins % 10000000 == 0) {
             printf("[wait_stuck] spins=%d status=%d\n", spins, status);
         }
@@ -256,6 +264,7 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
             atomic_compare_exchange_strong_explicit(
                     &shm->queue.tail, &exp, next,
                     memory_order_release, memory_order_relaxed);
+            FLUSH(&shm->queue.tail);
         } else {
             struct dq_node *n = qptr_to_ptr(shm, next);
 
@@ -270,14 +279,19 @@ struct dq_node *durable_dequeue(struct polling_shm_region *shm)
                         &shm->queue.head, &exp_first, next,
                         memory_order_release, memory_order_relaxed);
 
+                /* The old sentinel may be reclaimed only after head persists. */
+                FLUSH(&shm->queue.head);
                 defer_node(first);
                 return n;
             }
 
             qptr_t exp_first = first;
-            atomic_compare_exchange_strong_explicit(
-                    &shm->queue.head, &exp_first, next,
-                    memory_order_release, memory_order_relaxed);
+            if (atomic_compare_exchange_strong_explicit(
+                        &shm->queue.head, &exp_first, next,
+                        memory_order_release, memory_order_relaxed)) {
+                FLUSH(&shm->queue.head);
+                defer_node(first);
+            }
         }
     }
 }
@@ -313,11 +327,17 @@ int polling_fs_open(struct polling_shm_region *shm, const char *path, int flags,
             .type = POLLING_FS_REQ_OPEN,
             .open = { .flags = flags, .mode = mode },
     };
-    strncpy(req.open.path, path, FS_REQ_PATH_BUF_LEN);
+    strncpy(req.open.path, path, FS_REQ_PATH_BUF_LEN - 1);
+    req.open.path[FS_REQ_PATH_BUF_LEN - 1] = '\0';
 
     struct dq_node *node = dq_alloc_node(shm);
     dq_enqueue(shm, node, &req);
-    dq_wait_for_done(node);
+    int wait_ret = dq_wait_for_done_or_crash(node);
+    if (wait_ret < 0) {
+        atomic_store_explicit(&node->status, DQ_CONSUMED,
+                              memory_order_release);
+        return wait_ret;
+    }
 
     int fd = node->resp.open.fd;
     atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
@@ -342,7 +362,12 @@ ssize_t polling_fs_read(struct polling_shm_region *shm, int fd, void *buf,
 
         struct dq_node *node = dq_alloc_node(shm);
         dq_enqueue(shm, node, &req);
-        dq_wait_for_done(node);
+        int wait_ret = dq_wait_for_done_or_crash(node);
+        if (wait_ret < 0) {
+            atomic_store_explicit(&node->status, DQ_CONSUMED,
+                                  memory_order_release);
+            return total ? total : wait_ret;
+        }
 
         ssize_t n = node->resp.read.count;
         memcpy(p, node->resp.read.buf, n);
@@ -377,7 +402,12 @@ ssize_t polling_fs_write(struct polling_shm_region *shm, int fd,
 
         struct dq_node *node = dq_alloc_node(shm);
         dq_enqueue(shm, node, &req);
-        dq_wait_for_done(node);
+        int wait_ret = dq_wait_for_done_or_crash(node);
+        if (wait_ret < 0) {
+            atomic_store_explicit(&node->status, DQ_CONSUMED,
+                                  memory_order_release);
+            return total ? total : wait_ret;
+        }
 
         ssize_t n = node->resp.write.count;
         atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
@@ -401,22 +431,28 @@ int polling_fs_close(struct polling_shm_region *shm, int fd)
 
     struct dq_node *node = dq_alloc_node(shm);
     dq_enqueue(shm, node, &req);
-    dq_wait_for_done(node);
+    int wait_ret = dq_wait_for_done_or_crash(node);
+    if (wait_ret < 0) {
+        atomic_store_explicit(&node->status, DQ_CONSUMED,
+                              memory_order_release);
+        return wait_ret;
+    }
 
     int ret = node->resp.close.ret;
     atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
     return ret;
 }
 
-void polling_fs_empty(struct polling_shm_region *shm)
+int polling_fs_empty(struct polling_shm_region *shm)
 {
     struct polling_request req = {
             .type = POLLING_REQ_EMPTY,
     };
     struct dq_node *node = dq_alloc_node(shm);
     dq_enqueue(shm, node, &req);
-    dq_wait_for_done(node);
+    int ret = dq_wait_for_done_or_crash(node);
     atomic_store_explicit(&node->status, DQ_CONSUMED, memory_order_release);
+    return ret;
 }
 
 void polling_print_debug_info(struct polling_shm_region *shm)

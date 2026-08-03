@@ -7,6 +7,7 @@
 #include <mm/kmalloc.h>
 #include <mm/vmspace.h>
 #include <mm/uaccess.h>
+#include <mm/shm.h>
 #include <lib/printk.h>
 #include <ipc/notification.h>
 #include <irq/irq.h>
@@ -125,21 +126,15 @@ void notify_user_recycler(u64 proc_badge, int exitcode)
     unlock(&recycle_buffer_lock);
 }
 
-/* All the threads in current_cap_group should exit */
-void sys_exit_group(int exitcode)
+static void cap_group_request_exit(struct cap_group *cap_group, int exitcode,
+                                   mid_t failed_machine_id)
 {
     struct thread *thread;
-
-    kdebug("%s\n", __func__);
-
-#ifdef CKPT_CAP_GROUP_LAZY_COPY
-    cap_group_lazy_copy_ckpt(current_cap_group);
-#endif
     /*
      * Check if the notification has been sent.
      * E.g., a faulting process may trigger sys_exit_group for many times.
      */
-    if (__sync_val_compare_and_swap(&current_cap_group->notify_recycler, 0, 1)
+    if (__sync_val_compare_and_swap(&cap_group->notify_recycler, 0, 1)
         == 0) {
         /*
          * Grap the threads_lock and set the threads state.
@@ -147,13 +142,41 @@ void sys_exit_group(int exitcode)
          * see `create_thread` in thread.c
          */
 #ifdef TRACK_TIME
-        printk("<track> cap group [%s]:\n", current_cap_group->cap_group_name);
+        printk("<track> cap group [%s]:\n", cap_group->cap_group_name);
 #endif
-        lock(&current_cap_group->threads_lock);
+        lock(&cap_group->threads_lock);
         for_each_in_list (thread,
                           struct thread,
                           node,
-                          &(current_cap_group->thread_list)) {
+                          &(cap_group->thread_list)) {
+#ifdef DSM_ENABLED
+            /*
+             * No CPU from an older incarnation can finish its exit path.
+             * A migrating thread is not running anywhere; cancel its durable
+             * queue node before allowing the thread object to be reclaimed.
+             */
+            if (thread->thread_ctx->thread_exit_state == TE_MIGRATING) {
+                thread_dq_cancel_node(thread->notif_dq_node_off);
+                thread->thread_ctx->state = TS_EXIT;
+                thread->thread_ctx->kernel_stack_state = KS_FREE;
+                thread->thread_ctx->thread_exit_state = TE_EXITED;
+                continue;
+            }
+            if (failed_machine_id >= 0
+                && thread->machine_id == failed_machine_id) {
+                /* The failed CPU's local fpu_owner table disappeared. */
+                thread->thread_ctx->is_fpu_owner = -1;
+                if (thread->thread_ctx->state == TS_WAITING
+                    || thread->thread_ctx->state == TS_WAITING_IPC) {
+                    thread_dq_cancel_node(thread->notif_dq_node_off);
+                    thread->notif_dq_node_off = QPTR_NULL;
+                }
+                thread->thread_ctx->state = TS_EXIT;
+                thread->thread_ctx->kernel_stack_state = KS_FREE;
+                thread->thread_ctx->thread_exit_state = TE_EXITED;
+                continue;
+            }
+#endif
             /* CAS is used in case the state is set to TE_EXITED
              * concurrently */
             __sync_val_compare_and_swap(&thread->thread_ctx->thread_exit_state,
@@ -165,10 +188,33 @@ void sys_exit_group(int exitcode)
                    current_thread->track_time_user / 1000000);
 #endif
         }
-        unlock(&current_cap_group->threads_lock);
+        unlock(&cap_group->threads_lock);
 
-        notify_user_recycler(current_cap_group->badge, exitcode);
+        notify_user_recycler(cap_group->badge, exitcode);
     }
+}
+
+#ifdef DSM_ENABLED
+void cap_group_request_cross_machine_exit(struct cap_group *cap_group,
+                                          mid_t failed_machine_id,
+                                          int exitcode)
+{
+    BUG_ON(!cap_group || !cap_group->is_cross_machine);
+    BUG_ON(cap_group->owner_machine_id != CUR_MACHINE_ID);
+    cap_group_request_exit(cap_group, exitcode, failed_machine_id);
+}
+#endif
+
+/* All the threads in current_cap_group should exit */
+void sys_exit_group(int exitcode)
+{
+    kdebug("%s\n", __func__);
+
+#ifdef CKPT_CAP_GROUP_LAZY_COPY
+    cap_group_lazy_copy_ckpt(current_cap_group);
+#endif
+
+    cap_group_request_exit(current_cap_group, exitcode, -1);
 
     /* Set the exit state of current_thread: no contention */
     current_thread->thread_ctx->thread_exit_state = TE_EXITING;
@@ -605,6 +651,11 @@ int sys_cap_group_recycle(int cap_group_cap)
      * resources.
      */
 
+    /* The owner-local failure scanner must stop publishing this pointer. */
+#ifdef DSM_ENABLED
+    cross_machine_task_unregister(cap_group);
+#endif
+
     /* The recycled cap_group should not be accessed in other places  */
     cap_free_all(current_cap_group, cap_group_cap);
     object = container_of(cap_group, struct object, opaque);
@@ -632,6 +683,11 @@ int sys_cap_group_recycle(int cap_group_cap)
     }
 
     /* The cap_group will be freed in the following cap_free_all. */
+    if (cap_group->is_cross_machine)
+        kinfo("[CROSS_TASK] recycled task %.*s badge 0x%lx and all capabilities\n",
+              MAX_GROUP_NAME_LEN,
+              name,
+              cap_group->badge);
     obj_put(cap_group);
 
     return ret;

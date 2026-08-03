@@ -25,4 +25,9 @@ add_executable(plog_test_client.bin plog_test_client.c)
 target_link_options(plog_test_client.bin PRIVATE -static)
 target_link_libraries(plog_test_client.bin PRIVATE polling-client-core libc-static)
 
+add_executable(polling_reconnect_test.bin polling_reconnect_test.c)
+
+target_link_options(polling_reconnect_test.bin PRIVATE -static)
+target_link_libraries(polling_reconnect_test.bin PRIVATE polling-client-core libc-static)
+
 chcore_copy_all_targets_to_ramdisk()

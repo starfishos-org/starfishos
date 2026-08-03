@@ -28,6 +28,9 @@ typedef struct ipc_struct {
 	/* A spin lock: used to coordinate the access to shared memory */
 	volatile int lock;
 	enum system_server_identifier server_id;
+	/* Stable filesystem shard identity, or -1 for a non-FS connection. */
+	int fs_shard_id;
+	u64 fs_instance_generation;
 } ipc_struct_t;
 
 extern int fsm_server_cap;

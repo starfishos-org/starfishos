@@ -145,6 +145,7 @@
 /* File System */
 #define SYS_register_fs_client 257
 #define SYS_register_fs_server 258
+#define SYS_get_fs_instance_generation 268
 
 #ifdef IPC_PERF_ENABLED
 #define SYS_ipc_perf_start 259

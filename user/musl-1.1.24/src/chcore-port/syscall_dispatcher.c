@@ -129,10 +129,13 @@ void __libc_connect_services(char *envp[])
 
 	fsm_ipc_struct->conn_cap = 0;
 	fsm_ipc_struct->server_id = FS_MANAGER;
+	fsm_ipc_struct->fs_shard_id = -1;
 	lwip_ipc_struct->conn_cap = 0;
 	lwip_ipc_struct->server_id = NET_MANAGER;
+	lwip_ipc_struct->fs_shard_id = -1;
 	procmgr_ipc_struct->conn_cap = 0;
 	procmgr_ipc_struct->server_id = PROC_MANAGER;
+	procmgr_ipc_struct->fs_shard_id = -1;
 
 	envp_ptr = (long *)envp;
 	nr_pmo_map_addr = envp_ptr[0];

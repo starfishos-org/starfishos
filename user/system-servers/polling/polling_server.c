@@ -35,6 +35,25 @@ struct polling_thread_arg {
 
 int my_id = -1;
 
+static int polling_shm_region_is_initialized(struct polling_shm_region *shm)
+{
+    qptr_t head = atomic_load_explicit(&shm->queue.head,
+                                       memory_order_acquire);
+    qptr_t tail = atomic_load_explicit(&shm->queue.tail,
+                                       memory_order_acquire);
+
+    if (shm->alloc.node_size != DQ_NODE_SIZE
+        || shm->alloc.node_count != DQ_MAX_NODES
+        || shm->alloc.pool_offset != DQ_POOL_OFFSET)
+        return 0;
+    if (head < DQ_POOL_OFFSET || tail < DQ_POOL_OFFSET
+        || head >= (qptr_t)POLLING_SHM_SIZE
+        || tail >= (qptr_t)POLLING_SHM_SIZE)
+        return 0;
+    return ((head - DQ_POOL_OFFSET) % DQ_NODE_SIZE) == 0
+        && ((tail - DQ_POOL_OFFSET) % DQ_NODE_SIZE) == 0;
+}
+
 /* ================================================================
  * SHM region initialization
  *
@@ -189,7 +208,7 @@ void *polling_reader_thread(void *arg)
         }
 #endif
 
-        FLUSH(node);
+        FLUSH_RANGE(node, sizeof(*node));
         atomic_store_explicit(&node->status, DQ_DONE,
                               memory_order_release);
         FLUSH(&node->status);
@@ -197,7 +216,7 @@ void *polling_reader_thread(void *arg)
 }
 
 /* ================================================================
- * Crash recovery: walk queue and mark DOING nodes as CRASH
+ * Crash recovery: walk the persistent queue and abort ambiguous requests.
  * ================================================================ */
 
 void dq_recover_crash(struct polling_shm_region *shm)
@@ -210,7 +229,7 @@ void dq_recover_crash(struct polling_shm_region *shm)
         int status = atomic_load_explicit(&node->status, memory_order_acquire);
 
         if (status == DQ_DOING) {
-            atomic_store_explicit(&node->status, DQ_CRASH,
+            atomic_store_explicit(&node->status, DQ_ABORT,
                                   memory_order_release);
             FLUSH(&node->status);
             recovered++;
@@ -219,7 +238,7 @@ void dq_recover_crash(struct polling_shm_region *shm)
         cur = atomic_load_explicit(&node->next, memory_order_acquire);
     }
 
-    printf("[polling] dq_recover_crash: marked %d DOING nodes as CRASH\n",
+    printf("[polling] recovery published ABORT for %d DOING requests\n",
            recovered);
 }
 
@@ -240,7 +259,19 @@ int create_polling_threads(u32 shm_id, pthread_t *tids, int num_threads)
     }
     printf("Polling Service Server: mmap shm by id %d\n", shm_id);
     struct polling_shm_region *shm = (struct polling_shm_region *)shm_addr;
-    init_polling_shm_region(shm);
+    /*
+     * Machine 0 initializes every queue once in CXL.  A replacement service
+     * must preserve that queue: INIT requests are safe for it to execute,
+     * DONE responses remain valid, and only an old consumer's DOING requests
+     * have an ambiguous outcome and must become ABORT.
+     */
+    if (polling_shm_region_is_initialized(shm)) {
+        dq_recover_crash(shm);
+    } else {
+        printf("[polling] queue metadata invalid; initializing shm id %u\n",
+               shm_id);
+        init_polling_shm_region(shm);
+    }
 
     struct polling_thread_arg *thread_args =
         (struct polling_thread_arg *)malloc(

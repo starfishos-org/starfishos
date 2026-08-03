@@ -50,6 +50,7 @@ ipc_struct_t *__procmgr_ipc_struct_location(void)
 }
 
 static int connect_system_server(ipc_struct_t *ipc_struct);
+static int reconnect_fs_instance(ipc_struct_t *ipc_struct);
 
 /* Interfaces for operate the ipc message (begin here) */
 
@@ -63,9 +64,18 @@ ipc_msg_t *ipc_create_msg(ipc_struct_t *icb, u64 data_len, u64 cap_slot_number)
 	ipc_msg_t *ipc_msg;
 	u64 buf_len;
 
+	if (icb->fs_shard_id >= 0) {
+		s64 generation =
+			usys_get_fs_instance_generation(icb->fs_shard_id);
+		if (generation > 0
+		    && (u64)generation != icb->fs_instance_generation)
+			icb->conn_cap = 0;
+	}
 	if (unlikely(icb->conn_cap == 0)) {
 		/* Create the IPC connection on demand */
-		if (connect_system_server(icb) != 0)
+		int ret = icb->fs_shard_id >= 0
+			? reconnect_fs_instance(icb) : connect_system_server(icb);
+		if (ret != 0)
 			return NULL;
 	}
 
@@ -324,6 +334,9 @@ ipc_struct_t *ipc_register_client(int server_thread_cap)
 	client_ipc_struct->shared_buf = shm_config.shm_addr;
 	client_ipc_struct->shared_buf_len = IPC_PER_SHM_SIZE;
 	client_ipc_struct->conn_cap = conn_cap;
+	client_ipc_struct->server_id = 0;
+	client_ipc_struct->fs_shard_id = -1;
+	client_ipc_struct->fs_instance_generation = 0;
 
 	return client_ipc_struct;
 }
@@ -375,6 +388,10 @@ ipc_struct_t *ipc_register_fs_client(int target_machine_id)
 	client_ipc_struct->shared_buf = shm_config.shm_addr;
 	client_ipc_struct->shared_buf_len = IPC_PER_SHM_SIZE;
 	client_ipc_struct->conn_cap = conn_cap;
+	client_ipc_struct->server_id = 0;
+	client_ipc_struct->fs_shard_id = target_machine_id;
+	client_ipc_struct->fs_instance_generation =
+		usys_get_fs_instance_generation(target_machine_id);
 
 	return client_ipc_struct;
 }
@@ -404,6 +421,11 @@ s64 ipc_call(ipc_struct_t *icb, ipc_msg_t *ipc_msg)
 				}
 		#endif
 	} while (ret == -EIPCRETRY);
+	if (icb->fs_shard_id >= 0 && ret == -ESRCH) {
+		/* The request outcome is ambiguous; never replay it implicitly. */
+		icb->conn_cap = 0;
+		return -ECONNABORTED;
+	}
 
 	return ret;
 }
@@ -445,6 +467,19 @@ static void ipc_struct_copy(ipc_struct_t *dst, ipc_struct_t *src)
 	dst->shared_buf = src->shared_buf;
 	dst->shared_buf_len = src->shared_buf_len;
 	dst->lock = src->lock;
+	dst->server_id = src->server_id;
+	dst->fs_shard_id = src->fs_shard_id;
+	dst->fs_instance_generation = src->fs_instance_generation;
+}
+
+static int reconnect_fs_instance(ipc_struct_t *ipc_struct)
+{
+	ipc_struct_t *tmp = ipc_register_fs_client(ipc_struct->fs_shard_id);
+	if (!tmp)
+		return -EAGAIN;
+	ipc_struct_copy(ipc_struct, tmp);
+	free(tmp);
+	return 0;
 }
 
 extern ipc_struct_t *procmgr_ipc_struct;
@@ -458,14 +493,17 @@ int reconnect_to_system_servers(u64 new_fs_cap, u64 new_lwip_cap, u64 new_procmg
 	procmgr_server_cap = new_procmgr_cap;
 	procmgr_ipc_struct->conn_cap = 0;
 	procmgr_ipc_struct->server_id = PROC_MANAGER;
+	procmgr_ipc_struct->fs_shard_id = -1;
 
 	lwip_server_cap = new_lwip_cap;
 	lwip_ipc_struct->conn_cap = 0;
 	lwip_ipc_struct->server_id = NET_MANAGER;
+	lwip_ipc_struct->fs_shard_id = -1;
 	
 	fsm_server_cap = new_fs_cap;
 	fsm_ipc_struct->conn_cap = 0;
 	fsm_ipc_struct->server_id = FS_MANAGER;
+	fsm_ipc_struct->fs_shard_id = -1;
 
 #if 0
 	init_list_head(&fs_ipc_pool);

@@ -196,6 +196,14 @@ static int rr_sched_migrate_from_shared_queue_internal(bool urgent)
     }
 
     while ((thread = thread_dq_dequeue(&rr_cur_shared_queue)) != NULL) {
+        if (!cross_machine_task_arrive(thread->cap_group)) {
+            /* This queue node is already consumed; never run it in the new
+             * incarnation, even if recycler ownership was lost. */
+            thread->thread_ctx->state = TS_EXIT;
+            thread->thread_ctx->kernel_stack_state = KS_FREE;
+            thread->thread_ctx->thread_exit_state = TE_EXITED;
+            continue;
+        }
         // measure dequeue shared & enqueue local
         // u64 begin = plat_get_mono_time();
         gcpuid = thread->thread_ctx->affinity;
@@ -632,8 +640,20 @@ int rr_sched(void)
     struct thread *old = current_thread;
     struct thread *new = 0;
 
+#ifdef DSM_ENABLED
+    cross_machine_task_poll_failures();
+#endif
+
     if (old) {
         BUG_ON(!old->thread_ctx);
+
+#ifdef DSM_ENABLED
+        if (!cross_machine_task_arrive(old->cap_group))
+            __sync_val_compare_and_swap(
+                    &old->thread_ctx->thread_exit_state,
+                    TE_RUNNING,
+                    TE_EXITING);
+#endif
 
         /* old thread may pass its scheduling context to others. */
         if (old->thread_ctx->type != TYPE_SHADOW

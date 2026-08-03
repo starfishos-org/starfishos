@@ -28,3 +28,8 @@ For tmpfs recovery:
 
 The end-to-end recovery test kills machine 0, runs `tmpfs.srv --recover 0` on machine 1, then reopens LevelDB. Run `./artifact-evaluation/7-recover-fs/run.sh` after preparation. This repairs the service; LevelDB's durable recovery remains application-owned.
 
+For an in-flight DurableQueue request, replacement service startup preserves
+the CXL queue and changes an old `DOING` request to `ABORT`. The surviving
+client receives `-ECONNABORTED`, reconnects, and decides whether a new request
+is safe; the transport does not replay an ambiguous write. The focused QEMU
+regression is `artifact-evaluation/7-recover-fs/run-ipc-abort-rejoin.sh`.

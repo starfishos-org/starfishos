@@ -44,6 +44,13 @@ void handle_polling_request(struct dq_node *node)
     case POLLING_PRINT_DEBUG_INFO:
         handle_polling_print_debug_info(node);
         break;
+    case POLLING_ABORT_TEST_BLOCK:
+        printf("[IPC_ABORT_TEST] service request is DOING on machine %d\n",
+               usys_get_machine_id());
+        fflush(stdout);
+        while (1)
+            __builtin_ia32_pause();
+        break;
     default:
         printf("Unsupported polling request type: %d\n", node->req.type);
         break;
