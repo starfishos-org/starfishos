@@ -309,6 +309,10 @@ if(CHCORE_DEMOS_PHOENIX)
   set(_phoenix_tpool_fixed "${CMAKE_CURRENT_BINARY_DIR}/phoenix-tpool-chcore.c")
   file(READ "${_phoenix_tpool_src}" _phoenix_tpool_contents)
 
+  # The generated source no longer sits beside Phoenix's private memory.h.
+  # Put that directory before musl's public memory.h for this target.
+  target_include_directories(phoenix-lib BEFORE PRIVATE "${PHOENIX_DIR}/src")
+
   set(_phoenix_detached
       "pthread_attr_setdetachstate (&attr, PTHREAD_CREATE_DETACHED)")
   set(_phoenix_joinable
@@ -339,9 +343,9 @@ if(CHCORE_DEMOS_PHOENIX)
          _phoenix_tpool_contents "${_phoenix_tpool_contents}")
 
   set(_phoenix_destroy_old
-      "    for (i = 0; i < tpool->num_threads; ++i) {\n        mem_free (tpool->thread_args[i].ret);\n\n        tpool->die = 1;\n        sem_post(&tpool->thread_args[i].sem_run);\n    }\n\n    sem_wait(&tpool->sem_all_workers_done);")
+      "    for (i = 0; i < tpool->num_threads; ++i) {\n        tpool_mem_free (tpool, tpool->thread_args[i].ret);\n\n        tpool->die = 1;\n        sem_post(&tpool->thread_args[i].sem_run);\n    }\n\n    sem_wait(&tpool->sem_all_workers_done);")
   set(_phoenix_destroy_new
-      "    /* Serialize cross-machine exits while musl unlinks each worker. */\n    tpool->die = 1;\n    for (i = 0; i < tpool->num_threads; ++i) {\n        result = sem_post (&tpool->thread_args[i].sem_run);\n        CHECK_ERROR (result);\n\n        result = pthread_join (tpool->threads[i], NULL);\n        CHECK_ERROR (result);\n\n        mem_free (tpool->thread_args[i].ret);\n    }")
+      "    /* Serialize cross-machine exits while musl unlinks each worker. */\n    tpool->die = 1;\n    for (i = 0; i < tpool->num_threads; ++i) {\n        result = sem_post (&tpool->thread_args[i].sem_run);\n        CHECK_ERROR (result);\n\n        result = pthread_join (tpool->threads[i], NULL);\n        CHECK_ERROR (result);\n\n        tpool_mem_free (tpool, tpool->thread_args[i].ret);\n    }")
   string(FIND "${_phoenix_tpool_contents}" "${_phoenix_destroy_old}"
          _phoenix_destroy_pos)
   if(_phoenix_destroy_pos EQUAL -1)
@@ -352,9 +356,9 @@ if(CHCORE_DEMOS_PHOENIX)
          _phoenix_tpool_contents "${_phoenix_tpool_contents}")
 
   set(_phoenix_create_fail_old
-      "fail_thread_create:\n    --i;\n    while (i >= 0)\n    {\n        pthread_cancel (tpool->threads[i]);\n        --i;\n    }\nfail_all_workers_done:\n    mem_free (tpool->thread_args);\nfail_thread_args:\n    mem_free (tpool->threads);\nfail_threads:\n    mem_free (tpool->args);\nfail_args:\n\n    return NULL;")
+      "fail_thread_create:\n    --i;\n    while (i >= 0)\n    {\n        pthread_cancel (tpool->threads[i]);\n        --i;\n    }\nfail_all_workers_done:\n    tpool_mem_free (tpool, tpool->thread_args);\nfail_thread_args:\n    tpool_mem_free (tpool, tpool->threads);\nfail_threads:\n    tpool_mem_free (tpool, tpool->args);\nfail_args:\n    tpool_mem_free (tpool, tpool);\n\n    return NULL;")
   set(_phoenix_create_fail_new
-      "fail_thread_create:\n    /* Index i is initialized, but has no worker to release its resources. */\n    tpool->die = 1;\n    for (int created = 0; created < i; ++created) {\n        ret = sem_post (&tpool->thread_args[created].sem_run);\n        CHECK_ERROR (ret);\n\n        ret = pthread_join (tpool->threads[created], NULL);\n        CHECK_ERROR (ret);\n\n        mem_free (tpool->thread_args[created].ret);\n    }\n    sem_destroy (&tpool->thread_args[i].sem_run);\n    mem_free (tpool->thread_args[i].ret);\n    sem_destroy (&tpool->sem_all_workers_done);\nfail_all_workers_done:\n    mem_free (tpool->thread_args);\nfail_thread_args:\n    mem_free (tpool->threads);\nfail_threads:\n    mem_free (tpool->args);\nfail_args:\n    mem_free (tpool);\n\n    return NULL;")
+      "fail_thread_create:\n    /* Index i is initialized, but has no worker to release its resources. */\n    tpool->die = 1;\n    for (int created = 0; created < i; ++created) {\n        ret = sem_post (&tpool->thread_args[created].sem_run);\n        CHECK_ERROR (ret);\n\n        ret = pthread_join (tpool->threads[created], NULL);\n        CHECK_ERROR (ret);\n\n        tpool_mem_free (tpool, tpool->thread_args[created].ret);\n    }\n    sem_destroy (&tpool->thread_args[i].sem_run);\n    tpool_mem_free (tpool, tpool->thread_args[i].ret);\n    sem_destroy (&tpool->sem_all_workers_done);\nfail_all_workers_done:\n    tpool_mem_free (tpool, tpool->thread_args);\nfail_thread_args:\n    tpool_mem_free (tpool, tpool->threads);\nfail_threads:\n    tpool_mem_free (tpool, tpool->args);\nfail_args:\n    tpool_mem_free (tpool, tpool);\n\n    return NULL;")
   string(FIND "${_phoenix_tpool_contents}" "${_phoenix_create_fail_old}"
          _phoenix_create_fail_pos)
   if(_phoenix_create_fail_pos EQUAL -1)
