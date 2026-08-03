@@ -214,7 +214,12 @@ of magnitude on the reference host:
 | 4-state-partition | 8-machine panel, 24 points | **0.85 h** |
 | 5-auto-scale | including Tigon and footprint | **7.9 h** |
 | 8-dbx1000-cross-warehouse | 3 ratios × 3 repetitions | **1.3 h** |
-| 9-queue-saturation | 6 thread points × 2 queues | **0.15 h** |
+| 9-queue-saturation | 6 thread points × 2 queues | **0.15 h** ¹ |
+
+¹ Measured before 9-queue-saturation moved to one boot per repeat (see *One
+measurement per boot* below). At `REPEATS=3` it now boots three times as often
+for the same scope, so expect roughly 0.4 h at that scope — extrapolated, not
+re-measured. The fast profile's thinned `THREADS` axis is unaffected in kind.
 
 The auto-scale experiment is the longest retained measurement; most of its
 runtime is the Tigon baseline's mkosi image build and eight-VM environment.
@@ -348,6 +353,33 @@ tmux session. If you want to **stop an in-progress `run_all.py`**, or you hit a
 
 Then re-run `./artifact-evaluation/run-all.sh` to continue.
 
+### Host-side log watchdog
+
+Every experiment starts `dsm-scripts/log_watchdog.py` on the **host** (not in
+QEMU) when it boots a cluster. It tails each machine's serial log
+(`logs/exec_log<N>.log`) for the whole life of the cluster and, on the first
+fatal guest signature (`AE_ERROR_PATTERN` in `common.sh`: panics, `BUG:`,
+protection faults, unhandled exceptions, …), it writes
+`logs/watchdog/error.flag` and prints the offending line plus the preceding
+context. Every wait loop polls that flag once per second, so a run stops within
+about a second of a guest failing on *any* machine instead of waiting out its
+timeout. The failure is recorded through `ae_record_error`, so `ae_finish`
+still exits non-zero with a summary.
+
+* `AE_LOG_WATCHDOG=0` disables it (for example when a guest is crashed on
+  purpose); experiment 7 already drops the machine it kills from the watch list
+  before killing it.
+* `AE_WATCHDOG_INTERVAL=<seconds>` changes the poll interval (default 1).
+* `logs/watchdog/watchdog.log` keeps what the watchdog reported.
+
+It also runs for `dsm-scripts/simulate_ncluster.sh` (`make run-mm-test`,
+`make run-dbx1000-test`, …), where `SIM_LOG_WATCHDOG=0` disables it. For a
+manual run, attach it by hand:
+
+```bash
+./dsm-scripts/log_watchdog.py --log-dir logs --count 2 --flag-file /tmp/wd.flag
+```
+
 ### Experiments
 
 Each numbered experiment writes paper figures as `.png` files under
@@ -369,6 +401,28 @@ therefore identified separately.
 | 7 | 7-recover-fs | `recovery-performance-single` | Figure 16 | recover-fs |
 | 8 | 8-dbx1000-cross-warehouse | `dbx1000-cross-warehouse` | Additional evaluation | TPC-C cross-warehouse ratio sweep |
 | 9 | 9-queue-saturation | `queue_saturation` | Additional evaluation | per-service-queue tail latency + saturation throughput |
+
+#### One measurement per boot
+
+Every experiment boots a fresh cluster for each measurement point and tears it
+down afterwards. This is a correctness requirement, not a stylistic one: the
+guest's process-teardown path does not fully reclaim what an exited workload
+leaves behind (cap-group recycling, IPC connections and notifications,
+cross-machine mappings), so a second measurement inside an already-used guest
+does not measure the same system. A reboot is the reliable reset — each boot
+runs `make clean-dsm-meta`, which re-zeroes the entire shared-memory region
+before the guests start.
+
+Two cases legitimately run more than one workload per boot, and both are the
+measurement rather than a reuse of one:
+
+- 6-resource-util's `stress` / `p3os` conditions co-run applications
+  concurrently; colocation is the point of the experiment. Its `single`
+  baselines are one application per boot.
+- 7-recover-fs measures the pre-crash workload on machine 0 and the
+  post-recovery workload on machine 1, which is the recovery scenario itself.
+  The post-recovery measurement runs on a machine that has not previously torn
+  down that workload.
 
 The persistent CXLFS backing file is tied to the checkout's built ramdisk.
 Before every AE boot it is recreated when the repository changes or

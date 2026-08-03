@@ -242,6 +242,10 @@ done_count() {
 
 cluster_healthy() {
     local machines="$1" machine log fatal
+    if ae_watchdog_tripped; then
+        echo "$(ae_watchdog_reason)" >&2
+        return 1
+    fi
     for machine in $(seq 0 $((machines - 1))); do
         log="$(ae_machine_log "$machine")"
         fatal="$(_ae_error_grep "$log" || true)"

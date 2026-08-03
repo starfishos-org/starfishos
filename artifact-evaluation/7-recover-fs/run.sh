@@ -99,6 +99,7 @@ wait_for_machine_detector() {
 }
 
 stop_cluster() {
+    ae_stop_log_watchdog 2>/dev/null || true
     if tmux has-session -t "$SESSION" 2>/dev/null; then
         local machine pid qemu_pids=""
         for machine in $(tmux list-windows -t "$SESSION" -F '#{window_index}' 2>/dev/null); do
@@ -150,6 +151,12 @@ wait_for_log() {
     max_checks="$(awk -v timeout="$TIMEOUT" -v interval="$LOG_POLL_INTERVAL" \
         'BEGIN { printf "%d", timeout / interval }')"
     while [ "$checks" -lt "$max_checks" ]; do
+        # Host-side watchdog; after the deliberate crash it watches machine 1
+        # only (see the ae_start_log_watchdog call before the kill).
+        if ae_watchdog_tripped; then
+            echo "Aborting while waiting for $label: $(ae_watchdog_reason)" >&2
+            return 1
+        fi
         if ! tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "tmux session $SESSION exited while waiting for $label" >&2
             return 1
@@ -165,6 +172,7 @@ wait_for_log() {
             return 1
         fi
         if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -qE "$pattern"; then
+            ae_final_watchdog_health "$label final health" || return 1
             echo "$label"
             return 0
         fi
@@ -182,8 +190,13 @@ wait_for_log_count() {
     max_checks="$(awk -v timeout="$TIMEOUT" -v interval="$LOG_POLL_INTERVAL" \
         'BEGIN { printf "%d", timeout / interval }')"
     while [ "$checks" -lt "$max_checks" ]; do
+        if ae_watchdog_tripped; then
+            echo "Aborting while waiting for $label: $(ae_watchdog_reason)" >&2
+            return 1
+        fi
         count="$(tail -n "+$start_line" "$logfile" 2>/dev/null | grep -cE "$pattern" || true)"
         if [ "$count" -ge "$expected" ]; then
+            ae_final_watchdog_health "$label final health" || return 1
             echo "$label"
             return 0
         fi
@@ -215,6 +228,7 @@ start_cluster() {
     make clean-dsm-meta
     : > "$LOG_DIR/machine0.log"
     : > "$LOG_DIR/machine1.log"
+    ae_start_log_watchdog "$NUM_MACHINES" "recover-fs cluster"
     launch_machine 0
     wait_for_log "$LOG_DIR/machine0.log" 'DSM] machine 0 ' 'machine 0 joined'
     # With PHOENIX_SCHED_TIMING enabled, machine 0 now waits at the cross-node
@@ -301,6 +315,10 @@ pre_read_ops="$(benchmark_rate_ops "$m0_log" readrandom "$pre_fill_line")"
 require_rate 'pre-crash read' "$pre_read_ops"
 
 sleep "$CRASH_DELAY"
+# Machine 0 is about to be killed on purpose, so drop it from the host
+# watchdog; the surviving machine stays watched through recovery.  "attach"
+# keeps the live machine-1 log intact and ignores what it already holds.
+ae_start_log_watchdog "$NUM_MACHINES" "recover-fs post-crash" "1" attach
 start_machine_detector "$MACHINE0_QEMU_PID"
 crash_start_ns="$(now_ns)"
 echo '=== Killing machine 0 QEMU (simulated machine failure) ==='

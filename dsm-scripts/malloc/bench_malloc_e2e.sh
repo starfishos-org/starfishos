@@ -59,10 +59,19 @@ restore_config() {
 }
 trap restore_config EXIT
 
+# Flag written by dsm-scripts/log_watchdog.py, which simulate_ncluster.sh
+# starts on the host for every session launched below.
+SIM_WATCHDOG_FLAG="$ROOT_DIR/logs/watchdog/simulate_ncluster.flag"
+
 wait_in_log() {
     local logfile="$1" pattern="$2" timeout="${3:-300}"
     local elapsed=0
     while ! grep -q "$pattern" "$logfile" 2>/dev/null; do
+        if [ -f "$SIM_WATCHDOG_FLAG" ]; then
+            echo "[E2E] host watchdog failed this session:" >&2
+            cat "$SIM_WATCHDOG_FLAG" >&2 || true
+            return 1
+        fi
         sleep 2; elapsed=$((elapsed + 2))
         if [ "$elapsed" -ge "$timeout" ]; then
             echo "[E2E] TIMEOUT waiting for '$pattern' in $logfile" >&2
@@ -81,7 +90,9 @@ run_qemu_session() {
     # separate per-run .match checkpoint is redundant.
     local matchfile="/dev/null"
 
-    rm -f "$ROOT_DIR/exec_log0.log" "$ROOT_DIR/exec_log.log"
+    # Drop the previous session's watchdog verdict before this one starts, so
+    # wait_in_log below cannot pick up a stale flag.
+    rm -f "$ROOT_DIR/exec_log0.log" "$ROOT_DIR/exec_log.log" "$SIM_WATCHDOG_FLAG"
 
     # Use setsid so simulate_ncluster.sh gets its own process group.
     # We can then kill the whole group cleanly on timeout.
@@ -93,8 +104,17 @@ run_qemu_session() {
         > "$LOG_DIR/_sim_$$.log" 2>&1 &
     local sim_pid=$!
 
-    local ok=0
+    local ok=0 sim_exited=0
     wait_in_log "$ROOT_DIR/exec_log0.log" "$done_str" "$timeout" && ok=1 || ok=0
+    # simulate_ncluster performs a synchronous all-machine fatal scan before
+    # it exits.  Wait for that verdict after seeing the workload marker so a
+    # simultaneous panic cannot be hidden by the successful grep above.
+    if [ "$ok" = "1" ]; then
+        if ! wait "$sim_pid"; then
+            ok=0
+        fi
+        sim_exited=1
+    fi
 
     # Archive log regardless of success
     if [ -f "$ROOT_DIR/exec_log0.log" ]; then
@@ -104,8 +124,10 @@ run_qemu_session() {
     fi
 
     # Kill the entire process group (setsid makes pgid == sim_pid)
-    kill -- -"$sim_pid" 2>/dev/null || true
-    wait "$sim_pid" 2>/dev/null || true
+    if [ "$sim_exited" = "0" ]; then
+        kill -- -"$sim_pid" 2>/dev/null || true
+        wait "$sim_pid" 2>/dev/null || true
+    fi
     tmux kill-session -t "$SESSION" 2>/dev/null || true
     rm -f "$LOG_DIR/_sim_$$.log"
     sleep 2

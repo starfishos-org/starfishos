@@ -51,6 +51,19 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
 # ---- helper ----
+# Abort as soon as the host watchdog reports a guest failure, instead of
+# waiting out the remaining timeout.
+watchdog_abort() {
+    local what="$1"
+    echo ""
+    echo "ABORTED: $(sim_watchdog_reason)"
+    echo "  while: $what"
+    echo "Logs: $(for ((i=0; i<N; i++)); do echo -n "exec_log${i}.log "; done)"
+    # Same as the timeout path: leave tmux/QEMU up for inspection.
+    echo "Attach: tmux a -t $SESSION"
+    exit 1
+}
+
 wait_for_pattern() {
     local file=$1
     local pattern=$2
@@ -58,6 +71,10 @@ wait_for_pattern() {
     local label=$4
     echo -n "  Waiting for $label..."
     for ((t=0; t<timeout; t++)); do
+        if sim_watchdog_tripped; then
+            echo " FAILED"
+            watchdog_abort "$label"
+        fi
         if grep -q "$pattern" "$file" 2>/dev/null; then
             echo " OK (${t}s)"
             return 0
@@ -91,6 +108,81 @@ sleep 3
 # ---- clear old logs ----
 for ((i=0; i<N; i++)); do rm -f "exec_log${i}.log"; done
 rm -f exec_log.log
+
+# ---- host-side log watchdog ----
+# Runs on the host (not in QEMU) for the whole run and tails every machine's
+# exec_log; on the first fatal guest signature it writes WATCHDOG_FLAG, which
+# the wait loops above check every second so the run aborts right away.
+# SIM_LOG_WATCHDOG=0 disables it.
+WATCHDOG_DIR="$REPO_DIR/logs/watchdog"
+WATCHDOG_FLAG="$WATCHDOG_DIR/simulate_ncluster.flag"
+WATCHDOG_PID=""
+
+sim_watchdog_tripped() {
+    [ "${SIM_LOG_WATCHDOG:-1}" = "1" ] && [ -f "$WATCHDOG_FLAG" ]
+}
+
+sim_watchdog_reason() {
+    local machine line log
+    [ -f "$WATCHDOG_FLAG" ] || { printf 'host watchdog: unknown failure'; return 0; }
+    machine="$(sed -n 's/^machine=//p' "$WATCHDOG_FLAG" | head -1)"
+    log="$(sed -n 's/^log=//p' "$WATCHDOG_FLAG" | head -1)"
+    line="$(sed -n 's/^line=//p' "$WATCHDOG_FLAG" | head -1)"
+    printf 'host watchdog: machine %s -> %s (log: %s)' \
+        "${machine:-?}" "${line:-unknown}" "${log:-?}"
+}
+
+sim_cluster_healthy() {
+    local i line
+
+    [ "${SIM_LOG_WATCHDOG:-1}" = "1" ] || return 0
+    if sim_watchdog_tripped; then
+        return 1
+    fi
+
+    # Close the race where the expected marker and a fatal line arrive before
+    # the host watchdog's next poll.  Success is valid only after every guest
+    # log has passed a synchronous final scan.
+    for ((i=0; i<N; i++)); do
+        line="$(_ae_error_grep "exec_log${i}.log" || true)"
+        if [ -n "$line" ]; then
+            mkdir -p "$WATCHDOG_DIR"
+            {
+                printf 'label=simulate_ncluster final scan\n'
+                printf 'machine=%s\n' "$i"
+                printf 'log=%s\n' "$REPO_DIR/exec_log${i}.log"
+                printf 'matched=final synchronous scan\n'
+                printf 'line=%s\n' "$line"
+            } > "$WATCHDOG_FLAG"
+            return 1
+        fi
+    done
+    return 0
+}
+
+stop_watchdog() {
+    if [ -n "$WATCHDOG_PID" ]; then
+        kill "$WATCHDOG_PID" 2>/dev/null || true
+        wait "$WATCHDOG_PID" 2>/dev/null || true
+        WATCHDOG_PID=""
+    fi
+}
+trap stop_watchdog EXIT
+
+# A plain single-instance interactive run keeps QEMU in the foreground for the
+# user to inspect, so there is nothing to abort; everything else is watched.
+if [ "${SIM_LOG_WATCHDOG:-1}" = "1" ] && ! [[ $N -eq 1 && -z "$CMD" ]]; then
+    mkdir -p "$WATCHDOG_DIR"
+    rm -f "$WATCHDOG_FLAG"
+    python3 "$SCRIPT_DIR/log_watchdog.py" \
+        --log-dir "$REPO_DIR" \
+        --count "$N" \
+        --flag-file "$WATCHDOG_FLAG" \
+        --status-log "$WATCHDOG_DIR/simulate_ncluster.log" \
+        --pattern "$AE_ERROR_PATTERN" \
+        --label "simulate_ncluster ${N}x${LOGNAME:+ $LOGNAME}" &
+    WATCHDOG_PID=$!
+fi
 
 # tmux windows do not inherit this shell's environment reliably, so forward the
 # host NUMA binding knobs (see scripts/qemu/qemu_wrapper.sh) explicitly.
@@ -151,6 +243,12 @@ if [[ -n "$CMD" ]]; then
     # Wait for expected pattern
     echo -n "=== Waiting for '$EXPECTED'..."
     for ((t=0; t<TIMEOUT; t++)); do
+        if sim_watchdog_tripped; then
+            echo " FAILED"
+            echo "----- Last 40 lines of exec_log0.log -----"
+            tail -40 exec_log0.log 2>/dev/null || true
+            watchdog_abort "waiting for '$EXPECTED'"
+        fi
         if grep -q "$EXPECTED" exec_log0.log 2>/dev/null; then
             echo " OK!"
             break
@@ -161,7 +259,8 @@ if [[ -n "$CMD" ]]; then
     echo ""
     echo "========================================="
     rc=0
-    if grep -q "$EXPECTED" exec_log0.log 2>/dev/null; then
+    if grep -q "$EXPECTED" exec_log0.log 2>/dev/null \
+       && sim_cluster_healthy; then
         echo "SUCCESS"
         echo "----- Key output -----"
         grep -E "$EXPECTED" exec_log0.log 2>/dev/null || true
@@ -202,6 +301,10 @@ for ((i=1; i<N; i++)); do
         exit 1
     }
 done
+
+# The cluster is now handed over to the user, who watches the panes directly;
+# a background watchdog would only scribble over the attached session.
+stop_watchdog
 
 tmux select-pane -t "$SESSION:window0.0"
 tmux attach -t "$SESSION"

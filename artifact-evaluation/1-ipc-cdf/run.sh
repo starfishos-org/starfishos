@@ -80,6 +80,12 @@ wait_for_log_text() {
     local logfile="$LOG_DIR/machine${machine}.log"
     local elapsed=0
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
+        # Host-side watchdog: covers both machines continuously, so it catches
+        # a fault on the machine this call is not watching.
+        if ae_watchdog_tripped; then
+            echo "Aborting while waiting for $label: $(ae_watchdog_reason)" >&2
+            return 1
+        fi
         if ! tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "tmux session $SESSION exited while waiting for $label" >&2
             tail -120 "$logfile" >&2 || true
@@ -99,6 +105,7 @@ wait_for_log_text() {
         # capture-pane may split a banner across lines and its scrollback is
         # not a reliable readiness source.  The tee'd serial log is complete.
         if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -q "$pattern"; then
+            ae_final_watchdog_health "$label final health" || return 1
             echo "$label"
             return 0
         fi
@@ -127,6 +134,10 @@ guest_faulted() {
 
     tail -n "+$line_offset" "$logfile" 2>/dev/null | grep -Eq \
         'BUG: do_page_fault|CMD: /polling_client\.bin'
+}
+
+cluster_logs_healthy() {
+    ae_final_watchdog_health "IPC mode final health"
 }
 
 send_client_command() {
@@ -186,6 +197,10 @@ run_client() {
     }
 
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
+        if ae_watchdog_tripped; then
+            echo "Aborting $mode: $(ae_watchdog_reason)" >&2
+            return 1
+        fi
         if [ "$command_seen" = "0" ] &&
            tail -n "+$first_line" "$logfile" 2>/dev/null | grep -Fq "$command"; then
             command_seen=1
@@ -197,6 +212,9 @@ run_client() {
         fi
         after="$(done_count "$logfile")"
         if [ "$after" -gt "$before" ]; then
+            # The completion marker is accepted only after a synchronous
+            # all-machine scan, which closes the watchdog polling race.
+            cluster_logs_healthy || return 1
             grep "\\[SUMMARY\\]" "$logfile" | tail -2 || true
             return 0
         fi
@@ -247,6 +265,7 @@ start_cluster() {
         return 1
     fi
     reset_dsm_metadata
+    ae_start_log_watchdog "$NUM_MACHINES" "ipc cluster"
 
     echo "=== Booting two QEMU machines for IPC artifact (cpu=${IPC_CPU_NUM}) ==="
     machine0_start=$(($(wc -l < "$machine0_log") + 1))
@@ -274,6 +293,30 @@ run_mode() {
         return 1
     fi
     run_client "$machine" "$mode" "$command"
+}
+
+# One boot per measured mode.  A client process that has already exited leaves
+# guest state behind (cap-group teardown, IPC connection/notification recycling
+# and cross-machine mappings are not fully reclaimed), and this experiment
+# reports latency distributions, which is exactly the metric that residual
+# state perturbs.  Rebooting is the only reliable reset: every boot runs
+# `make clean-dsm-meta`, which re-zeroes the whole shared-memory region.
+#
+# Both machines are always booted together: the cross modes need machine 0's
+# polling server up while machine 1 runs the client, and start_cluster waits
+# for each machine's "booting polling server" banner before the shell.
+# machine{0,1}.log accumulate across boots ("tee -a"); start_cluster and
+# run_client scope every wait to the current boot via line offsets.
+run_point() {
+    local machine="$1" mode="$2" command="$3" rc=0
+
+    if ! start_cluster; then
+        stop_cluster || true
+        return 1
+    fi
+    run_mode "$machine" "$mode" "$command" || rc=$?
+    stop_cluster || true
+    return "$rc"
 }
 
 cd "$REPO_ROOT"
@@ -306,20 +349,14 @@ else
     fi
 fi
 
-# Boot once and reuse the same two-machine cluster for every mode.  Cross
-# machine polling needs machine 0's shm-0 server to stay up while machine 1
-# runs the client; rebooting between modes was flaky and looked like an IPC
-# connection failure when tmux/QEMU died between boots.
+# Each mode is an independent measurement point on a freshly booted cluster.
 failed=0
-start_cluster || failed=1
-if [ "$failed" -eq 0 ]; then
-    run_mode 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
-    run_mode 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
-    run_mode 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
-    run_mode 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
-    run_mode 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
-    run_mode 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
-fi
+run_point 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
+run_point 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
+run_point 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
+run_point 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
+run_point 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
+run_point 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
 stop_cluster
 
 echo "=== Parsing logs and generating figures ==="

@@ -156,6 +156,7 @@ fi
 # check_cluster_health <label>
 check_cluster_health() {
     local label="$1" watch_machine watch_log err
+    ae_check_watchdog "$label" || return 3
     for ((watch_machine = 0; watch_machine < NUM_MACHINES; watch_machine++)); do
         watch_log="$(ae_machine_log "$watch_machine")"
         if grep -aq 'polling_client: failed' "$watch_log" 2>/dev/null; then
@@ -248,39 +249,43 @@ soft_wait_polling_server() {
 : > "$AE_LOG_DIR/machine0.log"
 : > "$AE_LOG_DIR/machine1.log"
 run_failed=0
+# One boot per client run — including per repeat of the same point.  A client
+# that has already exited leaves guest process-teardown state behind (cap-group
+# recycling, IPC connections and queue generations), so a second run inside the
+# same boot no longer measures the same system.  Rebooting is the only reliable
+# reset: ae_boot_cluster runs `make clean-dsm-meta`, which re-zeroes the whole
+# shared-memory region, so every trial starts from an identical state and the
+# repeats plot.py trims are true independent samples.  The serial log for each
+# boot therefore starts at zero and is appended to the per-machine aggregate.
 for queue in $QUEUES; do
     queue_flag=""
     [ "$queue" = "empty" ] && queue_flag="-e "
     for t in $THREADS; do
-        group="${queue}_t${t}"
-        echo "=== Booting the two-machine saturation cluster for $group (cpu=${QSAT_CPU_NUM}) ==="
-        current_logs_archived=0
-        if ! ae_boot_cluster "$NUM_MACHINES" "$QSAT_CPU_NUM"; then
-            ae_record_error "boot failed for queue-saturation group $group"
-            archive_current_logs "$group"
-            run_failed=1
-            break 2
-        fi
-        soft_wait_polling_server 0
-        soft_wait_polling_server 1
-
-        # Rebooting between concurrency levels avoids carrying guest process
-        # teardown state or queue generations from one independent point into
-        # the next.  The serial log for this boot therefore starts at zero.
         for ((repeat = 1; repeat <= REPEATS; repeat++)); do
             tag="sat_${queue}_t${t}_r${repeat}"
+            group="${queue}_t${t}_r${repeat}"
+            echo "=== Booting the two-machine saturation cluster for $group (cpu=${QSAT_CPU_NUM}) ==="
+            current_logs_archived=0
+            if ! ae_boot_cluster "$NUM_MACHINES" "$QSAT_CPU_NUM"; then
+                ae_record_error "boot failed for queue-saturation point $group"
+                archive_current_logs "$group"
+                run_failed=1
+                break 3
+            fi
+            soft_wait_polling_server 0
+            soft_wait_polling_server 1
+
             echo "=== Running $tag (queue=$queue threads=$t repeat=$repeat/$REPEATS iters=$ITERS) ==="
             ae_send_command 1 \
                 "polling_client.bin ${CLIENT_MODE_FLAGS:+$CLIENT_MODE_FLAGS }-s 0 ${queue_flag}-q -t $t -n $ITERS -m $tag"
             if ! wait_for_client_exit 1 "$tag" "$tag done"; then
                 echo "[WARN] $tag did not complete; stopping the sweep" >&2
                 run_failed=1
-                break
             fi
+            archive_current_logs "$group"
+            ae_kill_cluster
+            [ "$run_failed" = "1" ] && break 3
         done
-        archive_current_logs "$group"
-        ae_kill_cluster
-        [ "$run_failed" = "1" ] && break 2
     done
 done
 

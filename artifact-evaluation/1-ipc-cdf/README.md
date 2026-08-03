@@ -9,9 +9,12 @@ End-to-end artifact for local direct IPC vs cross-machine polling IPC.
 ./artifact-evaluation/1-ipc-cdf/run.sh
 ```
 
-`run.sh` enables IPC instrumentation, rebuilds, boots two QEMU machines, runs
-six client modes (`direct_empty`, `direct`, `cross_empty`, `cross`,
-`cross_empty_4t`, `cross_4t`), then calls `plot.py`.
+`run.sh` enables IPC instrumentation, rebuilds, and measures six client modes
+(`direct_empty`, `direct`, `cross_empty`, `cross`, `cross_empty_4t`,
+`cross_4t`), then calls `plot.py`. Each mode boots its own two-machine cluster
+and is torn down afterwards, so no measurement runs in a guest whose state has
+already been through a client process exit; `machine{0,1}.log` accumulate
+across those boots.
 
 ## Outputs
 

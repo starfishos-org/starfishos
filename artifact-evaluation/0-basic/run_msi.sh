@@ -24,6 +24,7 @@ GUEST_CPU_NUM="${GUEST_CPU_NUM:-12}"
 mkdir -p "$LOG_DIR" "$CSV_DIR"
 
 stop_cluster() {
+    ae_stop_log_watchdog 2>/dev/null || true
     if tmux has-session -t "$SESSION" 2>/dev/null; then
         tmux kill-session -t "$SESSION" || true
     fi
@@ -35,12 +36,18 @@ wait_for_log() {
     local elapsed=0
 
     while [ "$elapsed" -lt "$TIMEOUT" ]; do
+        # Host-side watchdog: fail as soon as any machine faults.
+        if ae_watchdog_tripped; then
+            echo "Aborting while waiting for $label: $(ae_watchdog_reason)" >&2
+            return 1
+        fi
         if ! tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "tmux session $SESSION exited while waiting for $label" >&2
             tail -120 "$logfile" >&2 || true
             return 1
         fi
         if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -q "$pattern"; then
+            ae_final_watchdog_health "$label final health" || return 1
             echo "$label"
             return 0
         fi
@@ -94,6 +101,7 @@ for run in $(seq 1 "$NRUNS"); do
     mkdir -p "$run_log_dir"
     stop_cluster
     make clean-dsm-meta
+    ae_start_log_watchdog "$NUM_MACHINES" "msi run $run"
     launch_machine 0 "$run_log_dir"
     wait_for_log "$machine0_log" 'DSM] machine 0 ' "run $run: machine 0 joined"
     launch_machine 1 "$run_log_dir"

@@ -16,7 +16,9 @@ uses offset-zero reads, so its timed interval contains only read requests (not
 an open/read/close mixture). Ready/go/finish/cleanup barriers exclude thread
 creation, descriptor setup, and cleanup from aggregate throughput.
 
-Each `(queue, threads)` point is repeated three times by default. The plotted
+Each `(queue, threads)` point is repeated three times by default, and every
+repeat boots its own two-machine cluster, so the trials are independent samples
+rather than successive runs inside one guest. The plotted
 client-side latency percentiles and aggregate throughput are medians across
 those repeats. A queue is labelled saturated only when the final two
 consecutive load intervals both gain at most `PLATEAU_THRESHOLD_PCT` (5% by

@@ -658,6 +658,138 @@ AE_RUN_ERRORS=()
 #   pool=NULL for va / KERNEL FAULT                 -> known fatal paths
 AE_ERROR_PATTERN="${AE_ERROR_PATTERN:-General Protection Fault|Kernel panic|kernel panic|panic:|BUG:|BUG_ON|Unhandled .*[Ee]xception|Unhandled .*fault|pool=NULL for va|KERNEL FAULT|Trap No\\. |Persistent data verification failed|do_page_fault: invalid user access|do_page_fault: user NULL dereference}"
 
+# ── host-side log watchdog ──────────────────────────────────────────────────
+# A separate host process (dsm-scripts/log_watchdog.py) tails every machine's
+# serial log for the whole lifetime of a booted cluster, not just while a wait
+# loop happens to be running, and not just on the machine a wait loop happens
+# to watch.  When it sees a fatal guest signature it writes AE_WATCHDOG_FLAG;
+# every wait/poll loop below checks that flag and aborts the run immediately.
+# Set AE_LOG_WATCHDOG=0 to disable (e.g. when deliberately crashing a guest).
+
+AE_LOG_WATCHDOG="${AE_LOG_WATCHDOG:-1}"
+AE_WATCHDOG_SCRIPT="$AE_REPO_ROOT/dsm-scripts/log_watchdog.py"
+AE_WATCHDOG_DIR="${AE_WATCHDOG_DIR:-$AE_MACHINE_LOG_DIR/watchdog}"
+AE_WATCHDOG_FLAG="${AE_WATCHDOG_FLAG:-$AE_WATCHDOG_DIR/error.flag}"
+AE_WATCHDOG_STATUS_LOG="${AE_WATCHDOG_STATUS_LOG:-$AE_WATCHDOG_DIR/watchdog.log}"
+AE_WATCHDOG_PID=""
+AE_WATCHDOG_REPORTED=""
+AE_WATCHDOG_MACHINES=()
+export AE_WATCHDOG_FLAG
+
+# ae_start_log_watchdog <num_machines> [label] [machine-list] [mode]
+# Machine list (e.g. "1,2,3") overrides the 0..N-1 default; use it when a test
+# kills one machine on purpose.  Safe to call repeatedly: restarts the watcher.
+# mode:
+#   fresh  (default) call before booting: drops stale exec_log<N>.log so the
+#          previous run's errors cannot trip this one
+#   attach call while guests are already running: ignores the log bytes that
+#          are already there and never unlinks a log a guest is writing
+ae_start_log_watchdog() {
+    local n="$1" label="${2:-cluster}" machines="${3:-}" mode="${4:-fresh}"
+    local args=() i
+
+    if [ "$AE_LOG_WATCHDOG" != "1" ]; then
+        AE_WATCHDOG_MACHINES=()
+        return 0
+    fi
+    ae_stop_log_watchdog
+
+    if [ ! -f "$AE_WATCHDOG_SCRIPT" ]; then
+        echo "[AE] WARNING: log watchdog missing: $AE_WATCHDOG_SCRIPT" >&2
+        return 0
+    fi
+    mkdir -p "$AE_WATCHDOG_DIR" "$AE_MACHINE_LOG_DIR"
+    rm -f "$AE_WATCHDOG_FLAG"
+    AE_WATCHDOG_REPORTED=""
+
+    args=(--log-dir "$AE_MACHINE_LOG_DIR"
+          --flag-file "$AE_WATCHDOG_FLAG"
+          --status-log "$AE_WATCHDOG_STATUS_LOG"
+          --pattern "$AE_ERROR_PATTERN"
+          --label "${AE_EXPERIMENT_NAME:+$AE_EXPERIMENT_NAME/}$label"
+          --interval "${AE_WATCHDOG_INTERVAL:-1}")
+    if [ -n "$machines" ]; then
+        args+=(--machines "$machines")
+        IFS=',' read -r -a AE_WATCHDOG_MACHINES <<< "$machines"
+    else
+        args+=(--count "$n")
+        AE_WATCHDOG_MACHINES=()
+        for ((i = 0; i < n; i++)); do
+            AE_WATCHDOG_MACHINES+=("$i")
+        done
+    fi
+    if [ "$mode" = "attach" ]; then
+        args+=(--start-at-end)
+    else
+        for i in $(seq 0 $((n - 1))); do
+            rm -f "$(ae_machine_log "$i")"
+        done
+    fi
+
+    python3 "$AE_WATCHDOG_SCRIPT" "${args[@]}" &
+    AE_WATCHDOG_PID=$!
+}
+
+ae_stop_log_watchdog() {
+    if [ -n "$AE_WATCHDOG_PID" ]; then
+        kill "$AE_WATCHDOG_PID" 2>/dev/null || true
+        wait "$AE_WATCHDOG_PID" 2>/dev/null || true
+        AE_WATCHDOG_PID=""
+    fi
+}
+
+# True when the watchdog has flagged a guest failure.
+ae_watchdog_tripped() {
+    [ "$AE_LOG_WATCHDOG" = "1" ] && [ -f "$AE_WATCHDOG_FLAG" ]
+}
+
+# One-line description of what the watchdog caught.
+ae_watchdog_reason() {
+    local machine line log
+    [ -f "$AE_WATCHDOG_FLAG" ] || return 0
+    machine="$(sed -n 's/^machine=//p' "$AE_WATCHDOG_FLAG" | head -1)"
+    log="$(sed -n 's/^log=//p' "$AE_WATCHDOG_FLAG" | head -1)"
+    line="$(sed -n 's/^line=//p' "$AE_WATCHDOG_FLAG" | head -1)"
+    printf 'host watchdog: machine %s -> %s (log: %s)' \
+        "${machine:-?}" "${line:-unknown}" "${log:-?}"
+}
+
+# ae_check_watchdog <label>
+# Record + return 3 (same convention as ae_wait_in_log) when the watchdog has
+# flagged a failure, so callers abort as soon as it fires.
+ae_check_watchdog() {
+    local label="${1:-run}" reason
+    ae_watchdog_tripped || return 0
+    reason="$(ae_watchdog_reason)"
+    # Every wait loop polls this, and ae_finish checks once more; report a
+    # given failure only the first time it is seen.
+    if [ "$reason" != "$AE_WATCHDOG_REPORTED" ]; then
+        AE_WATCHDOG_REPORTED="$reason"
+        ae_record_error "$label: $reason"
+    fi
+    return 3
+}
+
+# Synchronously validate the final bytes of every log watched by the current
+# watchdog.  Polling the flag alone has a short race when a completion marker
+# and a fatal line arrive during the same watchdog interval.
+ae_final_watchdog_health() {
+    local label="${1:-final health}" machine log fatal
+
+    [ "$AE_LOG_WATCHDOG" = "1" ] || return 0
+    ae_check_watchdog "$label" || return 3
+    for machine in "${AE_WATCHDOG_MACHINES[@]}"; do
+        log="$(ae_machine_log "$machine")"
+        fatal="$(_ae_error_grep "$log" || true)"
+        if [ -n "$fatal" ]; then
+            ae_record_error "$label: guest error on machine $machine -> $fatal (log: $log)"
+            tail -40 "$log" >&2 || true
+            return 3
+        fi
+    done
+    return 0
+}
+
 ae_record_timeout() {
     local what="$1"
     AE_TIMEOUT_ERRORS+=("$what")
@@ -673,6 +805,9 @@ ae_record_error() {
 # ae_finish
 # Print a failure summary; exit non-zero if any step errored or timed out.
 ae_finish() {
+    # A failure the watchdog caught after the last wait loop returned would
+    # otherwise go unreported.
+    ae_check_watchdog "post-run check" || true
     local n_to="${#AE_TIMEOUT_ERRORS[@]}" n_err="${#AE_RUN_ERRORS[@]}"
     if [ "$n_err" -gt 0 ]; then
         echo "" >&2
@@ -729,6 +864,9 @@ ae_wait_in_log() {
     local last_sz cur_sz stalled=0
     last_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
     while [ "$elapsed" -lt "$timeout" ]; do
+        # The host watchdog covers every machine continuously, so it usually
+        # fires first; honour it before anything else.
+        ae_check_watchdog "$label" || return 3
         for ((watch_machine = watch_first; watch_machine <= watch_last; watch_machine++)); do
             watch_log="$(ae_machine_log "$watch_machine")"
             err="$(_ae_error_grep "$watch_log")"
@@ -812,6 +950,10 @@ _ae_boot_cluster_once() {
     mkdir -p "$AE_MACHINE_LOG_DIR"
     rm -f "$AE_MACHINE_LOG_DIR/exec_log.log"
 
+    # Start the host-side watchdog before the first guest boots, so a panic
+    # during early boot is caught too.
+    ae_start_log_watchdog "$n" "boot ${n}x"
+
     echo "=== Booting $n machine(s) ==="
     tmux new-session -d -s "$AE_SESSION" -n 0 \
         "cd '$AE_REPO_ROOT' && ${env_prefix}MACHINE_NUM=$n ./build/simulate.sh 0"
@@ -878,6 +1020,11 @@ ae_send_command() {
 
     # wait for console quiesce (log size stable twice in a row, max 60s)
     while [ "$quiet" -lt 2 ] && [ "$waited" -lt 60 ]; do
+        # Do not keep feeding a cluster the watchdog has already failed.
+        if ae_watchdog_tripped; then
+            echo "[AE] skipping send to machine $machine: $(ae_watchdog_reason)" >&2
+            ae_check_watchdog "send command to machine $machine" || return $?
+        fi
         cur_sz=$(stat -c%s "$logfile" 2>/dev/null || echo 0)
         if [ "$cur_sz" = "$prev_sz" ]; then quiet=$((quiet + 1)); else quiet=0; fi
         prev_sz="$cur_sz"
@@ -1020,6 +1167,9 @@ ae_wait_qemu_gone() {
 ae_stop_tmux_and_reap() {
     local session="${1:-$AE_SESSION}"
 
+    # No guests left to watch once this returns.
+    ae_stop_log_watchdog
+
     if tmux has-session -t "$session" 2>/dev/null; then
         echo "[AE] killing tmux session $session"
         tmux kill-session -t "$session" 2>/dev/null || true
@@ -1033,6 +1183,11 @@ ae_stop_tmux_and_reap() {
 # name.  Safe to invoke at script entry and again inside ae_boot_cluster.
 ae_ensure_clean_tmux() {
     echo "=== Ensuring clean tmux / QEMU state ==="
+    ae_stop_log_watchdog
+    # No cluster is running after this, so a verdict left by an earlier one
+    # must not be visible to the next boot's wait loops.
+    rm -f "$AE_WATCHDOG_FLAG"
+    AE_WATCHDOG_REPORTED=""
     ae_kill_all_ae_sessions
     ae_reap_leftover_qemu
     ae_wait_qemu_gone "${AE_QEMU_REAP_TIMEOUT:-30}"
