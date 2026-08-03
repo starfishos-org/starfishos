@@ -369,6 +369,15 @@ if(CHCORE_DEMOS_PHOENIX)
   list(FILTER _phoenix_sources EXCLUDE REGEX "[/\\\\]tpool[.]c$")
   list(APPEND _phoenix_sources "${_phoenix_tpool_fixed}")
   set_property(TARGET phoenix-lib PROPERTY SOURCES "${_phoenix_sources}")
+
+  # Temporary: task-queue integrity diagnostics for the 8-machine PCA crash.
+  # Deliberately a plain variable rather than a chcore_config() option: a new
+  # config entry that is absent from .config makes chbuild prompt for it, which
+  # hangs any non-interactive build.  Flip to ON only for a diagnostic run.
+  set(PHOENIX_TQ_DIAG OFF)
+  if(PHOENIX_TQ_DIAG)
+    target_compile_definitions(phoenix-lib PRIVATE TQ_DIAG)
+  endif()
 endif()
 
 if(CHCORE_DEMOS_GEMM)

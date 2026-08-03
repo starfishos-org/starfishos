@@ -127,6 +127,45 @@ struct vmspace {
     u8 history_cpus[PLAT_CPU_NUM];
 #endif
 
+#ifdef MULTI_PAGETABLE_ENABLED
+    /*
+     * history_cpus[] above is PLAT_CPU_NUM bytes indexed by the *machine-local*
+     * CPU id, so every machine in the cluster aliases the same slots and it
+     * cannot say which machines a vmspace has run on.  Track that separately:
+     * a machine is recorded the first time one of its CPUs is switched to a
+     * thread of this vmspace, which is also the only way that machine can
+     * populate its page table (and therefore its TLBs) for it.
+     *
+     * Never cleared once set.  The conservative direction is to assume a
+     * machine may still hold translations.
+     */
+    u8 history_machines[CLUSTER_MAX_MACHINE_NUM];
+
+    /*
+     * PMOs unmapped from this vmspace whose physical pages must not be
+     * recycled yet.  vmspace_unmap_range() clears the range from every
+     * machine's page table but only shoots down the local machine's TLBs, so
+     * a remote machine can keep a writable translation to those frames; if
+     * the frames went back to the allocator now, that machine would be able
+     * to scribble whatever object gets them next.  Holding a reference until
+     * vmspace_deinit() -- which flushes the whole cluster first -- makes the
+     * stale translation harmless: it points at a frame nobody else can own.
+     */
+    struct list_head deferred_pmo_list;
+    struct lock deferred_pmo_lock;
+    /*
+     * Bounded: vmspace_unmap_range() is also how IPC connection teardown
+     * releases its shared-memory mapping (kernel/object/recycle.c), so a
+     * server that never exits -- fsm, procmgr, posix_shm -- would otherwise
+     * accumulate one deferred PMO per connection forever.  Their vmspaces do
+     * qualify as multi-machine, because their shadow threads run elsewhere.
+     * On overflow the list is drained after a cluster-wide shootdown, which
+     * costs one synchronous flush per DEFERRED_PMO_MAX unmaps instead of an
+     * unbounded leak.
+     */
+    int deferred_pmo_count;
+#endif
+
     struct vmregion *heap_vmr;
 
     /* For the virtual address of mmap */

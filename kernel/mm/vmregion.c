@@ -383,6 +383,100 @@ out_fail:
     return ret;
 }
 
+#ifdef MULTI_PAGETABLE_ENABLED
+/* A PMO whose pages are held back until this vmspace is torn down. */
+struct deferred_pmo {
+    struct list_head node;
+    struct pmobject *pmo;
+};
+
+/* See vmspace->deferred_pmo_count for why the list has to be bounded. */
+#define DEFERRED_PMO_MAX 64
+
+/* Has this vmspace ever run on more than one machine? */
+static bool vmspace_is_multi_machine(struct vmspace *vmspace)
+{
+    int i, n = 0;
+
+    for (i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
+        if (vmspace->history_machines[i] && ++n > 1)
+            return true;
+    }
+    return false;
+}
+
+/*
+ * Keep a PMO's physical pages out of the allocator until vmspace_deinit().
+ *
+ * The caller has just cleared the range from every machine's page table, but
+ * flush_tlbs() only shoots down this machine's CPUs, so any other machine that
+ * faulted the range in may still hold a writable translation to these frames.
+ * chcore_munmap() revokes the PMO cap immediately after this, which would
+ * otherwise run pmo_deinit() and hand every frame back to the buddy allocator
+ * while those translations are live -- a cross-machine use-after-free of
+ * physical memory, reproducible with test_stale_tlb.bin.
+ *
+ * An extra reference keeps the object (and therefore its pages) alive past the
+ * revoke.  vmspace_deinit() flushes the whole cluster before dropping it.
+ */
+static void defer_pmo_reclaim(struct vmspace *vmspace, struct pmobject *pmo)
+{
+    struct deferred_pmo *entry, *iter, *tmp;
+    struct list_head drain;
+    bool overflow = false;
+
+    entry = kmalloc(sizeof(*entry), __MT_DEFAULT__);
+    if (entry == NULL) {
+        /*
+         * Nothing safe to fall back to: freeing now is exactly the race this
+         * exists to prevent.  Leak the reference instead -- the pages stay
+         * reachable through the object and are reclaimed when the cap_group
+         * is destroyed.
+         */
+        kwarn("%s: cannot defer pmo %p; leaking its reference\n",
+              __func__, pmo);
+    }
+
+    atomic_fetch_add_64(&obj2object(pmo)->refcount, 1);
+
+    if (entry == NULL)
+        return;
+
+    entry->pmo = pmo;
+    init_list_head(&drain);
+
+    lock(&vmspace->deferred_pmo_lock);
+    list_append(&entry->node, &vmspace->deferred_pmo_list);
+    if (++vmspace->deferred_pmo_count >= DEFERRED_PMO_MAX) {
+        /*
+         * Over the bound.  Move everything to a private list and release it
+         * outside the lock: obj_put() can run pmo_deinit(), which frees pages
+         * and must not nest under this lock.
+         */
+        for_each_in_list_safe (
+                iter, tmp, node, &vmspace->deferred_pmo_list) {
+            list_del(&iter->node);
+            list_append(&iter->node, &drain);
+        }
+        vmspace->deferred_pmo_count = 0;
+        overflow = true;
+    }
+    unlock(&vmspace->deferred_pmo_lock);
+
+    if (!overflow)
+        return;
+
+    /* Only safe to reclaim once no other machine can still translate them. */
+    flush_tlbs_all_machines(vmspace);
+
+    for_each_in_list_safe (iter, tmp, node, &drain) {
+        list_del(&iter->node);
+        obj_put(iter->pmo);
+        kfree(iter);
+    }
+}
+#endif /* MULTI_PAGETABLE_ENABLED */
+
 int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
 {
     struct vmregion *vmr;
@@ -453,7 +547,16 @@ int vmspace_unmap_range(struct vmspace *vmspace, vaddr_t va, size_t len)
     /*
      * Now, we defer the free of physical pages in the PMO
      * to the recycle procedure of a process.
+     *
+     * That is only true for the *mapping*: the caller (chcore_munmap) revokes
+     * the PMO cap right after, which destroys the object and frees its pages.
+     * On a vmspace that has run on more than one machine that is unsafe while
+     * remote TLBs may still translate the range, so hold the pages back.
      */
+#ifdef MULTI_PAGETABLE_ENABLED
+    if (vmspace_is_multi_machine(vmspace))
+        defer_pmo_reclaim(vmspace, pmo);
+#endif
 
     ret = 0;
 out:
@@ -554,6 +657,11 @@ static inline void reset_history_cpus(struct vmspace *vmspace)
 
     for (i = 0; i < PLAT_CPU_NUM; ++i)
         vmspace->history_cpus[i] = 0;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+    for (i = 0; i < CLUSTER_MAX_MACHINE_NUM; ++i)
+        vmspace->history_machines[i] = 0;
+#endif
 }
 
 void record_history_cpu(struct vmspace *vmspace, u32 cpuid)
@@ -565,6 +673,15 @@ void record_history_cpu(struct vmspace *vmspace, u32 cpuid)
      * history_cpus[X].
      */
     vmspace->history_cpus[cpuid] = 1;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+    /*
+     * Unlike history_cpus[] this slot is shared with the other machines'
+     * CPUs, but every writer only ever stores the same value 1 and it is
+     * never cleared, so a plain store is enough.
+     */
+    vmspace->history_machines[CUR_MACHINE_ID] = 1;
+#endif
 }
 
 void clear_history_cpu(struct vmspace *vmspace, u32 cpuid)
@@ -814,6 +931,11 @@ int vmspace_init(struct vmspace *vmspace)
     /* Initialize migrating VA tracking */
     lock_init(&vmspace->migrating_va_lock);
     init_list_head(&vmspace->migrating_va_list);
+
+    /* PMOs whose pages are held back until vmspace_deinit(); see vmspace.h */
+    lock_init(&vmspace->deferred_pmo_lock);
+    init_list_head(&vmspace->deferred_pmo_list);
+    vmspace->deferred_pmo_count = 0;
 #endif
 
     /* The vmspace does not run on any CPU for now */
@@ -1184,6 +1306,34 @@ void vmspace_deinit(void *ptr)
 
     struct vmregion *vmr;
     struct vmregion *tmp;
+
+#ifdef MULTI_PAGETABLE_ENABLED
+    {
+        struct deferred_pmo *dp, *dp_tmp;
+
+        /*
+         * This is the point where every frame this vmspace owns goes back to
+         * the allocator, so it is also the last chance to make sure no other
+         * machine can still reach them.  flush_tlbs() would only cover this
+         * machine's CPUs, hence the cluster-wide shootdown.
+         *
+         * It also has to happen before the next process reuses these virtual
+         * addresses: chcore_alloc_vaddr()'s bump pointer is per-process, so a
+         * fresh process starts handing out the same VAs from
+         * MEM_AUTO_ALLOC_REGION again, and a machine that still translates
+         * them reads this process's pages instead of the new one's.
+         */
+        flush_tlbs_all_machines(vmspace);
+
+        /* Now the deferred PMOs can be released; see defer_pmo_reclaim(). */
+        for_each_in_list_safe (
+                dp, dp_tmp, node, &vmspace->deferred_pmo_list) {
+            list_del(&dp->node);
+            obj_put(dp->pmo);
+            kfree(dp);
+        }
+    }
+#endif
 
     /*
      * Free each vmregion in vmspace->vmr_list.

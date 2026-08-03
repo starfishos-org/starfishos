@@ -77,6 +77,9 @@ target_compile_definitions(${kernel_target}
 # Leave commented to use the in-source default (POLLING_TLB_BATCH_MAX).  This
 # does NOT change POLLING_TLB_BATCH_MAX, which is part of the kernel/polling
 # shared-memory ABI and must stay 32 on both sides.
+# Settled 2026-08-03: read-ahead is NOT what broke 8-machine PCA.  Building with
+# PGFAULT_READAHEAD_MAX=1 reproduced the crash identically (first PCA in a boot
+# passes, every later one dies), so this stays at the in-source default.
 # target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=32)
 
 # Include directories

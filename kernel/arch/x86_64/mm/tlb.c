@@ -459,14 +459,15 @@ void flush_tlbs(struct vmspace *vmspace, vaddr_t start_va, size_t len)
 #ifdef MULTI_PAGETABLE_ENABLED
 #include <common/lock.h>
 
-/* Flush TLB only for CPUs belonging to a specific machine */
-void flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
-                                 vaddr_t start_va, size_t len)
+/* Flush TLB only for CPUs belonging to a specific machine.
+ * Returns 0 once that machine has acknowledged, -ETIMEDOUT otherwise. */
+int flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
+                                vaddr_t start_va, size_t len)
 {
     mid_t my_id = CUR_MACHINE_ID;
 
     if (!dsm_meta || machine_id >= CLUSTER_MACHINE_NUM || machine_id == my_id)
-        return;
+        return 0;
 
     /* Prepare message in target machine's slot (with lock protection) */
     lock(&dsm_meta->msi_test_msg[machine_id].msg_lock);
@@ -523,16 +524,59 @@ void flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
         iter++;
     }
 
-    if (iter >= max_wait_iters) {
-        kwarn("[TLB] Timeout waiting for TLB flush reply from machine %d\n",
-              machine_id);
-    }
-
     /* Clear the reply flag for next use */
     lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
     dsm_meta->msi_test_msg[my_id].reply_received = 0;
     dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+
+    if (iter >= max_wait_iters) {
+        kwarn("[TLB] Timeout waiting for TLB flush reply from machine %d\n",
+              machine_id);
+        return -ETIMEDOUT;
+    }
+    return 0;
+}
+
+/*
+ * Drop every translation this vmspace may still have on any other machine.
+ *
+ * flush_tlbs() only reaches the CPUs of the machine that calls it, because
+ * vmspace->history_cpus[] is PLAT_CPU_NUM bytes indexed by the machine-local
+ * CPU id and every machine aliases the same slots.  This is the cluster-wide
+ * counterpart, driven by history_machines[].
+ *
+ * Range-less on purpose: the remote handler (ivshmem_handle_tlb_flush_msg)
+ * flushes the whole TLB regardless of the address it is given, so one message
+ * per machine covers the entire vmspace.
+ *
+ * Note the request/reply protocol has a single slot per machine, so two
+ * senders targeting the same machine can clobber each other; the loser sees no
+ * reply and retries here rather than silently skipping the flush.
+ */
+void flush_tlbs_all_machines(struct vmspace *vmspace)
+{
+    const int max_attempts = 3;
+    mid_t my_id = CUR_MACHINE_ID;
+    int i, attempt;
+
+    if (!dsm_meta)
+        return;
+
+    for (i = 0; i < CLUSTER_MACHINE_NUM && i < CLUSTER_MAX_MACHINE_NUM; i++) {
+        if (i == my_id || !vmspace->history_machines[i])
+            continue;
+
+        for (attempt = 0; attempt < max_attempts; attempt++) {
+            if (flush_tlb_on_remote_machine(vmspace, i, 0, PAGE_SIZE) == 0)
+                break;
+        }
+        if (attempt == max_attempts) {
+            kwarn("[TLB] machine %d did not acknowledge the vmspace %p "
+                  "shootdown; it may still hold stale translations\n",
+                  i, vmspace);
+        }
+    }
 }
 
 /* Internal implementation for MSI mode */

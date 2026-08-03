@@ -29,9 +29,12 @@ unsigned long get_free_mem_size(void);
 void set_page_table(paddr_t pgtbl);
 void flush_tlbs(struct vmspace *, vaddr_t start_va, size_t size);
 #ifdef MULTI_PAGETABLE_ENABLED
-/* Flush TLB only for CPUs belonging to a specific machine */
-void flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
-                                 vaddr_t start_va, size_t len);
+/* Flush TLB only for CPUs belonging to a specific machine.
+ * Returns 0 once that machine has acknowledged, -ETIMEDOUT otherwise. */
+int flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
+                                vaddr_t start_va, size_t len);
+/* Drop this vmspace's translations on every other machine that has run it. */
+void flush_tlbs_all_machines(struct vmspace *vmspace);
 void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace,
                                             mid_t machine_id, paddr_t src_pa,
                                             paddr_t dst_pa, size_t len,
