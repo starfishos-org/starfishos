@@ -198,9 +198,19 @@ static int rr_sched_migrate_from_shared_queue_internal(bool urgent)
     while ((thread = thread_dq_dequeue(&rr_cur_shared_queue)) != NULL) {
         // measure dequeue shared & enqueue local
         // u64 begin = plat_get_mono_time();
-        gcpuid = thread->thread_ctx->affinity;
-        // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
-        lcpuid = cpuid_g2l(gcpuid);
+        /*
+         * A thread with no affinity is queued here by
+         * rr_sched_enqueue_to_affinity() to bring it back to the machine that
+         * owns it, not to pin it to a CPU: cpuid_g2l(NO_AFF) would be a wild
+         * index, so run it on the CPU that is draining this slot.
+         */
+        if (thread->thread_ctx->affinity == NO_AFF) {
+            lcpuid = smp_get_cpu_id();
+        } else {
+            gcpuid = thread->thread_ctx->affinity;
+            // BUG_ON(cpuid_g2mid(gcpuid) == CUR_MACHINE_ID);
+            lcpuid = cpuid_g2l(gcpuid);
+        }
 
         thread->thread_ctx->thread_exit_state = TE_RUNNING;
         thread->thread_ctx->state = TS_RUNNING;
@@ -482,12 +492,35 @@ int rr_sched_enqueue_to_affinity(struct thread *thread)
     }
 
     aff = get_cpubind(thread);
-    if (aff == NO_AFF || is_local_cpu(aff)) {
+    if (aff == NO_AFF && thread->machine_id != CUR_MACHINE_ID) {
+        /*
+         * The waker is not this thread's machine.  "No affinity" means "any
+         * CPU of the machine that owns me", not "any CPU in the cluster":
+         * a thread's page tables (get_vmspace_pgtbl(.., CUR_MACHINE_ID)) and
+         * every other per-machine kernel table it reaches are indexed by
+         * thread->machine_id, and only the shared-queue path below updates
+         * that field.  rr_sched_enqueue() would instead pick a CPU of the
+         * waking machine and run the thread here with machine_id still
+         * naming its owner, so each CUR_MACHINE_ID lookup it makes lands in
+         * the wrong machine's state.  That is how a remotely-woken fs server
+         * handler ended up calling sys_user_fault_map() on a machine whose
+         * fmap_fault_pool_list does not contain its pool, and dereferencing
+         * the NULL that came back.
+         *
+         * Hand it back to its own machine.  cpuid_l2g_with_mid() maps the
+         * local CPU it last ran on into that machine's global range, and
+         * falls back to that machine's first CPU for a thread that has not
+         * run yet.
+         */
+        gcpuid = cpuid_l2g_with_mid(thread->thread_ctx->cpuid,
+                                    thread->machine_id);
+    } else if (aff == NO_AFF || is_local_cpu(aff)) {
         /* Local or no affinity: use normal enqueue (will choose CPU if NO_AFF) */
         return rr_sched_enqueue(thread);
+    } else {
+        gcpuid = (u32)aff;
     }
 
-    gcpuid = (u32)aff;
     lock(&(rr_shared_queue[gcpuid].queue_lock));
     thread->thread_ctx->state = TS_READY;
     thread_dq_enqueue(&(rr_shared_queue[gcpuid]), thread);

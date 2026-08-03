@@ -182,6 +182,22 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
     u64 offset, index = 0;
 
     current_pool = get_current_fault_pool();
+    if (!current_pool) {
+        /*
+         * fmap_fault_pool_list is machine-local, so a miss here means the
+         * calling thread is running on a machine other than the one its fs
+         * server registered on.  Dereferencing the NULL faults in kernel
+         * mode, and do_page_fault()'s BUG_ON then spins that CPU forever
+         * with interrupts off -- which wedges every other CPU waiting on it
+         * for a TLB-shootdown IPI, so one stray thread freezes the whole
+         * cluster.  Report it instead; keeping the handler on its own
+         * machine is rr_sched_enqueue_to_affinity()'s job.
+         */
+        kwarn("%s: no fmap fault pool on this machine for cap_group %s\n",
+              __func__,
+              current_cap_group->cap_group_name);
+        return -EINVAL;
+    }
 
     /* Find corresponding pending thread */
     lock(&current_pool->lock);
@@ -259,7 +275,18 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
     /* FIXME: we never consider overlapped fmap here */
     perm = VMR_READ | VMR_WRITE | VMR_EXEC;
 #ifdef MULTI_PAGETABLE_ENABLED
-    ret = map_page_in_pgtbl(get_vmspace_pgtbl(fault_vmspace, CUR_MACHINE_ID), fault_va, new_pa, perm, &pte);
+    /*
+     * The mapping has to land in the page table of the machine the faulting
+     * thread will resume on, which is not this one: the fs server's fault
+     * handler runs on the machine that registered its fmap fault pool, while
+     * its clients fault on every machine in the cluster.  Using
+     * CUR_MACHINE_ID here fills the handler's own page table instead, so the
+     * client resumes, faults on the same address again, and blocks again --
+     * forever, still holding whatever userspace lock it faulted under.
+     */
+    ret = map_page_in_pgtbl(get_vmspace_pgtbl(fault_vmspace,
+                                              thread_to_wake->machine_id),
+                            fault_va, new_pa, perm, &pte);
 #else
     ret = map_page_in_pgtbl(fault_vmspace->pgtbl, fault_va, new_pa, perm, &pte);
 #endif
@@ -290,7 +317,17 @@ int sys_user_fault_map(u64 client_badge, vaddr_t fault_va, vaddr_t remap_va,
 
     /* Pending thread should come back to scheduler */
     thread_to_wake->thread_ctx->state = TS_TO_SCHED;
+#ifdef DSM_ENABLED
+    /*
+     * The handler may run on a different machine from the faulting thread.
+     * Keep the wake-up on the same machine whose page table was populated
+     * above; ordinary sched_enqueue() would place a NO_AFF thread on the
+     * handler's machine.
+     */
+    BUG_ON(rr_sched_enqueue_to_affinity(thread_to_wake));
+#else
     BUG_ON(sched_enqueue(thread_to_wake));
+#endif
 
     return 0;
 }
