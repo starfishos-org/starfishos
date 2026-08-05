@@ -1,4 +1,8 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Download large benchmark datasets (phoenix data files, GeminiGraph twitter-2010
 # graph) from the public HF dataset mirror into <repo-root>/datasets/.
 #
@@ -15,7 +19,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)"
 DATASETS_DIR="$REPO_ROOT/datasets"
 # Default to hf-mirror (CN); official HF often hits TLS EOF on large files.
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"

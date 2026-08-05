@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # One-click entry for 0-basic: QEMU MSI microbench + host Linux MLC (Table 1).
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 source "$DIR/../common.sh"
 AE_DIR="$DIR"
 ae_init_output_dirs "$AE_DIR"

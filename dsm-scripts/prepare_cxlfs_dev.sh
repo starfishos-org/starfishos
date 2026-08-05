@@ -1,4 +1,8 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Create (or recreate) the CXLFS ivshmem backing file under /dev/shm.
 #
 # Usage:
@@ -16,7 +20,7 @@ device=${CXLFS_DEV:-/dev/shm/ivshmem-cxlfs-$USER}
 stamp=${CXLFS_BUILD_STAMP:-${device}.build-id}
 size=8G
 mode="${1:-ensure}"
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)"
 build_image=${CXLFS_BUILD_IMAGE:-$repo_root/user/build/ramdisk.cpio}
 
 # CXLFS persists a copy of the boot ramdisk. Reusing the same per-user

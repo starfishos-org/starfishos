@@ -1,4 +1,8 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Test leveldb recovery: machine 0 populates DB with fillbatch, crash, recover on machine 1, verify with readrandom
 # Usage: ./dsm-scripts/test_leveldb_recovery.sh
 

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Shared helpers for artifact-evaluation test scripts.
 # Source this file from an experiment's run.sh:
 #
-#   source "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
+#   source "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/../common.sh"
 #
 # Provides:
 #   ae_check_global_prepare      - verify prepare.sh has been run
@@ -31,7 +35,7 @@
 #   Machine i's live log is $AE_MACHINE_LOG_DIR/exec_log<i>.log (written by
 #   build/simulate.sh itself); ae_boot_cluster removes stale ones first.
 
-AE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+AE_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)"
 AE_SESSION="${AE_SESSION:-${USER}-ae}"
 AE_DSM_CONFIG="$AE_REPO_ROOT/kernel/dsm_config.cmake"
 AE_DEMOS_CONFIG="$AE_REPO_ROOT/user/demos/config.cmake"
@@ -92,7 +96,7 @@ ae_acquire_run_lock() {
 
     : > "$lock_file"
     printf 'pid=%s purpose=%s repo=%s started=%s\n' \
-        "$BASHPID" "$purpose" "$AE_REPO_ROOT" "$(date -Is)" \
+        "${BASHPID:-$$}" "$purpose" "$AE_REPO_ROOT" "$(date -Is)" \
         >&"$AE_RUN_LOCK_FD"
     echo "[AE] acquired per-user runner lock: $lock_file"
 }
@@ -409,9 +413,16 @@ ae_manifest_set() {
 # ae_manifest_set_vars NUM_MACHINES NUM_WAREHOUSES ...
 # Records each named shell variable under its own name (unset -> "<unset>").
 ae_manifest_set_vars() {
-    local name
+    local name value
     for name in "$@"; do
-        if [ -n "${!name+set}" ]; then
+        if [ -n "${ZSH_VERSION:-}" ]; then
+            if (( ${+parameters[$name]} )); then
+                value="${(P)name}"
+                ae_manifest_set "$name" "$value"
+            else
+                ae_manifest_set "$name" "<unset>"
+            fi
+        elif [ -n "${!name+set}" ]; then
             ae_manifest_set "$name" "${!name}"
         else
             ae_manifest_set "$name" "<unset>"
@@ -710,7 +721,11 @@ ae_start_log_watchdog() {
           --interval "${AE_WATCHDOG_INTERVAL:-1}")
     if [ -n "$machines" ]; then
         args+=(--machines "$machines")
-        IFS=',' read -r -a AE_WATCHDOG_MACHINES <<< "$machines"
+        if [ -n "${ZSH_VERSION:-}" ]; then
+            IFS=',' read -r -A AE_WATCHDOG_MACHINES <<< "$machines"
+        else
+            IFS=',' read -r -a AE_WATCHDOG_MACHINES <<< "$machines"
+        fi
     else
         args+=(--count "$n")
         AE_WATCHDOG_MACHINES=()

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Run one or more chbuild steps; on any failure fall back to distclean+defconfig+build.
 #
 # Usage:
@@ -14,7 +18,7 @@
 #   CHBUILD_LOCAL     if 1, run ./chbuild --local (skip docker)
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 NO_FALLBACK=0

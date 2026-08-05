@@ -1,10 +1,14 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Test polling service: direct IPC vs cross-machine polling
 # Usage: ./dsm-scripts/ipc-test/test_polling_cross.sh [--breakdown]
 #   --breakdown  enable client + server timing breakdown (slower)
 #   (default)    CDF only, no breakdown overhead
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/../.." && pwd)"
 CLIENT_SRC="$REPO_ROOT/user/system-servers/polling/polling_client_test.c"
 SERVER_SRC="$REPO_ROOT/user/system-servers/polling/polling_server.c"
 RESP_SRC="$REPO_ROOT/user/system-servers/polling/polling_resp.c"
@@ -79,7 +83,7 @@ sleep 1; dsm_ready 1; kernel_ready 1
 
 echo "Both machines ready."
 
----- [1] Direct empty (t=1) ----
+# ---- [1] Direct empty (t=1) ----
 echo ""; echo "=== [1/9] Direct empty IPC (machine 0, t=1) ==="
 c0=$(grep -c "polling_client: done" exec_log0.log 2>/dev/null || echo 0)
 tmux send -t "$session_name:0" "polling_client.bin -d -e -t 1 -m direct_empty" ENTER

@@ -1,4 +1,8 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 
 # Load global config from project-root chcore.ini.
 # Exported variables:
@@ -37,7 +41,7 @@ _chcore_ini_get() {
 
 load_chcore_ini() {
 	local script_dir project_root ini_file
-	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 	project_root="$(cd "$script_dir/../.." && pwd)"
 	ini_file="$project_root/chcore.ini"
 

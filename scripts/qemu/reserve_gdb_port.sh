@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 
 # Reserve a QEMU GDB TCP port across concurrently starting emulate.sh
 # processes.  The lock file descriptor intentionally remains open in the

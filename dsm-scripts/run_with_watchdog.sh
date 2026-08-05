@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Run a test command under the host-side log watchdog.
 #
@@ -37,7 +41,7 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=../artifact-evaluation/common.sh
 source "$REPO_DIR/artifact-evaluation/common.sh"

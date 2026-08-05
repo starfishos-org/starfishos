@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 incdir=$1
 libdir=$2
 ldso=$3

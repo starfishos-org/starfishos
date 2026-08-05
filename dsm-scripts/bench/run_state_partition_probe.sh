@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Probe driver for paper Figure 13 (artifact-evaluation/4-state-partition).
 #
@@ -26,7 +30,7 @@
 #      MATRIX_LEN (matrix_multiply side length, default 2000)
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/artifact-evaluation/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/../.." && pwd)/artifact-evaluation/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
 ae_init_output_dirs "$AE_DIR"
@@ -143,10 +147,10 @@ for cfg in $CONFIGS; do
             ae_send_command 0 "write $(bench_bind_file "$bench") $BIND_LIST"
             sleep 2
             ae_send_command 0 "$(bench_command "$bench" "$WORKERS")"
-            status=ok
+            probe_status=ok
             if ! AE_LOG_STALL_S=0 ae_wait_in_log 0 "finalize:" "$TIMEOUT" \
                     "$point" "$boot_machines"; then
-                status=failed
+                probe_status=failed
                 ae_record_error "$point did not complete"
             fi
             sleep 3
@@ -156,7 +160,7 @@ for cfg in $CONFIGS; do
             lib="$(grep -aoE '^library: [0-9]+' "$(ae_machine_log 0)" \
                    | tail -1 | grep -oE '[0-9]+' || true)"
             printf '%s\t%s\t%s\t%s\t%s\n' \
-                "$cfg" "$bench" "$rep" "$status" "${lib:-}" >> "$SUMMARY"
+                "$cfg" "$bench" "$rep" "$probe_status" "${lib:-}" >> "$SUMMARY"
             ae_kill_cluster
         done
     done

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Reviewer one-click entry point. It detects the restricted Tigon policy and
 # then delegates argument parsing and experiment orchestration to run_all.py.
 #
@@ -6,7 +10,7 @@
 #   ./artifact-evaluation/run-all.sh --full
 #
 set -euo pipefail
-AE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 readonly TIGON_ADMIN_HELPER=/usr/local/libexec/starfishos-tigon
 
 restricted_tigon_policy_available() {

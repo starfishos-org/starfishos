@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 
 # Start ivshmem-server for doorbell communication
 # This script should be run before starting any QEMU instances
@@ -12,7 +16,7 @@ SHM_NAME="ivshmem-doorbell-$USER"
 SHM_SIZE="1M"  # Small size for doorbell only (data is in ivshmem-plain)
 VECTORS=16     # Number of interrupt vectors
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/log/ivshmem-server"
 LOG_FILE="$LOG_DIR/server.log"

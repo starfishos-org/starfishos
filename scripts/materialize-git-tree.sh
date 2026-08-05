@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Copy a Git working-tree directory without carrying ignored build artifacts.
 # Tracked files come from the live working tree, so local edits are preserved.
 set -euo pipefail
@@ -63,20 +67,20 @@ else
         > "$tmp_dir/git-files.nul"
 fi
 
-while IFS= read -r -d '' path; do
+while IFS= read -r -d '' archive_path; do
     if [ -n "$git_prefix" ]; then
-        case "$path" in
-            "$git_prefix"*) path="${path#"$git_prefix"}" ;;
+        case "$archive_path" in
+            "$git_prefix"*) archive_path="${archive_path#"$git_prefix"}" ;;
             *)
-                echo "Git returned a path outside $source_dir: $path" >&2
+                echo "Git returned a path outside $source_dir: $archive_path" >&2
                 exit 1
                 ;;
         esac
     fi
     # A tracked file may be intentionally deleted in the local worktree.
     # Preserve that deletion instead of making rsync fail or copying HEAD.
-    if [ -e "$source_dir/$path" ] || [ -L "$source_dir/$path" ]; then
-        printf '%s\0' "$path"
+    if [ -e "$source_dir/$archive_path" ] || [ -L "$source_dir/$archive_path" ]; then
+        printf '%s\0' "$archive_path"
     fi
 done < "$tmp_dir/git-files.nul" > "$tmp_dir/materialize.nul"
 

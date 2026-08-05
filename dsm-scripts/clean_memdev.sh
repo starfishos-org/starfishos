@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Remove per-user ivshmem / NUMA / CXLFS backing files under /dev/shm.
 # Does not stop the ivshmem doorbell server; use `make kill-ivshmem-server` for that.
 set -euo pipefail

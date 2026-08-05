@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Materialize the deterministic TinyCNN inputs omitted by the historical
 # submodule.  Zero-filled AlexNet weights preserve the exact layer shapes and
 # compute/memory path needed by this performance experiment; accuracy is not a
 # measured quantity in the paper's resource-utilization figure.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/../.." && pwd)"
 CNN="$ROOT/user/demos/VeryTinyCnn"
 
 if [ ! -f "$CNN/CMakeLists.txt" ] || [ ! -x "$CNN/libjpeg/configure" ]; then

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Artifact script for the paper auto-scale figures:
 #   auto-scale-matrix.png  (Matrix-multiply MapReduce)
@@ -36,7 +40,7 @@
 #   FOOTPRINT_MACHINES=<max MACHINES>  cluster size for the footprint pass
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/5-auto-scale"
 ae_init_output_dirs "$AE_DIR"
@@ -73,7 +77,11 @@ validate_scope_list() {
             return 1
             ;;
     esac
-    read -r -a values <<< "$raw"
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        read -r -A values <<< "$raw"
+    else
+        read -r -a values <<< "$raw"
+    fi
     if [ "${#values[@]}" -eq 0 ]; then
         echo "[AE] $label must contain at least one value" >&2
         return 1
@@ -137,7 +145,11 @@ validate_baseline_stages() {
             return 1
             ;;
     esac
-    IFS=, read -r -a requested_baseline_stages <<< "$raw"
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        IFS=, read -r -A requested_baseline_stages <<< "$raw"
+    else
+        IFS=, read -r -a requested_baseline_stages <<< "$raw"
+    fi
     baseline_stage_list=","
     for baseline_stage in "${requested_baseline_stages[@]}"; do
         # Match run_baselines.py's per-token strip() without accepting spaces
@@ -199,18 +211,18 @@ cp "$KERNEL_CMAKE" "$TMP_DIR/kernel-CMakeLists.txt"
 cp "$GEMINI_CMAKE" "$TMP_DIR/gemini-CMakeLists.txt"
 
 start_restricted_tigon() {
-    local status="" status_rc=0 state="" line
+    local helper_status="" status_rc=0 state="" line
 
     [ "$STARFISHOS_RESTRICTED_TIGON" = "1" ] || return 0
-    status="$(sudo -n "$TIGON_ADMIN_HELPER" status 2>&1)" || status_rc=$?
+    helper_status="$(sudo -n "$TIGON_ADMIN_HELPER" status 2>&1)" || status_rc=$?
     while IFS= read -r line; do
         case "$line" in
             state=*) state="${line#state=}"; break ;;
         esac
-    done <<< "$status"
+    done <<< "$helper_status"
     if [ "$status_rc" -ne 0 ] && [ "$state" != "degraded" ]; then
         echo "[AE] cannot query restricted Tigon helper:" >&2
-        printf '%s\n' "$status" >&2
+        printf '%s\n' "$helper_status" >&2
         return 1
     fi
 

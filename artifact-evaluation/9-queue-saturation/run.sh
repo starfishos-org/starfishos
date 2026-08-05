@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Camera-ready revision plan (Reviewer B on paper Figure 11b): tail latency
 # and saturation throughput per service queue.
@@ -25,7 +29,7 @@
 #   ITERS=20000   TIMEOUT=600   CLIENT_MODE_FLAGS="-d"  # local direct IPC
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/9-queue-saturation"
 ae_init_output_dirs "$AE_DIR"

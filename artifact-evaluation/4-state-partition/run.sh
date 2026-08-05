@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 #
 # Artifact script for paper Figure 13: "Performance across state-partition
 # choices".
@@ -52,7 +56,7 @@
 #   MACHINE_COUNTS="N")
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/4-state-partition"
 ae_init_output_dirs "$AE_DIR"
@@ -93,7 +97,11 @@ validate_scope_list() {
             return 1
             ;;
     esac
-    read -r -a values <<< "$raw"
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        read -r -A values <<< "$raw"
+    else
+        read -r -a values <<< "$raw"
+    fi
     if [ "${#values[@]}" -eq 0 ]; then
         echo "[AE] $label must select at least one value" >&2
         return 1

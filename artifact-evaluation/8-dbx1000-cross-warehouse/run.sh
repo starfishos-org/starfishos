@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 # Reviewer-requested TPC-C sweep over transaction-level cross-warehouse ratios.
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/common.sh"
 
 AE_DIR="$AE_REPO_ROOT/artifact-evaluation/8-dbx1000-cross-warehouse"
 DBX_CONFIG="$AE_REPO_ROOT/user/demos/dbx1000/config.h"
@@ -125,7 +129,11 @@ done
 [ "$THREADS_PER_MACHINE" -le "$GUEST_CPUS" ] || {
     echo "DBX_THREADS_PER_MACHINE exceeds DBX_GUEST_CPUS" >&2; exit 1;
 }
-read -r -a RATIO_LIST <<< "$RATIOS"
+if [ -n "${ZSH_VERSION:-}" ]; then
+    read -r -A RATIO_LIST <<< "$RATIOS"
+else
+    read -r -a RATIO_LIST <<< "$RATIOS"
+fi
 [ "${#RATIO_LIST[@]}" -gt 0 ] || { echo "RATIOS must not be empty" >&2; exit 1; }
 seen_ratios=" "
 for ratio in "${RATIO_LIST[@]}"; do
@@ -210,18 +218,18 @@ set_placement() {
 }
 
 check_backing_files() {
-    local paths=() i j path size
+    local paths=() i j backing_path size
     for i in 0 1 2 3; do
         for j in 0 1; do paths+=("/dev/shm/numa${i}.${j}-$USER"); done
     done
     for ((i = 0; i < NUM_MACHINES; i++)); do
-        path="${paths[$i]}"
-        [ -f "$path" ] && [ ! -L "$path" ] || {
-            echo "Missing NUMA backing file: $path" >&2; return 1;
+        backing_path="${paths[$i]}"
+        [ -f "$backing_path" ] && [ ! -L "$backing_path" ] || {
+            echo "Missing NUMA backing file: $backing_path" >&2; return 1;
         }
-        size="$(stat -Lc '%s' -- "$path")"
+        size="$(stat -Lc '%s' -- "$backing_path")"
         [ "$size" -eq "$BACKING_MIN_BYTES" ] || {
-            echo "$path is $size bytes; expected exactly $BACKING_MIN_BYTES bytes" >&2
+            echo "$backing_path is $size bytes; expected exactly $BACKING_MIN_BYTES bytes" >&2
             return 1
         }
     done

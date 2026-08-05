@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/../.." && pwd)"
 source "$REPO_ROOT/artifact-evaluation/common.sh"
 AE_DIR="$REPO_ROOT/artifact-evaluation/1-ipc-cdf"
 TS="${TS:-$(date +%Y%m%d_%H%M%S)}"

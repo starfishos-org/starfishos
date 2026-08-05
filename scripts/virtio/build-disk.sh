@@ -1,4 +1,8 @@
 #!/bin/bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 
 bashdir=/home/wfn/chcore-cxl/
 file_path=/disk/wfn/models/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf

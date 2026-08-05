@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 set -euo pipefail
 
-AE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 SOURCE="$AE_DIR/linux_sched_notify_microbench.c"
 BUILD_DIR="${BUILD_DIR:-/tmp/chcore-cxl-linux-sched-notify-$USER}"
 BINARY="$BUILD_DIR/linux_sched_notify_microbench.bin"

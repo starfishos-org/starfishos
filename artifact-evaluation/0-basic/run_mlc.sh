@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Keep Bash and Zsh behavior aligned for arrays, word splitting, globs, and regex matches.
+if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH
+fi
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AE_DIR="$SCRIPT_DIR"
 if [ -z "${OUT_DIR:-}" ]; then
@@ -30,7 +34,11 @@ fi
 
 mkdir -p "$LOG_DIR"
 echo "Using Intel MLC: $MLC_BIN"
-read -r -a mlc_args <<< "${MLC_ARGS:-}"
+if [ -n "${ZSH_VERSION:-}" ]; then
+    read -r -A mlc_args <<< "${MLC_ARGS:-}"
+else
+    read -r -a mlc_args <<< "${MLC_ARGS:-}"
+fi
 
 case "$MODE" in
     matrix)
