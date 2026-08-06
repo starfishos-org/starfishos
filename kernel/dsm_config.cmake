@@ -40,9 +40,9 @@ set(DSM_CXL_LF_BUDDY "OFF")
 # FIFO order. Reclaim stays active until occupancy reaches the low watermark.
 # LIMIT_MB is a hard cap: a fault that would push CXL residency past it waits
 # for demotion instead of allocating. The watermarks are fractions of that
-# cap, so demotion starts at 80% (~819 MB) and runs down to 75% (~768 MB),
+# cap, so demotion starts at 80% (~1638 MB) and runs down to 75% (~1536 MB),
 # leaving headroom below the cap for faults in flight while a pass runs.
-set(DSM_CXL_DEMOTE_LIMIT_MB "1024")
+set(DSM_CXL_DEMOTE_LIMIT_MB "2048")
 set(DSM_CXL_DEMOTE_HIGH_WATERMARK "80")
 set(DSM_CXL_DEMOTE_LOW_WATERMARK "75")
 set(DSM_CXL_DEMOTE_BATCH_PAGES "64")
