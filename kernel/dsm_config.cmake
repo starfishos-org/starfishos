@@ -15,7 +15,7 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # would report the difference.  Changing these values silently re-measures
 # paper Figure 11a/11b and the allocator figure.  Override per experiment with
 # ae_set_dsm_var (see 4-state-partition/run.sh) instead of editing this file.
-set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
+set(DSM_MALLOC_MODE "MIXED_DEFAULT_DRAM")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL
 set(DSM_USER_MALLOC_MODE "DEFAULT_DRAM")

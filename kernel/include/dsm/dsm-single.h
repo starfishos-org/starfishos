@@ -228,6 +228,12 @@ typedef struct {
         volatile u64 resident_pages;
         volatile u64 resident_reserved_pages;
         volatile u64 reclaimed_pages;
+        /*
+         * Number of FIFO entries currently in CXL_RECLAIM_FREE_PENDING.
+         * retry_pending_frees() has to walk the FIFO under the cluster-wide
+         * lock above, so it must not walk it at all while this is zero.
+         */
+        volatile u64 free_pending_pages;
         u64 next_sequence;
         volatile u64 next_rpc_id;
         u32 reclaiming;

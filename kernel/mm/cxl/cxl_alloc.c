@@ -30,20 +30,33 @@ void *get_cxl_pages(int order)
 #endif
     struct page *page = NULL;
     u64 requested_pages = 1UL << order;
-    int reservation = 0;
     int i;
 
 #ifdef DSM_ENABLED
-reserve:
-    reservation = dsm_cxl_reserve_pages(requested_pages);
-    if (reservation < 0) {
-        if (dsm_cxl_reclaim_if_needed(requested_pages, true) > 0)
-            goto reserve;
+    /*
+     * Account the allocation, but never drive demotion from here.
+     *
+     * This allocator is reached from contexts that already hold mm locks --
+     * most importantly map_page_in_pgtbl(), which allocates a page-table page
+     * (__MT_PGTABLE__ resolves to __MT_SHARED__ when DSM_PGTABLE_MODE=CXL)
+     * while holding vmspace->pgtbl_lock.  The demoter has to take
+     * vmspace_lock and pgtbl_lock of the vmspaces it walks, and it issues
+     * blocking cross-machine RPCs whose remote handlers take pgtbl_lock too.
+     * Running it here therefore re-enters a non-recursive ticket lock on the
+     * same CPU and wedges the whole cluster, because the vmspace and its page
+     * tables are shared through CXL.
+     *
+     * Demotion is driven from dsm_cxl_reserve_resident_pages() and from the
+     * post-mapping hook in handle_trans_fault(), both of which run with no mm
+     * lock held.  Those are the only paths that grow the resident set, so
+     * dropping the hook here does not lose a trigger; it only removes the
+     * unsafe one.  A failed reservation falls back to the pre-reclaim
+     * behaviour of reporting OOM to the caller.
+     */
+    if (dsm_cxl_reserve_pages(requested_pages) < 0) {
         kwarn("[OOM] Cannot reserve CXL pages!\n");
         return NULL;
     }
-    if (reservation > 0)
-        dsm_cxl_reclaim_if_needed(0, false);
 #endif
 
     /* Try to get continous physical memory pages from one physmem pool. */
@@ -56,8 +69,6 @@ reserve:
     if (unlikely(!page)) {
 #ifdef DSM_ENABLED
         dsm_cxl_cancel_reserved_pages(requested_pages);
-        if (dsm_cxl_reclaim_if_needed(requested_pages, true) > 0)
-            goto reserve;
 #endif
         kwarn("[OOM] Cannot get page from any memory pool!\n");
         return NULL;
