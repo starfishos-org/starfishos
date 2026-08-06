@@ -15,7 +15,7 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 # would report the difference.  Changing these values silently re-measures
 # paper Figure 11a/11b and the allocator figure.  Override per experiment with
 # ae_set_dsm_var (see 4-state-partition/run.sh) instead of editing this file.
-set(DSM_MALLOC_MODE "MIXED_DEFAULT_DRAM")
+set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL
 set(DSM_USER_MALLOC_MODE "DEFAULT_DRAM")
@@ -38,9 +38,13 @@ set(DSM_CXL_LF_BUDDY "OFF")
 # CXL page demotion policy. When projected CXL occupancy reaches the high
 # watermark, migrated user pages are returned to their original DRAM pages in
 # FIFO order. Reclaim stays active until occupancy reaches the low watermark.
+# LIMIT_MB is a hard cap: a fault that would push CXL residency past it waits
+# for demotion instead of allocating. The watermarks are fractions of that
+# cap, so demotion starts at 80% (~819 MB) and runs down to 75% (~768 MB),
+# leaving headroom below the cap for faults in flight while a pass runs.
 set(DSM_CXL_DEMOTE_LIMIT_MB "1024")
-set(DSM_CXL_DEMOTE_HIGH_WATERMARK "90")
-set(DSM_CXL_DEMOTE_LOW_WATERMARK "85")
+set(DSM_CXL_DEMOTE_HIGH_WATERMARK "80")
+set(DSM_CXL_DEMOTE_LOW_WATERMARK "75")
 set(DSM_CXL_DEMOTE_BATCH_PAGES "64")
 
 # If "ON", enable per-slab in-flight undo log for crash recovery.
