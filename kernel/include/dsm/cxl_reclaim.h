@@ -66,6 +66,13 @@ struct cxl_demote_batch_op {
 };
 
 void dsm_cxl_reclaim_init(void);
+/*
+ * True when @pa must not be installed in a page table right now because the
+ * demoter has already snapshotted the mappings of that page.  Callers hold
+ * vmspace->pgtbl_lock and should drop it and retry the fault.
+ */
+bool dsm_cxl_mapping_in_transition(struct pmobject *pmo, u64 pmo_index,
+                                   paddr_t pa);
 int dsm_cxl_reserve_pages(u64 pages);
 void dsm_cxl_commit_reserved_pages(u64 pages);
 void dsm_cxl_cancel_reserved_pages(u64 pages);

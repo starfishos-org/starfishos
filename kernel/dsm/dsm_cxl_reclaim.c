@@ -195,6 +195,45 @@ static struct page *validated_cxl_page(paddr_t pa)
     return page;
 }
 
+bool dsm_cxl_mapping_in_transition(struct pmobject *pmo, u64 pmo_index,
+                                   paddr_t pa)
+{
+    struct page *page;
+    bool in_transition;
+
+    if (!dsm_meta || !pmo
+        || !__atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
+                            __ATOMIC_ACQUIRE))
+        return false;
+
+    /*
+     * The caller holds pgtbl_lock, which the demoter also takes.  Never wait
+     * for the cluster-wide reclaim lock from this hot path: report "busy" and
+     * let the caller re-fault, which is already the contract of this
+     * predicate.
+     */
+    if (try_lock(&dsm_meta->cxl_reclaim.lock) != 0)
+        return true;
+    /*
+     * pa was read from the PMO before the caller took its page-table lock.
+     * prepare_candidate() has by now snapshotted every PTE that can reach the
+     * CXL page, so a mapping installed after that point would escape the
+     * distributed TLB shootdown and keep pointing at the page once
+     * finish_candidate() hands it back to the buddy allocator.  Refault
+     * instead, both while the page is being demoted and after the PMO entry
+     * has already moved on.
+     */
+    in_transition = get_page_from_pmo(pmo, pmo_index) != pa;
+    if (!in_transition) {
+        page = validated_cxl_page(pa);
+        if (page && page->cxl_reclaim_state != CXL_RECLAIM_RESIDENT
+            && page->cxl_reclaim_state != CXL_RECLAIM_NONE)
+            in_transition = true;
+    }
+    unlock(&dsm_meta->cxl_reclaim.lock);
+    return in_transition;
+}
+
 void dsm_cxl_reclaim_init(void)
 {
     u64 total_pages = 0;

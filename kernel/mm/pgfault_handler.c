@@ -953,6 +953,27 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             read_unlock(&vmspace->vmspace_lock);
             return 0;
         }
+#ifdef DSM_ENABLED
+        /*
+         * Do not install a mapping for a page the demoter has already
+         * snapshotted.  prepare_candidate() records every PTE that can reach
+         * the CXL page and turns it into a migration entry before the
+         * distributed TLB shootdown; a mapping added after that snapshot
+         * escapes the shootdown and still points at the page when
+         * finish_candidate() returns it to the buddy allocator, so the
+         * process later reads recycled memory.  This runs under pgtbl_lock,
+         * which prepare_candidate() also takes, so the two orders are
+         * covered: if reclaim got here first the check sees it and the fault
+         * is retried after demotion; if this check got here first,
+         * prepare_candidate() observes the new PTE and includes it.
+         */
+        if (dsm_cxl_mapping_in_transition(pmo, index, pa)) {
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            CPU_PAUSE();
+            return 0;
+        }
+#endif
         /* NOTE!!: should not define machine_id variable here,
         it will cause the error when using CUR_MACHINE_ID */
         int mid = get_paddr_machine_id(pa);
