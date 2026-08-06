@@ -96,6 +96,23 @@ enum polling_request_type {
     POLLING_KERNEL_REQ_FLUSH_TLB,
     POLLING_PRINT_DEBUG_INFO,
     POLLING_KERNEL_REQ_FLUSH_TLB_BATCH,
+    POLLING_KERNEL_REQ_CXL_DEMOTE_BATCH,
+};
+
+#define CXL_DEMOTE_WIRE_MAX_OPS 64
+
+enum cxl_demote_wire_phase {
+    CXL_DEMOTE_WIRE_FLUSH = 0,
+    CXL_DEMOTE_WIRE_COPY,
+    CXL_DEMOTE_WIRE_FREE_ORIGIN,
+};
+
+struct polling_cxl_demote_op {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 fault_va;
+    u64 vmspace_ptr;
+    u64 txn_id;
 };
 
 struct polling_fs_req_open {
@@ -166,6 +183,12 @@ struct polling_kernel_req_flush_tlb_batch {
     struct polling_tlb_batch_entry entries[POLLING_TLB_BATCH_MAX];
 };
 
+struct polling_kernel_req_cxl_demote_batch {
+    u32 phase;
+    u32 count;
+    struct polling_cxl_demote_op ops[CXL_DEMOTE_WIRE_MAX_OPS];
+};
+
 struct polling_request {
     enum polling_request_type type;
     union {
@@ -176,6 +199,7 @@ struct polling_request {
         struct polling_req_empty empty;
         struct polling_kernel_req_flush_tlb flush_tlb;
         struct polling_kernel_req_flush_tlb_batch flush_tlb_batch;
+        struct polling_kernel_req_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 
@@ -204,6 +228,10 @@ struct polling_kernel_resp_flush_tlb {
     s32 reply_result;
 };
 
+struct polling_kernel_resp_cxl_demote_batch {
+    s32 result;
+};
+
 struct polling_response {
     union {
         struct polling_fs_resp_open open;
@@ -212,6 +240,7 @@ struct polling_response {
         struct polling_fs_resp_close close;
         struct polling_resp_empty empty;
         struct polling_kernel_resp_flush_tlb flush_tlb;
+        struct polling_kernel_resp_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 
@@ -365,10 +394,13 @@ int sys_mmap_shm(u32 shm_id, void *addr);
 
 /* Kernel-side queue operations (used for TLB flush IPI via polling) */
 struct dq_node *dq_alloc_node(struct polling_shm_region *shm);
+struct dq_node *dq_alloc_node_timeout(struct polling_shm_region *shm,
+                                      u64 timeout_ns);
 void dq_enqueue(struct polling_shm_region *shm, struct dq_node *node,
                 struct polling_request *req);
 void dq_wait_for_done(struct dq_node *node);
 void dq_mark_consumed(struct dq_node *node);
+int dq_wait_for_done_timeout(struct dq_node *node, u64 timeout_ns);
 
 /* Forward declaration for durable queue operations */
 struct thread;

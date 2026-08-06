@@ -30,6 +30,8 @@
 #include <object/recycle.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
+#include <dsm/cxl_reclaim.h>
+#include <mm/remote_free.h>
 #include <lib/fw_cfg.h>
 #include <drivers/ivshmem.h>
 #endif
@@ -340,8 +342,8 @@ static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fa
         pte_t *pte_check = NULL;
         query_in_pgtbl(pgtbl, fault_addr, &pa_check, &pte_check);
         
-        /* Check if migration is complete (PTE is present and not a migration entry) */
-        if (pte_check && pte_check->pte_4K.present && !is_migration_entry(pte_check)) {
+        /* A demotion may deliberately leave this machine's PTE unmapped. */
+        if (!pte_check || !is_migration_entry(pte_check)) {
             /* Migration complete, locks are still held */
             return;
         }
@@ -1134,23 +1136,16 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 vaddr_t vmr_end = vmr->start + vmr->size;
                 unlock(&vmspace->pgtbl_lock);
                 read_unlock(&vmspace->vmspace_lock);
-
                 /*
                  * Migrate a run of pages, not just the faulting one.
                  *
                  * Each request costs the source machine two all-CPU TLB
                  * shootdown IPIs (see sys_memcpy_and_flush_tlb), which dwarf
                  * the 4 KiB copy; batching amortizes both those shootdowns and
-                 * the round trip over the whole run.  Reading ahead is nearly
-                 * free because a page only ever moves DRAM -> CXL (Case 1
-                 * direct-maps anything already shared, and nothing migrates
-                 * back), so a page pulled in early would have had to move
-                 * anyway.  That last premise holds for sequential scans but
-                 * not for scattered access; PGFAULT_READAHEAD_MAX bounds the
-                 * run so the trade-off can be measured.  It is also coupled to
-                 * irreversibility: adding a CXL -> DRAM demotion path would
-                 * invalidate the "would have moved anyway" argument and this
-                 * loop would have to be revisited alongside it.
+                 * the round trip over the whole run.  PGFAULT_READAHEAD_MAX
+                 * bounds speculative migration so scattered workloads cannot
+                 * fill CXL without limit.  The CXL reclaim path may later move
+                 * cold pages back to their origin DRAM pages.
                  */
                 struct polling_tlb_batch_entry batch[POLLING_TLB_BATCH_MAX];
                 u64 batch_count;
@@ -1158,9 +1153,21 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 vaddr_t next_va;
                 void *dst_va;
                 int migrate_ret;
+                bool reclaim_needed = false;
+                bool tracking_failed[POLLING_TLB_BATCH_MAX] = { false };
 
+                if (dsm_cxl_reserve_resident_pages(1) != 0) {
+                    remove_migrating_va(vmspace, fault_addr);
+                    CPU_PAUSE();
+                    return 0;
+                }
                 dst_va = get_pages(0, __MT_SHARED__);
-                BUG_ON(dst_va == NULL);
+                if (dst_va == NULL) {
+                    dsm_cxl_cancel_resident_pages(1);
+                    remove_migrating_va(vmspace, fault_addr);
+                    CPU_PAUSE();
+                    return 0;
+                }
                 batch[0].src_pa = pa;
                 batch[0].dst_pa = virt_to_phys(dst_va);
                 batch[0].fault_va = fault_addr; /* already page aligned above */
@@ -1200,8 +1207,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         break;
                     }
 
+                    if (dsm_cxl_reserve_resident_pages(1) != 0) {
+                        remove_migrating_va(vmspace, next_va);
+                        break;
+                    }
                     dst_va = get_pages(0, __MT_SHARED__);
                     if (dst_va == NULL) {
+                        dsm_cxl_cancel_resident_pages(1);
                         remove_migrating_va(vmspace, next_va);
                         break;
                     }
@@ -1231,13 +1243,13 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                           " (%d); faulting va 0x%lx, retrying the fault\n",
                           batch_count, mid, migrate_ret, fault_addr);
                     for (bi = 0; bi < batch_count; bi++) {
+                        dsm_cxl_cancel_resident_pages(1);
                         free_pages((void *)phys_to_virt(batch[bi].dst_pa));
                         remove_migrating_va(vmspace, batch[bi].fault_va);
                     }
                     CPU_PAUSE();
                     return 0;
                 }
-
                 /* Re-acquire locks */
                 read_lock(&vmspace->vmspace_lock);
                 lock(&vmspace->pgtbl_lock);
@@ -1245,14 +1257,40 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Get the page table of the current machine */
                 pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
 
-                /* Map every migrated page into the page table */
-                for (bi = 0; bi < batch_count; bi++)
+                /* Map and track every migrated page. */
+                for (bi = 0; bi < batch_count; bi++) {
+                    int track_ret;
+
                     map_page_in_pgtbl(pgtbl, batch[bi].fault_va,
                                       batch[bi].dst_pa, perm, &pte);
+                    track_ret = dsm_cxl_track_page(batch[bi].dst_pa,
+                                                   batch[bi].src_pa,
+                                                   pmo,
+                                                   index + bi,
+                                                   vmspace,
+                                                   batch[bi].fault_va,
+                                                   mid);
+                    if (track_ret < 0) {
+                        tracking_failed[bi] = true;
+                        kwarn("[CXL_RECLAIM] Failed to track migrated page "
+                              "pa=0x%lx ret=%d; releasing origin DRAM\n",
+                              batch[bi].dst_pa,
+                              track_ret);
+                    } else if (track_ret > 0) {
+                        reclaim_needed = true;
+                    }
+                }
 
                 /* Unlock the page table and vmspace lock */
                 unlock(&vmspace->pgtbl_lock);
                 read_unlock(&vmspace->vmspace_lock);
+
+                for (bi = 0; bi < batch_count; bi++) {
+                    if (!tracking_failed[bi])
+                        continue;
+                    dsm_cxl_cancel_resident_pages(1);
+                    free_machine_page(batch[bi].src_pa);
+                }
 
                 /*
                  * Release the reservations only once every mapping is in
@@ -1262,6 +1300,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                  */
                 for (bi = 0; bi < batch_count; bi++)
                     remove_migrating_va(vmspace, batch[bi].fault_va);
+                if (reclaim_needed)
+                    dsm_cxl_reclaim_if_needed(0, false);
 
                 new_pa = batch[0].dst_pa;
 

@@ -120,7 +120,15 @@ struct proc_node *new_proc_node(struct proc_node *parent, char *name)
 		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else if (strcmp(name, "tmpfs") == 0) {
 		proc->pcid = alloc_id(&pcid_mgr);
-		proc->badge = generate_badge(proc);
+		proc->badge = TMPFS_BADGE;
+		proc->thread_type = THREAD_TYPE_SERVICES;
+	} else if (strcmp(name, "cxlfs") == 0) {
+		proc->pcid = alloc_id(&pcid_mgr);
+		proc->badge = CXLFS_BADGE;
+		proc->thread_type = THREAD_TYPE_SERVICES;
+	} else if (strcmp(name, "polling") == 0) {
+		proc->pcid = alloc_id(&pcid_mgr);
+		proc->badge = POLLING_BADGE;
 		proc->thread_type = THREAD_TYPE_SERVICES;
 	} else {
 		proc->pcid = alloc_id(&pcid_mgr);

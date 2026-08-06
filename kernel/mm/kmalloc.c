@@ -11,6 +11,9 @@
 
 #include <mm/slab.h>
 #include <mm/buddy.h>
+#ifdef DSM_ENABLED
+#include <dsm/cxl_reclaim.h>
+#endif
 
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
@@ -41,6 +44,12 @@ void free_pages(void *addr)
     struct page *page;
 
     page = virt_to_page(addr);
+#ifdef DSM_ENABLED
+    if (page->pool->type == CXL_MEM_PAGE) {
+        dsm_cxl_free_page(page);
+        return;
+    }
+#endif
     buddy_free_pages(page->pool, page);
 }
 
@@ -80,7 +89,12 @@ void kfree(void *ptr)
                 current_thread->mm_size -=
                         (BUDDY_PAGE_SIZE * (1 << page->order));
 #endif
-            buddy_free_pages(page->pool, page);
+#ifdef DSM_ENABLED
+            if (page->pool->type == CXL_MEM_PAGE)
+                dsm_cxl_free_page(page);
+            else
+#endif
+                buddy_free_pages(page->pool, page);
         }
     }
 }

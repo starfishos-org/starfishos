@@ -8,7 +8,11 @@ int copy_to_user(char *ubuf, char *kbuf, size_t size);
 
 static inline int check_user_addr_range(vaddr_t start, size_t len)
 {
-        if ((start + len) >= KBASE)
+        if (start >= KBASE)
+                return -1;
+        if (len > KBASE)
+                return -1;
+        if (start >= KBASE - len)
                 return -1;
         return 0;
 }

@@ -102,6 +102,23 @@ enum polling_request_type {
     POLLING_KERNEL_REQ_FLUSH_TLB,
     POLLING_PRINT_DEBUG_INFO,
     POLLING_KERNEL_REQ_FLUSH_TLB_BATCH,
+    POLLING_KERNEL_REQ_CXL_DEMOTE_BATCH,
+};
+
+#define CXL_DEMOTE_WIRE_MAX_OPS 64
+
+enum cxl_demote_wire_phase {
+    CXL_DEMOTE_WIRE_FLUSH = 0,
+    CXL_DEMOTE_WIRE_COPY,
+    CXL_DEMOTE_WIRE_FREE_ORIGIN,
+};
+
+struct polling_cxl_demote_op {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 fault_va;
+    u64 vmspace_ptr;
+    u64 txn_id;
 };
 
 struct polling_fs_req_open {
@@ -135,6 +152,12 @@ struct polling_kernel_req_flush_tlb {
     u64 memcpy_len;
     u64 memcpy_fault_va;
     u64 memcpy_vmspace;
+};
+
+struct polling_kernel_req_cxl_demote_batch {
+    u32 phase;
+    u32 count;
+    struct polling_cxl_demote_op ops[CXL_DEMOTE_WIRE_MAX_OPS];
 };
 
 struct memcpy_flush_tlb_op {
@@ -180,6 +203,7 @@ struct polling_request {
         struct polling_kernel_req_flush_tlb flush_tlb;
         struct polling_req_print_debug_info print_debug_info;
         struct polling_kernel_req_flush_tlb_batch flush_tlb_batch;
+        struct polling_kernel_req_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 
@@ -208,6 +232,10 @@ struct polling_kernel_resp_flush_tlb {
     s32 reply_result;
 };
 
+struct polling_kernel_resp_cxl_demote_batch {
+    s32 result;
+};
+
 struct polling_resp_print_debug_info {};
 
 struct polling_response {
@@ -219,6 +247,7 @@ struct polling_response {
         struct polling_resp_empty empty;
         struct polling_kernel_resp_flush_tlb flush_tlb;
         struct polling_resp_print_debug_info print_debug_info;
+        struct polling_kernel_resp_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 

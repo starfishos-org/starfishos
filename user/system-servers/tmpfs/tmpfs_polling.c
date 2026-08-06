@@ -203,6 +203,12 @@ static void handle_request_direct(struct dq_node *node)
 		node->resp.flush_tlb.reply_received = 1;
 		break;
 	}
+	case POLLING_KERNEL_REQ_CXL_DEMOTE_BATCH:
+		node->resp.cxl_demote.result = usys_cxl_demote_batch(
+			node->req.cxl_demote.ops,
+			node->req.cxl_demote.count,
+			node->req.cxl_demote.phase);
+		break;
 	default:
 		printf("[tmpfs_polling] unsupported request type: %d\n",
 		       node->req.type);

@@ -10,12 +10,16 @@
 #include <mm/buddy.h>
 #include <mm/rmap.h>
 #include <mm/page_table_func.h>
+#include <mm/uaccess.h>
 #include <arch/mmu.h>
 #include <object/thread.h>
 #include <object/object.h>
 #include <object/cap_group.h>
 #include <perf/measure.h>
 #include <ckpt/hot_pages_tracker.h>
+#ifdef DSM_ENABLED
+#include <dsm/cxl_reclaim.h>
+#endif
 /* Local functions */
 
 const char* pmo_type_str[PMO_TYPE_NR] = {
@@ -52,6 +56,10 @@ struct vmregion *alloc_vmregion(mem_t mem_type)
     struct vmregion *vmr;
 
     vmr = kmalloc(sizeof(*vmr), mem_type);
+#ifdef DSM_ENABLED
+    if (vmr)
+        dsm_cxl_vmr_init(vmr);
+#endif
 
     return vmr;
 }
@@ -206,6 +214,9 @@ int add_vmr_to_vmspace(struct vmspace *vmspace, struct vmregion *vmr)
     list_add(&vmr->list_node, &vmspace->vmr_list);
     rb_insert(&vmspace->vmr_tree, &vmr->tree_node, cmp_two_vmrs);
     vmr->vmspace = (void *)vmspace;
+#ifdef DSM_ENABLED
+    dsm_cxl_link_vmr(vmr);
+#endif
     return 0;
 }
 
@@ -213,6 +224,9 @@ static int remove_vmr_from_vmspace(struct vmspace *vmspace,
                                    struct vmregion *vmr)
 {
     if (check_vmr_intersect(vmspace, vmr) != 0) {
+#ifdef DSM_ENABLED
+        dsm_cxl_unlink_vmr(vmr);
+#endif
         rb_erase(&vmspace->vmr_tree, &vmr->tree_node);
         list_del(&vmr->list_node);
         vmr->vmspace = NULL;
@@ -1263,6 +1277,90 @@ void print_vmspace_stats(struct vmspace *vmspace)
     kinfo("[VMSPACE STATS] ==========================================\n");
 }
 
+/*
+ * Snapshot which pages of a user range are backed by CXL, one bit per page.
+ * The bitmap describes this machine's page table, so callers must only weight
+ * accesses made by threads running on this machine.
+ */
+int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
+{
+    struct vmspace *vmspace;
+    unsigned char *kbitmap;
+    size_t nbytes;
+    u64 mapped = 0;
+    int ret = 0;
+
+    if (base & (PAGE_SIZE - 1))
+        return -EINVAL;
+    if (npages == 0 || npages > (16UL << 20))
+        return -EINVAL;
+    nbytes = (size_t)((npages + 7) / 8);
+    if (check_user_addr_range((vaddr_t)ubitmap, nbytes) != 0)
+        return -EINVAL;
+    if (check_user_addr_range((vaddr_t)base, npages * PAGE_SIZE) != 0)
+        return -EINVAL;
+
+    vmspace = get_current_vmspace();
+    if (!vmspace)
+        return -EINVAL;
+
+    kbitmap = dram_kmalloc(nbytes);
+    if (!kbitmap)
+        return -ENOMEM;
+    memset(kbitmap, 0, nbytes);
+
+    /*
+     * Fill under vmspace_lock, but copy afterwards: copy_to_user resolves the
+     * user address by taking the same lock for writing.
+     */
+    read_lock(&vmspace->vmspace_lock);
+    {
+        struct rb_node *node;
+        void *local_pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+        vaddr_t limit = (vaddr_t)base + npages * PAGE_SIZE;
+
+        rb_for_each(&vmspace->vmr_tree, node) {
+            struct vmregion *vmr =
+                rb_entry(node, struct vmregion, tree_node);
+            vaddr_t start = vmr->start;
+            vaddr_t end = vmr->start + vmr->size;
+            vaddr_t va;
+
+            if (end <= (vaddr_t)base || start >= limit)
+                continue;
+            if (start < (vaddr_t)base)
+                start = (vaddr_t)base;
+            if (end > limit)
+                end = limit;
+
+            for (va = start; va < end; va += PAGE_SIZE) {
+                u64 idx = ((u64)va - base) / PAGE_SIZE;
+                paddr_t pa = 0;
+                pte_t *pte = NULL;
+
+                mapped++;
+                if (!local_pgtbl)
+                    continue;
+                if (query_in_pgtbl(local_pgtbl, va, &pa, &pte) != 0)
+                    continue;
+                if (!pte || !(pte->pteval & PAGE_PRESENT))
+                    continue;
+                if (get_paddr_machine_id(pa) == MACHINE_ID_SHARED_MEMORY)
+                    kbitmap[idx / 8] |= (unsigned char)(1u << (idx % 8));
+            }
+        }
+    }
+    read_unlock(&vmspace->vmspace_lock);
+
+    if (copy_to_user((char *)ubitmap, (char *)kbitmap, nbytes) != 0)
+        ret = -EINVAL;
+
+    kfree(kbitmap);
+    kinfo("[snapshot_cxl_bitmap] examined %llu mapped pages of %llu requested\n",
+          mapped, npages);
+    return ret;
+}
+
 /* System call to print vmspace statistics for current thread's vmspace */
 int sys_print_vmspace_stats(void)
 {
@@ -1348,6 +1446,9 @@ void vmspace_deinit(void *ptr)
      * Only invoked when a process exits. No need to acquire the lock.
      */
     for_each_in_list_safe (vmr, tmp, list_node, &vmspace->vmr_list) {
+#ifdef DSM_ENABLED
+        dsm_cxl_unlink_vmr(vmr);
+#endif
 #ifdef RMAP_ENABLED
         pmo_remove_reverse_node(vmr->pmo, vmr);
 #endif

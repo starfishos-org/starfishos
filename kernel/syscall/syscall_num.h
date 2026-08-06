@@ -162,3 +162,6 @@
 /* Scheduling control */
 #define SYS_set_thread_budget    266
 #define SYS_ivshmem_msi_bench    267
+#define SYS_cxl_demote_batch     268
+#define SYS_get_cxl_reclaimed_pages 269
+#define SYS_snapshot_cxl_bitmap  270

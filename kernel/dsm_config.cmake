@@ -18,7 +18,7 @@ set(DSM_SHM_DEVICE "IVSHMEM")
 set(DSM_MALLOC_MODE "MIXED_DEFAULT_CXL")
 # "DEFAULT_DRAM": default to DRAM
 # "DEFAULT_CXL": default to CXL
-set(DSM_USER_MALLOC_MODE "DEFAULT_CXL")
+set(DSM_USER_MALLOC_MODE "DEFAULT_DRAM")
 
 set(DSM_THREADCTX_MODE "CXL")
 set(DSM_PGTABLE_MODE "CXL")
@@ -34,6 +34,14 @@ set(USE_DEV_AS_DRAM "ON")
 # If "ON", CXL memory pool uses lock-free buddy allocator;
 # if "OFF", use original lock-based buddy allocator.
 set(DSM_CXL_LF_BUDDY "OFF")
+
+# CXL page demotion policy. When projected CXL occupancy reaches the high
+# watermark, migrated user pages are returned to their original DRAM pages in
+# FIFO order. Reclaim stays active until occupancy reaches the low watermark.
+set(DSM_CXL_DEMOTE_LIMIT_MB "1024")
+set(DSM_CXL_DEMOTE_HIGH_WATERMARK "90")
+set(DSM_CXL_DEMOTE_LOW_WATERMARK "85")
+set(DSM_CXL_DEMOTE_BATCH_PAGES "64")
 
 # If "ON", enable per-slab in-flight undo log for crash recovery.
 # Adds FLUSH/FENCE overhead on slab alloc/free hot path.

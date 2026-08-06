@@ -54,14 +54,6 @@ extern void handle_wait_in_kernel(u32 cpuid);
 extern void handle_reset_sched(u32 cpuid);
 extern void stop_and_resched(u32 cpuid);
 
-/* Structure for batch TLB flush operations (same as in syscall.c) */
-struct tlb_flush_batch_op {
-    u64 fault_va;
-    u64 len;
-    u64 pcid;
-    u64 vmspace_ptr;
-};
-
 /* Handle batch TLB flush IPI */
 void handle_ipi_on_tlb_shootdown_batch(void)
 {
@@ -69,7 +61,6 @@ void handle_ipi_on_tlb_shootdown_batch(void)
     u64 ops_buf_ptr;
     u64 ops_count;
     struct tlb_flush_batch_op *ops;
-    int i;
 
     /* Get arguments: ops_buf pointer and ops_count */
     ops_buf_ptr = get_ipi_tx_arg(0);
@@ -83,11 +74,7 @@ void handle_ipi_on_tlb_shootdown_batch(void)
     /* ops_buf_ptr is a kernel address pointing to the operations array */
     ops = (struct tlb_flush_batch_op *)ops_buf_ptr;
 
-    /* Flush TLB for each operation */
-    for (i = 0; i < ops_count; i++) {
-        struct tlb_flush_batch_op *op = &ops[i];
-        flush_local_tlb_opt((vaddr_t)op->fault_va, op->len / PAGE_SIZE, op->pcid);
-    }
+    flush_tlb_batch_local(ops, ops_count);
 }
 
 void arch_handle_ipi(u32 ipi_vector)

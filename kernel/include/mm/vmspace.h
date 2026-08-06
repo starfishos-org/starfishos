@@ -66,6 +66,11 @@ struct reverse_node {
 
 struct vmregion {
     struct list_head list_node; /* As one node of the vmr_list */
+#ifdef DSM_ENABLED
+    /* Tracks every VMR that may map a CXL-resident PMO page. */
+    struct list_head cxl_pmo_node;
+    bool cxl_pmo_linked;
+#endif
     struct rb_node tree_node; /* As one node of the vmr_tree */
 
     /* virtual vmr this vmregion belong to */
@@ -235,6 +240,11 @@ struct pmobject {
     struct list_head reverse_list;
     struct lock reverse_list_lock;
 #endif /* RMAP_ENABLED */
+#ifdef DSM_ENABLED
+    struct list_head cxl_mapping_list;
+    struct lock cxl_mapping_lock;
+    volatile u32 cxl_mapping_init_state;
+#endif
 };
 
 /* explore for ckpt/restore */

@@ -8,6 +8,7 @@
 #include <mm/nvm.h>
 #include <drivers/cxl.h>
 #include <dsm/dsm-single.h>
+#include <dsm/cxl_reclaim.h>
 
 extern void parse_mem_map(void *);
 
@@ -367,6 +368,8 @@ void ext_mm_init()
                                     free_mem_end);
 #endif
     }
+
+    dsm_cxl_reclaim_init();
 
     init_cxl_slab();
 

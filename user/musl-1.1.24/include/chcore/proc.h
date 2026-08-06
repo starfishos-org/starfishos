@@ -68,6 +68,8 @@ struct launch_process_args {
 #define FSM_BADGE            (2)
 #define LWIP_BADGE           (3)
 #define TMPFS_BADGE          (4)
+#define CXLFS_BADGE          (5)
+#define POLLING_BADGE        (6)
 
 /**
  * Fixed pcid for root process and servers,

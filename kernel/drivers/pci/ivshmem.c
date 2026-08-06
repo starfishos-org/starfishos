@@ -18,6 +18,7 @@
 #include <object/thread.h>
 #include <object/memory.h>
 #include <dsm/dsm-single.h>
+#include <dsm/cxl_reclaim.h>
 #include <irq/irq.h>
 #include <irq/timer.h>
 #include <arch/mm/tlb.h>
@@ -975,6 +976,64 @@ static int ivshmem_handle_memcpy_and_flush_tlb_msg(mid_t my_id, mid_t sender_id)
     return 0;
 }
 
+static int ivshmem_handle_cxl_demote_batch_msg(mid_t my_id, mid_t sender_id,
+                                               u64 expected_rpc_id)
+{
+    struct cxl_demote_batch_op ops[CXL_DEMOTE_MAX_BATCH];
+    u32 phase, count, i;
+    u64 rpc_id;
+    int ret;
+
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    if (dsm_meta->msi_test_msg[my_id].msg_from != sender_id
+        || dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id
+                   != expected_rpc_id) {
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        return -EAGAIN;
+    }
+    phase = dsm_meta->msi_test_msg[my_id].cxl_batch_phase;
+    count = dsm_meta->msi_test_msg[my_id].cxl_batch_count;
+    rpc_id = dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id;
+    if (count == 0 || count > CXL_DEMOTE_MAX_BATCH) {
+        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        ret = -EINVAL;
+        goto reply;
+    }
+    for (i = 0; i < count; i++) {
+        ops[i].src_pa =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].src_pa;
+        ops[i].dst_pa =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].dst_pa;
+        ops[i].fault_va =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].fault_va;
+        ops[i].vmspace_ptr =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].vmspace_ptr;
+        ops[i].txn_id =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].txn_id;
+    }
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+
+    ret = dsm_cxl_handle_batch(ops, count, phase);
+
+reply:
+    lock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+    dsm_meta->msi_test_msg[sender_id].cxl_batch_result = ret;
+    dsm_meta->msi_test_msg[sender_id].reply_received = 1;
+    dsm_meta->msi_test_msg[sender_id].reply_from = my_id;
+    dsm_meta->msi_test_msg[sender_id].cxl_batch_reply_rpc_id = rpc_id;
+    unlock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
+
+    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    if (dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id == rpc_id
+        && dsm_meta->msi_test_msg[my_id].msg_from == sender_id) {
+        dsm_meta->msi_test_msg[my_id].reply_received = 1;
+        dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF;
+        dsm_meta->msi_test_msg[my_id].msg_type = 0;
+    }
+    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    return ret;
+}
+
 /**
  * ivshmem_handle_test_msg - Handle test message
  * 
@@ -1086,6 +1145,8 @@ void ivshmem_process_msi_messages(void)
         u32 msg_from = dsm_meta->msi_test_msg[my_id].msg_from;
         u32 msg_type = dsm_meta->msi_test_msg[my_id].msg_type;
         u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
+        u64 cxl_rpc_id =
+                dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id;
         unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         
         /* Check if there's a message for us from machine i */
@@ -1106,6 +1167,11 @@ void ivshmem_process_msi_messages(void)
                 
             case MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB:
                 handled = ivshmem_handle_memcpy_and_flush_tlb_msg(my_id, i);
+                break;
+
+            case MSI_MSG_TYPE_CXL_DEMOTE_BATCH:
+                handled = ivshmem_handle_cxl_demote_batch_msg(
+                        my_id, i, cxl_rpc_id);
                 break;
                 
             default:
