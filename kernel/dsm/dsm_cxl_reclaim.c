@@ -48,6 +48,11 @@
 #define DSM_CXL_RESERVE_TIMEOUT_NS 200000000ULL /* 200 ms */
 #endif
 
+/* Minimum spacing between heartbeat lines inside one demotion pass. */
+#ifndef DSM_CXL_DEMOTE_REPORT_NS
+#define DSM_CXL_DEMOTE_REPORT_NS 2000000000ULL /* 2 s */
+#endif
+
 struct cxl_saved_mapping {
     pte_t *pte;
     u64 old_pteval;
@@ -77,9 +82,35 @@ struct cxl_demote_candidate {
     struct cxl_saved_mapping mappings[CXL_DEMOTE_MAX_MAPPINGS_PER_PAGE];
 };
 
+/*
+ * Per-pass demotion counters.  Demotion is a distributed operation that can
+ * legitimately take seconds, so a pass that only reports its total at the end
+ * is indistinguishable from one that is stuck -- which is exactly how the
+ * non-terminating pass fixed in this file managed to hang the cluster without
+ * leaving a single line in the logs.  These counters back both a heartbeat
+ * during a pass and a breakdown at the end of it.
+ */
+struct cxl_demote_pass_stats {
+    u64 batches;
+    u64 empty_selects;
+    u64 selected;
+    u64 prepared;
+    u64 demoted;
+    u64 defer_no_alias;
+    u64 defer_busy;
+    u64 defer_too_many_aliases;
+    u64 flush_failures;
+    u64 copy_failures;
+    u64 pending_freed;
+    u64 start_ns;
+    u64 last_report_ns;
+};
+
 static struct cxl_demote_candidate candidates[CXL_DEMOTE_MAX_BATCH];
 /* Re-entrancy guard, per CPU of this machine (see dsm_cxl_reclaim_if_needed). */
 static bool cxl_reclaim_on_cpu[PLAT_CPU_NUM];
+/* Reservations this machine gave up on; see dsm_cxl_reserve_resident_pages. */
+static u64 reserve_timeouts;
 static struct lock abandoned_polling_lock;
 static struct dq_node *abandoned_polling_nodes[
         CXL_MAX_ABANDONED_POLLING_NODES];
@@ -372,8 +403,28 @@ int dsm_cxl_reserve_resident_pages(u64 pages)
          * headroom.  Give up only once the bounded deadline expires.
          */
         dsm_cxl_reclaim_if_needed(pages, true);
-        if (plat_get_mono_time() >= deadline)
+        if (plat_get_mono_time() >= deadline) {
+            u64 failures = __atomic_add_fetch(&reserve_timeouts, 1,
+                                              __ATOMIC_RELAXED);
+
+            /*
+             * Every one of these sends a page fault back to user space to be
+             * retried, so a rising count is the signal that the hard cap --
+             * not the kernel -- is what the workload is waiting on.  Report
+             * on a geometric schedule so a thrashing cluster stays readable.
+             */
+            if ((failures & (failures - 1)) == 0)
+                kwarn("[CXL_RECLAIM] reservation timed out %lu times; "
+                      "resident=%lu limit=%lu usage=%lu%% (workload needs "
+                      "more CXL than the demote limit allows)\n",
+                      failures,
+                      dsm_meta->cxl_reclaim.resident_pages,
+                      dsm_meta->cxl_reclaim.limit_pages,
+                      cxl_usage_percent(
+                              dsm_meta->cxl_reclaim.resident_pages,
+                              dsm_meta->cxl_reclaim.limit_pages));
             return -EAGAIN;
+        }
     }
 }
 
@@ -1470,20 +1521,37 @@ static void defer_candidate(struct cxl_demote_candidate *candidate)
     release_candidate_pmo(candidate);
 }
 
-static int demote_one_batch(u32 limit, u32 *examined)
+static int demote_one_batch(u32 limit, u32 *examined,
+                            struct cxl_demote_pass_stats *stats)
 {
     u32 count, i, prepared_count = 0;
     int ret;
 
     *examined = 0;
+    stats->batches++;
     count = select_candidates(limit);
-    if (count == 0)
+    if (count == 0) {
+        stats->empty_selects++;
         return 0;
+    }
     *examined = count;
+    stats->selected += count;
 
     for (i = 0; i < count; i++) {
         ret = prepare_candidate(&candidates[i]);
         if (ret) {
+            /*
+             * Keep the reasons apart.  They mean very different things: a
+             * page with no mapping left is simply stale FIFO state, a busy
+             * PTE is a live race with a faulting thread, and an alias
+             * overflow means the page can never be reclaimed at all.
+             */
+            if (ret == -ENOENT)
+                stats->defer_no_alias++;
+            else if (ret == -E2BIG)
+                stats->defer_too_many_aliases++;
+            else
+                stats->defer_busy++;
             defer_candidate(&candidates[i]);
             continue;
         }
@@ -1492,23 +1560,27 @@ static int demote_one_batch(u32 limit, u32 *examined)
         prepared_count++;
     }
     count = prepared_count;
+    stats->prepared += count;
     if (count == 0)
         return -EAGAIN;
 
     ret = flush_candidates(candidates, count);
     if (ret) {
+        stats->flush_failures++;
         restore_candidates(candidates, count);
         return ret;
     }
     mark_candidates_flushed(candidates, count);
     ret = copy_candidates(candidates, count);
     if (ret) {
+        stats->copy_failures++;
         restore_candidates(candidates, count);
         return ret;
     }
 
     for (i = 0; i < count; i++)
         finish_candidate(&candidates[i]);
+    stats->demoted += count;
     return count;
 }
 
@@ -1516,13 +1588,16 @@ static int cxl_reclaim_run(u64 requested_pages, bool force)
 {
     u64 resident, limit, low_target, deadline, scanned, scan_limit;
     u64 pass_target, pass_reclaimed;
+    struct cxl_demote_pass_stats stats;
     bool reclaim_to_low = false;
     bool target_initialized = false;
     u32 examined;
     int reclaimed;
     int ret;
 
+    memset(&stats, 0, sizeof(stats));
     reclaimed = retry_pending_frees(DSM_CXL_DEMOTE_BATCH_PAGES);
+    stats.pending_freed = (u64)(reclaimed > 0 ? reclaimed : 0);
 
 retry:
     lock(&dsm_meta->cxl_reclaim.lock);
@@ -1608,11 +1683,51 @@ retry:
         pass_target = 1;
     unlock(&dsm_meta->cxl_reclaim.lock);
 
+    stats.start_ns = plat_get_mono_time();
+    stats.last_report_ns = stats.start_ns;
+    kinfo("[CXL_RECLAIM] pass start cpu=%d resident=%lu limit=%lu usage=%lu%% "
+          "target=%lu force=%d pending_freed=%lu\n",
+          smp_get_cpu_id(),
+          resident,
+          limit,
+          cxl_usage_percent(resident, limit),
+          pass_target,
+          force,
+          stats.pending_freed);
+
     pass_reclaimed = 0;
     scanned = 0;
     scan_limit = resident;
     do {
-        ret = demote_one_batch(DSM_CXL_DEMOTE_BATCH_PAGES, &examined);
+        u64 now;
+
+        ret = demote_one_batch(DSM_CXL_DEMOTE_BATCH_PAGES, &examined, &stats);
+
+        /*
+         * Heartbeat.  A pass legitimately runs for seconds; without this an
+         * operator cannot tell a slow distributed demotion from a wedged one,
+         * and that ambiguity is what made the original stall so hard to see.
+         */
+        now = plat_get_mono_time();
+        if (now - stats.last_report_ns >= DSM_CXL_DEMOTE_REPORT_NS) {
+            stats.last_report_ns = now;
+            kinfo("[CXL_RECLAIM] pass progress cpu=%d elapsed=%lums "
+                  "demoted=%lu/%lu batches=%lu prepared=%lu "
+                  "defer(no_alias=%lu busy=%lu aliases=%lu) "
+                  "fail(flush=%lu copy=%lu) resident=%lu\n",
+                  smp_get_cpu_id(),
+                  (now - stats.start_ns) / 1000000,
+                  pass_reclaimed,
+                  pass_target,
+                  stats.batches,
+                  stats.prepared,
+                  stats.defer_no_alias,
+                  stats.defer_busy,
+                  stats.defer_too_many_aliases,
+                  stats.flush_failures,
+                  stats.copy_failures,
+                  resident);
+        }
         if (ret == -EAGAIN) {
             /*
              * A busy/migrating alias only makes this batch temporarily
@@ -1649,14 +1764,26 @@ retry:
     resident = dsm_meta->cxl_reclaim.resident_pages;
     unlock(&dsm_meta->cxl_reclaim.lock);
 
-    if (reclaimed)
-        kinfo("[CXL_RECLAIM] reclaimed=%d pass=%lu target=%lu usage=%lu%% "
-              "force=%d\n",
-              reclaimed,
-              pass_reclaimed,
-              pass_target,
-              cxl_usage_percent(resident, limit),
-              force);
+    kinfo("[CXL_RECLAIM] pass done cpu=%d reclaimed=%d pass=%lu target=%lu "
+          "usage=%lu%% force=%d elapsed=%lums batches=%lu selected=%lu "
+          "prepared=%lu defer(no_alias=%lu busy=%lu aliases=%lu) "
+          "fail(flush=%lu copy=%lu) empty_selects=%lu\n",
+          smp_get_cpu_id(),
+          reclaimed,
+          pass_reclaimed,
+          pass_target,
+          cxl_usage_percent(resident, limit),
+          force,
+          (plat_get_mono_time() - stats.start_ns) / 1000000,
+          stats.batches,
+          stats.selected,
+          stats.prepared,
+          stats.defer_no_alias,
+          stats.defer_busy,
+          stats.defer_too_many_aliases,
+          stats.flush_failures,
+          stats.copy_failures,
+          stats.empty_selects);
     return reclaimed;
 }
 
