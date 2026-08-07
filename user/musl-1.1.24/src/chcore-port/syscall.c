@@ -286,6 +286,22 @@ int usys_memcpy_and_flush_tlb_batch(void *ops_buf, u64 ops_count)
 	return chcore_syscall2(CHCORE_SYS_memcpy_and_flush_tlb_batch, (u64)ops_buf, ops_count);
 }
 
+int usys_cxl_demote_batch(void *ops_buf, u64 ops_count, u64 phase)
+{
+	return chcore_syscall3(CHCORE_SYS_cxl_demote_batch,
+	                      (u64)ops_buf, ops_count, phase);
+}
+
+u64 usys_get_cxl_reclaimed_pages(void)
+{
+	return chcore_syscall0(CHCORE_SYS_get_cxl_reclaimed_pages);
+}
+
+int usys_cxl_reclaim_step(u64 max_pages)
+{
+	return chcore_syscall1(CHCORE_SYS_cxl_reclaim_step, max_pages);
+}
+
 u64 usys_get_current_tick(void)
 {
 	return chcore_syscall0(CHCORE_SYS_get_current_tick);
@@ -453,6 +469,12 @@ int usys_mmap_shm(u32 shm_id, void *addr)
 int usys_print_vmspace_stats(void)
 {
 	return chcore_syscall0(CHCORE_SYS_print_vmspace_stats);
+}
+
+int usys_snapshot_cxl_bitmap(u64 base, u64 npages, void *bitmap)
+{
+	return chcore_syscall3(CHCORE_SYS_snapshot_cxl_bitmap, base, npages,
+			       (u64)bitmap);
 }
 
 int usys_set_thread_budget(u32 budget)

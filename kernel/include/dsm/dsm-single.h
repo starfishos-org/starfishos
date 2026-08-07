@@ -136,6 +136,7 @@ enum msi_msg_type {
     MSI_MSG_TYPE_TLB_FLUSH = 0,  /* TLB flush request */
     MSI_MSG_TYPE_TEST = 1,        /* Test message */
     MSI_MSG_TYPE_MEMCPY_AND_FLUSH_TLB = 2,  /* Memcpy and flush TLB request */
+    MSI_MSG_TYPE_CXL_DEMOTE_BATCH = 3,
     MSI_MSG_TYPE_MAX
 };
 
@@ -216,6 +217,35 @@ typedef struct {
         char pad[56];
     } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM];
 
+    /* Global FIFO and accounting for DRAM-backed pages resident in CXL. */
+    struct {
+        struct lock lock;
+        struct list_head fifo;
+        volatile u64 total_pages;
+        volatile u64 limit_pages;
+        volatile u64 allocated_pages;
+        volatile u64 reserved_pages;
+        volatile u64 resident_pages;
+        volatile u64 resident_reserved_pages;
+        volatile u64 reclaimed_pages;
+        /*
+         * Number of FIFO entries currently in CXL_RECLAIM_FREE_PENDING.
+         * retry_pending_frees() has to walk the FIFO under the cluster-wide
+         * lock above, so it must not walk it at all while this is zero.
+         */
+        volatile u64 free_pending_pages;
+        u64 next_sequence;
+        volatile u64 next_rpc_id;
+        /*
+         * Pages requested by faults which are waiting at the hard limit.
+         * Faulting threads publish and withdraw their own demand; the
+         * background worker only consumes this as a wake-up condition.
+         */
+        volatile u64 pending_reclaim_pages;
+        u32 reclaiming;
+        u32 initialized;
+    } cxl_reclaim;
+
     /**
      * 4d. Per-machine deferred remote-free stacks for local DRAM pages.
      * A cross-machine process's anonymous PMO is backed by whichever
@@ -256,6 +286,7 @@ typedef struct {
      * MSI message area for inter-machine communication
      * Each machine has a message slot and reply slot
      */
+    struct lock msi_rpc_lock;
     struct {
         struct lock msg_lock;       /* Lock protecting this message slot */
         volatile u32 msg_from;      /* Source machine ID */
@@ -273,6 +304,19 @@ typedef struct {
         volatile u64 memcpy_len;     /* Length for memcpy */
         volatile u64 memcpy_fault_va; /* Fault virtual address (for TLB flush) */
         volatile u64 memcpy_vmspace;  /* vmspace pointer (for TLB flush) */
+        /* For MSI_MSG_TYPE_CXL_DEMOTE_BATCH: */
+        volatile u32 cxl_batch_phase;
+        volatile u32 cxl_batch_count;
+        volatile s32 cxl_batch_result;
+        volatile u64 cxl_batch_rpc_id;
+        volatile u64 cxl_batch_reply_rpc_id;
+        struct {
+            volatile u64 src_pa;
+            volatile u64 dst_pa;
+            volatile u64 fault_va;
+            volatile u64 vmspace_ptr;
+            volatile u64 txn_id;
+        } cxl_batch_ops[CXL_DEMOTE_WIRE_MAX_OPS];
     } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
 
     /* One-way ivshmem MSI delivery benchmark.  The sender publishes a request

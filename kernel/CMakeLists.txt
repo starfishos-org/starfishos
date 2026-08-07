@@ -58,8 +58,8 @@ target_compile_definitions(${kernel_target}
                            PRIVATE $<$<CONFIG:Release>:LOG_LEVEL=1>)
 
 # Enable vmspace statistics printing (used by sys_print_vmspace_stats)
-# target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)
-# target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)
+target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS)
+target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAILS)
 
 # Cumulative per-machine DSM page-fault accounting: how many pages a placement
 # configuration actually migrated, rather than how expensive one migration is
@@ -80,7 +80,7 @@ target_compile_definitions(${kernel_target}
 # Settled 2026-08-03: read-ahead is NOT what broke 8-machine PCA.  Building with
 # PGFAULT_READAHEAD_MAX=1 reproduced the crash identically (first PCA in a boot
 # passes, every later one dies), so this stays at the in-source default.
-# target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=32)
+target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=4)
 
 # Include directories
 target_include_directories(${kernel_target} PRIVATE include)
@@ -142,6 +142,15 @@ if(CHCORE_SSI)
   if("${DSM_CXL_LF_BUDDY}" STREQUAL "ON")
     target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_LF_BUDDY)
   endif()
+  if("${DSM_CXL_DEMOTE}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_DEMOTE_ENABLED)
+    if(DSM_CXL_DEMOTE_LIMIT_MB LESS_EQUAL 0)
+      message(FATAL_ERROR "DSM_CXL_DEMOTE_LIMIT_MB must be positive")
+    endif()
+  endif()
+  target_compile_definitions(
+      ${kernel_target} PRIVATE
+      DSM_CXL_DEMOTE_LIMIT_MB=${DSM_CXL_DEMOTE_LIMIT_MB})
   if("${SLAB_CRASH_RECOVERY}" STREQUAL "ON")
     target_compile_definitions(${kernel_target} PRIVATE SLAB_CRASH_RECOVERY)
   endif()

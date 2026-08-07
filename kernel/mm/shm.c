@@ -6,9 +6,11 @@
 #include <object/memory.h>
 #include <dsm/dsm-single.h>
 #include <common/lock.h>
+#include <common/errno.h>
 #include <arch/sync.h>
 #include <common/mem_sync.h>
 #include <drivers/ivshmem.h>
+#include <irq/timer.h>
 
 extern int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr, mem_t mm_type, mem_t object_mem_type);
@@ -223,6 +225,23 @@ struct dq_node *dq_alloc_node(struct polling_shm_region *shm)
     }
 }
 
+struct dq_node *dq_alloc_node_timeout(struct polling_shm_region *shm,
+                                      u64 timeout_ns)
+{
+    u64 deadline = plat_get_mono_time() + timeout_ns;
+
+    while (plat_get_mono_time() < deadline) {
+        struct dq_node *node = alloc_node_try(shm);
+
+        if (node != NULL)
+            return node;
+        extern void handle_ipi(void);
+        handle_ipi();
+        CPU_PAUSE();
+    }
+    return NULL;
+}
+
 /*
  * Lock-free enqueue (kernel side).
  */
@@ -286,6 +305,20 @@ void dq_mark_consumed(struct dq_node *node)
 {
     atomic_store_32(&node->status, DQ_CONSUMED);
     FLUSH(&node->status);
+}
+
+int dq_wait_for_done_timeout(struct dq_node *node, u64 timeout_ns)
+{
+    u64 deadline = plat_get_mono_time() + timeout_ns;
+    extern void handle_ipi(void);
+
+    while (atomic_load_32(&node->status) != DQ_DONE) {
+        if (plat_get_mono_time() >= deadline)
+            return -ETIMEDOUT;
+        handle_ipi();
+        CPU_PAUSE();
+    }
+    return 0;
 }
 
 /* ================================================================

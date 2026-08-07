@@ -5,9 +5,9 @@
 #include <mm/kmalloc.h>
 #include <mm/mm.h>
 #include <mm/nvm.h>
-#include <mm/remote_free.h>
 #include <common/kprint.h>
 #include <common/debug.h>
+#include <common/util.h>
 #include <object/memory.h>
 #include <object/thread.h>
 #include <object/cap_group.h>
@@ -28,6 +28,11 @@
 #include <mm/page_table_func.h>
 #include <mm/vmspace.h>
 #include <arch/mm/page_table.h>
+#include <arch/mm/tlb.h>
+#ifdef DSM_ENABLED
+#include <dsm/dsm-single.h>
+#include <dsm/cxl_reclaim.h>
+#endif
 #ifdef CHCORE_KERNEL_VIRT
 #include <virt/virt_cmd_dispatcher.h>
 #endif /* CHCORE_KERNEL_VIRT */
@@ -418,6 +423,8 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         lock(&vmspace->pgtbl_lock);
         int ret = map_page_in_pgtbl(pgtbl, (vaddr_t)fault_va, (paddr_t)dst_pa,
                                     vmr->perm, &pte);
+        if (ret == 0)
+            cxlprof_live_mark_cxl(vmspace, (vaddr_t)fault_va);
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
         if (ret != 0) {
@@ -428,13 +435,9 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         if (is_radix_pmo(pmo))
             commit_page_to_pmo(pmo, index, (paddr_t)dst_pa);
         /*
-         * src_pa is deliberately not released here, unlike the path below.
-         * That one is serialized by the migration entry it installs: a local
-         * fault on this VA sees it and waits.  Here there is no PTE and no
-         * migration entry, and the lock is dropped around the memcpy, so a
-         * local fault can read src_pa out of the PMO and map it in that
-         * window — freeing it would hand the fault a dangling page.  The
-         * page leaks until the PMO is destroyed.
+         * Preserve src_pa as the CXL page's origin DRAM target.  The reclaim
+         * tracker records it after this request returns and releases it when
+         * the CXL page is destroyed if it is not migrated back first.
          */
         return 0;
     }
@@ -471,10 +474,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     t_stage3 = t_stage3_end - t_stage3_start;
 #endif
 
-    /*
-     * src_pa is released in stage 4, once the PMO no longer points at it.
-     * Freeing it here would race with the remap below.
-     */
+    /* src_pa remains reserved as the CXL page's DRAM reclaim target. */
 
     /* Stage 4: Remap to dst_pa (must re-acquire lock and re-query pte) */
 #ifdef TLB_FLUSH_LATENCY_DEBUG
@@ -499,6 +499,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     BUG_ON(!is_migration_entry(pte));
     remap_page_in_pgtbl(pte, dst_pa);  /* Set pfn to dst_pa */
     pte->pte_4K.present = 1;  /* Set present bit to make PTE valid again */
+    cxlprof_live_mark_cxl(vmspace, (vaddr_t)fault_va);
     // multipt_debug("cpu %d remap page(paddr=%p), fault_va=0x%lx\n", smp_get_cpu_id(), dst_pa, fault_va);
     unlock(&vmspace->pgtbl_lock);
 
@@ -512,36 +513,11 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         if (is_radix_pmo(pmo)) {
             commit_page_to_pmo(pmo, index, dst_pa);
             /*
-             * The page has moved to CXL: the radix entry that owned src_pa
-             * has just been replaced and the PTE above no longer points
-             * there, so nothing refers to it any more.  Nothing on another
-             * machine can either — a machine never maps another machine's
-             * DRAM directly, it migrates the page first, which is what
-             * brought us here.
-             *
-             * Freeing it is only safe because no second PMO can be pointing
-             * at it.  pmo_clone() of a PMO_ANONYM shares the radix leaves
-             * outright (radix_deep_copy with phy_alloc=0) and, unlike the
-             * PMO_SHM case, does not call page_refcnt_add, so a forked pair
-             * would both hold src_pa with ref_cnt still 1 and this free would
-             * pull the page out from under the other process.  That cannot
-             * happen here: CHCORE_FORK_ENABLED is never defined in a DSM
-             * build (pgfault_handler.c #errors on fork + MULTI_PAGETABLE),
-             * so anonymous pages have exactly one owner.  The guard below
-             * makes enabling fork a build failure rather than a silent
-             * use-after-free.
-             *
-             * Migration always runs on the machine that owns src_pa, so this
-             * is normally a plain local free.
-             *
-             * Only the radix case can do this: a continuous PMO keeps its
-             * own copy of the address in dram_cache, which is not updated
-             * here.
+             * Keep src_pa allocated after replacing the radix entry.  The CXL
+             * reclaim tracker records it as the page's origin DRAM target and
+             * either copies the page back into it or releases it when the CXL
+             * page is destroyed.
              */
-#ifdef CHCORE_FORK_ENABLED
-#error "Migration frees src_pa; PMO_ANONYM clone must refcount pages first"
-#endif
-            free_machine_page((paddr_t)src_pa);
         }
     }
 
@@ -602,22 +578,6 @@ struct memcpy_flush_tlb_op {
     u64 len;
     u64 fault_va;
     u64 vmspace_ptr;
-};
-
-/* Structure for batch TLB flush operations */
-struct tlb_flush_batch_op {
-    u64 fault_va;
-    u64 len;
-    u64 pcid;
-    u64 vmspace_ptr;
-};
-
-/* Helper structure to track vmspace flush ranges */
-struct vmspace_flush_range {
-    struct vmspace *vmspace;
-    vaddr_t min_va;
-    vaddr_t max_va;
-    size_t total_len;
 };
 
 /*
@@ -731,7 +691,6 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     
     /* Phase 2: Flush TLB using batch IPI for all operations */
     /* Prepare batch TLB flush operations */
-    extern void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count);
     tlb_ops = kmalloc(sizeof(struct tlb_flush_batch_op) * ops_count, __MT_DEFAULT__);
     if (!tlb_ops) {
         kwarn("[SYS] Failed to allocate memory for batch TLB flush operations\n");
@@ -805,6 +764,7 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
         BUG_ON(!is_migration_entry(pte));
         remap_page_in_pgtbl(pte, op->dst_pa);
         pte->pte_4K.present = 1;
+        cxlprof_live_mark_cxl(vmspace, (vaddr_t)op->fault_va);
         kdebug("cpu %d batch remap[%d] page(paddr=%p), fault_va=0x%lx\n",
                smp_get_cpu_id(), i, op->dst_pa, op->fault_va);
         
@@ -816,9 +776,7 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
             
             if (is_radix_pmo(pmo)) {
                 commit_page_to_pmo(pmo, index, op->dst_pa);
-                /* See sys_memcpy_and_flush_tlb: the PMO no longer holds
-                 * src_pa, so drop the reference it had on it. */
-                free_machine_page((paddr_t)op->src_pa);
+                /* Preserve src_pa as the CXL page's origin DRAM target. */
             }
         }
         
@@ -833,7 +791,6 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     flush_tlbs_batch_on_all_cpus(tlb_ops, ops_count);
     kfree(tlb_ops);
     tlb_ops = NULL; /* the out path frees it again otherwise */
-
     kdebug("batch memcpy and flush tlb done: %lu operations\n", ops_count);
 
 out:
@@ -842,6 +799,75 @@ out:
     }
     kfree(kernel_ops);
     return ret;
+}
+
+int sys_cxl_demote_batch(u64 ops_buf, u64 ops_count, u64 phase)
+{
+#ifdef DSM_ENABLED
+    struct cxl_demote_batch_op ops[CXL_DEMOTE_MAX_BATCH];
+    u64 badge;
+    const char *caller;
+    size_t ops_size;
+
+    if (!current_thread || !current_cap_group)
+        return -EPERM;
+    badge = current_cap_group->badge;
+    caller = current_cap_group->cap_group_name;
+    if (!((badge == POLLING_BADGE
+           && (strcmp(caller, "/polling.srv") == 0
+               || strcmp(caller, "polling") == 0))
+          || (badge == TMPFS_BADGE
+              && (strcmp(caller, "/tmpfs.srv") == 0
+                  || strcmp(caller, "tmpfs") == 0))
+          || (badge == CXLFS_BADGE
+              && (strcmp(caller, "/cxlfs.srv") == 0
+                  || strcmp(caller, "cxlfs") == 0))))
+        return -EPERM;
+
+    if (ops_count == 0 || ops_count > CXL_DEMOTE_MAX_BATCH)
+        return -EINVAL;
+
+    ops_size = sizeof(ops[0]) * ops_count;
+    if (copy_from_user((char *)ops, (char *)ops_buf, ops_size))
+        return -EFAULT;
+    return dsm_cxl_handle_batch(ops, ops_count, phase);
+#else
+    UNUSED(ops_buf);
+    UNUSED(ops_count);
+    UNUSED(phase);
+    return -EINVAL;
+#endif
+}
+
+u64 sys_get_cxl_reclaimed_pages(void)
+{
+#ifdef DSM_ENABLED
+    return dsm_cxl_reclaimed_pages();
+#else
+    return 0;
+#endif
+}
+
+int sys_cxl_reclaim_step(u64 max_pages)
+{
+#ifdef DSM_ENABLED
+    u64 badge;
+    const char *caller;
+
+    if (!current_thread || !current_cap_group)
+        return -EPERM;
+    badge = current_cap_group->badge;
+    caller = current_cap_group->cap_group_name;
+    if (badge != POLLING_BADGE
+        || (strcmp(caller, "/polling.srv") != 0
+            && strcmp(caller, "polling") != 0))
+        return -EPERM;
+
+    return dsm_cxl_reclaim_step(max_pages);
+#else
+    UNUSED(max_pages);
+    return -EINVAL;
+#endif
 }
 
 #ifdef IPC_PERF_ENABLED
@@ -903,6 +929,7 @@ void sys_ipi_test_kernel(int cpuid);
 extern void sys_set_dyn_args(u64 hotness, u64 access_interval);
 extern int sys_register_external_ringbuf(u64 buffer);
 extern int sys_print_vmspace_stats(void);
+extern int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap);
 
 const void *syscall_table[NR_SYSCALL] = {
         [0 ... NR_SYSCALL - 1] = sys_null_placeholder,
@@ -1059,7 +1086,11 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_mmap_shm] = sys_mmap_shm,
         [SYS_memcpy_and_flush_tlb] = sys_memcpy_and_flush_tlb,
         [SYS_memcpy_and_flush_tlb_batch] = sys_memcpy_and_flush_tlb_batch,
+        [SYS_cxl_demote_batch] = sys_cxl_demote_batch,
+        [SYS_get_cxl_reclaimed_pages] = sys_get_cxl_reclaimed_pages,
+        [SYS_cxl_reclaim_step] = sys_cxl_reclaim_step,
         [SYS_print_vmspace_stats] = sys_print_vmspace_stats,
+        [SYS_snapshot_cxl_bitmap] = sys_snapshot_cxl_bitmap,
 
         /* Scheduling control */
         [SYS_set_thread_budget] = sys_set_thread_budget,

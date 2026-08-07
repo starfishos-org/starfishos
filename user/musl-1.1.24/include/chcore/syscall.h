@@ -70,6 +70,9 @@ int usys_cache_flush(u64 start, u64 size, int op_type);
 int usys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
                               u64 vmspace);
 int usys_memcpy_and_flush_tlb_batch(void *ops_buf, u64 ops_count);
+int usys_cxl_demote_batch(void *ops_buf, u64 ops_count, u64 phase);
+u64 usys_get_cxl_reclaimed_pages(void);
+int usys_cxl_reclaim_step(u64 max_pages);
 u64 usys_get_current_tick(void);
 
 u64 usys_virt_dispatch(u64 syscall_no, u64 param1, u64 param2, u64 param3,
@@ -117,6 +120,7 @@ void usys_ipc_perf_end(void);
 
 int usys_mmap_shm(u32 shm_id, void *addr);
 int usys_print_vmspace_stats(void);
+int usys_snapshot_cxl_bitmap(u64 base, u64 npages, void *bitmap);
 int usys_set_thread_budget(u32 budget);
 
 /* FS batch IPC helper */

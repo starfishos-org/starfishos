@@ -230,13 +230,38 @@ void flush_tlb_local_and_remote(struct vmspace *vmspace, vaddr_t start_va,
 }
 
 
-/* Structure for batch TLB flush operations */
-struct tlb_flush_batch_op {
-    u64 fault_va;
-    u64 len;
-    u64 pcid;
-    u64 vmspace_ptr;
-};
+void flush_tlb_batch_local(struct tlb_flush_batch_op *ops, u64 ops_count)
+{
+    u64 i, j, same_pcid_count;
+
+    for (i = 0; i < ops_count; i++) {
+        for (j = 0; j < i; j++) {
+            if (ops[j].pcid == ops[i].pcid)
+                break;
+        }
+        if (j != i)
+            continue;
+
+        same_pcid_count = 0;
+        for (j = i; j < ops_count; j++) {
+            if (ops[j].pcid == ops[i].pcid)
+                same_pcid_count++;
+        }
+
+        if (same_pcid_count > TLB_SHOOTDOWN_THRESHOLD) {
+            flush_local_tlb_opt(0, (u64)-1, ops[i].pcid);
+            continue;
+        }
+
+        for (j = i; j < ops_count; j++) {
+            if (ops[j].pcid != ops[i].pcid)
+                continue;
+            flush_local_tlb_opt((vaddr_t)ops[j].fault_va,
+                                ROUND_UP(ops[j].len, PAGE_SIZE) / PAGE_SIZE,
+                                ops[j].pcid);
+        }
+    }
+}
 
 /*
  * Flush TLBs for batch operations on all CPUs using batch IPI.
@@ -275,12 +300,8 @@ void flush_tlbs_batch_on_all_cpus(struct tlb_flush_batch_op *ops, u64 ops_count)
         }
     }
 
-    /* Step 1.1: Flush local TLBs */
-    for (i = 0; i < ops_count; i++) {
-        struct tlb_flush_batch_op *op = &ops[i];
-        u64 page_cnt = op->len / PAGE_SIZE;
-        flush_local_tlb_opt((vaddr_t)op->fault_va, page_cnt, op->pcid);
-    }
+    /* Step 1.1: Flush local TLBs. */
+    flush_tlb_batch_local(ops, ops_count);
 
     /* Step 2: Wait for all IPIs to finish and unlock */
     if (target_count > 0) {
@@ -469,6 +490,8 @@ int flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
     if (!dsm_meta || machine_id >= CLUSTER_MACHINE_NUM || machine_id == my_id)
         return 0;
 
+    lock(&dsm_meta->msi_rpc_lock);
+
     /* Prepare message in target machine's slot (with lock protection) */
     lock(&dsm_meta->msi_test_msg[machine_id].msg_lock);
     dsm_meta->msi_test_msg[machine_id].msg_from = my_id;
@@ -529,12 +552,13 @@ int flush_tlb_on_remote_machine(struct vmspace *vmspace, mid_t machine_id,
     dsm_meta->msi_test_msg[my_id].reply_received = 0;
     dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
-
     if (iter >= max_wait_iters) {
         kwarn("[TLB] Timeout waiting for TLB flush reply from machine %d\n",
               machine_id);
+        unlock(&dsm_meta->msi_rpc_lock);
         return -ETIMEDOUT;
     }
+    unlock(&dsm_meta->msi_rpc_lock);
     return 0;
 }
 
@@ -588,6 +612,8 @@ static void memcpy_and_flush_tlb_on_remote_machine_msi(
 
     if (!dsm_meta || target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id)
         return;
+
+    lock(&dsm_meta->msi_rpc_lock);
 
     /* Prepare message in target machine's slot (with lock protection) */
     lock(&dsm_meta->msi_test_msg[target_mid].msg_lock);
@@ -653,6 +679,7 @@ static void memcpy_and_flush_tlb_on_remote_machine_msi(
     dsm_meta->msi_test_msg[my_id].reply_received = 0;
     dsm_meta->msi_test_msg[my_id].reply_from = 0xFFFFFFFF;
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    unlock(&dsm_meta->msi_rpc_lock);
 }
 
 /*

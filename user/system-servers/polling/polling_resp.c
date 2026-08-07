@@ -44,6 +44,9 @@ void handle_polling_request(struct dq_node *node)
     case POLLING_KERNEL_REQ_FLUSH_TLB_BATCH:
         handle_polling_kernel_flush_tlb_batch(node);
         break;
+    case POLLING_KERNEL_REQ_CXL_DEMOTE_BATCH:
+        handle_polling_kernel_cxl_demote_batch(node);
+        break;
     case POLLING_PRINT_DEBUG_INFO:
         handle_polling_print_debug_info(node);
         break;
@@ -173,6 +176,20 @@ reply:
     node->resp.flush_tlb.reply_result = ret;
     node->resp.flush_tlb.reply_from = my_id;
     node->resp.flush_tlb.reply_received = 1;
+}
+
+void handle_polling_kernel_cxl_demote_batch(struct dq_node *node)
+{
+    u32 count = node->req.cxl_demote.count;
+    u32 phase = node->req.cxl_demote.phase;
+
+    if (count == 0 || count > CXL_DEMOTE_WIRE_MAX_OPS) {
+        node->resp.cxl_demote.result = -1;
+        return;
+    }
+
+    node->resp.cxl_demote.result = usys_cxl_demote_batch(
+            node->req.cxl_demote.ops, count, phase);
 }
 
 /* Set to 1 to dump server-side timing data in polling_print_debug_info() */

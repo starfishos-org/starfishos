@@ -102,6 +102,24 @@ enum polling_request_type {
     POLLING_KERNEL_REQ_FLUSH_TLB,
     POLLING_PRINT_DEBUG_INFO,
     POLLING_KERNEL_REQ_FLUSH_TLB_BATCH,
+    POLLING_KERNEL_REQ_CXL_DEMOTE_BATCH,
+};
+
+#define CXL_DEMOTE_WIRE_MAX_OPS 64
+
+enum cxl_demote_wire_phase {
+    CXL_DEMOTE_WIRE_FLUSH = 0,
+    CXL_DEMOTE_WIRE_COPY,
+    CXL_DEMOTE_WIRE_FREE_ORIGIN,
+    CXL_DEMOTE_WIRE_BITMAP_DRAM,
+};
+
+struct polling_cxl_demote_op {
+    u64 src_pa;
+    u64 dst_pa;
+    u64 fault_va;
+    u64 vmspace_ptr;
+    u64 txn_id;
 };
 
 struct polling_fs_req_open {
@@ -135,6 +153,12 @@ struct polling_kernel_req_flush_tlb {
     u64 memcpy_len;
     u64 memcpy_fault_va;
     u64 memcpy_vmspace;
+};
+
+struct polling_kernel_req_cxl_demote_batch {
+    u32 phase;
+    u32 count;
+    struct polling_cxl_demote_op ops[CXL_DEMOTE_WIRE_MAX_OPS];
 };
 
 struct memcpy_flush_tlb_op {
@@ -180,6 +204,7 @@ struct polling_request {
         struct polling_kernel_req_flush_tlb flush_tlb;
         struct polling_req_print_debug_info print_debug_info;
         struct polling_kernel_req_flush_tlb_batch flush_tlb_batch;
+        struct polling_kernel_req_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 
@@ -208,6 +233,10 @@ struct polling_kernel_resp_flush_tlb {
     s32 reply_result;
 };
 
+struct polling_kernel_resp_cxl_demote_batch {
+    s32 result;
+};
+
 struct polling_resp_print_debug_info {};
 
 struct polling_response {
@@ -219,6 +248,7 @@ struct polling_response {
         struct polling_resp_empty empty;
         struct polling_kernel_resp_flush_tlb flush_tlb;
         struct polling_resp_print_debug_info print_debug_info;
+        struct polling_kernel_resp_cxl_demote_batch cxl_demote;
     } __attribute__((aligned(8)));
 };
 
@@ -283,9 +313,10 @@ static_assert(DQ_MAX_NODES >= 2,
               "SHM too small: need at least 2 nodes (1 sentinel + 1 data)");
 
 /*
- * Must match the kernel-side assert in kernel/include/mm/shm.h: a batch
- * request that outgrows polling_fs_req_write would enlarge dq_node, change
- * DQ_MAX_NODES, and desynchronize the shared node pool between the two sides.
+ * Must match the kernel-side assert in kernel/include/mm/shm.h.  This older
+ * TLB request is deliberately kept inside polling_fs_req_write; the CXL
+ * demote request is larger and both mirrors intentionally account for it in
+ * DQ_NODE_SIZE.
  */
 static_assert(sizeof(struct polling_kernel_req_flush_tlb_batch)
                       <= sizeof(struct polling_fs_req_write),

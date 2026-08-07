@@ -62,6 +62,19 @@ struct page {
     struct lock lock;
     /* Reference count for ChCore fork */
     int ref_cnt;
+#ifdef DSM_ENABLED
+    /* Residency metadata for pages promoted from DRAM into shared CXL. */
+    struct list_head cxl_reclaim_node;
+    u64 cxl_origin_pa;
+    u64 cxl_pmo;
+    u64 cxl_pmo_index;
+    u64 cxl_sequence;
+    s32 cxl_owner_mid;
+    u8 cxl_reclaim_state;
+    u8 cxl_reclaim_phase;
+    u8 cxl_free_requested;
+    u8 cxl_origin_release_state;
+#endif
 #ifdef CHCORE_SSI_SLS
     /* PMO page belongs to and index in PMO */
     struct pmobject *pmo;

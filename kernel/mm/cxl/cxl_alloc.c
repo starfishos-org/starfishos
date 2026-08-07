@@ -11,6 +11,9 @@
 
 #include <mm/slab.h>
 #include <mm/buddy.h>
+#ifdef DSM_ENABLED
+#include <dsm/cxl_reclaim.h>
+#endif
 
 #define SLAB_MAX_SIZE (1UL << SLAB_MAX_ORDER)
 #define ZERO_SIZE_PTR ((void *)(-1UL))
@@ -26,7 +29,34 @@ void *get_cxl_pages(int order)
         current_thread->mm_size += (BUDDY_PAGE_SIZE * (1 << order));
 #endif
     struct page *page = NULL;
+    u64 requested_pages = 1UL << order;
     int i;
+
+#ifdef DSM_ENABLED
+    /*
+     * Account the allocation, but never drive demotion from here.
+     *
+     * This allocator is reached from contexts that already hold mm locks --
+     * most importantly map_page_in_pgtbl(), which allocates a page-table page
+     * (__MT_PGTABLE__ resolves to __MT_SHARED__ when DSM_PGTABLE_MODE=CXL)
+     * while holding vmspace->pgtbl_lock.  The demoter has to take
+     * vmspace_lock and pgtbl_lock of the vmspaces it walks, and it issues
+     * blocking cross-machine RPCs whose remote handlers take pgtbl_lock too.
+     * Running it here therefore re-enters a non-recursive ticket lock on the
+     * same CPU and wedges the whole cluster, because the vmspace and its page
+     * tables are shared through CXL.
+     *
+     * dsm_cxl_reserve_resident_pages() only publishes demand when a migrated
+     * user page reaches the hard residency cap.  A separate polling-service
+     * worker consumes that demand through a bounded syscall with no mm lock
+     * held.  A failed allocator reservation retains the pre-reclaim behaviour
+     * of reporting OOM to the caller.
+     */
+    if (dsm_cxl_reserve_pages(requested_pages) < 0) {
+        kwarn("[OOM] Cannot reserve CXL pages!\n");
+        return NULL;
+    }
+#endif
 
     /* Try to get continous physical memory pages from one physmem pool. */
     for (i = 0; i < cxlmem_map_num; ++i) {
@@ -36,12 +66,18 @@ void *get_cxl_pages(int order)
     }
 
     if (unlikely(!page)) {
+#ifdef DSM_ENABLED
+        dsm_cxl_cancel_reserved_pages(requested_pages);
+#endif
         kwarn("[OOM] Cannot get page from any memory pool!\n");
         return NULL;
     }
 
     /* Init page reference count */
     page->ref_cnt = 1;
+#ifdef DSM_ENABLED
+    dsm_cxl_commit_reserved_pages(requested_pages);
+#endif
 
     return page_to_virt(page);
 }
@@ -51,7 +87,11 @@ void free_cxl_pages(void *addr)
     struct page *page;
 
     page = virt_to_page(addr);
+#ifdef DSM_ENABLED
+    dsm_cxl_free_page(page);
+#else
     buddy_free_pages(page->pool, page);
+#endif
 }
 
 /* Currently, BUG_ON no available memory. */
