@@ -742,6 +742,7 @@ int main(int argc, char *argv[], char *envp[])
 	     ipc_register_server(lwip_dispatch,
 				 DEFAULT_CLIENT_REGISTER_HANDLER));
 
-	usys_exit(0);
+	/* Procmgr passes this main-thread cap to later applications. */
+	usys_wait(usys_create_notifc(), 1, NULL);
 	return 0;
 }

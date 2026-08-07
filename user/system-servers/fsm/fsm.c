@@ -264,7 +264,6 @@ void fsm_dispatch(ipc_msg_t *ipc_msg, u64 client_badge)
 
 		switch (fsm_req->req) {
 		case FSM_REQ_PARSE_PATH: {
-
 			/*
 			 * Validate the client-supplied path: it must be
 			 * NUL-terminated within the buffer and absolute
@@ -439,6 +438,7 @@ int main(int argc, char *argv[], char *envp[])
 	     ipc_register_server(fsm_dispatch,
 				 DEFAULT_CLIENT_REGISTER_HANDLER));
 
-	usys_exit(0);
+	/* Procmgr passes this main-thread cap to every subsequently launched app. */
+	usys_wait(usys_create_notifc(), 1, NULL);
 	return 0;
 }

@@ -443,6 +443,7 @@ int main(int argc, char *argv[], char *envp[])
 	clock_gettime(CLOCK_MONOTONIC, &fs_t1);
 	printf("[TIMING] fs_startup: %ld ms\n", timespec_diff_ms(&fs_t0, &fs_t1));
 
-	usys_exit(0);
+	/* Keep the main-thread cap alive: FSM redistributes this cap to clients. */
+	usys_wait(usys_create_notifc(), 1, NULL);
 	return 0;
 }

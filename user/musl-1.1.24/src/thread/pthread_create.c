@@ -393,12 +393,18 @@ int __pthread_create_internal(int type, pthread_t *restrict res,
 	/* Initialize the system ipc structs */
 	new->system_ipc_fsm.conn_cap = 0;
 	new->system_ipc_fsm.server_id = FS_MANAGER;
+	new->system_ipc_fsm.fs_shard_id = -1;
+	new->system_ipc_fsm.fs_instance_generation = 0;
 
 	new->system_ipc_net.conn_cap = 0;
 	new->system_ipc_net.server_id = NET_MANAGER;
+	new->system_ipc_net.fs_shard_id = -1;
+	new->system_ipc_net.fs_instance_generation = 0;
 
 	new->system_ipc_procmgr.conn_cap = 0;
 	new->system_ipc_procmgr.server_id = PROC_MANAGER;
+	new->system_ipc_procmgr.fs_shard_id = -1;
+	new->system_ipc_procmgr.fs_instance_generation = 0;
 
 	/* Setup argument structure for the new thread on its stack.
 	 * It's safe to access from the caller only until the thread

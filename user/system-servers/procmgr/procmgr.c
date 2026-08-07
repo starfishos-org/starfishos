@@ -414,7 +414,17 @@ void boot_default_servers(void)
         proc_node = procmgr_launch_basic_server(
                 1, &srv_path, "fsm", true, INIT_BADGE);
         fsm_server_cap = proc_node->proc_mt_cap;
-        fsm_ipc_struct->server_id = FS_MANAGER;
+        /*
+         * Launching a process only makes its main-thread cap available; the
+         * IPC server may not have registered its handler yet.  Establishing
+         * this connection waits through -EIPCRETRY until FSM is ready, so
+         * dependent servers cannot race their first filesystem request with
+         * fsm's ipc_register_server().
+         */
+        ipc_struct_t *ready_fsm = ipc_register_client(fsm_server_cap);
+        BUG_ON(!ready_fsm);
+        *fsm_ipc_struct = *ready_fsm;
+        free(ready_fsm);
 
         printf("User Init: booting network server\n");
         /* Pass the FS cap to NET since it may need to read some config files */
