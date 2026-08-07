@@ -64,6 +64,8 @@ static atomic32_t cross_thread_counter;
 static size_t alloc_scatter;
 static size_t free_scatter;
 
+#define BENCHMARK_WARMUP_DIVISOR 10
+
 //Fixed set of random numbers
 static size_t random_size[2000] = {
 	42301,	6214,	74627,	93605,	82351,	93731,	23458,	99146,	63110,	22890,	29895,	62570,	91269,	60237,	99940,	64028,	95252,	82540,	20157,	90844,
@@ -355,7 +357,9 @@ benchmark_worker(void* argptr) {
 	uint64_t tick_start, ticks_elapsed;
 	int32_t allocated;
 	size_t cross_index = 0;
-	__attribute__((__unused__)) int aborted = 0;
+	size_t warmup_loop_count = arg->loop_count / BENCHMARK_WARMUP_DIVISOR;
+	if (!warmup_loop_count)
+		warmup_loop_count = 1;
 
 	proc_bind_thread((int)arg->index);
 
@@ -372,12 +376,23 @@ benchmark_worker(void* argptr) {
 	arg->ticks = 0;
 	arg->mops = 0;
 	for (size_t iter = 0; iter < 2; ++iter) {
+		const size_t iteration_loop_count = iter ? arg->loop_count : warmup_loop_count;
+		if (iter) {
+			/* All workers finish warmup cleanup before timed work starts. */
+			atomic_incr32(&benchmark_threads_sync);
+			do {
+				thread_sleep(1);
+				thread_fence();
+			} while (atomic_load32(&benchmark_threads_sync) > 0);
+			/* The first iteration only primes allocator caches and memory mappings. */
+			arg->ticks = 0;
+			arg->mops = 0;
+		}
 		size_t size_index = ((arg->index + 1) * ((iter + 1) * 37)) % random_size_count;
 
-		uint64_t iter_ticks_elapsed = 0;
 		int do_foreign = 1;
 
-		for (size_t iloop = 0; iloop < arg->loop_count; ++iloop) {
+		for (size_t iloop = 0; iloop < iteration_loop_count; ++iloop) {
 
 			foreign = get_cross_thread_memory(&arg->foreign);
 
@@ -470,7 +485,6 @@ benchmark_worker(void* argptr) {
 			}
 
 			ticks_elapsed = timer_current() - tick_start;
-			iter_ticks_elapsed += ticks_elapsed;
 			arg->ticks += ticks_elapsed;
 
 			int32_t current_allocated = atomic_add32(&arg->allocated, allocated);
@@ -488,11 +502,6 @@ benchmark_worker(void* argptr) {
 
 			if (atomic_load32(&benchmark_threads_sync) > 0)
 				do_foreign = 0; //one thread completed
-
-			if (timer_ticks_to_seconds(iter_ticks_elapsed) > 30) {
-				aborted = 1;
-				break;
-			}
 
 		}
 
@@ -520,7 +529,6 @@ benchmark_worker(void* argptr) {
 
 		atomic_add32(&arg->allocated, allocated);
 
-		iter_ticks_elapsed += ticks_elapsed;
 		arg->ticks += ticks_elapsed;
 		*/
 
@@ -567,7 +575,6 @@ benchmark_worker(void* argptr) {
 		ticks_elapsed = timer_current() - tick_start;
 		atomic_add32(&arg->allocated, allocated);
 
-		iter_ticks_elapsed += ticks_elapsed;
 		arg->ticks += ticks_elapsed;
 
 		thread_sleep(10);
@@ -583,12 +590,6 @@ benchmark_worker(void* argptr) {
 			foreign = next;
 		}
 
-		//fprintf(stderr, " %.2f ", timer_ticks_to_seconds(iter_ticks_elapsed));
-		//if (aborted) {
-		//	fprintf(stderr, "(aborted) ");
-		//	fflush(stderr);
-		//}
-		aborted = 0;
 	}
 
 	//Sync threads
@@ -746,12 +747,15 @@ benchmark_run(int argc, char** argv) {
 	atomic_store32(&benchmark_start, 0);
 
 	if (mode == MODE_RANDOM)
-		fprintf(stderr, "%-12s %3u threads random %s size [%u,%u] %u loops %u allocs %u ops:\n",
+		fprintf(stderr, "%-12s %3u threads random %s size [%u,%u] %u loops (+%u warmup) %u allocs %u ops:\n",
 		        benchmark_name(),
 		        (unsigned int)thread_count,
 		        (size_mode == SIZE_MODE_EVEN) ? "even" : ((size_mode == SIZE_MODE_LINEAR) ? "linear" : "exp"),
 		        (unsigned int)min_size, (unsigned int)max_size,
-		        (unsigned int)loop_count, (unsigned int)alloc_count, (unsigned int)op_count);
+		        (unsigned int)loop_count,
+		        (unsigned int)((loop_count / BENCHMARK_WARMUP_DIVISOR) ?
+		                       (loop_count / BENCHMARK_WARMUP_DIVISOR) : 1),
+		        (unsigned int)alloc_count, (unsigned int)op_count);
 	else
 		fprintf(stderr, "%-12s %3u threads fixed size [%u] %u loops %u allocs %u ops:\n",
 		        benchmark_name(),
@@ -783,6 +787,7 @@ benchmark_run(int argc, char** argv) {
 			atomic_store_ptr(&arg[ithread].foreign, 0);
 			atomic_store32(&arg[ithread].allocated, 0);
 			arg[ithread].peak_allocated = 0;
+			arg[ithread].accumulator = 0;
 			arg[ithread].args = arg;
 			thread_fence();
 			thread_handle[ithread] = thread_run(&arg[ithread].thread_arg);
@@ -800,6 +805,15 @@ benchmark_run(int argc, char** argv) {
 		thread_sleep(100);
 		thread_fence();
 
+		atomic_store32(&benchmark_threads_sync, 0);
+		thread_fence();
+
+		thread_sleep(100);
+		/* Release the post-warmup barrier, then wait for measured work. */
+		while (atomic_load32(&benchmark_threads_sync) < (int32_t)thread_count) {
+			thread_sleep(100);
+			thread_fence();
+		}
 		atomic_store32(&benchmark_threads_sync, 0);
 		thread_fence();
 
@@ -827,7 +841,8 @@ benchmark_run(int argc, char** argv) {
 
 		for (size_t ithread = 0; ithread < thread_count; ++ithread) {
 			thread_join(thread_handle[ithread]);
-			ticks += arg[ithread].ticks;
+			if (ticks < arg[ithread].ticks)
+				ticks = arg[ithread].ticks;
 			mops += arg[ithread].mops;
 			if (!arg[ithread].accumulator)
 				exit(-1);
@@ -855,20 +870,20 @@ benchmark_run(int argc, char** argv) {
 	size_t process_peak_usage = get_process_peak_memory_usage();
 	double time_elapsed = timer_ticks_to_seconds(ticks);
 	fprintf(stderr, "\ntime elapsed: %.2f seconds\n", time_elapsed);
-	double average_mops = (double)mops / time_elapsed;
+	double total_mops = (double)mops / time_elapsed;
 	char linebuf[128];
 	int len = snprintf(linebuf, sizeof(linebuf), "%u,%" PRIsize "\n",
-	                   (unsigned int)average_mops,
+	                   (unsigned int)total_mops,
 	                   process_peak_usage);
 	if (fd) {
 		fwrite(linebuf, (len > 0) ? (size_t)len : 0, 1, fd);
 		fflush(fd);
 	}
 
-	fprintf(stderr, "\n%u memory ops/CPU second (peak %uMiB)\n",
-	       (unsigned int)average_mops,
+	fprintf(stderr, "\n%u total memory ops/second (peak %uMiB)\n",
+	       (unsigned int)total_mops,
 	       (unsigned int)(process_peak_usage / (1024 * 1024)));
-	fprintf(stderr, "throughput(ops/s): %lu\n", (size_t)average_mops * thread_count);
+	fprintf(stderr, "throughput(ops/s): %lu\n", (size_t)total_mops);
 	fprintf(stderr, "done\n");
 	fflush(stderr);
 

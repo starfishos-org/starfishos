@@ -161,6 +161,7 @@ void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool, page_type_t type,
             pool, page_meta_start, phys_to_virt(free_page_start), npages, type);
 }
 
+#ifndef DSM_CXL_LF_BUDDY
 /*
  * CXL pools are shared by all DSM machines.  After machine 0 initializes a
  * conventional buddy pool, followers must not initialize it again: that
@@ -179,6 +180,7 @@ static void attach_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
     BUG_ON(pool->page_metadata == NULL);
     BUG_ON(pool->pool_mem_size == 0);
 }
+#endif
 
 void dram_mm_init()
 {

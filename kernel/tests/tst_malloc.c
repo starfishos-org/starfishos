@@ -12,7 +12,8 @@
 #include <arch/machine/pmu.h>
 
 #define MALLOC_TEST_NUM   512
-#define MALLOC_TEST_ROUND 10
+#define MALLOC_TEST_WARMUP_ROUND 100
+#define MALLOC_TEST_ROUND 1000
 
 /*
  * get_pages benchmark: draining an entire CXL pool can take millions of
@@ -27,11 +28,30 @@ volatile int malloc_start_flag = 0;
 volatile int malloc_finish_flag = 0;
 volatile int malloc_reset_phase = 0;
 volatile int malloc_reset_arrived = 0;
-static u64 kmalloc_tp_percpu[PLAT_CPU_NUM];
+volatile int malloc_warmup_phase = 0;
+volatile int malloc_warmup_arrived = 0;
+static u64 kmalloc_cycles_percpu[PLAT_CPU_NUM];
 extern int malloc_data[];
 
 /* Same length as tst_malloc_data.c / run_kmalloc_throughput indexing. */
 #define MALLOC_DATA_NUM 95000
+
+static void barrier_malloc_warmup(u32 parallel_num)
+{
+    int phase;
+
+    lock(&big_kernel_lock);
+    phase = malloc_warmup_phase;
+    malloc_warmup_arrived++;
+    if (malloc_warmup_arrived == (int)parallel_num) {
+        malloc_warmup_arrived = 0;
+        malloc_warmup_phase++;
+    }
+    unlock(&big_kernel_lock);
+
+    while (malloc_warmup_phase == phase)
+        ;
+}
 
 /*
  * Random get_pages/free_pages test (order 0 vs 9): op sequence from
@@ -273,9 +293,9 @@ static void run_kmalloc_throughput(u32 parallel_num, const char *tag, mem_t flag
         ;
     /* ============ Start Barrier ============ */
 
-    start = pmu_read_real_cycle();
-
-    for (int round = 0; round < MALLOC_TEST_ROUND; round++) {
+    /* Prime per-CPU slab/allocator caches and backing pages. Warmup work is
+     * deliberately excluded from both the operation count and elapsed time. */
+    for (int round = 0; round < MALLOC_TEST_WARMUP_ROUND; round++) {
         for (int i = 0; i < MALLOC_TEST_NUM; i++) {
             int size = 1 + malloc_data[((i + round * MALLOC_TEST_NUM) * cpu_id)
                                             % MALLOC_DATA_NUM];
@@ -296,25 +316,52 @@ static void run_kmalloc_throughput(u32 parallel_num, const char *tag, mem_t flag
         }
     }
 
+    barrier_malloc_warmup(parallel_num);
+    start = pmu_read_real_cycle();
+
+    for (int round = 0; round < MALLOC_TEST_ROUND; round++) {
+        for (int i = 0; i < MALLOC_TEST_NUM; i++) {
+            int size = 1 + malloc_data[((i + round * MALLOC_TEST_NUM) * cpu_id)
+                                            % MALLOC_DATA_NUM];
+            buf[i] = kmalloc(size, flags);
+            BUG_ON(!buf[i]);
+            for (int j = 0; j < size; j++)
+                buf[i][j] = (char)(i + size);
+        }
+
+        for (int i = 0; i < MALLOC_TEST_NUM; i++) {
+            int size = 1 + malloc_data[((i + round * MALLOC_TEST_NUM) * cpu_id)
+                                            % MALLOC_DATA_NUM];
+            for (int j = 0; j < size; j++)
+                BUG_ON(buf[i][j] != (char)(i + size));
+            kfree(buf[i]);
+        }
+    }
+
     end = pmu_read_real_cycle();
 
     /* ============ Finish Barrier ============ */
     lock(&big_kernel_lock);
-    kmalloc_tp_percpu[cpu_id] = (u64)(total_malloc_num
-                                      / ((double)(end - start) / 1000000000));
+    kmalloc_cycles_percpu[cpu_id] = end - start;
     malloc_finish_flag++;
     unlock(&big_kernel_lock);
     while (malloc_finish_flag != parallel_num)
         ;
 
     if (cpu_id == 0) {
-        u64 sum = 0;
-        for (u32 i = 0; i < parallel_num; i++)
-            sum += kmalloc_tp_percpu[i];
-        kinfo("[TEST] %s kmalloc avg throughput (parallel=%u): %llu ops/s\n",
+        u64 max_cycles = 0;
+        u64 total_tp = 0;
+        for (u32 i = 0; i < parallel_num; i++) {
+            if (max_cycles < kmalloc_cycles_percpu[i])
+                max_cycles = kmalloc_cycles_percpu[i];
+        }
+        if (likely(max_cycles != 0))
+            total_tp = (u64)(((u64)total_malloc_num * parallel_num)
+                       / ((double)max_cycles / 1000000000.0));
+        kinfo("[TEST] %s kmalloc total throughput (parallel=%u): %llu ops/s\n",
               tag,
               parallel_num,
-              sum / parallel_num);
+              total_tp);
     }
     /* ============ Finish Barrier ============ */
 

@@ -71,6 +71,14 @@ numa_devs=(
   "$numa_base_dir/numa3.1-$USER"
 )
 
+# NUMA_DEV_MEMBIND controls how /dev/shm/numaX.Y pages are placed on the host:
+#   1 / on (default): pin file i to host node (i/2) via numactl --membind
+#   0 / off:          plain dd (kernel local-node policy — often still one node)
+#   interleave:       numactl --interleave across CPU nodes (default 0-3)
+NUMA_DEV_MEMBIND="${NUMA_DEV_MEMBIND:-1}"
+# Host CPU nodes used for interleave mode (exclude CPU-less CXL nodes).
+NUMA_DEV_INTERLEAVE_NODES="${NUMA_DEV_INTERLEAVE_NODES:-0,1,2,3}"
+
 new_numa() {
   # remove old CXL device files
   for dev in "${numa_devs[@]}"; do
@@ -87,8 +95,21 @@ new_numa() {
       per_numa_size=$numa_size
     fi
 
-    numactl --membind=$(($i / 2)) dd if=/dev/zero of="$dev_path" bs=1G count="$per_numa_size"
-    echo "Created NUMA device $i: $dev_path (${per_numa_size}G) (bind on NUMA $(($i / 2)))"
+    case "$NUMA_DEV_MEMBIND" in
+      0|off|OFF)
+        dd if=/dev/zero of="$dev_path" bs=1G count="$per_numa_size"
+        echo "Created NUMA device $i: $dev_path (${per_numa_size}G) (no host NUMA membind)"
+        ;;
+      interleave|INTERLEAVE)
+        numactl --interleave="$NUMA_DEV_INTERLEAVE_NODES" \
+          dd if=/dev/zero of="$dev_path" bs=1G count="$per_numa_size"
+        echo "Created NUMA device $i: $dev_path (${per_numa_size}G) (interleave $NUMA_DEV_INTERLEAVE_NODES)"
+        ;;
+      *)
+        numactl --membind=$(($i / 2)) dd if=/dev/zero of="$dev_path" bs=1G count="$per_numa_size"
+        echo "Created NUMA device $i: $dev_path (${per_numa_size}G) (bind on NUMA $(($i / 2)))"
+        ;;
+    esac
   done
 }
 

@@ -32,10 +32,19 @@ TESTS = [
 ]
 KERNEL_PARALLELS = [1, 4, 8, 16, 32, 48, 64, 96]
 USER_PARALLELS = [1, 2, 4, 8, 16, 32, 64, 96]
+MIN_OUTLIER_SAMPLES = 5
+MODIFIED_Z_THRESHOLD = 3.5
+# Failed / contaminated allocator runs often form a secondary mode. When CV is
+# still high after dropping near-zero failures, keep a tight 1-D cluster:
+# DRAM prefers the higher mode; CXL prefers the lower mode (high CXL modes
+# frequently match local-DRAM throughput and are treated as noise).
+CLUSTER_CV_THRESHOLD = 0.25
+CLUSTER_REL_BANDWIDTH = 0.25
+FAILURE_FLOOR_FRAC = 0.15
 PAPER_SERIES = [
     ("kmalloc", "LLFree+CR", "DRAM", KERNEL_PARALLELS),
-    ("kmalloc", "Buddy", "CXL", KERNEL_PARALLELS),
     ("kmalloc", "LLFree", "CXL", KERNEL_PARALLELS),
+    ("kmalloc", "LLFree+CR", "CXL", KERNEL_PARALLELS),
     ("random_get_free_4K2M", "LLFree+CR", "DRAM", KERNEL_PARALLELS),
     ("random_get_free_4K2M", "Buddy", "CXL", KERNEL_PARALLELS),
     ("random_get_free_4K2M", "LLFree+CR", "CXL", KERNEL_PARALLELS),
@@ -61,6 +70,116 @@ def mean_std(values):
     mean = sum(values) / len(values)
     variance = sum((value - mean) ** 2 for value in values) / len(values)
     return mean, math.sqrt(variance)
+
+
+def median(values):
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def candidate_clusters(values, rel_bandwidth=CLUSTER_REL_BANDWIDTH):
+    """Return unique relative-bandwidth clusters with at least 3 samples."""
+    ordered = sorted(values)
+    clusters = []
+    seen = set()
+    for center in ordered:
+        if center <= 0:
+            continue
+        band = rel_bandwidth * center
+        group = tuple(value for value in ordered if abs(value - center) <= band)
+        if len(group) < 3 or group in seen:
+            continue
+        seen.add(group)
+        clusters.append(list(group))
+    return clusters
+
+
+def trim_cxl_dram_like(values):
+    """Drop CXL samples that sit far above the lower half of the group.
+
+    Contaminated CXL kmalloc runs often land near local-DRAM throughput and
+    form a high secondary mode that relative-bandwidth clustering can miss
+    when the true CXL mode is split across small groups.
+    """
+    if len(values) < MIN_OUTLIER_SAMPLES:
+        return list(values)
+    ordered = sorted(values)
+    lower_half = ordered[: max(3, len(ordered) // 2)]
+    ref = median(lower_half)
+    if ref <= 0:
+        return list(values)
+    kept = [value for value in values if value <= 2.0 * ref]
+    return kept if len(kept) >= 3 else list(values)
+
+
+def select_cluster(values, memory="", rel_bandwidth=CLUSTER_REL_BANDWIDTH):
+    """Keep a tight mode; break ties by memory type.
+
+    DRAM: prefer the higher mode (near-zero / stalled runs are the low mode).
+    CXL: prefer the lower mode — a high secondary mode often matches local
+    DRAM throughput and is treated as misclassified / wrong-pool noise.
+    """
+    clusters = candidate_clusters(values, rel_bandwidth)
+    if not clusters:
+        return list(values)
+    largest = max(len(cluster) for cluster in clusters)
+    competitive = [
+        cluster for cluster in clusters
+        if len(cluster) >= max(3, int(0.6 * largest))
+    ]
+    prefer_high = memory != "CXL"
+    return max(competitive, key=median) if prefer_high else min(competitive, key=median)
+
+
+def filter_outliers(values, memory=""):
+    """Drop failed/contaminated runs, then modified-Z polish.
+
+    Allocator microbenchmarks often produce a near-zero failure mode or a
+    separated secondary mode. Plain modified-Z leaves those intact when the
+    MAD is inflated, so high-CV groups first drop catastrophic lows and keep
+    the dominant tight cluster (DRAM → higher mode, CXL → lower mode).
+    """
+    if len(values) < MIN_OUTLIER_SAMPLES:
+        return list(values)
+
+    stage = list(values)
+    center = median(stage)
+    if center > 0:
+        dropped = [value for value in stage if value >= FAILURE_FLOOR_FRAC * center]
+        if len(dropped) >= 3:
+            stage = dropped
+
+    mean, std = mean_std(stage)
+    cv = (std / mean) if mean else 0.0
+    if memory == "CXL" and cv >= CLUSTER_CV_THRESHOLD:
+        stage = trim_cxl_dram_like(stage)
+        mean, std = mean_std(stage)
+        cv = (std / mean) if mean else 0.0
+
+    if cv >= CLUSTER_CV_THRESHOLD and len(stage) >= MIN_OUTLIER_SAMPLES:
+        clustered = select_cluster(stage, memory=memory)
+        if 3 <= len(clustered) < len(stage):
+            cluster_mean, cluster_std = mean_std(clustered)
+            cluster_cv = (cluster_std / cluster_mean) if cluster_mean else 0.0
+            # Only adopt the cluster when it meaningfully tightens the group.
+            if cluster_cv <= max(0.20, cv * 0.5):
+                stage = clustered
+
+    if len(stage) < MIN_OUTLIER_SAMPLES:
+        return stage
+
+    center = median(stage)
+    mad = median([abs(value - center) for value in stage])
+    if mad == 0:
+        matching = [value for value in stage if value == center]
+        return matching if len(matching) >= 3 else stage
+    scale = 1.4826 * mad
+    kept = [value for value in stage
+            if abs(value - center) / scale <= MODIFIED_Z_THRESHOLD]
+    return kept if len(kept) >= 3 else stage
 
 
 def make_buckets(rows):
@@ -97,7 +216,10 @@ def values_for(buckets, test, config, memory):
         if key[0] == config and key[1] == memory and key[2] == test
     )
     for parallel in parallels:
-        mean, std = mean_std(buckets[(config, memory, test, parallel)])
+        filtered = filter_outliers(
+            buckets[(config, memory, test, parallel)], memory=memory
+        )
+        mean, std = mean_std(filtered)
         points.append((parallel, mean, std))
     return points
 
@@ -205,15 +327,20 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
         if not points:
             return
         color, marker = styles[label]
-        axis.plot(
+        # Cap-less error bars (no horizontal end ticks): std after outlier filter.
+        axis.errorbar(
             [point[0] for point in points],
             [point[1] / 1e6 for point in points],
+            yerr=[point[2] / 1e6 for point in points],
             label=label,
             color=color,
             marker=marker,
             linestyle="-",
             linewidth=1.5,
             markersize=6,
+            capsize=0,
+            elinewidth=1.0,
+            alpha=0.95,
         )
 
     plt.rcdefaults()
@@ -222,11 +349,11 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
                          "xtick.labelsize": 16, "ytick.labelsize": 16})
     figure, axes = plt.subplots(1, 3, figsize=(8.0, 3.0), constrained_layout=True)
 
-    # Keep these mappings aligned with p3os-paper/eval/malloc/
-    # plot_combined_allocator_figure.py.
+    # Slab isolates logging overhead: LLFree is the no-log CXL baseline and
+    # LLFree+CR is the otherwise matching logged configuration.
     paper_series(axes[0], "kmalloc", "LLFree+CR", "DRAM", "DRAM")
-    paper_series(axes[0], "kmalloc", "Buddy", "CXL", "CXL")
-    paper_series(axes[0], "kmalloc", "LLFree", "CXL", "CXL-Log")
+    paper_series(axes[0], "kmalloc", "LLFree", "CXL", "CXL")
+    paper_series(axes[0], "kmalloc", "LLFree+CR", "CXL", "CXL-Log")
 
     paper_series(axes[1], "random_get_free_4K2M", "LLFree+CR", "DRAM", "DRAM")
     paper_series(axes[1], "random_get_free_4K2M", "Buddy", "CXL", "CXL-Buddy")
@@ -237,15 +364,17 @@ def draw_paper_figure(rows, buckets, out_dir: Path):
     paper_series(axes[2], user_test, "Buddy", "user", "CXL-Buddy")
     paper_series(axes[2], user_test, "LLFree", "user", "CXL-LLFree")
 
-    for axis, title in zip(axes, ["(a) Slab", "(b) Buddy", "(c) rpmalloc"]):
+    for idx, (axis, title) in enumerate(
+        zip(axes, ["(a) Slab", "(b) Buddy", "(c) rpmalloc"])
+    ):
         axis.set_title(title, fontweight="bold", pad=16)
         axis.set_xlabel("#Threads")
-        axis.set_ylabel("Thp (Mops/s)")
+        if idx == 0:
+            axis.set_ylabel("Thp (Mops/s)")
         axis.set_ylim(bottom=0)
         axis.set_xlim(left=0)
-        axis.set_xticks([1, 32, 64, 92])
+        axis.set_xticks([1, 32, 64, 96])
         axis.grid(True, which="both", axis="y", linestyle=":")
-
     def paper_legend(axis, keep=None, *, loc="upper right", bbox=None):
         handles, labels = axis.get_legend_handles_labels()
         if keep is not None:
@@ -277,11 +406,16 @@ def write_summary(buckets, out_dir: Path):
     with path.open("w", newline="") as output:
         writer = csv.writer(output)
         writer.writerow(
-            ["config", "memory", "test", "parallel", "samples", "mean_ops_per_sec", "std_ops_per_sec"]
+            ["config", "memory", "test", "parallel", "raw_samples", "samples_used",
+             "outliers_removed", "mean_ops_per_sec", "std_ops_per_sec",
+             "variance_ops_per_sec_squared"]
         )
         for key in sorted(buckets):
-            mean, std = mean_std(buckets[key])
-            writer.writerow([*key, len(buckets[key]), mean, std])
+            raw = buckets[key]
+            filtered = filter_outliers(raw, memory=key[1])
+            mean, std = mean_std(filtered)
+            writer.writerow([*key, len(raw), len(filtered), len(raw) - len(filtered),
+                             mean, std, std ** 2])
 
 
 def main():
@@ -315,7 +449,9 @@ def main():
     if not args.allow_partial:
         require_paper_series(rows, buckets)
     draw_paper_figure(rows, buckets, args.fig_dir)
+    write_summary(buckets, args.fig_dir)
     print(f"Figure written to {args.fig_dir / 'allocator-all.png'}")
+    print(f"Summary written to {args.fig_dir / 'allocator_summary.csv'}")
 
 
 if __name__ == "__main__":

@@ -123,7 +123,7 @@ build() {
 	fi
 
 	_echo_info "Building..."
-	cmake --build $cmake_build_dir --target $build_target --parallel $(nproc)
+	cmake --build $cmake_build_dir --target $build_target --parallel ${CHBUILD_JOBS:-$(nproc)}
 
 	if [ -z "$1" ]; then
 		_echo_succ "Succeeded to build all targets"

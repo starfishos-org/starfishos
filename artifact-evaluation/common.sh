@@ -112,7 +112,9 @@ ae_doorbell_running() {
 # Recreate the per-user CXLFS ivshmem device when its stamped ramdisk build-id
 # no longer matches user/build/ramdisk.cpio.
 ae_ensure_cxlfs_device() {
-    "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" ensure || return 1
+    local mode="ensure"
+    [ "${AE_RECREATE_CXLFS:-0}" = "1" ] && mode="recreate"
+    "$AE_REPO_ROOT/dsm-scripts/prepare_cxlfs_dev.sh" "$mode" || return 1
 }
 
 # Standard per-experiment artifact layout (one directory per run):

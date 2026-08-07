@@ -24,6 +24,7 @@ CMD=""
 EXPECTED=""
 BUILD=false
 TIMEOUT=120
+SKIP_SHELL_WAIT="${SKIP_SHELL_WAIT:-0}"
 
 positional=()
 for arg in "$@"; do
@@ -45,7 +46,8 @@ if [[ -z "$N" ]] || ! [[ "$N" =~ ^[1-8]$ ]]; then
     exit 1
 fi
 
-SESSION="$USER-qemu"
+SESSION="${QEMU_SESSION:-$USER-qemu}"
+EXEC_LOG0="${EXEC_LOG0:-exec_log0.log}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
@@ -104,43 +106,59 @@ fi
 # ======== Automated test mode ========
 if [[ -n "$CMD" ]]; then
     echo "=== Launch $N QEMU instances (automated) ==="
-    tmux new-session -d -s "$SESSION" -n vm0 "$RUN_CMD 0 | tee exec_log0.log"
-    wait_for_pattern "exec_log0.log" "Welcome to ChCore shell!" 120 "machine 0 shell" || {
-        echo "FAILED: shell not ready on machine 0"
-        tail -10 "exec_log0.log" 2>/dev/null
-        exit 1
-    }
-    for ((i=1; i<N; i++)); do
-        sleep 10
-        tmux new-window -t "$SESSION" -n "vm${i}" "$RUN_CMD $i | tee exec_log${i}.log"
-    done
-
-    # Wait for DSM join
-    echo "=== Wait for DSM join ==="
-    for ((i=0; i<N; i++)); do
-        wait_for_pattern "exec_log${i}.log" "DSM] machine $i " 180 "machine $i DSM join" || {
-            echo "FAILED: machine $i did not join DSM"
-            tail -10 "exec_log${i}.log" 2>/dev/null
+    tmux new-session -d -s "$SESSION" -n vm0 "$RUN_CMD 0 | tee '$EXEC_LOG0'"
+    if [[ "$SKIP_SHELL_WAIT" != "1" ]]; then
+        # The colored welcome banner can be byte-interleaved with late polling
+        # server output on a busy boot. The actual shell prompt is the stable
+        # readiness marker used for command injection.
+        wait_for_pattern "$EXEC_LOG0" '[$] ' 120 "machine 0 shell prompt" || {
+            echo "FAILED: shell not ready on machine 0"
+            tail -10 "$EXEC_LOG0" 2>/dev/null
             exit 1
         }
-    done
+        for ((i=1; i<N; i++)); do
+            sleep 10
+            tmux new-window -t "$SESSION" -n "vm${i}" "$RUN_CMD $i | tee exec_log${i}.log"
+        done
 
-    # Wait for shell ready
-    for ((i=0; i<N; i++)); do
-        wait_for_pattern "exec_log${i}.log" "Welcome to ChCore shell!" 120 "machine $i shell" || {
-            echo "FAILED: shell not ready on machine $i"
-            exit 1
-        }
-    done
+        # Wait for DSM join
+        echo "=== Wait for DSM join ==="
+        for ((i=0; i<N; i++)); do
+            machine_log="exec_log${i}.log"
+            [[ $i -eq 0 ]] && machine_log="$EXEC_LOG0"
+            wait_for_pattern "$machine_log" "DSM] machine $i " 180 "machine $i DSM join" || {
+                echo "FAILED: machine $i did not join DSM"
+                tail -10 "$machine_log" 2>/dev/null
+                exit 1
+            }
+        done
 
-    # Send command
-    echo "=== Send: $CMD ==="
-    tmux send-keys -t "$SESSION:vm0" "$CMD" Enter
+        # Wait for shell ready
+        for ((i=0; i<N; i++)); do
+            machine_log="exec_log${i}.log"
+            [[ $i -eq 0 ]] && machine_log="$EXEC_LOG0"
+            wait_for_pattern "$machine_log" '[$] ' 120 "machine $i shell prompt" || {
+                echo "FAILED: shell not ready on machine $i"
+                exit 1
+            }
+        done
+
+        # Send command
+        echo "=== Send: $CMD ==="
+        # SeaBIOS/QEMU may deliver a delayed terminal device-attributes reply
+        # (for example "1;2c") after the shell prompt.  Let it arrive, then
+        # clear the current input line before injecting the benchmark command.
+        sleep 2
+        tmux send-keys -t "$SESSION:vm0" C-u
+        tmux send-keys -t "$SESSION:vm0" "$CMD" Enter
+    else
+        echo "=== Kernel autostart mode: skip shell wait and command injection ==="
+    fi
 
     # Wait for expected pattern
     echo -n "=== Waiting for '$EXPECTED'..."
     for ((t=0; t<TIMEOUT; t++)); do
-        if grep -q "$EXPECTED" exec_log0.log 2>/dev/null; then
+        if grep -q "$EXPECTED" "$EXEC_LOG0" 2>/dev/null; then
             echo " OK!"
             break
         fi
@@ -150,21 +168,21 @@ if [[ -n "$CMD" ]]; then
     echo ""
     echo "========================================="
     rc=0
-    if grep -q "$EXPECTED" exec_log0.log 2>/dev/null; then
+    if grep -q "$EXPECTED" "$EXEC_LOG0" 2>/dev/null; then
         echo "SUCCESS"
         echo "----- Key output -----"
-        grep -E "$EXPECTED" exec_log0.log 2>/dev/null || true
+        grep -E "$EXPECTED" "$EXEC_LOG0" 2>/dev/null || true
         if [[ -n "$LOGNAME" ]]; then
-            grep -E "$EXPECTED" exec_log0.log 2>/dev/null >> "$LOGNAME" || true
+            grep -E "$EXPECTED" "$EXEC_LOG0" 2>/dev/null >> "$LOGNAME" || true
         fi
     else
         echo "FAILED or TIMEOUT"
-        echo "----- Last 40 lines of exec_log0.log -----"
-        tail -40 exec_log0.log 2>/dev/null
+        echo "----- Last 40 lines of $EXEC_LOG0 -----"
+        tail -40 "$EXEC_LOG0" 2>/dev/null
         rc=1
     fi
     echo "========================================="
-    echo "Logs: $(for ((i=0; i<N; i++)); do echo -n "exec_log${i}.log "; done)"
+    echo "Machine 0 log: $EXEC_LOG0"
     echo "Attach: tmux a -t $SESSION"
     # Leave tmux/QEMU up for inspection (same as before); propagate failure
     # so Makefile targets like run-mm-test do not treat timeouts as success.

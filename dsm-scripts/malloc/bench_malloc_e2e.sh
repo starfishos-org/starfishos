@@ -13,6 +13,8 @@
 #   RUN_OFFSET=0       add to run index (resume from run N+1)
 #   APPEND_CSV=0       set 1 to append instead of overwrite CSV
 #   USER_BENCH_THREADS thread counts to sweep (default: 1 2 4 8 16 32 64 96)
+#   USER_GUEST_CPU_NUM vCPUs for user benchmark guests (default: 96)
+#   USER_BENCH_LOOPS   measured loops per thread (default: 50000; warmup is 10%)
 #   USER_BENCH_TIMEOUT seconds to wait per user bench QEMU session (default: 300)
 #   LOG_DIR            directory for all raw logs
 #
@@ -23,13 +25,14 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DSM_CONFIG="$ROOT_DIR/kernel/dsm_config.cmake"
 CSV_OUT="${1:-$ROOT_DIR/bench_malloc_results.csv}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs/malloc}"
-SESSION="$USER-qemu"
 NRUNS="${NRUNS:-3}"
 RUN_OFFSET="${RUN_OFFSET:-0}"
 APPEND_CSV="${APPEND_CSV:-0}"
 
 USER_BENCH_THREADS="${USER_BENCH_THREADS:-1 2 4 8 16 32 64 96}"
-USER_BENCH_FIXED_ARGS="0 0 0 10 100 1000 16 256"
+USER_GUEST_CPU_NUM="${USER_GUEST_CPU_NUM:-96}"
+USER_BENCH_LOOPS="${USER_BENCH_LOOPS:-50000}"
+USER_BENCH_FIXED_ARGS="0 0 0 $USER_BENCH_LOOPS 100 1000 16 256"
 USER_BENCH_DONE="throughput(ops/s):"
 USER_BENCH_TIMEOUT="${USER_BENCH_TIMEOUT:-600}"
 KERNEL_BENCH_TIMEOUT="${KERNEL_BENCH_TIMEOUT:-900}"
@@ -53,17 +56,28 @@ save_config() {
 }
 restore_config() {
     if [ "$CONFIG_SAVED" = "1" ]; then
-        cp "$LOG_DIR/dsm_config.cmake.bak" "$DSM_CONFIG"
+        local restore_tmp="${DSM_CONFIG}.restore.$$"
+        cp "$LOG_DIR/dsm_config.cmake.bak" "$restore_tmp"
+        mv "$restore_tmp" "$DSM_CONFIG"
         CONFIG_SAVED=0
     fi
 }
 trap restore_config EXIT
 
 wait_in_log() {
-    local logfile="$1" pattern="$2" timeout="${3:-300}"
+    local logfile="$1" pattern="$2" timeout="${3:-300}" watch_pid="${4:-}"
     local elapsed=0
     while ! grep -q "$pattern" "$logfile" 2>/dev/null; do
         sleep 2; elapsed=$((elapsed + 2))
+        if [ -n "$watch_pid" ] && ! kill -0 "$watch_pid" 2>/dev/null; then
+            # The launcher normally exits immediately after observing the
+            # completion line.  Check once more after its output is flushed
+            # before classifying the exit as a failure.
+            sleep 1
+            grep -q "$pattern" "$logfile" 2>/dev/null && return 0
+            echo "[E2E] launcher exited before '$pattern' appeared in $logfile" >&2
+            return 1
+        fi
         if [ "$elapsed" -ge "$timeout" ]; then
             echo "[E2E] TIMEOUT waiting for '$pattern' in $logfile" >&2
             return 1
@@ -76,38 +90,45 @@ wait_in_log() {
 # Returns 0 on success, 1 on timeout.
 run_qemu_session() {
     local logfile="$1" cmd="$2" done_str="$3" timeout="${4:-600}"
+    local skip_shell_wait="${5:-0}"
     # simulate_ncluster.sh writes the matched completion line to its second
     # argument. The E2E runner already archives the full guest log, so a
     # separate per-run .match checkpoint is redundant.
     local matchfile="/dev/null"
+    local launcher_log="${logfile%.log}_launcher.log"
+    local live_log="${logfile%.log}_live.log"
+    local qemu_session="${USER}-malloc-${BASHPID}"
 
-    rm -f "$ROOT_DIR/exec_log0.log" "$ROOT_DIR/exec_log.log"
+    rm -f "$live_log"
 
     # Use setsid so simulate_ncluster.sh gets its own process group.
     # We can then kill the whole group cleanly on timeout.
     setsid bash -c "cd '$ROOT_DIR' && \
+        SKIP_SHELL_WAIT='$skip_shell_wait' \
+        QEMU_SESSION='$qemu_session' \
+        EXEC_LOG0='$live_log' \
         ./dsm-scripts/simulate_ncluster.sh 1 \
             '$matchfile' \
             '$cmd' \
-            '$done_str'" \
-        > "$LOG_DIR/_sim_$$.log" 2>&1 &
+            '$done_str' \
+            '--timeout=$timeout'" \
+        > "$launcher_log" 2>&1 &
     local sim_pid=$!
 
     local ok=0
-    wait_in_log "$ROOT_DIR/exec_log0.log" "$done_str" "$timeout" && ok=1 || ok=0
+    wait_in_log "$live_log" "$done_str" "$timeout" "$sim_pid" \
+        && ok=1 || ok=0
 
     # Archive log regardless of success
-    if [ -f "$ROOT_DIR/exec_log0.log" ]; then
-        cp "$ROOT_DIR/exec_log0.log" "$logfile"
-    elif [ -f "$ROOT_DIR/exec_log.log" ]; then
-        cp "$ROOT_DIR/exec_log.log" "$logfile"
+    if [ -f "$live_log" ]; then
+        cp "$live_log" "$logfile"
     fi
 
     # Kill the entire process group (setsid makes pgid == sim_pid)
     kill -- -"$sim_pid" 2>/dev/null || true
     wait "$sim_pid" 2>/dev/null || true
-    tmux kill-session -t "$SESSION" 2>/dev/null || true
-    rm -f "$LOG_DIR/_sim_$$.log"
+    tmux kill-session -t "$qemu_session" 2>/dev/null || true
+    rm -f "$live_log"
     sleep 2
 
     return $(( 1 - ok ))
@@ -118,6 +139,8 @@ run_qemu_session() {
 build_current_config() {
     local label="$1"
     local config_snapshot
+    local build_log="$LOG_DIR/${label}_build.log"
+    local quick_build_log="$LOG_DIR/${label}_quick_build.log"
 
     echo "========================================"
     echo "[E2E] Building config: $label"
@@ -125,14 +148,17 @@ build_current_config() {
     config_snapshot="$(mktemp)"
     cp "$ROOT_DIR/.config" "$config_snapshot"
 
-    if (cd "$ROOT_DIR" && ./scripts/chbuild-with-fallback.sh --no-fallback clean build) \
-            2>&1 | tail -10; then
+    if (cd "$ROOT_DIR" && CHBUILD_LOG="$build_log" CHBUILD_QUIET=1 \
+            ./scripts/chbuild-with-fallback.sh --no-fallback clean build); then
+        tail -10 "$build_log"
         rm -f "$config_snapshot"
         return 0
     fi
 
     echo "[E2E] chbuild failed; retrying with scripts/quick-build.sh" >&2
-    if ! (cd "$ROOT_DIR" && ./scripts/quick-build.sh) 2>&1 | tail -10; then
+    tail -80 "$build_log" >&2 || true
+    if ! (cd "$ROOT_DIR" && ./scripts/quick-build.sh) >"$quick_build_log" 2>&1; then
+        tail -80 "$quick_build_log" >&2 || true
         rm -f "$config_snapshot"
         echo "[E2E] QUICK BUILD FAILED for config: $label" >&2
         return 1
@@ -142,10 +168,13 @@ build_current_config() {
     # selection and rebuild the affected targets before running benchmarks.
     cp "$config_snapshot" "$ROOT_DIR/.config"
     rm -f "$config_snapshot"
-    if ! (cd "$ROOT_DIR" && ./scripts/chbuild-with-fallback.sh build) 2>&1 | tail -10; then
+    if ! (cd "$ROOT_DIR" && CHBUILD_LOG="$build_log" CHBUILD_QUIET=1 \
+            ./scripts/chbuild-with-fallback.sh build); then
+        tail -80 "$build_log" >&2 || true
         echo "[E2E] BUILD FAILED after restoring config: $label" >&2
         return 1
     fi
+    tail -10 "$build_log"
 }
 
 run_kernel_benchmarks() {
@@ -158,7 +187,7 @@ run_kernel_benchmarks() {
         local klog="$LOG_DIR/${label}_run${abs_run}_kernel.log"
         echo "[E2E]   kernel test → $(basename "$klog")"
         if run_qemu_session "$klog" "$KERNEL_TEST_CMD" "$KERNEL_TEST_DONE" \
-                "$KERNEL_BENCH_TIMEOUT"; then
+                "$KERNEL_BENCH_TIMEOUT" 1; then
             echo "[E2E]   kernel test done."
         else
             echo "[E2E]   kernel test TIMEOUT/FAIL — log saved, continuing." >&2
@@ -175,7 +204,7 @@ run_user_benchmarks() {
         for threads in $USER_BENCH_THREADS; do
             local ulog="$LOG_DIR/${label}_run${abs_run}_user_t${threads}.log"
             echo "[E2E]   user bench threads=$threads → $(basename "$ulog")"
-            if run_qemu_session "$ulog" \
+            if CPU_NUM="$USER_GUEST_CPU_NUM" run_qemu_session "$ulog" \
                     "malloc_benchmark.bin $threads $USER_BENCH_FIXED_ARGS" \
                     "$USER_BENCH_DONE" \
                     "$USER_BENCH_TIMEOUT"; then
@@ -212,7 +241,7 @@ with open(logfile) as f:
     lines = f.readlines()
 
 pat_kmalloc = re.compile(
-    r'\[TEST\]\s+(?P<mem>DRAM|CXL)\s+kmalloc avg throughput'
+    r'\[TEST\]\s+(?P<mem>DRAM|CXL)\s+kmalloc (?:total|avg) throughput'
     r'\s+\(parallel=(?P<par>\d+)\):\s+(?P<ops>\d+)\s+ops/s'
 )
 pat_gp_tp = re.compile(

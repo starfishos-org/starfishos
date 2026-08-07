@@ -16,12 +16,11 @@ CONFIGS = [
     ("LLFree",    "llfree_cr_off"),
     ("Buddy",     "buddy_cr_off"),
 ]
-RUNS    = [1, 2, 3]
 THREADS = [1, 2, 4, 8, 16, 32, 64, 96]
 
 # ── kernel log patterns ────────────────────────────────────────────────────
 pat_kmalloc = re.compile(
-    r'\[TEST\]\s+(?P<mem>DRAM|CXL)\s+kmalloc avg throughput'
+    r'\[TEST\]\s+(?P<mem>DRAM|CXL)\s+kmalloc (?:total|avg) throughput'
     r'\s+\(parallel=(?P<par>\d+)\):\s+(?P<ops>\d+)\s+ops/s'
 )
 pat_gp_tp = re.compile(
@@ -96,8 +95,15 @@ def parse_user_log(path, config, run):
 # ── collect ────────────────────────────────────────────────────────────────
 all_rows = []
 log_dir  = pathlib.Path(LOG_DIR)
+run_pattern = re.compile(r"_run(\d+)_(?:kernel|user_t\d+)\.log$")
+RUNS = sorted({int(match.group(1))
+               for path in log_dir.glob("*_run*.log")
+               if (match := run_pattern.search(path.name))})
+if not RUNS:
+    raise SystemExit(f"No allocator run logs found in {log_dir}")
 
 for cfg_label, file_prefix in CONFIGS:
+    has_kernel_logs = any(log_dir.glob(f"{file_prefix}_run*_kernel.log"))
     for run in RUNS:
         # kernel log
         klog = log_dir / f"{file_prefix}_run{run}_kernel.log"
@@ -105,10 +111,12 @@ for cfg_label, file_prefix in CONFIGS:
             r = parse_kernel_log(klog, cfg_label, run)
             all_rows.extend(r)
             print(f"  kernel {klog.name}: {len(r)} rows")
-        else:
+        elif has_kernel_logs:
             print(f"  [MISSING] {klog.name}")
 
         # user bench logs (one per thread count)
+        if not any(log_dir.glob(f"{file_prefix}_run{run}_user_t*.log")):
+            continue
         for t in THREADS:
             ulog = log_dir / f"{file_prefix}_run{run}_user_t{t}.log"
             if ulog.exists():

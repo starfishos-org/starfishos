@@ -10,7 +10,7 @@ SOCKET_PATH="/tmp/ivshmem-doorbell-$USER"
 PID_FILE="/tmp/ivshmem-server-$USER.pid"
 SHM_NAME="ivshmem-doorbell-$USER"
 SHM_SIZE="1M"  # Small size for doorbell only (data is in ivshmem-plain)
-VECTORS=16     # Number of interrupt vectors
+VECTORS="${IVSHMEM_VECTORS:-64}" # QEMU 6.2 server maximum; supports 32-vCPU user guests.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

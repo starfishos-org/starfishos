@@ -24,6 +24,7 @@ tmp_size=${TMP_SIZE:-1G}
 dram_size=${DRAM_SIZE:-32G}
 machine_num=${MACHINE_NUM:-1}
 cpu_num=${CPU_NUM:-12}
+ivshmem_vectors=${IVSHMEM_VECTORS:-64}
 cxl_size=${CXL_SIZE:-64G}
 cxlfs_dev_size=8G
 cxlfs_dev=${CXLFS_DEV:-$memdev_dir/ivshmem-cxlfs-$USER}
@@ -219,7 +220,7 @@ if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
 -object memory-backend-file,size=${cxlfs_dev_size_bytes},share=on,mem-path=$cxlfs_dev,id=cxlfsmem \
 -device ivshmem-plain,memdev=cxlfsmem \
 -chardev socket,path=/tmp/ivshmem-doorbell-$USER,id=doorbell_chardev \
--device ivshmem-doorbell,chardev=doorbell_chardev,vectors=16 \
+-device ivshmem-doorbell,chardev=doorbell_chardev,vectors=$ivshmem_vectors \
 -cpu host -smp $plat_cpu_name -serial mon:stdio -nographic \
 -boot order=d \
 -cdrom $basedir/chcore.iso \
