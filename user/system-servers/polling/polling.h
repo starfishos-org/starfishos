@@ -111,6 +111,7 @@ enum cxl_demote_wire_phase {
     CXL_DEMOTE_WIRE_FLUSH = 0,
     CXL_DEMOTE_WIRE_COPY,
     CXL_DEMOTE_WIRE_FREE_ORIGIN,
+    CXL_DEMOTE_WIRE_BITMAP_DRAM,
 };
 
 struct polling_cxl_demote_op {
@@ -312,9 +313,10 @@ static_assert(DQ_MAX_NODES >= 2,
               "SHM too small: need at least 2 nodes (1 sentinel + 1 data)");
 
 /*
- * Must match the kernel-side assert in kernel/include/mm/shm.h: a batch
- * request that outgrows polling_fs_req_write would enlarge dq_node, change
- * DQ_MAX_NODES, and desynchronize the shared node pool between the two sides.
+ * Must match the kernel-side assert in kernel/include/mm/shm.h.  This older
+ * TLB request is deliberately kept inside polling_fs_req_write; the CXL
+ * demote request is larger and both mirrors intentionally account for it in
+ * DQ_NODE_SIZE.
  */
 static_assert(sizeof(struct polling_kernel_req_flush_tlb_batch)
                       <= sizeof(struct polling_fs_req_write),

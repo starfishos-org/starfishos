@@ -11,20 +11,8 @@ struct vmspace;
 #define CLUSTER_MAX_MACHINE_NUM 8
 #endif
 
-#ifndef DSM_CXL_DEMOTE_HIGH_WATERMARK
-#define DSM_CXL_DEMOTE_HIGH_WATERMARK 90
-#endif
-
 #ifndef DSM_CXL_DEMOTE_LIMIT_MB
 #define DSM_CXL_DEMOTE_LIMIT_MB 1024
-#endif
-
-#ifndef DSM_CXL_DEMOTE_LOW_WATERMARK
-#define DSM_CXL_DEMOTE_LOW_WATERMARK 85
-#endif
-
-#ifndef DSM_CXL_DEMOTE_BATCH_PAGES
-#define DSM_CXL_DEMOTE_BATCH_PAGES 64
 #endif
 
 #define CXL_DEMOTE_MAX_BATCH 64
@@ -55,6 +43,7 @@ enum cxl_demote_batch_phase {
     CXL_DEMOTE_PHASE_FLUSH = 0,
     CXL_DEMOTE_PHASE_COPY,
     CXL_DEMOTE_PHASE_FREE_ORIGIN,
+    CXL_DEMOTE_PHASE_BITMAP_DRAM,
 };
 
 struct cxl_demote_batch_op {
@@ -66,6 +55,7 @@ struct cxl_demote_batch_op {
 };
 
 void dsm_cxl_reclaim_init(void);
+bool dsm_cxl_reclaim_enabled(void);
 /*
  * True when @pa must not be installed in a page table right now because the
  * demoter has already snapshotted the mappings of that page.  Callers hold
@@ -79,7 +69,7 @@ void dsm_cxl_cancel_reserved_pages(u64 pages);
 int dsm_cxl_reserve_resident_pages(u64 pages);
 void dsm_cxl_cancel_resident_pages(u64 pages);
 void dsm_cxl_free_page(struct page *page);
-int dsm_cxl_reclaim_if_needed(u64 requested_pages, bool force);
+int dsm_cxl_reclaim_step(u64 max_pages);
 u64 dsm_cxl_reclaimed_pages(void);
 int dsm_cxl_track_page(paddr_t cxl_pa, paddr_t origin_pa,
                        struct pmobject *pmo, u64 pmo_index,

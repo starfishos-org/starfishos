@@ -756,6 +756,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #else
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
 #endif
+        if (get_paddr_machine_id(pa) == MACHINE_ID_SHARED_MEMORY)
+            cxlprof_live_mark_cxl(vmspace, fault_addr);
         unlock(&vmspace->pgtbl_lock);
 
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
@@ -932,6 +934,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         * machine 0 - thread 1 also tigger a page fault, and wait here
         */
         if (pte && is_migration_entry(pte)) {
+            paddr_t settled_pa = 0;
+            pte_t *settled_pte = NULL;
 #ifdef PGFAULT_STATS_DEBUG
             u64 start_cycles = get_cycles();
 #endif
@@ -941,6 +945,19 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             /* Wait until migration completes */
             /* Note: migration_entry_wait will release and re-acquire locks internally */
             migration_entry_wait(pte, vmspace, fault_addr);
+            /*
+             * The migration entry is shared by both directions. Promotion
+             * leaves a CXL mapping, while demotion may install owner DRAM or
+             * remove this machine's mapping entirely. Classify the settled
+             * PTE instead of blindly restoring the CXL bit after the wait.
+             */
+            query_in_pgtbl(pgtbl, fault_addr, &settled_pa, &settled_pte);
+            if (settled_pte && settled_pte->pte_4K.present
+                && get_paddr_machine_id(settled_pa)
+                           == MACHINE_ID_SHARED_MEMORY)
+                cxlprof_live_mark_cxl(vmspace, fault_addr);
+            else
+                cxlprof_live_mark_dram(vmspace, fault_addr);
             DMS_INC(dms_c21);
 #ifdef PGFAULT_STATS_DEBUG
             u64 end_cycles = get_cycles();
@@ -1054,6 +1071,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     /* Map the page to the page table */
                     BUG_ON(get_paddr_machine_id(new_pa) != MACHINE_ID_SHARED_MEMORY);
                     map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                    cxlprof_live_mark_cxl(vmspace, fault_addr);
 
                     /* Unlock the page table and vmspace lock */
                     unlock(&vmspace->pgtbl_lock);
@@ -1101,6 +1119,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     new_pa = recheck_pa;
                     pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
                     map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                    cxlprof_live_mark_cxl(vmspace, fault_addr);
                     unlock(&vmspace->pgtbl_lock);
                     read_unlock(&vmspace->vmspace_lock);
                     remove_migrating_va(vmspace, fault_addr);
@@ -1134,6 +1153,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         new_pa = pa;
                         pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
                         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+                        if (mid == MACHINE_ID_SHARED_MEMORY)
+                            cxlprof_live_mark_cxl(vmspace, fault_addr);
                         unlock(&vmspace->pgtbl_lock);
                         read_unlock(&vmspace->vmspace_lock);
                         remove_migrating_va(vmspace, fault_addr);
@@ -1174,7 +1195,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 vaddr_t next_va;
                 void *dst_va;
                 int migrate_ret;
-                bool reclaim_needed = false;
+                bool reclaim_enabled = dsm_cxl_reclaim_enabled();
                 bool tracking_failed[POLLING_TLB_BATCH_MAX] = { false };
 
                 if (dsm_cxl_reserve_resident_pages(1) != 0) {
@@ -1284,21 +1305,24 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
                     map_page_in_pgtbl(pgtbl, batch[bi].fault_va,
                                       batch[bi].dst_pa, perm, &pte);
-                    track_ret = dsm_cxl_track_page(batch[bi].dst_pa,
-                                                   batch[bi].src_pa,
-                                                   pmo,
-                                                   index + bi,
-                                                   vmspace,
-                                                   batch[bi].fault_va,
-                                                   mid);
+                    cxlprof_live_mark_cxl(vmspace, batch[bi].fault_va);
+                    track_ret = reclaim_enabled
+                                ? dsm_cxl_track_page(batch[bi].dst_pa,
+                                                     batch[bi].src_pa,
+                                                     pmo,
+                                                     index + bi,
+                                                     vmspace,
+                                                     batch[bi].fault_va,
+                                                     mid)
+                                : -EOPNOTSUPP;
                     if (track_ret < 0) {
                         tracking_failed[bi] = true;
-                        kwarn("[CXL_RECLAIM] Failed to track migrated page "
-                              "pa=0x%lx ret=%d; releasing origin DRAM\n",
-                              batch[bi].dst_pa,
-                              track_ret);
-                    } else if (track_ret > 0) {
-                        reclaim_needed = true;
+                        if (reclaim_enabled)
+                            kwarn("[CXL_RECLAIM] Failed to track migrated "
+                                  "page pa=0x%lx ret=%d; releasing origin "
+                                  "DRAM\n",
+                                  batch[bi].dst_pa,
+                                  track_ret);
                     }
                 }
 
@@ -1321,9 +1345,6 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                  */
                 for (bi = 0; bi < batch_count; bi++)
                     remove_migrating_va(vmspace, batch[bi].fault_va);
-                if (reclaim_needed)
-                    dsm_cxl_reclaim_if_needed(0, false);
-
                 new_pa = batch[0].dst_pa;
 
                 DMS_INC(dms_c23);
@@ -1341,10 +1362,14 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         /* Case1: Direct map (shared memory or local) - no stats */
         DMS_INC(dms_direct);
         map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
+        if (get_paddr_machine_id(new_pa) == MACHINE_ID_SHARED_MEMORY)
+            cxlprof_live_mark_cxl(vmspace, fault_addr);
 #else
         int mid = get_paddr_machine_id(pa);
         BUG_ON(mid != CUR_MACHINE_ID && mid != MACHINE_ID_SHARED_MEMORY);
         map_page_in_pgtbl(vmspace->pgtbl, fault_addr, pa, perm, &pte);
+        if (mid == MACHINE_ID_SHARED_MEMORY)
+            cxlprof_live_mark_cxl(vmspace, fault_addr);
 #endif
         unlock(&vmspace->pgtbl_lock);
 

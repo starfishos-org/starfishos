@@ -46,12 +46,11 @@ void *get_cxl_pages(int order)
      * same CPU and wedges the whole cluster, because the vmspace and its page
      * tables are shared through CXL.
      *
-     * Demotion is driven from dsm_cxl_reserve_resident_pages() and from the
-     * post-mapping hook in handle_trans_fault(), both of which run with no mm
-     * lock held.  Those are the only paths that grow the resident set, so
-     * dropping the hook here does not lose a trigger; it only removes the
-     * unsafe one.  A failed reservation falls back to the pre-reclaim
-     * behaviour of reporting OOM to the caller.
+     * dsm_cxl_reserve_resident_pages() only publishes demand when a migrated
+     * user page reaches the hard residency cap.  A separate polling-service
+     * worker consumes that demand through a bounded syscall with no mm lock
+     * held.  A failed allocator reservation retains the pre-reclaim behaviour
+     * of reporting OOM to the caller.
      */
     if (dsm_cxl_reserve_pages(requested_pages) < 0) {
         kwarn("[OOM] Cannot reserve CXL pages!\n");

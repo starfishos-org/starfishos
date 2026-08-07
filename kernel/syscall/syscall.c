@@ -423,6 +423,8 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
         lock(&vmspace->pgtbl_lock);
         int ret = map_page_in_pgtbl(pgtbl, (vaddr_t)fault_va, (paddr_t)dst_pa,
                                     vmr->perm, &pte);
+        if (ret == 0)
+            cxlprof_live_mark_cxl(vmspace, (vaddr_t)fault_va);
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
         if (ret != 0) {
@@ -497,6 +499,7 @@ int sys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
     BUG_ON(!is_migration_entry(pte));
     remap_page_in_pgtbl(pte, dst_pa);  /* Set pfn to dst_pa */
     pte->pte_4K.present = 1;  /* Set present bit to make PTE valid again */
+    cxlprof_live_mark_cxl(vmspace, (vaddr_t)fault_va);
     // multipt_debug("cpu %d remap page(paddr=%p), fault_va=0x%lx\n", smp_get_cpu_id(), dst_pa, fault_va);
     unlock(&vmspace->pgtbl_lock);
 
@@ -761,6 +764,7 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
         BUG_ON(!is_migration_entry(pte));
         remap_page_in_pgtbl(pte, op->dst_pa);
         pte->pte_4K.present = 1;
+        cxlprof_live_mark_cxl(vmspace, (vaddr_t)op->fault_va);
         kdebug("cpu %d batch remap[%d] page(paddr=%p), fault_va=0x%lx\n",
                smp_get_cpu_id(), i, op->dst_pa, op->fault_va);
         
@@ -841,6 +845,28 @@ u64 sys_get_cxl_reclaimed_pages(void)
     return dsm_cxl_reclaimed_pages();
 #else
     return 0;
+#endif
+}
+
+int sys_cxl_reclaim_step(u64 max_pages)
+{
+#ifdef DSM_ENABLED
+    u64 badge;
+    const char *caller;
+
+    if (!current_thread || !current_cap_group)
+        return -EPERM;
+    badge = current_cap_group->badge;
+    caller = current_cap_group->cap_group_name;
+    if (badge != POLLING_BADGE
+        || (strcmp(caller, "/polling.srv") != 0
+            && strcmp(caller, "polling") != 0))
+        return -EPERM;
+
+    return dsm_cxl_reclaim_step(max_pages);
+#else
+    UNUSED(max_pages);
+    return -EINVAL;
 #endif
 }
 
@@ -1062,6 +1088,7 @@ const void *syscall_table[NR_SYSCALL] = {
         [SYS_memcpy_and_flush_tlb_batch] = sys_memcpy_and_flush_tlb_batch,
         [SYS_cxl_demote_batch] = sys_cxl_demote_batch,
         [SYS_get_cxl_reclaimed_pages] = sys_get_cxl_reclaimed_pages,
+        [SYS_cxl_reclaim_step] = sys_cxl_reclaim_step,
         [SYS_print_vmspace_stats] = sys_print_vmspace_stats,
         [SYS_snapshot_cxl_bitmap] = sys_snapshot_cxl_bitmap,
 

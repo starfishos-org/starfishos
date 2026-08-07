@@ -297,6 +297,11 @@ u64 usys_get_cxl_reclaimed_pages(void)
 	return chcore_syscall0(CHCORE_SYS_get_cxl_reclaimed_pages);
 }
 
+int usys_cxl_reclaim_step(u64 max_pages)
+{
+	return chcore_syscall1(CHCORE_SYS_cxl_reclaim_step, max_pages);
+}
+
 u64 usys_get_current_tick(void)
 {
 	return chcore_syscall0(CHCORE_SYS_get_current_tick);

@@ -72,6 +72,7 @@ int usys_memcpy_and_flush_tlb(u64 src_pa, u64 dst_pa, u64 len, u64 fault_va,
 int usys_memcpy_and_flush_tlb_batch(void *ops_buf, u64 ops_count);
 int usys_cxl_demote_batch(void *ops_buf, u64 ops_count, u64 phase);
 u64 usys_get_cxl_reclaimed_pages(void);
+int usys_cxl_reclaim_step(u64 max_pages);
 u64 usys_get_current_tick(void);
 
 u64 usys_virt_dispatch(u64 syscall_no, u64 param1, u64 param2, u64 param3,

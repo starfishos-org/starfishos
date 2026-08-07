@@ -40,6 +40,212 @@ const char* pmo_type_str[PMO_TYPE_NR] = {
     [PMO_HEAP] = "HEAP",
 };
 
+/*
+ * One tracker exists in each machine's kernel.  The DBX1000 snapshot worker
+ * on that machine registers a bitmap allocated and mapped in that machine's
+ * page table.  Runtime migration paths then update the bitmap through its
+ * pinned physical pages, avoiding copy_to_user (and its vmspace lock) in the
+ * page-fault critical path.
+ *
+ * Both promotion and demotion paths update the registered bitmap before a
+ * thread can resume accessing the affected page.
+ */
+#define CXLPROF_LIVE_MAX_NPAGES (16UL << 20)
+#define CXLPROF_LIVE_MAX_BITMAP_PAGES \
+    (DIV_ROUND_UP(CXLPROF_LIVE_MAX_NPAGES, 8 * PAGE_SIZE) + 1)
+
+struct cxlprof_live_tracker {
+    volatile bool active;
+    struct vmspace *vmspace;
+    vaddr_t base;
+    u64 npages;
+    vaddr_t bitmap_uva;
+    u64 bitmap_page_count;
+    paddr_t bitmap_pages[CXLPROF_LIVE_MAX_BITMAP_PAGES];
+    volatile u64 cxl_updates;
+    volatile u64 dram_updates;
+};
+
+static struct cxlprof_live_tracker cxlprof_live;
+
+static void cxlprof_live_unregister(struct vmspace *vmspace)
+{
+    if (cxlprof_live.vmspace != vmspace)
+        return;
+
+    __atomic_store_n(&cxlprof_live.active, false, __ATOMIC_RELEASE);
+    cxlprof_live.vmspace = NULL;
+    cxlprof_live.bitmap_page_count = 0;
+}
+
+static unsigned char *cxlprof_live_byte_ptr(u64 byte_index)
+{
+    u64 bitmap_offset;
+    u64 page_index;
+    u64 page_offset;
+    paddr_t pa;
+
+    bitmap_offset = (cxlprof_live.bitmap_uva & (PAGE_SIZE - 1)) + byte_index;
+    page_index = bitmap_offset / PAGE_SIZE;
+    page_offset = bitmap_offset % PAGE_SIZE;
+    if (page_index >= cxlprof_live.bitmap_page_count)
+        return NULL;
+    pa = cxlprof_live.bitmap_pages[page_index];
+    if (!pa)
+        return NULL;
+    return (unsigned char *)(phys_to_virt(pa) + page_offset);
+}
+
+void cxlprof_live_mark_cxl(struct vmspace *vmspace, vaddr_t va)
+{
+    u64 index;
+    u64 byte_index;
+    unsigned char mask;
+    unsigned char *byte;
+    unsigned char old;
+
+    if (!__atomic_load_n(&cxlprof_live.active, __ATOMIC_ACQUIRE)
+        || cxlprof_live.vmspace != vmspace || va < cxlprof_live.base)
+        return;
+    index = (va - cxlprof_live.base) / PAGE_SIZE;
+    if (index >= cxlprof_live.npages)
+        return;
+
+    byte_index = index / 8;
+    mask = (unsigned char)(1u << (index % 8));
+    byte = cxlprof_live_byte_ptr(byte_index);
+    if (!byte)
+        return;
+    old = __atomic_fetch_or(byte, mask, __ATOMIC_RELEASE);
+    if (!(old & mask))
+        __atomic_fetch_add(&cxlprof_live.cxl_updates, 1, __ATOMIC_RELAXED);
+}
+
+void cxlprof_live_mark_dram(struct vmspace *vmspace, vaddr_t va)
+{
+    u64 index;
+    u64 byte_index;
+    unsigned char mask;
+    unsigned char *byte;
+    unsigned char old;
+
+    if (!__atomic_load_n(&cxlprof_live.active, __ATOMIC_ACQUIRE)
+        || cxlprof_live.vmspace != vmspace || va < cxlprof_live.base)
+        return;
+    index = (va - cxlprof_live.base) / PAGE_SIZE;
+    if (index >= cxlprof_live.npages)
+        return;
+
+    byte_index = index / 8;
+    mask = (unsigned char)(1u << (index % 8));
+    byte = cxlprof_live_byte_ptr(byte_index);
+    if (!byte)
+        return;
+    old = __atomic_fetch_and(byte, (unsigned char)~mask, __ATOMIC_RELEASE);
+    if (old & mask)
+        __atomic_fetch_add(&cxlprof_live.dram_updates, 1, __ATOMIC_RELAXED);
+}
+
+static u64 cxlprof_live_compare_snapshot(struct vmspace *vmspace, u64 base,
+                                         u64 npages,
+                                         const unsigned char *snapshot)
+{
+    u64 i;
+    u64 live_cxl_snapshot_dram = 0;
+    u64 live_dram_snapshot_cxl = 0;
+
+    if (!__atomic_load_n(&cxlprof_live.active, __ATOMIC_ACQUIRE)
+        || cxlprof_live.vmspace != vmspace || cxlprof_live.base != base
+        || cxlprof_live.npages != npages)
+        return 0;
+
+    for (i = 0; i < npages; i++) {
+        unsigned char *live_byte = cxlprof_live_byte_ptr(i / 8);
+        unsigned char mask = (unsigned char)(1u << (i % 8));
+        bool live_cxl;
+        bool snapshot_cxl;
+
+        if (!live_byte)
+            return npages;
+        live_cxl = (__atomic_load_n(live_byte, __ATOMIC_ACQUIRE) & mask) != 0;
+        snapshot_cxl = (snapshot[i / 8] & mask) != 0;
+        if (live_cxl && !snapshot_cxl)
+            live_cxl_snapshot_dram++;
+        else if (!live_cxl && snapshot_cxl)
+            live_dram_snapshot_cxl++;
+    }
+
+    kinfo("[cxlprof_live] machine %d snapshot comparison: updates=%llu "
+          "cxl_updates=%llu dram_updates=%llu "
+          "live_cxl_snapshot_dram=%llu live_dram_snapshot_cxl=%llu "
+          "mismatch=%llu\n",
+          CUR_MACHINE_ID,
+          __atomic_load_n(&cxlprof_live.cxl_updates, __ATOMIC_RELAXED)
+              + __atomic_load_n(&cxlprof_live.dram_updates,
+                                __ATOMIC_RELAXED),
+          __atomic_load_n(&cxlprof_live.cxl_updates, __ATOMIC_RELAXED),
+          __atomic_load_n(&cxlprof_live.dram_updates, __ATOMIC_RELAXED),
+          live_cxl_snapshot_dram,
+          live_dram_snapshot_cxl,
+          live_cxl_snapshot_dram + live_dram_snapshot_cxl);
+    return live_cxl_snapshot_dram + live_dram_snapshot_cxl;
+}
+
+static int cxlprof_live_register(struct vmspace *vmspace, u64 base, u64 npages,
+                                 u64 ubitmap)
+{
+    vaddr_t bitmap_start;
+    size_t nbytes;
+    u64 page_count;
+    u64 i;
+    void *pgtbl;
+    int ret = 0;
+
+    nbytes = (size_t)DIV_ROUND_UP(npages, 8);
+    bitmap_start = ROUND_DOWN((vaddr_t)ubitmap, PAGE_SIZE);
+    page_count = DIV_ROUND_UP(((vaddr_t)ubitmap - bitmap_start) + nbytes,
+                              PAGE_SIZE);
+    if (page_count > CXLPROF_LIVE_MAX_BITMAP_PAGES)
+        return -EINVAL;
+
+    __atomic_store_n(&cxlprof_live.active, false, __ATOMIC_RELEASE);
+    memset(cxlprof_live.bitmap_pages, 0, sizeof(cxlprof_live.bitmap_pages));
+
+    read_lock(&vmspace->vmspace_lock);
+    lock(&vmspace->pgtbl_lock);
+    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
+    for (i = 0; i < page_count; i++) {
+        paddr_t pa = 0;
+        pte_t *pte = NULL;
+
+        if (!pgtbl
+            || query_in_pgtbl(pgtbl, bitmap_start + i * PAGE_SIZE,
+                              &pa, &pte) != 0
+            || !pte || !(pte->pteval & PAGE_PRESENT)) {
+            ret = -EINVAL;
+            break;
+        }
+        cxlprof_live.bitmap_pages[i] = ROUND_DOWN(pa, PAGE_SIZE);
+    }
+    unlock(&vmspace->pgtbl_lock);
+    read_unlock(&vmspace->vmspace_lock);
+    if (ret)
+        return ret;
+
+    cxlprof_live.vmspace = vmspace;
+    cxlprof_live.base = (vaddr_t)base;
+    cxlprof_live.npages = npages;
+    cxlprof_live.bitmap_uva = (vaddr_t)ubitmap;
+    cxlprof_live.bitmap_page_count = page_count;
+    __atomic_store_n(&cxlprof_live.cxl_updates, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&cxlprof_live.dram_updates, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&cxlprof_live.active, true, __ATOMIC_RELEASE);
+    kinfo("[cxlprof_live] machine %d registered %llu bitmap pages for "
+          "0x%lx +%llu data pages\n",
+          CUR_MACHINE_ID, page_count, base, npages);
+    return 0;
+}
+
 static inline const char* get_vmr_prop_str(vmr_prop_t prop)
 {
     // return r--, rwx, multiple
@@ -1289,6 +1495,7 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
     size_t nbytes;
     u64 mapped = 0;
     int ret = 0;
+    u64 live_mismatch;
 
     if (base & (PAGE_SIZE - 1))
         return -EINVAL;
@@ -1305,8 +1512,10 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
         return -EINVAL;
 
     kbitmap = dram_kmalloc(nbytes);
-    if (!kbitmap)
+    if (!kbitmap) {
+        obj_put(vmspace);
         return -ENOMEM;
+    }
     memset(kbitmap, 0, nbytes);
 
     /*
@@ -1314,6 +1523,7 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
      * user address by taking the same lock for writing.
      */
     read_lock(&vmspace->vmspace_lock);
+    lock(&vmspace->pgtbl_lock);
     {
         struct rb_node *node;
         void *local_pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
@@ -1350,14 +1560,22 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
             }
         }
     }
+    live_mismatch = cxlprof_live_compare_snapshot(vmspace, base, npages,
+                                                   kbitmap);
+    unlock(&vmspace->pgtbl_lock);
     read_unlock(&vmspace->vmspace_lock);
 
     if (copy_to_user((char *)ubitmap, (char *)kbitmap, nbytes) != 0)
+        ret = -EINVAL;
+    else if (cxlprof_live_register(vmspace, base, npages, ubitmap) != 0)
+        ret = -EINVAL;
+    else if (live_mismatch != 0)
         ret = -EINVAL;
 
     kfree(kbitmap);
     kinfo("[snapshot_cxl_bitmap] examined %llu mapped pages of %llu requested\n",
           mapped, npages);
+    obj_put(vmspace);
     return ret;
 }
 
@@ -1395,6 +1613,9 @@ void vmspace_deinit(void *ptr)
 {
     struct vmspace *vmspace;
     vmspace = (struct vmspace *)ptr;
+
+    /* Stop migration hooks before this vmspace releases its bitmap pages. */
+    cxlprof_live_unregister(vmspace);
 
 #ifdef PRINT_VMSPACE_STATS
 #ifdef PRINT_VMSPACE_STATS_NO_DETAILS

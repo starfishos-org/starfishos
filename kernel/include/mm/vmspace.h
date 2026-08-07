@@ -257,6 +257,10 @@ int vmspace_init(struct vmspace *vmspace);
 void print_vmspace_stats(struct vmspace *vmspace);
 void print_vmspace_memory_summary(struct vmspace *vmspace);
 
+/* Keep the DBX1000 access profiler's local bitmap current after migration. */
+void cxlprof_live_mark_cxl(struct vmspace *vmspace, vaddr_t va);
+void cxlprof_live_mark_dram(struct vmspace *vmspace, vaddr_t va);
+
 struct cap_group;
 int create_pmo(u64 size, u64 type, mem_t flags, struct cap_group *cap_group,
                struct pmobject **new_pmo);

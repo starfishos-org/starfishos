@@ -4,11 +4,12 @@
  * The main thread first faults a private anonymous range on machine 0 and
  * fills every word with a deterministic pattern. A worker then migrates to a
  * CPU on machine 1, verifies the original contents, and overwrites the range.
- * The worker migrates enough data to cross the configured high watermark and
- * force older CXL-resident pages back into their origin DRAM pages. Finally,
- * the main thread verifies the worker's pattern from machine 0. The test also
- * checks the kernel's reclaimed-page counter, so data verification alone
- * cannot produce a false PASS without exercising CXL-to-DRAM migration.
+ * The worker migrates enough data to reach the configured hard residency cap
+ * and force older CXL-resident pages back into their origin DRAM pages via the
+ * asynchronous polling-service worker. Finally, the main thread verifies the
+ * worker's pattern from machine 0. The test also checks the kernel's
+ * reclaimed-page counter, so data verification alone cannot produce a false
+ * PASS without exercising CXL-to-DRAM migration.
  *
  * Usage: test_cxl_reclaim.bin [MiB] [remote_global_cpu]
  */
@@ -26,7 +27,7 @@
 #ifndef MAP_FLAG_PRIVATE
 #define MAP_FLAG_PRIVATE 0x400000
 #endif
-#define DEFAULT_MIB 1000UL
+#define DEFAULT_MIB 2200UL
 #define DEFAULT_REMOTE_CPU 12UL
 #define WRITE_XOR 0xd1b54a32d192ed03ULL
 

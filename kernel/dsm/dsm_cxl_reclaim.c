@@ -30,27 +30,25 @@
 
 #define CXL_MAX_ABANDONED_POLLING_NODES 64
 
+/* The worker step, polling request, and MSI slot form one batch ABI. */
+_Static_assert(CXL_DEMOTE_MAX_BATCH == CXL_DEMOTE_WIRE_MAX_OPS,
+               "CXL demote batch limits must stay in sync");
+_Static_assert((int)CXL_DEMOTE_PHASE_FLUSH
+                          == (int)CXL_DEMOTE_WIRE_FLUSH
+               && (int)CXL_DEMOTE_PHASE_COPY
+                          == (int)CXL_DEMOTE_WIRE_COPY
+               && (int)CXL_DEMOTE_PHASE_FREE_ORIGIN
+                          == (int)CXL_DEMOTE_WIRE_FREE_ORIGIN
+               && (int)CXL_DEMOTE_PHASE_BITMAP_DRAM
+                          == (int)CXL_DEMOTE_WIRE_BITMAP_DRAM,
+               "CXL demote phase values must stay in sync");
+
 /* Upper bound on FIFO entries examined by one select_candidates() pass. */
 #define CXL_DEMOTE_SELECT_SCAN_LIMIT (8 * CXL_DEMOTE_MAX_BATCH)
-
-/*
- * How long a caller waits for the single cluster-wide reclaimer to make room.
- * This is a page-fault path, so it must be far shorter than the RPC timeout
- * used by the reclaimer itself; a waiter that spins for a full RPC timeout
- * steals the CPU the reclaimer needs.
- */
-#ifndef DSM_CXL_RECLAIM_WAIT_NS
-#define DSM_CXL_RECLAIM_WAIT_NS 20000000ULL /* 20 ms */
-#endif
 
 /* Bound on how long dsm_cxl_reserve_resident_pages() keeps retrying. */
 #ifndef DSM_CXL_RESERVE_TIMEOUT_NS
 #define DSM_CXL_RESERVE_TIMEOUT_NS 200000000ULL /* 200 ms */
-#endif
-
-/* Minimum spacing between heartbeat lines inside one demotion pass. */
-#ifndef DSM_CXL_DEMOTE_REPORT_NS
-#define DSM_CXL_DEMOTE_REPORT_NS 2000000000ULL /* 2 s */
 #endif
 
 struct cxl_saved_mapping {
@@ -82,32 +80,8 @@ struct cxl_demote_candidate {
     struct cxl_saved_mapping mappings[CXL_DEMOTE_MAX_MAPPINGS_PER_PAGE];
 };
 
-/*
- * Per-pass demotion counters.  Demotion is a distributed operation that can
- * legitimately take seconds, so a pass that only reports its total at the end
- * is indistinguishable from one that is stuck -- which is exactly how the
- * non-terminating pass fixed in this file managed to hang the cluster without
- * leaving a single line in the logs.  These counters back both a heartbeat
- * during a pass and a breakdown at the end of it.
- */
-struct cxl_demote_pass_stats {
-    u64 batches;
-    u64 empty_selects;
-    u64 selected;
-    u64 prepared;
-    u64 demoted;
-    u64 defer_no_alias;
-    u64 defer_busy;
-    u64 defer_too_many_aliases;
-    u64 flush_failures;
-    u64 copy_failures;
-    u64 pending_freed;
-    u64 start_ns;
-    u64 last_report_ns;
-};
-
 static struct cxl_demote_candidate candidates[CXL_DEMOTE_MAX_BATCH];
-/* Re-entrancy guard, per CPU of this machine (see dsm_cxl_reclaim_if_needed). */
+/* Re-entrancy guard for the per-machine background reclaim syscall. */
 static bool cxl_reclaim_on_cpu[PLAT_CPU_NUM];
 /* Reservations this machine gave up on; see dsm_cxl_reserve_resident_pages. */
 static u64 reserve_timeouts;
@@ -118,6 +92,7 @@ static bool abandoned_polling_slots_reserved[
         CXL_MAX_ABANDONED_POLLING_NODES];
 
 extern void remove_page_from_pmo(struct pmobject *pmo, u64 index);
+extern void handle_ipi(void);
 
 static void cxl_object_get(void *opaque)
 {
@@ -162,6 +137,9 @@ void dsm_cxl_vmr_init(struct vmregion *vmr)
 
 void dsm_cxl_link_vmr(struct vmregion *vmr)
 {
+#ifndef DSM_CXL_DEMOTE_ENABLED
+    UNUSED(vmr);
+#else
     struct pmobject *pmo;
 
     if (!vmr || !vmr->pmo || !is_radix_pmo(vmr->pmo)
@@ -177,6 +155,7 @@ void dsm_cxl_link_vmr(struct vmregion *vmr)
         vmr->cxl_pmo_linked = true;
     }
     unlock(&pmo->cxl_mapping_lock);
+#endif
 }
 
 void dsm_cxl_unlink_vmr(struct vmregion *vmr)
@@ -224,6 +203,17 @@ static struct page *validated_cxl_page(paddr_t pa)
         || !page_check_flag(page, PG_allocated) || cxl_page_pa(page) != pa)
         return NULL;
     return page;
+}
+
+bool dsm_cxl_reclaim_enabled(void)
+{
+#ifdef DSM_CXL_DEMOTE_ENABLED
+    return dsm_meta
+           && __atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
+                              __ATOMIC_ACQUIRE);
+#else
+    return false;
+#endif
 }
 
 bool dsm_cxl_mapping_in_transition(struct pmobject *pmo, u64 pmo_index,
@@ -281,6 +271,14 @@ void dsm_cxl_reclaim_init(void)
     if (CUR_MACHINE_ID != 0)
         return;
 
+#ifndef DSM_CXL_DEMOTE_ENABLED
+    __atomic_store_n(&dsm_meta->cxl_reclaim.initialized,
+                     0,
+                     __ATOMIC_RELEASE);
+    kinfo("[CXL_RECLAIM] disabled\n");
+    return;
+#endif
+
     for (i = 0; i < cxlmem_map_num; i++)
         total_pages += global_cxl_mem[i]->pool_phys_page_num;
     limit_pages = (u64)DSM_CXL_DEMOTE_LIMIT_MB * 1024 * 1024 / PAGE_SIZE;
@@ -299,6 +297,7 @@ void dsm_cxl_reclaim_init(void)
     dsm_meta->cxl_reclaim.free_pending_pages = 0;
     dsm_meta->cxl_reclaim.next_sequence = 1;
     dsm_meta->cxl_reclaim.next_rpc_id = 1;
+    dsm_meta->cxl_reclaim.pending_reclaim_pages = 0;
     __atomic_store_n(&dsm_meta->cxl_reclaim.reclaiming,
                      0,
                      __ATOMIC_RELEASE);
@@ -307,19 +306,16 @@ void dsm_cxl_reclaim_init(void)
                      __ATOMIC_RELEASE);
 
     kinfo("[CXL_RECLAIM] initialized total_pages=%lu limit_pages=%lu "
-          "limit_mb=%d high=%d low=%d batch=%d\n",
+          "limit_mb=%d async_batch=%d\n",
           total_pages,
           limit_pages,
           DSM_CXL_DEMOTE_LIMIT_MB,
-          DSM_CXL_DEMOTE_HIGH_WATERMARK,
-          DSM_CXL_DEMOTE_LOW_WATERMARK,
-          DSM_CXL_DEMOTE_BATCH_PAGES);
+          CXL_DEMOTE_MAX_BATCH);
 }
 
 int dsm_cxl_reserve_pages(u64 pages)
 {
     u64 projected;
-    int reclaim_needed;
 
     if (!dsm_meta
         || !__atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
@@ -335,12 +331,8 @@ int dsm_cxl_reserve_pages(u64 pages)
         return -ENOMEM;
     }
     dsm_meta->cxl_reclaim.reserved_pages += pages;
-    reclaim_needed = cxl_usage_percent(
-                             dsm_meta->cxl_reclaim.resident_pages,
-                             dsm_meta->cxl_reclaim.limit_pages)
-                     >= DSM_CXL_DEMOTE_HIGH_WATERMARK;
     unlock(&dsm_meta->cxl_reclaim.lock);
-    return reclaim_needed;
+    return 0;
 }
 
 void dsm_cxl_commit_reserved_pages(u64 pages)
@@ -374,6 +366,7 @@ int dsm_cxl_reserve_resident_pages(u64 pages)
 {
     u64 projected;
     u64 deadline;
+    bool request_submitted = false;
 
     if (!dsm_meta
         || !__atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
@@ -388,24 +381,39 @@ int dsm_cxl_reserve_resident_pages(u64 pages)
         if (projected >= dsm_meta->cxl_reclaim.resident_pages
             && projected <= dsm_meta->cxl_reclaim.limit_pages) {
             dsm_meta->cxl_reclaim.resident_reserved_pages += pages;
+            if (request_submitted) {
+                BUG_ON(dsm_meta->cxl_reclaim.pending_reclaim_pages < pages);
+                dsm_meta->cxl_reclaim.pending_reclaim_pages -= pages;
+            }
             unlock(&dsm_meta->cxl_reclaim.lock);
             return 0;
+        }
+        if (!request_submitted) {
+            BUG_ON(dsm_meta->cxl_reclaim.pending_reclaim_pages + pages
+                   < dsm_meta->cxl_reclaim.pending_reclaim_pages);
+            dsm_meta->cxl_reclaim.pending_reclaim_pages += pages;
+            request_submitted = true;
         }
         unlock(&dsm_meta->cxl_reclaim.lock);
 
         /*
-         * Retry on the reservation, not on the return value.  Reclaim is a
-         * cluster-wide singleton: a caller that only waited for the active
-         * reclaimer reports zero pages freed even though that reclaimer just
-         * created the headroom this caller needs.  Bailing out here sends the
-         * fault back to user space, which immediately re-faults, so hundreds
-         * of threads hammer the shared reclaim lock instead of consuming the
-         * headroom.  Give up only once the bounded deadline expires.
+         * Demotion is performed by the polling service's background worker.
+         * This fault only publishes its pending page demand and waits for the
+         * resulting headroom; it must never become the cluster reclaimer.
+         * A timeout returns the fault to user space for a bounded retry.
          */
-        dsm_cxl_reclaim_if_needed(pages, true);
         if (plat_get_mono_time() >= deadline) {
             u64 failures = __atomic_add_fetch(&reserve_timeouts, 1,
                                               __ATOMIC_RELAXED);
+            u64 resident;
+            u64 limit;
+
+            lock(&dsm_meta->cxl_reclaim.lock);
+            BUG_ON(dsm_meta->cxl_reclaim.pending_reclaim_pages < pages);
+            dsm_meta->cxl_reclaim.pending_reclaim_pages -= pages;
+            resident = dsm_meta->cxl_reclaim.resident_pages;
+            limit = dsm_meta->cxl_reclaim.limit_pages;
+            unlock(&dsm_meta->cxl_reclaim.lock);
 
             /*
              * Every one of these sends a page fault back to user space to be
@@ -418,13 +426,13 @@ int dsm_cxl_reserve_resident_pages(u64 pages)
                       "resident=%lu limit=%lu usage=%lu%% (workload needs "
                       "more CXL than the demote limit allows)\n",
                       failures,
-                      dsm_meta->cxl_reclaim.resident_pages,
-                      dsm_meta->cxl_reclaim.limit_pages,
-                      cxl_usage_percent(
-                              dsm_meta->cxl_reclaim.resident_pages,
-                              dsm_meta->cxl_reclaim.limit_pages));
+                      resident,
+                      limit,
+                      cxl_usage_percent(resident, limit));
             return -EAGAIN;
         }
+        handle_ipi();
+        CPU_PAUSE();
     }
 }
 
@@ -461,8 +469,9 @@ int dsm_cxl_track_page(paddr_t cxl_pa, paddr_t origin_pa,
                        mid_t owner_mid)
 {
     struct page *page;
-    int reclaim_needed;
 
+    if (!dsm_cxl_reclaim_enabled())
+        return -EOPNOTSUPP;
     if (!dsm_meta || !pmo || !vmspace
         || owner_mid < 0 || owner_mid >= CLUSTER_MACHINE_NUM)
         return -EINVAL;
@@ -494,14 +503,10 @@ int dsm_cxl_track_page(paddr_t cxl_pa, paddr_t origin_pa,
     BUG_ON(dsm_meta->cxl_reclaim.resident_pages
            + dsm_meta->cxl_reclaim.resident_reserved_pages
            > dsm_meta->cxl_reclaim.limit_pages);
-    reclaim_needed = cxl_usage_percent(
-                             dsm_meta->cxl_reclaim.resident_pages,
-                             dsm_meta->cxl_reclaim.limit_pages)
-                     >= DSM_CXL_DEMOTE_HIGH_WATERMARK;
     unlock(&dsm_meta->cxl_reclaim.lock);
 
     UNUSED(va);
-    return reclaim_needed;
+    return 0;
 }
 
 static bool try_pin_candidate_pmo(struct page *page, struct pmobject **pmo_out)
@@ -753,6 +758,9 @@ static bool operation_matches_page(struct cxl_demote_batch_op *op,
         valid = (page->cxl_reclaim_state == CXL_RECLAIM_FREE_PENDING
                  || page->cxl_reclaim_state == CXL_RECLAIM_FREEING)
                 && page->cxl_owner_mid == CUR_MACHINE_ID;
+    } else if (phase == CXL_DEMOTE_PHASE_BITMAP_DRAM) {
+        valid = page->cxl_reclaim_state == CXL_RECLAIM_DEMOTING
+                && page->cxl_reclaim_phase == CXL_RECLAIM_PHASE_FLUSHED;
     }
 out:
     unlock(&dsm_meta->cxl_reclaim.lock);
@@ -799,9 +807,11 @@ int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
     u64 i;
     int ret = 0;
 
+    if (!dsm_cxl_reclaim_enabled())
+        return -EOPNOTSUPP;
     if (!ops || ops_count == 0 || ops_count > CXL_DEMOTE_MAX_BATCH)
         return -EINVAL;
-    if (phase > CXL_DEMOTE_PHASE_FREE_ORIGIN)
+    if (phase > CXL_DEMOTE_PHASE_BITMAP_DRAM)
         return -EINVAL;
 
     for (i = 0; i < ops_count; i++) {
@@ -834,7 +844,8 @@ int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
             }
         }
 
-        if (phase == CXL_DEMOTE_PHASE_FLUSH) {
+        if (phase == CXL_DEMOTE_PHASE_FLUSH
+            || phase == CXL_DEMOTE_PHASE_BITMAP_DRAM) {
             void *pgtbl;
             paddr_t pa = 0;
             pte_t *pte = NULL;
@@ -844,6 +855,9 @@ int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
                 ret = -EPERM;
                 goto out;
             }
+            if (phase == CXL_DEMOTE_PHASE_BITMAP_DRAM)
+                continue;
+
             pgtbl = get_vmspace_pgtbl(vmspaces[i], CUR_MACHINE_ID);
             if (!pgtbl) {
                 ret = -EINVAL;
@@ -871,6 +885,9 @@ int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
             memcpy((void *)phys_to_virt(ops[i].dst_pa),
                    (void *)phys_to_virt(ops[i].src_pa),
                    PAGE_SIZE);
+    } else if (phase == CXL_DEMOTE_PHASE_BITMAP_DRAM) {
+        for (i = 0; i < ops_count; i++)
+            cxlprof_live_mark_dram(vmspaces[i], ops[i].fault_va);
     } else {
         for (i = 0; i < ops_count; i++) {
             u8 expected = CXL_ORIGIN_NOT_RELEASED;
@@ -1206,6 +1223,50 @@ static int copy_candidates(struct cxl_demote_candidate *batch, u32 count)
     return 0;
 }
 
+static int clear_candidate_bitmaps(struct cxl_demote_candidate *batch,
+                                   u32 count)
+{
+    struct cxl_demote_batch_op ops[CXL_DEMOTE_MAX_BATCH];
+    mid_t mid;
+
+    for (mid = 0; mid < CLUSTER_MACHINE_NUM; mid++) {
+        u32 i, mapping_idx, op_count = 0;
+
+        for (i = 0; i < count; i++) {
+            for (mapping_idx = 0;
+                 mapping_idx < batch[i].mapping_count;
+                 mapping_idx++) {
+                struct cxl_saved_mapping *mapping =
+                        &batch[i].mappings[mapping_idx];
+
+                if (mapping->machine_id != mid)
+                    continue;
+                ops[op_count].src_pa = batch[i].cxl_pa;
+                ops[op_count].dst_pa = batch[i].origin_pa;
+                ops[op_count].fault_va = mapping->va;
+                ops[op_count].vmspace_ptr = (u64)mapping->vmspace;
+                ops[op_count].txn_id = batch[i].page->cxl_sequence;
+                op_count++;
+                if (op_count == CXL_DEMOTE_MAX_BATCH) {
+                    if (send_remote_batch(mid,
+                                          ops,
+                                          op_count,
+                                          CXL_DEMOTE_PHASE_BITMAP_DRAM))
+                        return -EIO;
+                    op_count = 0;
+                }
+            }
+        }
+        if (op_count
+            && send_remote_batch(mid,
+                                 ops,
+                                 op_count,
+                                 CXL_DEMOTE_PHASE_BITMAP_DRAM))
+            return -EIO;
+    }
+    return 0;
+}
+
 static void finalize_cxl_page_free(struct page *page)
 {
     lock(&dsm_meta->cxl_reclaim.lock);
@@ -1521,37 +1582,18 @@ static void defer_candidate(struct cxl_demote_candidate *candidate)
     release_candidate_pmo(candidate);
 }
 
-static int demote_one_batch(u32 limit, u32 *examined,
-                            struct cxl_demote_pass_stats *stats)
+static int demote_one_batch(u32 limit)
 {
     u32 count, i, prepared_count = 0;
     int ret;
 
-    *examined = 0;
-    stats->batches++;
     count = select_candidates(limit);
-    if (count == 0) {
-        stats->empty_selects++;
+    if (count == 0)
         return 0;
-    }
-    *examined = count;
-    stats->selected += count;
 
     for (i = 0; i < count; i++) {
         ret = prepare_candidate(&candidates[i]);
         if (ret) {
-            /*
-             * Keep the reasons apart.  They mean very different things: a
-             * page with no mapping left is simply stale FIFO state, a busy
-             * PTE is a live race with a faulting thread, and an alias
-             * overflow means the page can never be reclaimed at all.
-             */
-            if (ret == -ENOENT)
-                stats->defer_no_alias++;
-            else if (ret == -E2BIG)
-                stats->defer_too_many_aliases++;
-            else
-                stats->defer_busy++;
             defer_candidate(&candidates[i]);
             continue;
         }
@@ -1560,263 +1602,90 @@ static int demote_one_batch(u32 limit, u32 *examined,
         prepared_count++;
     }
     count = prepared_count;
-    stats->prepared += count;
     if (count == 0)
         return -EAGAIN;
 
     ret = flush_candidates(candidates, count);
     if (ret) {
-        stats->flush_failures++;
         restore_candidates(candidates, count);
         return ret;
     }
     mark_candidates_flushed(candidates, count);
     ret = copy_candidates(candidates, count);
     if (ret) {
-        stats->copy_failures++;
         restore_candidates(candidates, count);
         return ret;
     }
 
+    /*
+     * PTEs are still migration entries here, so no row access can observe the
+     * cleared bit before finish_candidate() installs DRAM or removes the
+     * non-owner mapping.  A profiler transport failure must not compromise the
+     * memory-management operation; the final snapshot will report the stale
+     * bitmap if this best-effort notification ever fails.
+     */
+    if (clear_candidate_bitmaps(candidates, count) != 0)
+        kwarn("[cxlprof_live] failed to clear one or more demoted mappings\n");
+
     for (i = 0; i < count; i++)
         finish_candidate(&candidates[i]);
-    stats->demoted += count;
     return count;
 }
 
-static int cxl_reclaim_run(u64 requested_pages, bool force)
+/*
+ * Execute at most one bounded unit of work.  The cluster token covers both
+ * deferred frees and candidate demotion, so candidates[] and all distributed
+ * phases remain a true singleton even though every machine has a worker.
+ */
+static int cxl_reclaim_run(u32 max_pages)
 {
-    u64 resident, limit, low_target, deadline, scanned, scan_limit;
-    u64 pass_target, pass_reclaimed;
-    struct cxl_demote_pass_stats stats;
-    bool reclaim_to_low = false;
-    bool target_initialized = false;
-    u32 examined;
+    bool demand_pending;
+    bool free_pending;
     int reclaimed;
-    int ret;
 
-    memset(&stats, 0, sizeof(stats));
-    reclaimed = retry_pending_frees(DSM_CXL_DEMOTE_BATCH_PAGES);
-    stats.pending_freed = (u64)(reclaimed > 0 ? reclaimed : 0);
-
-retry:
     lock(&dsm_meta->cxl_reclaim.lock);
-    limit = dsm_meta->cxl_reclaim.limit_pages;
-    resident = dsm_meta->cxl_reclaim.resident_pages;
-    low_target = limit * DSM_CXL_DEMOTE_LOW_WATERMARK / 100;
-    if (!target_initialized) {
-        /*
-         * A forced request which starts above the low watermark must create
-         * useful headroom, not merely free requested_pages.  In particular,
-         * hard-cap page faults request one page at a time; stopping after the
-         * first 64-page batch makes every waiter start another expensive
-         * distributed reclaim pass.  Keep this initial target stable across
-         * retries so a waiter can observe that the active reclaimer already
-         * reached it and return without over-reclaiming.
-         */
-        reclaim_to_low = force && resident > low_target;
-        target_initialized = true;
-    }
-    if (force
-        && ((reclaim_to_low && resident <= low_target)
-            || (!reclaim_to_low
-                && reclaimed >= (int)requested_pages))) {
+    demand_pending = dsm_meta->cxl_reclaim.pending_reclaim_pages != 0;
+    free_pending = dsm_meta->cxl_reclaim.free_pending_pages != 0;
+    if (!demand_pending && !free_pending) {
         unlock(&dsm_meta->cxl_reclaim.lock);
-        return reclaimed;
-    }
-    if (!force
-        && cxl_usage_percent(resident, limit)
-                   < DSM_CXL_DEMOTE_HIGH_WATERMARK) {
-        unlock(&dsm_meta->cxl_reclaim.lock);
-        return reclaimed;
+        return 0;
     }
     if (dsm_meta->cxl_reclaim.reclaiming) {
         unlock(&dsm_meta->cxl_reclaim.lock);
-        /*
-         * A normal reclaim request comes from the page-fault path after the
-         * migrated page has already been installed and tracked.  Another CPU
-         * is already reducing the shared resident set, so blocking this fault
-         * only serializes otherwise independent migrations across the whole
-         * cluster.  Forced reclaim is different: its caller needs a specific
-         * number of pages and therefore must wait for the current pass before
-         * checking the target again.
-         */
-        if (!force)
-            return reclaimed;
-        deadline = plat_get_mono_time() + DSM_CXL_RECLAIM_WAIT_NS;
-        while (__atomic_load_n(&dsm_meta->cxl_reclaim.reclaiming,
-                               __ATOMIC_ACQUIRE)) {
-            extern void handle_ipi(void);
-
-            if (plat_get_mono_time() >= deadline)
-                return reclaimed;
-            handle_ipi();
-            CPU_PAUSE();
-        }
-        goto retry;
+        return -EAGAIN;
     }
     __atomic_store_n(&dsm_meta->cxl_reclaim.reclaiming,
                      1,
                      __ATOMIC_RELEASE);
-    /*
-     * Fix the amount of work for this pass before releasing the lock.
-     *
-     * The loop below used to run "while (resident > low_target)" against the
-     * live shared counter.  Reclaim is synchronous in the faulting thread and
-     * is a cluster-wide singleton, while every other thread on all machines
-     * keeps promoting pages into CXL.  Under a workload that promotes faster
-     * than one CPU can demote -- DBx1000 at 64 workers is one -- the live
-     * counter never reaches the low watermark, so the pass never returns:
-     * the thread stays in the kernel forever, no other thread can start a
-     * pass, and the "[CXL_RECLAIM] reclaimed=" line at the end of the
-     * function is never printed.  That is the initialization stall.
-     *
-     * Reclaiming a fixed deficit keeps the high/low hysteresis, terminates
-     * regardless of concurrent promotion, and lets the next fault start a
-     * fresh pass if promotion consumed the headroom again.
-     */
-    if (resident > low_target)
-        pass_target = resident - low_target;
-    else
-        pass_target = requested_pages;
-    if (pass_target == 0)
-        pass_target = 1;
     unlock(&dsm_meta->cxl_reclaim.lock);
 
-    stats.start_ns = plat_get_mono_time();
-    stats.last_report_ns = stats.start_ns;
-    kinfo("[CXL_RECLAIM] pass start cpu=%d resident=%lu limit=%lu usage=%lu%% "
-          "target=%lu force=%d pending_freed=%lu\n",
-          smp_get_cpu_id(),
-          resident,
-          limit,
-          cxl_usage_percent(resident, limit),
-          pass_target,
-          force,
-          stats.pending_freed);
-
-    pass_reclaimed = 0;
-    scanned = 0;
-    scan_limit = resident;
-    do {
-        u64 now;
-
-        ret = demote_one_batch(DSM_CXL_DEMOTE_BATCH_PAGES, &examined, &stats);
-
-        /*
-         * Heartbeat.  A pass legitimately runs for seconds; without this an
-         * operator cannot tell a slow distributed demotion from a wedged one,
-         * and that ambiguity is what made the original stall so hard to see.
-         */
-        now = plat_get_mono_time();
-        if (now - stats.last_report_ns >= DSM_CXL_DEMOTE_REPORT_NS) {
-            stats.last_report_ns = now;
-            kinfo("[CXL_RECLAIM] pass progress cpu=%d elapsed=%lums "
-                  "demoted=%lu/%lu batches=%lu prepared=%lu "
-                  "defer(no_alias=%lu busy=%lu aliases=%lu) "
-                  "fail(flush=%lu copy=%lu) resident=%lu\n",
-                  smp_get_cpu_id(),
-                  (now - stats.start_ns) / 1000000,
-                  pass_reclaimed,
-                  pass_target,
-                  stats.batches,
-                  stats.prepared,
-                  stats.defer_no_alias,
-                  stats.defer_busy,
-                  stats.defer_too_many_aliases,
-                  stats.flush_failures,
-                  stats.copy_failures,
-                  resident);
-        }
-        if (ret == -EAGAIN) {
-            /*
-             * A busy/migrating alias only makes this batch temporarily
-             * unsuitable.  Its pages were moved to the FIFO tail, so continue
-             * with the next batch instead of returning to the same fault and
-             * hot-spinning.  Stop after one bounded pass if every resident
-             * page was unsuitable.
-             */
-            scanned += examined;
-            if (examined == 0 || scanned >= scan_limit) {
-                kwarn_once(
-                        "[CXL_RECLAIM] scanned %lu resident pages without a "
-                        "reclaimable candidate\n",
-                        scanned);
-                break;
-            }
-            continue;
-        }
-        if (ret <= 0)
-            break;
-        reclaimed += ret;
-        pass_reclaimed += (u64)ret;
-        scanned = 0;
-        lock(&dsm_meta->cxl_reclaim.lock);
-        resident = dsm_meta->cxl_reclaim.resident_pages;
-        unlock(&dsm_meta->cxl_reclaim.lock);
-        scan_limit = resident;
-    } while (pass_reclaimed < pass_target && resident > 0);
+    reclaimed = free_pending ? retry_pending_frees(max_pages) : 0;
+    if (reclaimed == 0 && demand_pending)
+        reclaimed = demote_one_batch(max_pages);
 
     lock(&dsm_meta->cxl_reclaim.lock);
     __atomic_store_n(&dsm_meta->cxl_reclaim.reclaiming,
                      0,
                      __ATOMIC_RELEASE);
-    resident = dsm_meta->cxl_reclaim.resident_pages;
     unlock(&dsm_meta->cxl_reclaim.lock);
-
-    kinfo("[CXL_RECLAIM] pass done cpu=%d reclaimed=%d pass=%lu target=%lu "
-          "usage=%lu%% force=%d elapsed=%lums batches=%lu selected=%lu "
-          "prepared=%lu defer(no_alias=%lu busy=%lu aliases=%lu) "
-          "fail(flush=%lu copy=%lu) empty_selects=%lu\n",
-          smp_get_cpu_id(),
-          reclaimed,
-          pass_reclaimed,
-          pass_target,
-          cxl_usage_percent(resident, limit),
-          force,
-          (plat_get_mono_time() - stats.start_ns) / 1000000,
-          stats.batches,
-          stats.selected,
-          stats.prepared,
-          stats.defer_no_alias,
-          stats.defer_busy,
-          stats.defer_too_many_aliases,
-          stats.flush_failures,
-          stats.copy_failures,
-          stats.empty_selects);
     return reclaimed;
 }
 
-/*
- * Caller contract: no vmspace_lock and no pgtbl_lock may be held.  The demoter
- * takes both, and it issues cross-machine RPCs whose remote handlers take
- * pgtbl_lock as well.  vmspace->pgtbl_lock is a non-recursive ticket lock that
- * lives in CXL and is shared by every machine, so entering from a locked
- * context wedges the whole cluster rather than just this CPU.
- */
-int dsm_cxl_reclaim_if_needed(u64 requested_pages, bool force)
+int dsm_cxl_reclaim_step(u64 max_pages)
 {
     u32 cpuid;
     int reclaimed;
 
-    if (!dsm_meta
-        || !__atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
-                            __ATOMIC_ACQUIRE))
-        return 0;
+    if (!dsm_cxl_reclaim_enabled())
+        return -EOPNOTSUPP;
+    if (max_pages == 0 || max_pages > CXL_DEMOTE_MAX_BATCH)
+        return -EINVAL;
 
-    /*
-     * Never re-enter on the same CPU.  cxl_reclaim_run() drives the machine
-     * global candidates[] array and keeps page state across RPCs, and the
-     * reclaimer itself allocates (commit_page_to_pmo, radix nodes), which can
-     * come straight back here.  The cluster-wide "reclaiming" flag does not
-     * cover that: this CPU is the one holding it, so a nested forced call
-     * would wait for itself.
-     */
     cpuid = smp_get_cpu_id();
     if (cxl_reclaim_on_cpu[cpuid])
-        return 0;
+        return -EAGAIN;
     cxl_reclaim_on_cpu[cpuid] = true;
-    reclaimed = cxl_reclaim_run(requested_pages, force);
+    reclaimed = cxl_reclaim_run((u32)max_pages);
     cxl_reclaim_on_cpu[cpuid] = false;
     return reclaimed;
 }

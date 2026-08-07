@@ -236,6 +236,12 @@ typedef struct {
         volatile u64 free_pending_pages;
         u64 next_sequence;
         volatile u64 next_rpc_id;
+        /*
+         * Pages requested by faults which are waiting at the hard limit.
+         * Faulting threads publish and withdraw their own demand; the
+         * background worker only consumes this as a wake-up condition.
+         */
+        volatile u64 pending_reclaim_pages;
         u32 reclaiming;
         u32 initialized;
     } cxl_reclaim;
@@ -310,7 +316,7 @@ typedef struct {
             volatile u64 fault_va;
             volatile u64 vmspace_ptr;
             volatile u64 txn_id;
-        } cxl_batch_ops[64];
+        } cxl_batch_ops[CXL_DEMOTE_WIRE_MAX_OPS];
     } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
 
     /* One-way ivshmem MSI delivery benchmark.  The sender publishes a request

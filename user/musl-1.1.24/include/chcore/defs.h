@@ -258,3 +258,4 @@
 #define CHCORE_SYS_cxl_demote_batch     268
 #define CHCORE_SYS_get_cxl_reclaimed_pages 269
 #define CHCORE_SYS_snapshot_cxl_bitmap  270
+#define CHCORE_SYS_cxl_reclaim_step      271

@@ -10,6 +10,7 @@
 #include <chcore-internal/fs_defs.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -20,6 +21,10 @@
  * Dumped via polling_print_debug_info() when client sends POLLING_PRINT_DEBUG_INFO.
  */
 #define ENABLE_SRV_TIMING 0
+
+#define CXL_RECLAIM_STEP_PAGES 64
+#define CXL_RECLAIM_IDLE_NS    1000000L
+#define CXL_RECLAIM_RETRY_NS   1000000L
 
 static inline uint64_t rdtsc(void)
 {
@@ -34,6 +39,40 @@ struct polling_thread_arg {
 };
 
 int my_id = -1;
+
+static void *cxl_reclaim_worker_thread(void *arg)
+{
+    struct timespec idle = { .tv_sec = 0, .tv_nsec = CXL_RECLAIM_IDLE_NS };
+    struct timespec retry = { .tv_sec = 0, .tv_nsec = CXL_RECLAIM_RETRY_NS };
+    u32 cpu_count;
+
+    (void)arg;
+    cpu_count = usys_get_machine_cpu_count();
+    if (cpu_count > 0) {
+        cpu_set_t cpu_set;
+        int target_cpu = (int)cpu_count - 1;
+
+        CPU_ZERO(&cpu_set);
+        CPU_SET(target_cpu, &cpu_set);
+        if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0)
+            printf("CXL reclaim worker: failed to bind to CPU %d\n",
+                   target_cpu);
+    }
+
+    while (1) {
+        int reclaimed = usys_cxl_reclaim_step(CXL_RECLAIM_STEP_PAGES);
+
+        if (reclaimed == -EOPNOTSUPP)
+            return NULL;
+        if (reclaimed > 0) {
+            /* Let faults consume the new headroom before checking demand. */
+            nanosleep(&idle, NULL);
+            continue;
+        }
+        nanosleep(reclaimed == 0 ? &idle : &retry, NULL);
+    }
+    return NULL;
+}
 
 /* ================================================================
  * SHM region initialization
@@ -148,8 +187,6 @@ void *polling_reader_thread(void *arg)
     if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0) {
         printf("Failed to set polling thread %d affinity to CPU %d\n",
                thread_id, target_cpu);
-    } else {
-        printf("Polling thread %d bound to CPU %d\n", thread_id, target_cpu);
     }
     sched_yield();
 
@@ -157,7 +194,6 @@ void *polling_reader_thread(void *arg)
      * 100 ticks = 100ms at 1000Hz — long enough for low-latency polling,
      * but still allows other threads to eventually run. */
     usys_set_thread_budget(100);
-    printf("Polling thread %d: set budget to 100 ticks\n", thread_id);
 
     int deq_count = 0;
     int poll_count = 0;
@@ -307,6 +343,11 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    pthread_t reclaim_tid;
+    if (pthread_create(&reclaim_tid, NULL, cxl_reclaim_worker_thread, NULL)
+        != 0)
+        printf("Failed to create CXL reclaim worker\n");
+
     for (int i = 0; i < created; i++) {
         pthread_join(tids[i], NULL);
     }
@@ -319,6 +360,10 @@ int main(int argc, char *argv[])
         printf("Failed to create polling thread\n");
         return -1;
     }
+    pthread_t reclaim_tid;
+    if (pthread_create(&reclaim_tid, NULL, cxl_reclaim_worker_thread, NULL)
+        != 0)
+        printf("Failed to create CXL reclaim worker\n");
     pthread_join(tid, NULL);
     printf("Polling thread exited\n");
 #endif

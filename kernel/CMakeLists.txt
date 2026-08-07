@@ -80,7 +80,7 @@ target_compile_definitions(${kernel_target} PRIVATE PRINT_VMSPACE_STATS_NO_DETAI
 # Settled 2026-08-03: read-ahead is NOT what broke 8-machine PCA.  Building with
 # PGFAULT_READAHEAD_MAX=1 reproduced the crash identically (first PCA in a boot
 # passes, every later one dies), so this stays at the in-source default.
-target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=32)
+target_compile_definitions(${kernel_target} PRIVATE PGFAULT_READAHEAD_MAX=4)
 
 # Include directories
 target_include_directories(${kernel_target} PRIVATE include)
@@ -142,24 +142,15 @@ if(CHCORE_SSI)
   if("${DSM_CXL_LF_BUDDY}" STREQUAL "ON")
     target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_LF_BUDDY)
   endif()
-  if(DSM_CXL_DEMOTE_LOW_WATERMARK LESS_EQUAL 0 OR
-     DSM_CXL_DEMOTE_LOW_WATERMARK GREATER_EQUAL DSM_CXL_DEMOTE_HIGH_WATERMARK OR
-     DSM_CXL_DEMOTE_HIGH_WATERMARK GREATER_EQUAL 100)
-    message(FATAL_ERROR "CXL demotion watermarks must satisfy 0 < low < high < 100")
-  endif()
-  if(DSM_CXL_DEMOTE_BATCH_PAGES LESS_EQUAL 0 OR
-     DSM_CXL_DEMOTE_BATCH_PAGES GREATER 64)
-    message(FATAL_ERROR "DSM_CXL_DEMOTE_BATCH_PAGES must be in [1, 64]")
-  endif()
-  if(DSM_CXL_DEMOTE_LIMIT_MB LESS_EQUAL 0)
-    message(FATAL_ERROR "DSM_CXL_DEMOTE_LIMIT_MB must be positive")
+  if("${DSM_CXL_DEMOTE}" STREQUAL "ON")
+    target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_DEMOTE_ENABLED)
+    if(DSM_CXL_DEMOTE_LIMIT_MB LESS_EQUAL 0)
+      message(FATAL_ERROR "DSM_CXL_DEMOTE_LIMIT_MB must be positive")
+    endif()
   endif()
   target_compile_definitions(
       ${kernel_target} PRIVATE
-      DSM_CXL_DEMOTE_LIMIT_MB=${DSM_CXL_DEMOTE_LIMIT_MB}
-      DSM_CXL_DEMOTE_HIGH_WATERMARK=${DSM_CXL_DEMOTE_HIGH_WATERMARK}
-      DSM_CXL_DEMOTE_LOW_WATERMARK=${DSM_CXL_DEMOTE_LOW_WATERMARK}
-      DSM_CXL_DEMOTE_BATCH_PAGES=${DSM_CXL_DEMOTE_BATCH_PAGES})
+      DSM_CXL_DEMOTE_LIMIT_MB=${DSM_CXL_DEMOTE_LIMIT_MB})
   if("${SLAB_CRASH_RECOVERY}" STREQUAL "ON")
     target_compile_definitions(${kernel_target} PRIVATE SLAB_CRASH_RECOVERY)
   endif()

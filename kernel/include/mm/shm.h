@@ -105,6 +105,7 @@ enum cxl_demote_wire_phase {
     CXL_DEMOTE_WIRE_FLUSH = 0,
     CXL_DEMOTE_WIRE_COPY,
     CXL_DEMOTE_WIRE_FREE_ORIGIN,
+    CXL_DEMOTE_WIRE_BITMAP_DRAM,
 };
 
 struct polling_cxl_demote_op {
@@ -323,6 +324,9 @@ _Static_assert(sizeof(struct polling_shm_region) == 128,
 
 #define DQ_MAX_NODES \
     ((s32)((POLLING_SHM_SIZE - DQ_POOL_OFFSET) / DQ_NODE_SIZE))
+
+_Static_assert(DQ_MAX_NODES >= 2,
+               "SHM too small: need at least 2 nodes (1 sentinel + 1 data)");
 
 /* Offset helpers (kernel side) */
 static inline void *qptr_to_ptr(void *shm_base, qptr_t off)
