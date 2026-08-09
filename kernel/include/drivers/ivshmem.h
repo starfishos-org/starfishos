@@ -38,6 +38,8 @@ long sys_ivshmem_msi_bench(u64 target_machine, u64 target_local_cpu, u64 samples
 
 /* Process received MSI messages and send replies */
 void ivshmem_process_msi_messages(void);
+/* Process only the CXL demotion mailbox from a schedulable worker context. */
+void ivshmem_process_cxl_control_messages(void);
 
 /* Basic test of doorbell and shared memory (without MSI interrupts) */
 int ivshmem_test_basic(void);

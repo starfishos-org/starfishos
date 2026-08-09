@@ -54,20 +54,40 @@ struct cxl_demote_batch_op {
     u64 txn_id;
 };
 
+struct cxl_track_op {
+    paddr_t cxl_pa;
+    paddr_t origin_pa;
+    struct pmobject *pmo;
+    u64 pmo_index;
+    struct vmspace *vmspace;
+    vaddr_t va;
+    mid_t owner_mid;
+    bool speculative;
+    int result;
+};
+
 void dsm_cxl_reclaim_init(void);
 bool dsm_cxl_reclaim_enabled(void);
 /*
  * True when @pa must not be installed in a page table right now because the
  * demoter has already snapshotted the mappings of that page.  Callers hold
- * vmspace->pgtbl_lock and should drop it and retry the fault.
+ * vmspace->pgtbl_lock and should drop it and schedule a later fault retry.
  */
 bool dsm_cxl_mapping_in_transition(struct pmobject *pmo, u64 pmo_index,
                                    paddr_t pa);
 int dsm_cxl_reserve_pages(u64 pages);
 void dsm_cxl_commit_reserved_pages(u64 pages);
 void dsm_cxl_cancel_reserved_pages(u64 pages);
+/*
+ * Reserve residency without waiting for reclaim.  The configured limit is a
+ * soft asynchronous-reclaim threshold; crossing it publishes coalesced demand
+ * but does not reject the promotion.
+ */
 int dsm_cxl_reserve_resident_pages(u64 pages);
 void dsm_cxl_cancel_resident_pages(u64 pages);
+void dsm_cxl_note_fault_fallback(void);
+int dsm_cxl_snapshot_begin(void);
+void dsm_cxl_snapshot_end(void);
 void dsm_cxl_free_page(struct page *page);
 int dsm_cxl_reclaim_step(u64 max_pages);
 u64 dsm_cxl_reclaimed_pages(void);
@@ -75,6 +95,7 @@ int dsm_cxl_track_page(paddr_t cxl_pa, paddr_t origin_pa,
                        struct pmobject *pmo, u64 pmo_index,
                        struct vmspace *vmspace, vaddr_t va,
                        mid_t owner_mid);
+int dsm_cxl_track_pages(struct cxl_track_op *ops, u64 count);
 int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
                          u64 phase);
 void dsm_cxl_vmr_init(struct vmregion *vmr);

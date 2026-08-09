@@ -47,10 +47,10 @@ void *get_cxl_pages(int order)
      * tables are shared through CXL.
      *
      * dsm_cxl_reserve_resident_pages() only publishes demand when a migrated
-     * user page reaches the hard residency cap.  A separate polling-service
-     * worker consumes that demand through a bounded syscall with no mm lock
-     * held.  A failed allocator reservation retains the pre-reclaim behaviour
-     * of reporting OOM to the caller.
+     * user page crosses the soft residency threshold. A separate
+     * polling-service worker consumes that demand through a bounded syscall
+     * with no mm lock held. A failed allocator reservation retains the
+     * pre-reclaim behaviour of reporting OOM to the caller.
      */
     if (dsm_cxl_reserve_pages(requested_pages) < 0) {
         kwarn("[OOM] Cannot reserve CXL pages!\n");

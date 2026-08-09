@@ -74,6 +74,11 @@ struct page {
     u8 cxl_reclaim_phase;
     u8 cxl_free_requested;
     u8 cxl_origin_release_state;
+    u8 cxl_scanning;
+    u8 cxl_cold_epochs;
+    u8 cxl_speculative;
+    u8 cxl_age_reserved;
+    u64 cxl_promoted_ns;
 #endif
 #ifdef CHCORE_SSI_SLS
     /* PMO page belongs to and index in PMO */

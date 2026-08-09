@@ -41,10 +41,13 @@ void memcpy_and_flush_tlb_on_remote_machine(struct vmspace *vmspace,
                                             vaddr_t fault_va);
 struct polling_tlb_batch_entry;
 /*
- * Returns 0 when the whole batch was migrated.  A non-zero return means the
- * remote machine applied nothing, so none of the destination pages hold data.
+ * Returns 0 when the whole batch was migrated. -EINPROGRESS transfers the
+ * accepted transaction to a durable pending slot; any other non-zero return
+ * means the remote machine applied nothing.
  */
 int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
+                               struct pmobject *pmo, u64 first_index,
                                struct polling_tlb_batch_entry *entries,
                                u64 count);
+int reap_pending_shm_migrations(void);
 #endif

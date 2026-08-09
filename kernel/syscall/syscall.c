@@ -665,15 +665,17 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
     for (i = 0; i < ops_count; i++) {
         struct memcpy_flush_tlb_op *op = &kernel_ops[i];
         struct vmspace *vmspace = (struct vmspace *)op->vmspace_ptr;
+        paddr_t mapped_pa = 0;
         pte_t *pte = NULL;
         
         read_lock(&vmspace->vmspace_lock);
         lock(&vmspace->pgtbl_lock);
 #ifdef MULTI_PAGETABLE_ENABLED
         query_in_pgtbl(get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID),
-                       (vaddr_t)op->fault_va, NULL, &pte);
+                       (vaddr_t)op->fault_va, &mapped_pa, &pte);
 #else
-        query_in_pgtbl(vmspace->pgtbl, (vaddr_t)op->fault_va, NULL, &pte);
+        query_in_pgtbl(vmspace->pgtbl, (vaddr_t)op->fault_va, &mapped_pa,
+                       &pte);
 #endif
         if (!pte) {
             unlock(&vmspace->pgtbl_lock);
@@ -682,6 +684,28 @@ int sys_memcpy_and_flush_tlb_batch(u64 ops_buf, u64 ops_count)
                   i, op->fault_va);
             undo_migration_entries(kernel_ops, i);
             ret = -EINVAL;
+            goto out;
+        }
+        /*
+         * A CXL->DRAM demotion uses the same migration-entry protocol.  It
+         * may have claimed this PTE after the faulting machine assembled its
+         * read-ahead batch.  Overwriting that entry would let the demoter
+         * publish its DRAM mapping during phases 2/3, after which phase 4
+         * would either copy stale data or assert because it no longer owns
+         * the PTE.  The source mapping may also have settled to a different
+         * PA in the meantime.
+         *
+         * Reject the whole batch before changing this entry.  Earlier entries
+         * are still private to this transaction and phase 2 has not flushed
+         * anything yet, so undo_migration_entries() makes this an atomic,
+         * retryable miss.
+         */
+        if (!pte->pte_4K.present || is_migration_entry(pte)
+            || mapped_pa != op->src_pa) {
+            unlock(&vmspace->pgtbl_lock);
+            read_unlock(&vmspace->vmspace_lock);
+            undo_migration_entries(kernel_ops, i);
+            ret = -EAGAIN;
             goto out;
         }
         set_migration_entry(pte);

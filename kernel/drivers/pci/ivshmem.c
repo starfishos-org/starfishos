@@ -803,8 +803,11 @@ void ivshmem_msix_handler(void)
         }
     }
 
-    /* Only process MSI messages if MSI mode is enabled */
-    /* In polling mode, messages are handled by user-space polling server */
+    /*
+     * Polling-mode CXL control messages are consumed by the dedicated reclaim
+     * worker.  Running their VM-space/PTE protocol in interrupt context can
+     * deadlock if the interrupted thread already holds one of those locks.
+     */
     if (ivshmem_msg_mode == IVSHMEM_MSG_MODE_MSI)
         ivshmem_process_msi_messages();
 }
@@ -984,53 +987,50 @@ static int ivshmem_handle_cxl_demote_batch_msg(mid_t my_id, mid_t sender_id,
     u64 rpc_id;
     int ret;
 
-    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
-    if (dsm_meta->msi_test_msg[my_id].msg_from != sender_id
-        || dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id
-                   != expected_rpc_id) {
-        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    lock(&dsm_meta->cxl_control[my_id].lock);
+    if (dsm_meta->cxl_control[my_id].pending != 2
+        || dsm_meta->cxl_control[my_id].sender != (u32)sender_id
+        || dsm_meta->cxl_control[my_id].rpc_id != expected_rpc_id) {
+        unlock(&dsm_meta->cxl_control[my_id].lock);
         return -EAGAIN;
     }
-    phase = dsm_meta->msi_test_msg[my_id].cxl_batch_phase;
-    count = dsm_meta->msi_test_msg[my_id].cxl_batch_count;
-    rpc_id = dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id;
+    phase = dsm_meta->cxl_control[my_id].phase;
+    count = dsm_meta->cxl_control[my_id].count;
+    rpc_id = dsm_meta->cxl_control[my_id].rpc_id;
     if (count == 0 || count > CXL_DEMOTE_MAX_BATCH) {
-        unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+        unlock(&dsm_meta->cxl_control[my_id].lock);
         ret = -EINVAL;
         goto reply;
     }
     for (i = 0; i < count; i++) {
-        ops[i].src_pa =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].src_pa;
-        ops[i].dst_pa =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].dst_pa;
-        ops[i].fault_va =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].fault_va;
+        ops[i].src_pa = dsm_meta->cxl_control[my_id].ops[i].src_pa;
+        ops[i].dst_pa = dsm_meta->cxl_control[my_id].ops[i].dst_pa;
+        ops[i].fault_va = dsm_meta->cxl_control[my_id].ops[i].fault_va;
         ops[i].vmspace_ptr =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].vmspace_ptr;
-        ops[i].txn_id =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_ops[i].txn_id;
+                dsm_meta->cxl_control[my_id].ops[i].vmspace_ptr;
+        ops[i].txn_id = dsm_meta->cxl_control[my_id].ops[i].txn_id;
     }
-    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    unlock(&dsm_meta->cxl_control[my_id].lock);
 
     ret = dsm_cxl_handle_batch(ops, count, phase);
 
 reply:
-    lock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
-    dsm_meta->msi_test_msg[sender_id].cxl_batch_result = ret;
-    dsm_meta->msi_test_msg[sender_id].reply_received = 1;
-    dsm_meta->msi_test_msg[sender_id].reply_from = my_id;
-    dsm_meta->msi_test_msg[sender_id].cxl_batch_reply_rpc_id = rpc_id;
-    unlock(&dsm_meta->msi_test_msg[sender_id].msg_lock);
-
-    lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
-    if (dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id == rpc_id
-        && dsm_meta->msi_test_msg[my_id].msg_from == sender_id) {
-        dsm_meta->msi_test_msg[my_id].reply_received = 1;
-        dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF;
-        dsm_meta->msi_test_msg[my_id].msg_type = 0;
+    lock(&dsm_meta->cxl_control[my_id].lock);
+    if (dsm_meta->cxl_control[my_id].pending == 2
+        && dsm_meta->cxl_control[my_id].rpc_id == rpc_id
+        && dsm_meta->cxl_control[my_id].sender == (u32)sender_id) {
+        dsm_meta->cxl_control[my_id].sender = 0xFFFFFFFF;
+        __atomic_store_n(&dsm_meta->cxl_control[my_id].pending,
+                         0,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&dsm_meta->cxl_control[sender_id].result,
+                         ret,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&dsm_meta->cxl_control[sender_id].reply_rpc_id,
+                         rpc_id,
+                         __ATOMIC_RELEASE);
     }
-    unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+    unlock(&dsm_meta->cxl_control[my_id].lock);
     return ret;
 }
 
@@ -1064,6 +1064,35 @@ static int ivshmem_handle_test_msg(mid_t my_id, mid_t sender_id)
     unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
     
     return 0;
+}
+
+void ivshmem_process_cxl_control_messages(void)
+{
+    mid_t my_id = CUR_MACHINE_ID;
+    u32 sender;
+    u64 rpc_id;
+
+    if (!dsm_meta || my_id < 0 || my_id >= CLUSTER_MACHINE_NUM)
+        return;
+
+    /* Fast no-message path for the 1 ms reclaim-worker tick. */
+    if (__atomic_load_n(&dsm_meta->cxl_control[my_id].pending,
+                        __ATOMIC_ACQUIRE)
+        != 1)
+        return;
+
+    lock(&dsm_meta->cxl_control[my_id].lock);
+    sender = dsm_meta->cxl_control[my_id].sender;
+    rpc_id = dsm_meta->cxl_control[my_id].rpc_id;
+    if (dsm_meta->cxl_control[my_id].pending == 1
+        && sender < CLUSTER_MACHINE_NUM && sender != (u32)my_id)
+        dsm_meta->cxl_control[my_id].pending = 2;
+    else
+        sender = 0xFFFFFFFF;
+    unlock(&dsm_meta->cxl_control[my_id].lock);
+
+    if (sender < CLUSTER_MACHINE_NUM)
+        ivshmem_handle_cxl_demote_batch_msg(my_id, (mid_t)sender, rpc_id);
 }
 
 /**
@@ -1145,8 +1174,6 @@ void ivshmem_process_msi_messages(void)
         u32 msg_from = dsm_meta->msi_test_msg[my_id].msg_from;
         u32 msg_type = dsm_meta->msi_test_msg[my_id].msg_type;
         u32 reply_received = dsm_meta->msi_test_msg[my_id].reply_received;
-        u64 cxl_rpc_id =
-                dsm_meta->msi_test_msg[my_id].cxl_batch_rpc_id;
         unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
         
         /* Check if there's a message for us from machine i */
@@ -1170,8 +1197,19 @@ void ivshmem_process_msi_messages(void)
                 break;
 
             case MSI_MSG_TYPE_CXL_DEMOTE_BATCH:
-                handled = ivshmem_handle_cxl_demote_batch_msg(
-                        my_id, i, cxl_rpc_id);
+                /*
+                 * Demotion VM/PTE work is forbidden in MSI context.  Current
+                 * senders use cxl_control[] and a schedulable reclaim worker;
+                 * discard any stale legacy message rather than retrying it on
+                 * every interrupt.
+                 */
+                kwarn_once("[IVSHMEM] ignored a legacy CXL demote MSI\n");
+                lock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+                dsm_meta->msi_test_msg[my_id].reply_received = 1;
+                dsm_meta->msi_test_msg[my_id].msg_from = 0xFFFFFFFF;
+                dsm_meta->msi_test_msg[my_id].msg_type = 0;
+                unlock(&dsm_meta->msi_test_msg[my_id].msg_lock);
+                handled = -EOPNOTSUPP;
                 break;
                 
             default:

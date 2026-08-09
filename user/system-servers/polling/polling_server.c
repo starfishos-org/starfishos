@@ -48,15 +48,18 @@ static void *cxl_reclaim_worker_thread(void *arg)
 
     (void)arg;
     cpu_count = usys_get_machine_cpu_count();
-    if (cpu_count > 0) {
+    if (cpu_count > CXL_RECLAIM_CPU) {
         cpu_set_t cpu_set;
-        int target_cpu = (int)cpu_count - 1;
 
         CPU_ZERO(&cpu_set);
-        CPU_SET(target_cpu, &cpu_set);
+        CPU_SET(CXL_RECLAIM_CPU, &cpu_set);
         if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0)
             printf("CXL reclaim worker: failed to bind to CPU %d\n",
-                   target_cpu);
+                   CXL_RECLAIM_CPU);
+    } else {
+        printf("CXL reclaim worker: CPU %d is unavailable (%u CPUs)\n",
+               CXL_RECLAIM_CPU,
+               cpu_count);
     }
 
     while (1) {

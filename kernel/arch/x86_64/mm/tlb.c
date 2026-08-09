@@ -9,11 +9,14 @@
 #include <arch/mm/page_table.h>
 #include <arch/mm/tlb.h>
 #ifdef DSM_ENABLED
+#include <dsm/cxl_reclaim.h>
 #include <dsm/dsm-single.h>
 #include <drivers/ivshmem.h>
+#include <mm/remote_free.h>
 #include <mm/shm.h>
 #include <common/mem_sync.h>
 #include <arch/sync.h>
+#include <object/object.h>
 #endif
 
 /* Operations that invalidate TLBs and Paging-Structure Caches */
@@ -682,34 +685,264 @@ static void memcpy_and_flush_tlb_on_remote_machine_msi(
     unlock(&dsm_meta->msi_rpc_lock);
 }
 
+#define DSM_PROMOTION_RPC_TIMEOUT_NS 250000000ULL
+#define DSM_PENDING_PROMOTIONS       64
+
+enum pending_promotion_state {
+    PENDING_PROMOTION_FREE = 0,
+    PENDING_PROMOTION_RESERVED,
+    PENDING_PROMOTION_ACTIVE,
+    PENDING_PROMOTION_REAPING,
+};
+
+struct pending_promotion {
+    u8 state;
+    mid_t owner_mid;
+    u32 count;
+    u64 first_index;
+    struct dq_node *node;
+    struct vmspace *vmspace;
+    struct pmobject *pmo;
+    struct polling_tlb_batch_entry entries[POLLING_TLB_BATCH_MAX];
+};
+
+static struct pending_promotion pending_promotions[DSM_PENDING_PROMOTIONS];
+static struct lock pending_promotion_lock;
+static volatile u32 pending_promotion_init_state;
+static volatile u32 active_pending_promotions;
+
+extern void remove_migrating_va(struct vmspace *vmspace, vaddr_t va);
+
+static void promotion_object_get(void *opaque)
+{
+    struct object *object = container_of(opaque, struct object, opaque);
+
+    atomic_fetch_add_64(&object->refcount, 1);
+}
+
+static void init_pending_promotions(void)
+{
+    u32 expected;
+
+    if (__atomic_load_n(&pending_promotion_init_state, __ATOMIC_ACQUIRE) == 2)
+        return;
+    expected = 0;
+    if (__atomic_compare_exchange_n(&pending_promotion_init_state,
+                                    &expected,
+                                    1,
+                                    false,
+                                    __ATOMIC_ACQ_REL,
+                                    __ATOMIC_ACQUIRE)) {
+        lock_init(&pending_promotion_lock);
+        memset(pending_promotions, 0, sizeof(pending_promotions));
+        __atomic_store_n(&pending_promotion_init_state, 2, __ATOMIC_RELEASE);
+        return;
+    }
+    while (__atomic_load_n(&pending_promotion_init_state, __ATOMIC_ACQUIRE)
+           != 2)
+        CPU_PAUSE();
+}
+
+static int reserve_pending_promotion(void)
+{
+    u32 slot;
+
+    init_pending_promotions();
+    for (slot = 0; slot < DSM_PENDING_PROMOTIONS; slot++) {
+        u8 expected = PENDING_PROMOTION_FREE;
+
+        if (__atomic_compare_exchange_n(&pending_promotions[slot].state,
+                                        &expected,
+                                        PENDING_PROMOTION_RESERVED,
+                                        false,
+                                        __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            return (int)slot;
+    }
+    return -EAGAIN;
+}
+
+static void release_reserved_promotion(u32 slot)
+{
+    BUG_ON(slot >= DSM_PENDING_PROMOTIONS);
+    BUG_ON(__atomic_load_n(&pending_promotions[slot].state,
+                           __ATOMIC_ACQUIRE)
+           != PENDING_PROMOTION_RESERVED);
+    __atomic_store_n(&pending_promotions[slot].state,
+                     PENDING_PROMOTION_FREE,
+                     __ATOMIC_RELEASE);
+}
+
+static void clear_pending_promotion(u32 slot)
+{
+    struct vmspace *vmspace;
+    struct pmobject *pmo;
+
+    BUG_ON(slot >= DSM_PENDING_PROMOTIONS);
+    lock(&pending_promotion_lock);
+    vmspace = pending_promotions[slot].vmspace;
+    pmo = pending_promotions[slot].pmo;
+    memset(&pending_promotions[slot], 0, sizeof(pending_promotions[slot]));
+    unlock(&pending_promotion_lock);
+    if (pmo)
+        obj_put(pmo);
+    if (vmspace)
+        obj_put(vmspace);
+}
+
+static void arm_pending_promotion(u32 slot, struct dq_node *node,
+                                  struct vmspace *vmspace,
+                                  struct pmobject *pmo, mid_t owner_mid,
+                                  u64 first_index,
+                                  struct polling_tlb_batch_entry *entries,
+                                  u32 count)
+{
+    struct pending_promotion *pending = &pending_promotions[slot];
+
+    promotion_object_get(vmspace);
+    promotion_object_get(pmo);
+    lock(&pending_promotion_lock);
+    BUG_ON(pending->state != PENDING_PROMOTION_RESERVED);
+    pending->node = node;
+    pending->vmspace = vmspace;
+    pending->pmo = pmo;
+    pending->owner_mid = owner_mid;
+    pending->first_index = first_index;
+    pending->count = count;
+    memcpy(pending->entries, entries, count * sizeof(entries[0]));
+    unlock(&pending_promotion_lock);
+}
+
+static void activate_pending_promotion(u32 slot)
+{
+    lock(&pending_promotion_lock);
+    BUG_ON(pending_promotions[slot].state != PENDING_PROMOTION_RESERVED);
+    pending_promotions[slot].state = PENDING_PROMOTION_ACTIVE;
+    __atomic_add_fetch(&active_pending_promotions, 1, __ATOMIC_RELEASE);
+    unlock(&pending_promotion_lock);
+}
+
+int reap_pending_shm_migrations(void)
+{
+    struct cxl_track_op track_ops[POLLING_TLB_BATCH_MAX];
+    u32 slot;
+    int reaped = 0;
+
+    if (__atomic_load_n(&pending_promotion_init_state, __ATOMIC_ACQUIRE) != 2)
+        return 0;
+    /*
+     * This hook sits on the page-fault path.  Completed polling requests are
+     * overwhelmingly the common case, so avoid taking 64 locks per fault
+     * unless a request has actually crossed the bounded wait deadline.
+     */
+    if (__atomic_load_n(&active_pending_promotions, __ATOMIC_ACQUIRE) == 0)
+        return 0;
+
+    for (slot = 0; slot < DSM_PENDING_PROMOTIONS; slot++) {
+        struct pending_promotion *pending = &pending_promotions[slot];
+        s32 status;
+        int result;
+        u32 i;
+
+        lock(&pending_promotion_lock);
+        if (pending->state != PENDING_PROMOTION_ACTIVE) {
+            unlock(&pending_promotion_lock);
+            continue;
+        }
+        status = atomic_load_32(&pending->node->status);
+        if (status != DQ_DONE && status != DQ_CRASH) {
+            unlock(&pending_promotion_lock);
+            continue;
+        }
+        pending->state = PENDING_PROMOTION_REAPING;
+        BUG_ON(__atomic_fetch_sub(&active_pending_promotions,
+                                  1,
+                                  __ATOMIC_ACQ_REL)
+               == 0);
+        unlock(&pending_promotion_lock);
+
+        result = status == DQ_DONE
+                         ? pending->node->resp.flush_tlb.reply_result
+                         : -EIO;
+        if (result == 0) {
+            if (dsm_cxl_reclaim_enabled()) {
+                int track_ret;
+
+                for (i = 0; i < pending->count; i++) {
+                    track_ops[i].cxl_pa = pending->entries[i].dst_pa;
+                    track_ops[i].origin_pa = pending->entries[i].src_pa;
+                    track_ops[i].pmo = pending->pmo;
+                    track_ops[i].pmo_index = pending->first_index + i;
+                    track_ops[i].vmspace = pending->vmspace;
+                    track_ops[i].va = pending->entries[i].fault_va;
+                    track_ops[i].owner_mid = pending->owner_mid;
+                    track_ops[i].speculative = i != 0;
+                    track_ops[i].result = -EOPNOTSUPP;
+                }
+                track_ret = dsm_cxl_track_pages(track_ops, pending->count);
+                for (i = 0; i < pending->count; i++) {
+                    if (track_ret || track_ops[i].result) {
+                        dsm_cxl_cancel_resident_pages(1);
+                        free_machine_page(pending->entries[i].src_pa);
+                        kwarn_once(
+                                "[MIGRATION] an asynchronously completed "
+                                "promotion could not be tracked\n");
+                    }
+                }
+            } else {
+                for (i = 0; i < pending->count; i++)
+                    free_machine_page(pending->entries[i].src_pa);
+            }
+        } else if (result != 0) {
+            for (i = 0; i < pending->count; i++) {
+                dsm_cxl_cancel_resident_pages(1);
+                free_pages((void *)phys_to_virt(
+                        pending->entries[i].dst_pa));
+            }
+        }
+        for (i = 0; i < pending->count; i++)
+            remove_migrating_va(pending->vmspace,
+                                pending->entries[i].fault_va);
+        dq_mark_consumed(pending->node);
+        clear_pending_promotion(slot);
+        reaped++;
+    }
+    return reaped;
+}
+
 /*
- * Batched variant of the polling path: one request carries a run of pages.
- *
- * Returns the remote machine's result, or -EIO when the request could not be
- * delivered at all.  sys_memcpy_and_flush_tlb_batch() is all-or-nothing, so a
- * non-zero result means no entry in the batch was applied.
+ * Batched variant of the polling path.  Queue allocation and completion waits
+ * are bounded.  If the server has accepted a request but misses the deadline,
+ * the queue node, destination pages, reservations, VM space, and PMO move to a
+ * durable pending slot.  A later fault reaps the all-or-nothing result before
+ * retrying, so neither side can reuse or free transaction state prematurely.
  */
 static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
-        struct vmspace *vmspace, mid_t target_mid,
-        struct polling_tlb_batch_entry *entries, u64 count)
+        struct vmspace *vmspace, struct pmobject *pmo, u64 first_index,
+        mid_t target_mid, struct polling_tlb_batch_entry *entries, u64 count)
 {
     mid_t my_id = machine_id;
     struct polling_request req;
+    struct polling_shm_region *target_shm;
     struct dq_node *msg;
     u64 i;
+    int pending_slot;
     int ret;
 
-    if (target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id) {
-        kwarn("[TLB] Invalid batch migration target: %d\n", target_mid);
+    if (target_mid >= CLUSTER_MACHINE_NUM || target_mid == my_id)
         return -EIO;
-    }
-
-    struct polling_shm_region *target_shm =
-            (struct polling_shm_region *)dsm_meta->shm_data[target_mid].data;
-
-    if (!target_shm) {
-        kwarn("[TLB] Polling shm region is NULL: target_shm=%p\n", target_shm);
+    target_shm = (struct polling_shm_region *)
+            dsm_meta->shm_data[target_mid].data;
+    if (!target_shm)
         return -EIO;
+
+    pending_slot = reserve_pending_promotion();
+    if (pending_slot < 0)
+        return pending_slot;
+    msg = dq_alloc_node_timeout(target_shm, DSM_PROMOTION_RPC_TIMEOUT_NS);
+    if (!msg) {
+        release_reserved_promotion((u32)pending_slot);
+        return -EAGAIN;
     }
 
     req.type = POLLING_KERNEL_REQ_FLUSH_TLB_BATCH;
@@ -719,25 +952,26 @@ static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
     for (i = 0; i < count; i++)
         req.flush_tlb_batch.entries[i] = entries[i];
 
-    msg = dq_alloc_node(target_shm);
     dq_enqueue(target_shm, msg, &req);
-    dq_wait_for_done(msg);
-    /*
-     * Read the reply before releasing the node: once it is CONSUMED the server
-     * may recycle it and overwrite the response.
-     */
+    ret = dq_wait_for_done_timeout(msg, DSM_PROMOTION_RPC_TIMEOUT_NS);
+    if (ret) {
+        arm_pending_promotion((u32)pending_slot,
+                              msg,
+                              vmspace,
+                              pmo,
+                              target_mid,
+                              first_index,
+                              entries,
+                              (u32)count);
+        activate_pending_promotion((u32)pending_slot);
+        return -EINPROGRESS;
+    }
     ret = msg->resp.flush_tlb.reply_result;
-    /*
-     * The server defers recycling a node until its producer marks it CONSUMED.
-     * Skipping this leaves the node at DQ_DONE forever, and once it reaches the
-     * eviction slot of the server's deferred-free ring that machine stops
-     * dequeuing anything at all.
-     */
     dq_mark_consumed(msg);
+    release_reserved_promotion((u32)pending_slot);
 
-    if (ret != 0)
-        kwarn("[TLB] Batch migration of %lu pages to machine %d failed: %d\n",
-              count, target_mid, ret);
+    if (ret != 0 && ret != -EAGAIN)
+        kwarn_once("[TLB] a remote promotion batch failed\n");
     return ret;
 }
 
@@ -753,6 +987,7 @@ static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
  * written, so mapping them would hand the process uninitialized memory.
  */
 int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
+                               struct pmobject *pmo, u64 first_index,
                                struct polling_tlb_batch_entry *entries,
                                u64 count)
 {
@@ -776,7 +1011,7 @@ int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
     }
 
     return memcpy_and_flush_tlb_batch_on_remote_machine_polling(
-            vmspace, target_mid, entries, count);
+            vmspace, pmo, first_index, target_mid, entries, count);
 }
 
 #endif

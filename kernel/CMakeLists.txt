@@ -147,6 +147,11 @@ if(CHCORE_SSI)
     if(DSM_CXL_DEMOTE_LIMIT_MB LESS_EQUAL 0)
       message(FATAL_ERROR "DSM_CXL_DEMOTE_LIMIT_MB must be positive")
     endif()
+    if("${DSM_CXL_DEMOTE_POLICY}" STREQUAL "CLOCK")
+      target_compile_definitions(${kernel_target} PRIVATE DSM_CXL_DEMOTE_CLOCK)
+    elseif(NOT "${DSM_CXL_DEMOTE_POLICY}" STREQUAL "FIFO")
+      message(FATAL_ERROR "DSM_CXL_DEMOTE_POLICY must be CLOCK or FIFO")
+    endif()
   endif()
   target_compile_definitions(
       ${kernel_target} PRIVATE

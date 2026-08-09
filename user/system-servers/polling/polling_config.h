@@ -17,6 +17,9 @@
 #define POLLING_CPU_LIST {6, 7, 8, 9}
 #define POLLING_CPU_COUNT 4
 
+/* CPU used by the asynchronous CXL demotion worker. */
+#define CXL_RECLAIM_CPU 10
+
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096
 #endif

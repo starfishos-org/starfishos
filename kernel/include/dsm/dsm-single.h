@@ -17,6 +17,7 @@
 // #define DSM_DEBUG
 
 #define DSM_PREFIX "[DSM]"
+#define CXL_RECENT_DEMOTE_SLOTS 256
 
 #define dsm_info(fmt, ...)  printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
 #define dsm_error(fmt, ...) printk(DSM_PREFIX " " fmt, ##__VA_ARGS__)
@@ -217,10 +218,41 @@ typedef struct {
         char pad[56];
     } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM];
 
-    /* Global FIFO and accounting for DRAM-backed pages resident in CXL. */
+    /* Global CLOCK queue and accounting for DRAM-backed pages resident in CXL. */
     struct {
-        struct lock lock;
+        /*
+         * CLOCK membership and per-page reclaim state. Keep this lock on a
+         * cache line of its own: candidate selection may hold it while walking
+         * shared page metadata, whereas DRAM-to-CXL admission only needs the
+         * accounting lock below.
+         */
+        struct {
+            struct lock lock;
+            char pad[56];
+        } fifo_guard __attribute__((aligned(CACHELINE_SZ)));
         struct list_head fifo;
+        /*
+         * Number of FIFO entries currently in CXL_RECLAIM_FREE_PENDING.
+         * retry_pending_frees() has to walk the FIFO under the cluster-wide
+         * FIFO lock above, so it must not walk it at all while this is zero.
+         */
+        volatile u64 free_pending_pages;
+        u64 next_sequence;
+        volatile u64 next_rpc_id;
+        u32 reclaiming;
+        u32 snapshotting;
+        u32 initialized;
+
+        /*
+         * Capacity admission and aggregate counters.  This lock is separate
+         * from the FIFO so a bounded candidate scan cannot stall a new
+         * DRAM-to-CXL reservation.  The configured residency limit is a soft
+         * reclaim threshold: admission remains allowed above it.
+         */
+        struct {
+            struct lock lock;
+            char pad[56];
+        } account_guard __attribute__((aligned(CACHELINE_SZ)));
         volatile u64 total_pages;
         volatile u64 limit_pages;
         volatile u64 allocated_pages;
@@ -228,23 +260,41 @@ typedef struct {
         volatile u64 resident_pages;
         volatile u64 resident_reserved_pages;
         volatile u64 reclaimed_pages;
+        volatile u64 soft_limit_overcommits;
+        volatile u64 async_reclaim_requests;
+        volatile u64 fault_fallbacks;
+        volatile u64 admission_reported_misses;
+        volatile u64 admission_reported_fallbacks;
+        /* Aggregate CLOCK observability; updated atomically by the singleton. */
+        volatile u64 clock_scans;
+        volatile u64 clock_second_chances;
+        volatile u64 clock_cold_evictions;
+        volatile u64 clock_pressure_evictions;
+        volatile u64 clock_scan_skips;
+        volatile u64 clock_cooldown_skips;
+        volatile u64 clock_stable_cold;
+        volatile u64 promotion_pages;
+        volatile u64 refault_pages;
+        volatile u64 demote_conflicts;
+        volatile u64 demote_transactions;
+        volatile u64 demote_phase_prepare_ns;
+        volatile u64 demote_phase_flush_ns;
+        volatile u64 demote_phase_copy_ns;
+        volatile u64 demote_phase_bitmap_ns;
+        volatile u64 demote_phase_finish_ns;
+        volatile u64 demote_phase_total_ns;
+        volatile u64 demote_phase_max_ns;
+        volatile u64 next_scan_ns;
+        volatile u64 next_demote_ns;
+        volatile u64 next_pressure_ns;
+        u64 recent_demote_pa[CXL_RECENT_DEMOTE_SLOTS];
         /*
-         * Number of FIFO entries currently in CXL_RECLAIM_FREE_PENDING.
-         * retry_pending_frees() has to walk the FIFO under the cluster-wide
-         * lock above, so it must not walk it at all while this is zero.
-         */
-        volatile u64 free_pending_pages;
-        u64 next_sequence;
-        volatile u64 next_rpc_id;
-        /*
-         * Pages requested by faults which are waiting at the hard limit.
-         * Faulting threads publish and withdraw their own demand; the
-         * background worker only consumes this as a wake-up condition.
+         * Coalesced headroom requested by over-limit admissions.
+         * The background worker treats this as a level-triggered wake-up and
+         * clears it once enough headroom exists.
          */
         volatile u64 pending_reclaim_pages;
-        u32 reclaiming;
-        u32 initialized;
-    } cxl_reclaim;
+    } cxl_reclaim __attribute__((aligned(CACHELINE_SZ)));
 
     /**
      * 4d. Per-machine deferred remote-free stacks for local DRAM pages.
@@ -318,6 +368,33 @@ typedef struct {
             volatile u64 txn_id;
         } cxl_batch_ops[CXL_DEMOTE_WIRE_MAX_OPS];
     } msi_test_msg[CLUSTER_MAX_MACHINE_NUM];
+
+    /*
+     * Demotion control has its own cluster-serialized mailbox.  It must not
+     * share the legacy MSI request/reply slots: foreground TLB traffic also
+     * writes those slots and can otherwise overwrite an in-flight reclaim
+     * phase.  A polling-server reclaim pthread consumes the target slot, so
+     * no VM-space operation runs from interrupt context and no foreground
+     * durable-queue reader is occupied.
+     */
+    struct lock cxl_control_rpc_lock;
+    struct {
+        struct lock lock;
+        volatile u32 pending;
+        volatile u32 sender;
+        volatile u32 phase;
+        volatile u32 count;
+        volatile s32 result;
+        volatile u64 rpc_id;
+        volatile u64 reply_rpc_id;
+        struct {
+            volatile u64 src_pa;
+            volatile u64 dst_pa;
+            volatile u64 fault_va;
+            volatile u64 vmspace_ptr;
+            volatile u64 txn_id;
+        } ops[CXL_DEMOTE_WIRE_MAX_OPS];
+    } cxl_control[CLUSTER_MAX_MACHINE_NUM];
 
     /* One-way ivshmem MSI delivery benchmark.  The sender publishes a request
      * in the target slot; the target MSI handler completes the sender slot. */

@@ -35,12 +35,14 @@ set(USE_DEV_AS_DRAM "ON")
 # if "OFF", use original lock-based buddy allocator.
 set(DSM_CXL_LF_BUDDY "OFF")
 
-# CXL residency hard cap. A fault that would exceed it publishes demand for
-# the polling service's asynchronous singleton demoter and waits for headroom.
-# The demoter executes at most one bounded batch per kernel entry; there is no
-# high/low watermark policy in this initial asynchronous implementation.
-set(DSM_CXL_DEMOTE "OFF")
-set(DSM_CXL_DEMOTE_LIMIT_MB "4096")
+# CXL residency soft threshold. A fault that exceeds it remains admitted and
+# publishes demand for the polling service's asynchronous singleton demoter.
+# The demoter uses a bounded CLOCK/second-chance scan and executes at most one
+# batch per kernel entry; foreground promotion never waits for this worker.
+set(DSM_CXL_DEMOTE "ON")
+set(DSM_CXL_DEMOTE_LIMIT_MB "1024")
+# "CLOCK" (default approximation of LRU) or "FIFO" (experiment baseline).
+set(DSM_CXL_DEMOTE_POLICY "CLOCK")
 
 # If "ON", enable per-slab in-flight undo log for crash recovery.
 # Adds FLUSH/FENCE overhead on slab alloc/free hot path.

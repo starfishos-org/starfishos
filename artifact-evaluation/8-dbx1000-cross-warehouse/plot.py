@@ -15,7 +15,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-PAGE_KB = 4
+BYTES_PER_MIB = 1024 * 1024
+BYTES_PER_GB = 1000 * 1000 * 1000
+PAGE_BYTES = 4096
 PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
 # DBx1000 prints the aggregate as "%.2f", which quantizes the one-machine
 # baseline (~0.18) to two significant digits and reports a zero standard
@@ -32,9 +34,16 @@ PAT_INIT = re.compile(
     r"max_txn_per_part=(\d+), load_unused_tables=(\d+), "
     r"measure_duration_sec=(\d+)"
 )
-PAT_PROC = re.compile(r"\[VMSPACE MEMORY\] Process: (\S+)")
-PAT_CXL = re.compile(r"\[VMSPACE MEMORY\] CXL \(shared\): (\d+) pages")
-PAT_MACHINE = re.compile(r"\[VMSPACE MEMORY\] Machine (\d+): (\d+) pages")
+PAT_CXLPROF_BYTES = re.compile(
+    r"\[cxlprof\] exec: all machines bytes "
+    r"cxl=(\d+) dram=(\d+) total=(\d+)"
+)
+PAT_VMSPACE_CXL = re.compile(
+    r"\[INFO\] \[VMSPACE MEMORY\] CXL \(shared\): (\d+) pages"
+)
+PAT_VMSPACE_MACHINE = re.compile(
+    r"\[INFO\] \[VMSPACE MEMORY\] Machine (\d+): (\d+) pages"
+)
 PAT_FATAL = re.compile(
     r"General Protection Fault|Kernel panic|panic:|BUG:|BUG_ON|"
     r"Unhandled .*exception|Unhandled .*fault|KERNEL FAULT|Trap No\.",
@@ -76,24 +85,29 @@ def parse_log(path: Path, expected_threads: int | None = None):
     else:
         aggregate = PAT_THP.findall(text)
         throughput = float(aggregate[-1]) if aggregate else None
-    blocks = []
-    current = None
-    process = None
-    for line in text.splitlines():
-        match = PAT_PROC.search(line)
-        if match:
-            process = match.group(1)
-            continue
-        match = PAT_CXL.search(line)
-        if match:
-            current = {"process": process, "cxl": int(match.group(1)), "dram": {}}
-            blocks.append(current)
-            continue
-        match = PAT_MACHINE.search(line)
-        if match and current is not None:
-            current["dram"][int(match.group(1))] = int(match.group(2))
-    rundb = [block for block in blocks if "rundb" in (block["process"] or "")]
-    return text, throughput, (rundb[-1] if rundb else None)
+    access_bytes = [tuple(map(int, match)) for match in PAT_CXLPROF_BYTES.findall(text)]
+    return text, throughput, (access_bytes[-1] if access_bytes else None)
+
+
+def parse_vmspace_after(text: str, anchor: str, expected_machines: int):
+    anchor_pos = text.rfind(anchor)
+    if anchor_pos < 0:
+        return None
+    segment = text[anchor_pos:]
+    process_pos = segment.find("[INFO] [VMSPACE MEMORY] Process: /rundb.bin")
+    if process_pos < 0:
+        return None
+    segment = segment[process_pos:]
+    cxl_match = PAT_VMSPACE_CXL.search(segment)
+    if not cxl_match:
+        return None
+    machines = [
+        (int(machine), int(pages))
+        for machine, pages in PAT_VMSPACE_MACHINE.findall(segment[cxl_match.end():])
+    ][:expected_machines]
+    if [machine for machine, _ in machines] != list(range(expected_machines)):
+        return None
+    return int(cxl_match.group(1)), sum(pages for _, pages in machines)
 
 
 def validate_point(
@@ -106,7 +120,6 @@ def validate_point(
     guest_cpus: int,
     warmup: int,
     max_txn: int,
-    cluster_machines: int,
     measure_sec: int,
 ):
     primary_text = None
@@ -160,18 +173,42 @@ def validate_point(
     ):
         raise DataError(f"rundb did not return to the shell: {primary}")
 
-    _, throughput, block = parse_log(primary, machines * threads_per_machine)
+    _, throughput, access_bytes = parse_log(primary, machines * threads_per_machine)
     if throughput is None or not math.isfinite(throughput) or throughput <= 0:
         raise DataError(f"invalid throughput in {primary}: {throughput}")
-    if block is None or set(block["dram"]) != set(range(machines)):
-        raise DataError(f"missing final rundb footprint rows: {primary}")
-    cxl_mib = block["cxl"] * PAGE_KB / 1024
-    dram_mib = sum(block["dram"].values()) * PAGE_KB / 1024
-    if cxl_mib + dram_mib <= 0:
-        raise DataError(f"zero footprint: {primary}")
-    if machines == cluster_machines and (cxl_mib <= 0 or dram_mib <= 0):
-        raise DataError(f"cluster point must contain both CXL and DRAM: {primary}")
-    return throughput, cxl_mib, dram_mib
+    if access_bytes is None:
+        raise DataError(f"missing aggregate cxlprof byte counters: {primary}")
+    cxl_bytes, dram_bytes, total_bytes = access_bytes
+    if cxl_bytes + dram_bytes != total_bytes:
+        raise DataError(
+            f"inconsistent cxlprof byte counters in {primary}: {access_bytes}"
+        )
+    if total_bytes <= 0:
+        raise DataError(f"zero cxlprof access volume: {primary}")
+    post_warmup = parse_vmspace_after(
+        primary_text or "",
+        "[cxlprof] post-warmup: counters cleared; measurement enabled",
+        machines,
+    )
+    post_exec = parse_vmspace_after(
+        primary_text or "",
+        "[Main] Steady-state vmspace stats (post-execution):",
+        machines,
+    )
+    if post_warmup is None:
+        raise DataError(f"missing post-warmup vmspace snapshot: {primary}")
+    if post_exec is None:
+        raise DataError(f"missing post-exec vmspace snapshot: {primary}")
+    pages_to_mib = PAGE_BYTES / BYTES_PER_MIB
+    return (
+        throughput,
+        cxl_bytes / BYTES_PER_MIB,
+        dram_bytes / BYTES_PER_MIB,
+        post_warmup[0] * pages_to_mib,
+        post_warmup[1] * pages_to_mib,
+        post_exec[0] * pages_to_mib,
+        post_exec[1] * pages_to_mib,
+    )
 
 
 def mean(values):
@@ -189,26 +226,52 @@ def collect(args):
     warmup_per_machine = args.warmup // args.num_machines
     for ratio in args.ratios:
         cluster_thp, baseline_thp, cxl, dram, totals = [], [], [], [], []
+        baseline_cxl, baseline_dram, baseline_totals = [], [], []
+        warmup_cxl_resident, warmup_dram_resident = [], []
+        exec_cxl_resident, exec_dram_resident = [], []
+        baseline_warmup_cxl_resident, baseline_warmup_dram_resident = [], []
+        baseline_exec_cxl_resident, baseline_exec_dram_resident = [], []
         for rep in range(1, args.repetitions + 1):
             cluster = validate_point(
                 args.log_dir, args.num_machines, ratio, rep,
                 args.num_warehouses, args.threads_per_machine, args.guest_cpus, args.warmup,
-                args.max_txn, args.num_machines, args.measure_sec,
+                args.max_txn, args.measure_sec,
             )
             baseline = validate_point(
                 args.log_dir, 1, ratio, rep, warehouses_per_machine,
                 args.threads_per_machine, args.guest_cpus, warmup_per_machine, args.max_txn,
-                args.num_machines, args.measure_sec,
+                args.measure_sec,
             )
             cluster_thp.append(cluster[0])
             baseline_thp.append(baseline[0])
             cxl.append(cluster[1])
             dram.append(cluster[2])
             totals.append(cluster[1] + cluster[2])
+            baseline_cxl.append(baseline[1])
+            baseline_dram.append(baseline[2])
+            baseline_totals.append(baseline[1] + baseline[2])
+            warmup_cxl_resident.append(cluster[3])
+            warmup_dram_resident.append(cluster[4])
+            exec_cxl_resident.append(cluster[5])
+            exec_dram_resident.append(cluster[6])
+            baseline_warmup_cxl_resident.append(baseline[3])
+            baseline_warmup_dram_resident.append(baseline[4])
+            baseline_exec_cxl_resident.append(baseline[5])
+            baseline_exec_dram_resident.append(baseline[6])
             samples.append({
                 "ratio": ratio, "repetition": rep,
                 "cluster_thp": cluster[0], "baseline_thp": baseline[0],
-                "cxl_mib": cluster[1], "dram_mib": cluster[2],
+                "cxl_access_mib": cluster[1], "dram_access_mib": cluster[2],
+                "baseline_cxl_access_mib": baseline[1],
+                "baseline_dram_access_mib": baseline[2],
+                "post_warmup_cxl_resident_mib": cluster[3],
+                "post_warmup_dram_resident_mib": cluster[4],
+                "post_exec_cxl_resident_mib": cluster[5],
+                "post_exec_dram_resident_mib": cluster[6],
+                "baseline_post_warmup_cxl_resident_mib": baseline[3],
+                "baseline_post_warmup_dram_resident_mib": baseline[4],
+                "baseline_post_exec_cxl_resident_mib": baseline[5],
+                "baseline_post_exec_dram_resident_mib": baseline[6],
             })
         cluster_mean = mean(cluster_thp)
         baseline_mean = mean(baseline_thp)
@@ -219,11 +282,48 @@ def collect(args):
             "baseline_thp": baseline_mean,
             "baseline_std": std(baseline_thp),
             "scaleup": cluster_mean / baseline_mean,
-            "cxl_mib": mean(cxl),
-            "cxl_std": std(cxl),
-            "dram_mib": mean(dram),
-            "dram_std": std(dram),
-            "total_std": std(totals),
+            "cxl_access_mib": mean(cxl),
+            "cxl_access_std": std(cxl),
+            "dram_access_mib": mean(dram),
+            "dram_access_std": std(dram),
+            "total_access_std": std(totals),
+            "baseline_cxl_access_mib": mean(baseline_cxl),
+            "baseline_cxl_access_std": std(baseline_cxl),
+            "baseline_dram_access_mib": mean(baseline_dram),
+            "baseline_dram_access_std": std(baseline_dram),
+            "baseline_total_access_std": std(baseline_totals),
+            "post_warmup_cxl_resident_mib": mean(warmup_cxl_resident),
+            "post_warmup_cxl_resident_std": std(warmup_cxl_resident),
+            "post_warmup_dram_resident_mib": mean(warmup_dram_resident),
+            "post_warmup_dram_resident_std": std(warmup_dram_resident),
+            "post_exec_cxl_resident_mib": mean(exec_cxl_resident),
+            "post_exec_cxl_resident_std": std(exec_cxl_resident),
+            "post_exec_dram_resident_mib": mean(exec_dram_resident),
+            "post_exec_dram_resident_std": std(exec_dram_resident),
+            "baseline_post_warmup_cxl_resident_mib": mean(
+                baseline_warmup_cxl_resident
+            ),
+            "baseline_post_warmup_cxl_resident_std": std(
+                baseline_warmup_cxl_resident
+            ),
+            "baseline_post_warmup_dram_resident_mib": mean(
+                baseline_warmup_dram_resident
+            ),
+            "baseline_post_warmup_dram_resident_std": std(
+                baseline_warmup_dram_resident
+            ),
+            "baseline_post_exec_cxl_resident_mib": mean(
+                baseline_exec_cxl_resident
+            ),
+            "baseline_post_exec_cxl_resident_std": std(
+                baseline_exec_cxl_resident
+            ),
+            "baseline_post_exec_dram_resident_mib": mean(
+                baseline_exec_dram_resident
+            ),
+            "baseline_post_exec_dram_resident_std": std(
+                baseline_exec_dram_resident
+            ),
         })
     return rows, samples
 
@@ -233,7 +333,23 @@ def write_csvs(rows, samples, csv_dir: Path):
     fields = [
         "ratio_pct", "cluster_thp_mtxn_s", "cluster_thp_std",
         "baseline_thp_mtxn_s", "baseline_thp_std", "scaleup",
-        "cxl_mib", "cxl_std", "dram_mib", "dram_std", "total_std",
+        "cxl_access_mib", "cxl_access_std", "dram_access_mib",
+        "dram_access_std", "total_access_std",
+        "baseline_cxl_access_mib", "baseline_cxl_access_std",
+        "baseline_dram_access_mib", "baseline_dram_access_std",
+        "baseline_total_access_std",
+        "post_warmup_cxl_resident_mib", "post_warmup_cxl_resident_std",
+        "post_warmup_dram_resident_mib", "post_warmup_dram_resident_std",
+        "post_exec_cxl_resident_mib", "post_exec_cxl_resident_std",
+        "post_exec_dram_resident_mib", "post_exec_dram_resident_std",
+        "baseline_post_warmup_cxl_resident_mib",
+        "baseline_post_warmup_cxl_resident_std",
+        "baseline_post_warmup_dram_resident_mib",
+        "baseline_post_warmup_dram_resident_std",
+        "baseline_post_exec_cxl_resident_mib",
+        "baseline_post_exec_cxl_resident_std",
+        "baseline_post_exec_dram_resident_mib",
+        "baseline_post_exec_dram_resident_std",
     ]
     with (csv_dir / "cross_warehouse.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -242,11 +358,43 @@ def write_csvs(rows, samples, csv_dir: Path):
             writer.writerow(dict(zip(fields, [
                 row["ratio"], row["cluster_thp"], row["cluster_std"],
                 row["baseline_thp"], row["baseline_std"], row["scaleup"],
-                row["cxl_mib"], row["cxl_std"], row["dram_mib"],
-                row["dram_std"], row["total_std"],
+                row["cxl_access_mib"], row["cxl_access_std"],
+                row["dram_access_mib"], row["dram_access_std"],
+                row["total_access_std"],
+                row["baseline_cxl_access_mib"],
+                row["baseline_cxl_access_std"],
+                row["baseline_dram_access_mib"],
+                row["baseline_dram_access_std"],
+                row["baseline_total_access_std"],
+                row["post_warmup_cxl_resident_mib"],
+                row["post_warmup_cxl_resident_std"],
+                row["post_warmup_dram_resident_mib"],
+                row["post_warmup_dram_resident_std"],
+                row["post_exec_cxl_resident_mib"],
+                row["post_exec_cxl_resident_std"],
+                row["post_exec_dram_resident_mib"],
+                row["post_exec_dram_resident_std"],
+                row["baseline_post_warmup_cxl_resident_mib"],
+                row["baseline_post_warmup_cxl_resident_std"],
+                row["baseline_post_warmup_dram_resident_mib"],
+                row["baseline_post_warmup_dram_resident_std"],
+                row["baseline_post_exec_cxl_resident_mib"],
+                row["baseline_post_exec_cxl_resident_std"],
+                row["baseline_post_exec_dram_resident_mib"],
+                row["baseline_post_exec_dram_resident_std"],
             ])))
 
-    sample_fields = ["ratio_pct", "repetition", "cluster_thp_mtxn_s", "baseline_thp_mtxn_s", "cxl_mib", "dram_mib"]
+    sample_fields = [
+        "ratio_pct", "repetition", "cluster_thp_mtxn_s",
+        "baseline_thp_mtxn_s", "cxl_access_mib", "dram_access_mib",
+        "baseline_cxl_access_mib", "baseline_dram_access_mib",
+        "post_warmup_cxl_resident_mib", "post_warmup_dram_resident_mib",
+        "post_exec_cxl_resident_mib", "post_exec_dram_resident_mib",
+        "baseline_post_warmup_cxl_resident_mib",
+        "baseline_post_warmup_dram_resident_mib",
+        "baseline_post_exec_cxl_resident_mib",
+        "baseline_post_exec_dram_resident_mib",
+    ]
     with (csv_dir / "cross_warehouse_samples.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=sample_fields)
         writer.writeheader()
@@ -258,7 +406,9 @@ def plot(rows, fig_dir: Path, machines: int):
     fig_dir.mkdir(parents=True, exist_ok=True)
     x = np.arange(len(rows))
     labels = [f'{row["ratio"]}%' for row in rows]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8), constrained_layout=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(
+        1, 3, figsize=(15, 3.8), constrained_layout=True
+    )
     width = 0.36
     ax1.bar(x - width / 2, [r["baseline_thp"] for r in rows], width,
             yerr=[r["baseline_std"] for r in rows], capsize=3, label="1 machine")
@@ -272,14 +422,42 @@ def plot(rows, fig_dir: Path, machines: int):
     ax1.legend(frameon=False)
     ax1.grid(axis="y", linestyle=":")
 
-    dram = [r["dram_mib"] / 1024 for r in rows]
-    cxl = [r["cxl_mib"] / 1024 for r in rows]
-    ax2.bar(x, dram, 0.58, label="Local DRAM (sum)")
-    ax2.bar(x, cxl, 0.58, bottom=dram,
-            yerr=[r["total_std"] / 1024 for r in rows], capsize=3, label="CXL (shared)")
-    ax2.set(xticks=x, xticklabels=labels, xlabel="Cross-warehouse transaction probability", ylabel="Footprint (GiB)")
+    mib_to_gb = BYTES_PER_MIB / BYTES_PER_GB
+    dram = [r["dram_access_mib"] * mib_to_gb for r in rows]
+    cxl = [r["cxl_access_mib"] * mib_to_gb for r in rows]
+    ax2.bar(x - width / 2, dram, width,
+            yerr=[r["dram_access_std"] * mib_to_gb for r in rows], capsize=3,
+            label="Local DRAM accesses")
+    ax2.bar(x + width / 2, cxl, width,
+            yerr=[r["cxl_access_std"] * mib_to_gb for r in rows], capsize=3,
+            label="Shared CXL accesses")
+    ax2.set_yscale("log")
+    ax2.set(xticks=x, xticklabels=labels,
+            xlabel="Cross-warehouse transaction probability",
+            ylabel="Access volume (GB, log scale)")
     ax2.legend(frameon=False)
     ax2.grid(axis="y", linestyle=":")
+
+    resident_dram = [r["post_exec_dram_resident_mib"] * mib_to_gb for r in rows]
+    resident_cxl = [r["post_exec_cxl_resident_mib"] * mib_to_gb for r in rows]
+    ax3.bar(
+        x, resident_dram, width * 1.5,
+        yerr=[r["post_exec_dram_resident_std"] * mib_to_gb for r in rows],
+        capsize=3, label="Local DRAM resident",
+    )
+    ax3.bar(
+        x, resident_cxl, width * 1.5, bottom=resident_dram,
+        yerr=[r["post_exec_cxl_resident_std"] * mib_to_gb for r in rows],
+        capsize=3, label="Shared CXL resident",
+    )
+    ax3.set(
+        xticks=x, xticklabels=labels,
+        xlabel="Cross-warehouse transaction probability",
+        ylabel="Post-exec resident footprint (GB)",
+    )
+    ax3.set_ylim(0, max(dram + cxl for dram, cxl in zip(resident_dram, resident_cxl)) * 1.18)
+    ax3.legend(frameon=False)
+    ax3.grid(axis="y", linestyle=":")
 
     output = fig_dir / "dbx1000-cross-warehouse.png"
     fig.savefig(output, dpi=200)
@@ -296,11 +474,13 @@ def main():
     parser.add_argument("--num-warehouses", type=int, default=64)
     parser.add_argument("--threads-per-machine", type=int, default=8)
     parser.add_argument("--guest-cpus", type=int, default=12)
-    parser.add_argument("--warmup", type=int, default=7040000)
+    parser.add_argument("--warmup", type=int, default=512000)
     parser.add_argument("--max-txn", type=int, default=10000)
     parser.add_argument("--measure-sec", type=int, default=0)
     parser.add_argument("--repetitions", type=int, default=3)
-    parser.add_argument("--ratios", nargs="+", type=int, default=[15, 50, 80])
+    parser.add_argument(
+        "--ratios", nargs="+", type=int, default=[0, 5, 10, 15, 50, 80, 100]
+    )
     args = parser.parse_args()
     if args.num_warehouses % args.num_machines or args.warmup % args.num_machines:
         parser.error("warehouses and warmup must be divisible by machine count")

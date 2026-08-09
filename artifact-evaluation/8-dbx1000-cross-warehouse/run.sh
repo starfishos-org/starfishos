@@ -28,11 +28,13 @@ if [ "$DBX_SMOKE" = 1 ]; then
     DEFAULT_LOG_STALL=0
     DEFAULT_MEASURE_SEC=2
 elif [ "$DBX_SMOKE" = 0 ]; then
-    DEFAULT_RATIOS="15 50 80"
+    DEFAULT_RATIOS="0 5 10 15 50 80 100"
     DEFAULT_MACHINES=8
     DEFAULT_WAREHOUSES=64
     DEFAULT_THREADS=8
-    DEFAULT_WARMUP=7040000
+    # The 8-machine total. run_configuration scales the one-machine baseline
+    # to the same 64000 transactions per machine (8000 per worker).
+    DEFAULT_WARMUP=512000
     DEFAULT_MAX_TXN=10000
     DEFAULT_REPETITIONS=3
     DEFAULT_DRAM_SIZE=16G
@@ -87,7 +89,12 @@ BASELINE_USER_MALLOC_MODE="${DBX_BASELINE_USER_MALLOC_MODE:-DEFAULT_CXL}"
 # Case 2.3 DSM read-ahead depth in pages (1 disables read-ahead).  Bounded by
 # POLLING_TLB_BATCH_MAX, which this must never change: it sizes entries[] in
 # the kernel/polling shared-memory ABI struct.
-READAHEAD="${DBX_READAHEAD:-32}"
+READAHEAD="${DBX_READAHEAD:-4}"
+# CXL residency cap experiment. Override with OFF for the no-cap baseline.
+# Keep the fixed cap and policy scoped to this target.
+CXL_DEMOTE="${DBX_CXL_DEMOTE:-ON}"
+CXL_DEMOTE_LIMIT_MB="${DBX_CXL_DEMOTE_LIMIT_MB:-1024}"
+CXL_DEMOTE_POLICY="${DBX_CXL_DEMOTE_POLICY:-CLOCK}"
 
 for mode in "$MALLOC_MODE" "$BASELINE_MALLOC_MODE"; do
     case "$mode" in
@@ -101,6 +108,14 @@ for mode in "$USER_MALLOC_MODE" "$BASELINE_USER_MALLOC_MODE"; do
         *) echo "Invalid user malloc mode: $mode" >&2; exit 1 ;;
     esac
 done
+case "$CXL_DEMOTE" in
+    ON|OFF) ;;
+    *) echo "DBX_CXL_DEMOTE must be ON or OFF" >&2; exit 1 ;;
+esac
+case "$CXL_DEMOTE_POLICY" in
+    CLOCK|FIFO) ;;
+    *) echo "DBX_CXL_DEMOTE_POLICY must be CLOCK or FIFO" >&2; exit 1 ;;
+esac
 
 is_positive_int() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 for value in "$NUM_MACHINES" "$NUM_WAREHOUSES" "$THREADS_PER_MACHINE" \
@@ -108,6 +123,9 @@ for value in "$NUM_MACHINES" "$NUM_WAREHOUSES" "$THREADS_PER_MACHINE" \
     "$EXIT_TIMEOUT" "$BACKING_MIN_BYTES" "$READAHEAD"; do
     is_positive_int "$value" || { echo "Invalid positive integer: $value" >&2; exit 1; }
 done
+is_positive_int "$CXL_DEMOTE_LIMIT_MB" || {
+    echo "DBX_CXL_DEMOTE_LIMIT_MB must be a positive integer" >&2; exit 1;
+}
 [ "$READAHEAD" -le 32 ] || {
     echo "DBX_READAHEAD must be <= POLLING_TLB_BATCH_MAX (32)" >&2; exit 1;
 }
@@ -213,6 +231,9 @@ set_placement() {
     done
     ae_set_dsm_var USE_DEV_AS_DRAM ON
     ae_set_dsm_var DSM_CXL_LF_BUDDY OFF
+    ae_set_dsm_var DSM_CXL_DEMOTE "$CXL_DEMOTE"
+    ae_set_dsm_var DSM_CXL_DEMOTE_LIMIT_MB "$CXL_DEMOTE_LIMIT_MB"
+    ae_set_dsm_var DSM_CXL_DEMOTE_POLICY "$CXL_DEMOTE_POLICY"
     ae_set_dsm_var SLAB_CRASH_RECOVERY OFF
     ae_set_dsm_var PHOENIX_SCHED_TIMING OFF
 }
@@ -343,6 +364,7 @@ ae_set_paper_guest_cpu_config "$GUEST_CPUS"
 ae_export_guest_cpu_num "$GUEST_CPUS"
 enable_vmspace_stats
 set_readahead "$READAHEAD"
+set_placement "$MALLOC_MODE" "$USER_MALLOC_MODE"
 
 # Record the effective configuration so this out/<timestamp>/ stays readable
 # after the build configs are restored (config/run_config.json + placement.txt).
@@ -350,7 +372,8 @@ ae_manifest_set_vars \
     DBX_SMOKE NUM_MACHINES BASELINE_MACHINES NUM_WAREHOUSES \
     WAREHOUSES_PER_MACHINE THREADS_PER_MACHINE WARMUP WARMUP_PER_MACHINE \
     MAX_TXN MEASURE_SEC RATIOS REPETITIONS DRAM_SIZE GUEST_CPUS NUMA_BIND \
-    MALLOC_MODE USER_MALLOC_MODE READAHEAD \
+    MALLOC_MODE USER_MALLOC_MODE READAHEAD CXL_DEMOTE CXL_DEMOTE_LIMIT_MB \
+    CXL_DEMOTE_POLICY \
     BASELINE_MALLOC_MODE BASELINE_USER_MALLOC_MODE TIMEOUT
 ae_write_run_manifest
 

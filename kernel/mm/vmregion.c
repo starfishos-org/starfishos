@@ -1496,6 +1496,7 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
     u64 mapped = 0;
     int ret = 0;
     u64 live_mismatch;
+    bool reclaim_snapshot_held = false;
 
     if (base & (PAGE_SIZE - 1))
         return -EINVAL;
@@ -1517,6 +1518,16 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
         return -ENOMEM;
     }
     memset(kbitmap, 0, nbytes);
+
+#ifdef DSM_ENABLED
+    ret = dsm_cxl_snapshot_begin();
+    if (ret) {
+        kfree(kbitmap);
+        obj_put(vmspace);
+        return ret;
+    }
+    reclaim_snapshot_held = true;
+#endif
 
     /*
      * Fill under vmspace_lock, but copy afterwards: copy_to_user resolves the
@@ -1571,6 +1582,13 @@ int sys_snapshot_cxl_bitmap(u64 base, u64 npages, u64 ubitmap)
         ret = -EINVAL;
     else if (live_mismatch != 0)
         ret = -EINVAL;
+
+#ifdef DSM_ENABLED
+    if (reclaim_snapshot_held)
+        dsm_cxl_snapshot_end();
+#else
+    UNUSED(reclaim_snapshot_held);
+#endif
 
     kfree(kbitmap);
     kinfo("[snapshot_cxl_bitmap] examined %llu mapped pages of %llu requested\n",

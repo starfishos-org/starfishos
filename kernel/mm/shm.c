@@ -229,17 +229,19 @@ struct dq_node *dq_alloc_node_timeout(struct polling_shm_region *shm,
                                       u64 timeout_ns)
 {
     u64 deadline = plat_get_mono_time() + timeout_ns;
+    u32 polls = 0;
 
-    while (plat_get_mono_time() < deadline) {
+    while (1) {
         struct dq_node *node = alloc_node_try(shm);
 
         if (node != NULL)
             return node;
+        if ((++polls & 1023U) == 0 && plat_get_mono_time() >= deadline)
+            return NULL;
         extern void handle_ipi(void);
         handle_ipi();
         CPU_PAUSE();
     }
-    return NULL;
 }
 
 /*
@@ -310,10 +312,18 @@ void dq_mark_consumed(struct dq_node *node)
 int dq_wait_for_done_timeout(struct dq_node *node, u64 timeout_ns)
 {
     u64 deadline = plat_get_mono_time() + timeout_ns;
+    u32 polls = 0;
     extern void handle_ipi(void);
 
     while (atomic_load_32(&node->status) != DQ_DONE) {
-        if (plat_get_mono_time() >= deadline)
+        /*
+         * Reading the platform clock on every polling iteration made the
+         * bounded foreground path orders of magnitude slower than the old
+         * completion wait.  A 1024-pause sampling interval keeps the deadline
+         * bounded to a tiny overshoot while leaving normal short RPCs with
+         * just the initial clock read.
+         */
+        if ((++polls & 1023U) == 0 && plat_get_mono_time() >= deadline)
             return -ETIMEDOUT;
         handle_ipi();
         CPU_PAUSE();

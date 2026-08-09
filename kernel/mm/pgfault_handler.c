@@ -26,8 +26,10 @@
 #include <mm/page.h>
 #include <arch/mm/page_table.h>
 #include <arch/mm/tlb.h>
+#include <irq/irq.h>
 #include <mm/page_table_func.h>
 #include <object/recycle.h>
+#include <sched/sched.h>
 #ifdef DSM_ENABLED
 #include <dsm/dsm-single.h>
 #include <dsm/cxl_reclaim.h>
@@ -75,6 +77,86 @@
 #endif
 #if PGFAULT_READAHEAD_MAX > POLLING_TLB_BATCH_MAX
 #error "PGFAULT_READAHEAD_MAX must not exceed POLLING_TLB_BATCH_MAX"
+#endif
+
+#if defined(DSM_ENABLED) && defined(MULTI_PAGETABLE_ENABLED)
+/* Back off repeated faults while a bounded migration transaction completes. */
+#define CXL_FAULT_RETRY_BASE_NS 50000ULL
+#define CXL_FAULT_RETRY_MAX_NS  1000000ULL
+#define CXL_FAULT_RETRY_RESET_NS 10000000ULL
+
+struct cxl_fault_retry_state {
+    struct thread *thread;
+    vaddr_t fault_addr;
+    u64 last_ns;
+    u8 shift;
+};
+
+/* Kernel-local state: never extend struct thread or another shared DSM ABI. */
+static struct cxl_fault_retry_state cxl_fault_retries[PLAT_CPU_NUM];
+
+static void cxl_fault_retry_timer_cb(struct thread *thread)
+{
+    thread->thread_ctx->state = TS_TO_SCHED;
+    BUG_ON(sched_enqueue(thread));
+}
+
+static inline void reset_cxl_fault_retry(vaddr_t fault_addr)
+{
+    struct thread *thread = current_thread;
+    struct cxl_fault_retry_state *state =
+            &cxl_fault_retries[smp_get_cpu_id()];
+
+    if (thread && state->thread == thread && state->fault_addr == fault_addr) {
+        state->thread = NULL;
+        state->fault_addr = 0;
+        state->last_ns = 0;
+        state->shift = 0;
+    }
+}
+
+static void __attribute__((noreturn))
+schedule_cxl_fault_retry(vaddr_t fault_addr)
+{
+    struct thread *thread = current_thread;
+    struct cxl_fault_retry_state *state =
+            &cxl_fault_retries[smp_get_cpu_id()];
+    struct timespec retry;
+    u64 delay_ns;
+    u64 now;
+
+    BUG_ON(!thread);
+    now = plat_get_mono_time();
+    if (state->thread != thread || state->fault_addr != fault_addr
+        || now < state->last_ns
+        || now - state->last_ns > CXL_FAULT_RETRY_RESET_NS) {
+        state->thread = thread;
+        state->fault_addr = fault_addr;
+        state->shift = 0;
+    }
+    delay_ns = CXL_FAULT_RETRY_BASE_NS
+               << MIN(state->shift, 5);
+    delay_ns = MIN(delay_ns, CXL_FAULT_RETRY_MAX_NS);
+    if (state->shift < 5)
+        state->shift++;
+    state->last_ns = now;
+    retry.tv_sec = 0;
+    retry.tv_nsec = delay_ns;
+    dsm_cxl_note_fault_fallback();
+    lock(&thread->sleep_state.queue_lock);
+    BUG_ON(enqueue_sleeper(thread, &retry, cxl_fault_retry_timer_cb));
+    thread->thread_ctx->state = TS_WAITING;
+
+    /*
+     * Select the next thread before releasing queue_lock.  The timer callback
+     * cannot enqueue this thread until its kernel stack is on the way out,
+     * which closes the wake-before-schedule race.
+     */
+    sched();
+    unlock(&thread->sleep_state.queue_lock);
+    eret_to_thread(switch_context());
+    BUG("scheduled CXL fault retry returned\n");
+}
 #endif
 
 /* Enable page fault statistics and debug logging */
@@ -327,6 +409,10 @@ static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fa
     unlock(&vmspace->pgtbl_lock);
     read_unlock(&vmspace->vmspace_lock);
 
+#if defined(DSM_ENABLED) && defined(MULTI_PAGETABLE_ENABLED)
+    UNUSED(pte);
+    schedule_cxl_fault_retry(fault_addr);
+#else
     extern void handle_ipi(void);
     while (1) {
         CPU_PAUSE();
@@ -352,32 +438,11 @@ static void migration_entry_wait(pte_t *pte, struct vmspace *vmspace, vaddr_t fa
         unlock(&vmspace->pgtbl_lock);
         read_unlock(&vmspace->vmspace_lock);
     }
+#endif
 }
 #endif
 
 #ifdef MULTI_PAGETABLE_ENABLED
-/* Check if a virtual address is currently being migrated */
-static bool is_va_migrating(struct vmspace *vmspace, vaddr_t va, mid_t *sender_machine_id)
-{
-    struct migrating_va_entry *entry;
-    bool found = false;
-    
-    lock(&vmspace->migrating_va_lock);
-    for_each_in_list(entry, struct migrating_va_entry, list_node, &vmspace->migrating_va_list) {
-        // printk(ANSI_COLOR_RED "[MIGRATION] find migrating va: 0x%lx\n" ANSI_COLOR_RESET, entry->va);
-        if (entry->va == va) {
-            if (sender_machine_id) {    
-                *sender_machine_id = entry->sender_machine_id;
-            }
-            found = true;
-            break;
-        }
-    }
-    unlock(&vmspace->migrating_va_lock);
-    
-    return found;
-}
-
 /* Result of trying to reserve a VA for migration. */
 #define MIGRATING_VA_RESERVED  0 /* this thread now owns the migration */
 #define MIGRATING_VA_BUSY      1 /* somebody else is already migrating it */
@@ -449,42 +514,6 @@ void remove_migrating_va(struct vmspace *vmspace, vaddr_t va)
     unlock(&vmspace->migrating_va_lock);
 }
 
-/* Wait until migration completes for a specific VA and PTE is mapped */
-static void wait_for_migration_complete(struct vmspace *vmspace, vaddr_t va, paddr_t *out_pa, mid_t sender_machine_id)
-{
-    void *pgtbl;
-    paddr_t pa;
-    pte_t *pte;
-    int ret;
-    
-    /* First wait for the migrating entry to be removed */
-    while (is_va_migrating(vmspace, va, NULL)) {
-        CPU_PAUSE();
-    }
-
-    /* Then wait for the PTE to be mapped on the sender machine */
-    while (1) {
-        read_lock(&vmspace->vmspace_lock);
-        lock(&vmspace->pgtbl_lock);
-        pgtbl = get_vmspace_pgtbl(vmspace, sender_machine_id);
-        ret = query_in_pgtbl(pgtbl, va, &pa, &pte);
-        
-        if (ret == 0 && pte && pte->pte_4K.present 
-            && !is_migration_entry(pte)) {
-            /* PTE is properly mapped, migration is complete */
-            if (out_pa) {
-                *out_pa = pa;
-            }
-            unlock(&vmspace->pgtbl_lock);
-            read_unlock(&vmspace->vmspace_lock);
-            return;
-        }
-        
-        unlock(&vmspace->pgtbl_lock);
-        read_unlock(&vmspace->vmspace_lock);
-        CPU_PAUSE();
-    }
-}
 #endif
 
 #if PGFAULT_POLICY == ONDEMAND
@@ -555,6 +584,9 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
      * the reason a lock is held longer.
      */
     dms_tick();
+#if defined(DSM_ENABLED) && defined(MULTI_PAGETABLE_ENABLED)
+    reap_pending_shm_migrations();
+#endif
 
     /*
      * Grab lock here.
@@ -987,8 +1019,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
         if (dsm_cxl_mapping_in_transition(pmo, index, pa)) {
             unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
-            CPU_PAUSE();
-            return 0;
+            schedule_cxl_fault_retry(fault_addr);
         }
 #endif
         /* NOTE!!: should not define machine_id variable here,
@@ -1018,6 +1049,15 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
             unlock(&vmspace->pgtbl_lock);
             read_unlock(&vmspace->vmspace_lock);
             
+            /*
+             * Admit capacity before publishing migrating-VA ownership.  If
+             * admission misses, no peer can mistake this fault for a
+             * migration which it must wait for.
+             */
+            if (dsm_cxl_reserve_resident_pages(1) != 0) {
+                return -ENOMEM;
+            }
+
             /* Atomically check and reserve; see check_and_add_migrating_va(). */
             mid_t sender_mid = MACHINE_ID_INVALID;
             int reserve_ret =
@@ -1026,70 +1066,24 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /*
                  * The reservation could not be recorded, so this migration
                  * cannot be made exclusive against other threads.  Nothing has
-                 * been changed anywhere, so return and let the instruction
-                 * fault again rather than proceeding unreserved.  Returning an
-                 * error instead would kill the process (or panic, for a kernel
-                 * -mode fault) over a transient allocation failure.
+                 * been changed anywhere.  Treat a persistent metadata OOM as
+                 * a normal user fault failure instead of retrying forever.
                  */
-                kwarn("[MIGRATION] cannot reserve va 0x%lx for migration: %d;"
-                      " retrying the fault\n",
-                      fault_addr, reserve_ret);
-                CPU_PAUSE();
-                return 0;
+                kwarn_once("[MIGRATION] cannot reserve a VA for migration\n");
+                dsm_cxl_cancel_resident_pages(1);
+                return -ENOMEM;
             }
             if (reserve_ret == MIGRATING_VA_BUSY) {
-                /**
-                 * Case2.2: page is already being migrated by other thread,
-                 * then wait until this page finish migration
+                /*
+                 * Another fault owns the migration.  Do not spin on its
+                 * marker or remote RPC: its completion will make the next
+                 * scheduled fault take the direct-map path.
                  */
-                /* The sender machine ID should not be invalid */
                 BUG_ON(sender_mid == MACHINE_ID_INVALID);
-
-                /* VA was already being migrated by another thread */
-                /* Wait for the migration to complete and PTE to be mapped */
-                // multipt_debug("[case2.2 migration wait]"
-                //     "va 0x%lx is already being migrated by sender machine (%d), waiting...\n", 
-                //     fault_addr, sender_mid);
-
-                wait_for_migration_complete(vmspace, fault_addr, &new_pa, sender_mid);
-
-                /* If the sender machine is not the current machine,
-                 * we need to map the page to the page table directly.
-                 * Re-acquire locks before modifying page table.
-                 */
-                if (sender_mid != CUR_MACHINE_ID) {
-                    // multipt_debug("[case2.2 migration wait]"
-                    //     "remap page(va=%p, pa=%p) since sender machine (%d) != current machine (%d)\n", 
-                    //     fault_addr, new_pa, sender_mid, CUR_MACHINE_ID);
-                    /* Re-acquire locks */
-                    read_lock(&vmspace->vmspace_lock);
-                    lock(&vmspace->pgtbl_lock);
-
-                    /* Get the page table of the current machine */
-                    pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
-
-                    /* Map the page to the page table */
-                    BUG_ON(get_paddr_machine_id(new_pa) != MACHINE_ID_SHARED_MEMORY);
-                    map_page_in_pgtbl(pgtbl, fault_addr, new_pa, perm, &pte);
-                    cxlprof_live_mark_cxl(vmspace, fault_addr);
-
-                    /* Unlock the page table and vmspace lock */
-                    unlock(&vmspace->pgtbl_lock);
-                    read_unlock(&vmspace->vmspace_lock);
-                } else {
-                    // multipt_debug("[case2.2 migration wait]"
-                    //     "DO NOTHING since sender machine (%d) == current machine (%d)\n", 
-                    //     sender_mid, CUR_MACHINE_ID);
-                }
-
                 DMS_INC(dms_c22);
                 DMS_ADD(dms_c22_cycles, get_cycles() - dms_entry_cycles);
-#ifdef PGFAULT_STATS_DEBUG
-                u64 case2_end_cycles = get_cycles();
-                u64 case2_cycles = case2_end_cycles - case2_start_cycles;
-                add_sample_case2(&pgfault_stats.case2_wait, case2_cycles);
-#endif
-                return 0;
+                dsm_cxl_cancel_resident_pages(1);
+                schedule_cxl_fault_retry(fault_addr);
             } else {
                 /**
                  * Case2.3: the page is not being migrated by other thread,
@@ -1122,6 +1116,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     cxlprof_live_mark_cxl(vmspace, fault_addr);
                     unlock(&vmspace->pgtbl_lock);
                     read_unlock(&vmspace->vmspace_lock);
+                    dsm_cxl_cancel_resident_pages(1);
                     remove_migrating_va(vmspace, fault_addr);
                     DMS_INC(dms_c23_raced);
                     DMS_ADD(dms_c23_cycles, get_cycles() - dms_entry_cycles);
@@ -1132,6 +1127,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #endif
                     multipt_debug("[case2.3 skipped] va 0x%lx already migrated by another machine, just map\n",
                         fault_addr);
+                    reset_cxl_fault_retry(fault_addr);
                     return 0;
                 }
                 /*
@@ -1157,6 +1153,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                             cxlprof_live_mark_cxl(vmspace, fault_addr);
                         unlock(&vmspace->pgtbl_lock);
                         read_unlock(&vmspace->vmspace_lock);
+                        dsm_cxl_cancel_resident_pages(1);
                         remove_migrating_va(vmspace, fault_addr);
                         DMS_INC(dms_c23_raced);
                         DMS_ADD(dms_c23_cycles, get_cycles() - dms_entry_cycles);
@@ -1167,6 +1164,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 #endif
                         multipt_debug("[case2.3 owner changed] va 0x%lx now maps to pa 0x%lx on mid %d, direct map\n",
                                       fault_addr, new_pa, mid);
+                        reset_cxl_fault_retry(fault_addr);
                         return 0;
                     }
                 }
@@ -1185,50 +1183,54 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                  * shootdown IPIs (see sys_memcpy_and_flush_tlb), which dwarf
                  * the 4 KiB copy; batching amortizes both those shootdowns and
                  * the round trip over the whole run.  PGFAULT_READAHEAD_MAX
-                 * bounds speculative migration so scattered workloads cannot
-                 * fill CXL without limit.  The CXL reclaim path may later move
-                 * cold pages back to their origin DRAM pages.
+                 * bounds speculation by each fault.  The CXL reclaim path may
+                 * later move cold pages back to their origin DRAM pages.
                  */
                 struct polling_tlb_batch_entry batch[POLLING_TLB_BATCH_MAX];
+                struct cxl_track_op track_ops[POLLING_TLB_BATCH_MAX];
                 u64 batch_count;
                 u64 bi;
+                u64 read_ahead_reserved = 0;
+                u64 read_ahead_used = 0;
                 vaddr_t next_va;
                 void *dst_va;
                 int migrate_ret;
                 bool reclaim_enabled = dsm_cxl_reclaim_enabled();
                 bool tracking_failed[POLLING_TLB_BATCH_MAX] = { false };
 
-                if (dsm_cxl_reserve_resident_pages(1) != 0) {
-                    remove_migrating_va(vmspace, fault_addr);
-                    CPU_PAUSE();
-                    return 0;
-                }
                 dst_va = get_pages(0, __MT_SHARED__);
                 if (dst_va == NULL) {
                     dsm_cxl_cancel_resident_pages(1);
                     remove_migrating_va(vmspace, fault_addr);
-                    CPU_PAUSE();
-                    return 0;
+                    return -ENOMEM;
                 }
                 batch[0].src_pa = pa;
                 batch[0].dst_pa = virt_to_phys(dst_va);
                 batch[0].fault_va = fault_addr; /* already page aligned above */
                 batch_count = 1;
 
+                if (PGFAULT_READAHEAD_MAX > 1) {
+                    u64 pages_left = (vmr_end - fault_addr) / PAGE_SIZE;
+
+                    if (pages_left > 1) {
+                        read_ahead_reserved = MIN(
+                                (u64)PGFAULT_READAHEAD_MAX - 1,
+                                pages_left - 1);
+                        if (dsm_cxl_reserve_resident_pages(
+                                    read_ahead_reserved) != 0)
+                            read_ahead_reserved = 0;
+                    }
+                }
+
                 for (next_va = batch[0].fault_va + PAGE_SIZE;
-                     batch_count < PGFAULT_READAHEAD_MAX && next_va < vmr_end;
+                     read_ahead_used < read_ahead_reserved
+                         && batch_count < PGFAULT_READAHEAD_MAX
+                         && next_va < vmr_end;
                      next_va += PAGE_SIZE) {
                     mid_t owner = MACHINE_ID_INVALID;
                     paddr_t cand_pa = 0;
                     pte_t *cand_pte = NULL;
 
-                    /*
-                     * Reserve before inspecting: a VA another thread already
-                     * owns ends the run, and holding the reservation keeps
-                     * anyone else from starting on it while we look.  A failed
-                     * reservation ends the run too — read-ahead is optional,
-                     * so there is nothing to report.
-                     */
                     if (check_and_add_migrating_va(vmspace, next_va, NULL)
                         != MIGRATING_VA_RESERVED)
                         break;
@@ -1248,14 +1250,8 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                         remove_migrating_va(vmspace, next_va);
                         break;
                     }
-
-                    if (dsm_cxl_reserve_resident_pages(1) != 0) {
-                        remove_migrating_va(vmspace, next_va);
-                        break;
-                    }
                     dst_va = get_pages(0, __MT_SHARED__);
                     if (dst_va == NULL) {
-                        dsm_cxl_cancel_resident_pages(1);
                         remove_migrating_va(vmspace, next_va);
                         break;
                     }
@@ -1263,10 +1259,16 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     batch[batch_count].dst_pa = virt_to_phys(dst_va);
                     batch[batch_count].fault_va = next_va;
                     batch_count++;
+                    read_ahead_used++;
                 }
+                if (read_ahead_reserved > read_ahead_used)
+                    dsm_cxl_cancel_resident_pages(
+                            read_ahead_reserved - read_ahead_used);
 
                 migrate_ret = migrate_pages_to_shm_batch(
-                        mid, vmspace, batch, batch_count);
+                        mid, vmspace, pmo, index, batch, batch_count);
+                if (migrate_ret == -EINPROGRESS)
+                    schedule_cxl_fault_retry(fault_addr);
                 if (migrate_ret != 0) {
                     /*
                      * The remote machine applied nothing (the batch syscall is
@@ -1281,16 +1283,14 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                      * would kill the process (or panic, for a kernel-mode
                      * fault) over what is usually a transient remote failure.
                      */
-                    kwarn("[MIGRATION] batch of %lu pages from machine %d failed"
-                          " (%d); faulting va 0x%lx, retrying the fault\n",
-                          batch_count, mid, migrate_ret, fault_addr);
+                    kwarn_once("[MIGRATION] a remote promotion batch failed; "
+                               "using scheduled fault retries\n");
                     for (bi = 0; bi < batch_count; bi++) {
                         dsm_cxl_cancel_resident_pages(1);
                         free_pages((void *)phys_to_virt(batch[bi].dst_pa));
                         remove_migrating_va(vmspace, batch[bi].fault_va);
                     }
-                    CPU_PAUSE();
-                    return 0;
+                    schedule_cxl_fault_retry(fault_addr);
                 }
                 /* Re-acquire locks */
                 read_lock(&vmspace->vmspace_lock);
@@ -1299,30 +1299,42 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 /* Get the page table of the current machine */
                 pgtbl = get_vmspace_pgtbl(vmspace, CUR_MACHINE_ID);
 
-                /* Map and track every migrated page. */
+                /* Map every migrated page and prepare one batched FIFO publish. */
                 for (bi = 0; bi < batch_count; bi++) {
-                    int track_ret;
-
                     map_page_in_pgtbl(pgtbl, batch[bi].fault_va,
                                       batch[bi].dst_pa, perm, &pte);
                     cxlprof_live_mark_cxl(vmspace, batch[bi].fault_va);
-                    track_ret = reclaim_enabled
-                                ? dsm_cxl_track_page(batch[bi].dst_pa,
-                                                     batch[bi].src_pa,
-                                                     pmo,
-                                                     index + bi,
-                                                     vmspace,
-                                                     batch[bi].fault_va,
-                                                     mid)
-                                : -EOPNOTSUPP;
+
+                    track_ops[bi].cxl_pa = batch[bi].dst_pa;
+                    track_ops[bi].origin_pa = batch[bi].src_pa;
+                    track_ops[bi].pmo = pmo;
+                    track_ops[bi].pmo_index = index + bi;
+                    track_ops[bi].vmspace = vmspace;
+                    track_ops[bi].va = batch[bi].fault_va;
+                    track_ops[bi].owner_mid = mid;
+                    track_ops[bi].speculative = bi != 0;
+                    track_ops[bi].result = -EOPNOTSUPP;
+                }
+
+                if (reclaim_enabled) {
+                    int batch_track_ret =
+                            dsm_cxl_track_pages(track_ops, batch_count);
+
+                    if (batch_track_ret < 0) {
+                        for (bi = 0; bi < batch_count; bi++)
+                            track_ops[bi].result = batch_track_ret;
+                    }
+                }
+
+                for (bi = 0; bi < batch_count; bi++) {
+                    int track_ret = track_ops[bi].result;
+
                     if (track_ret < 0) {
                         tracking_failed[bi] = true;
                         if (reclaim_enabled)
-                            kwarn("[CXL_RECLAIM] Failed to track migrated "
-                                  "page pa=0x%lx ret=%d; releasing origin "
-                                  "DRAM\n",
-                                  batch[bi].dst_pa,
-                                  track_ret);
+                            kwarn_once(
+                                    "[CXL_RECLAIM] Failed to track a "
+                                    "migrated page; releasing origin DRAM\n");
                     }
                 }
 
@@ -1355,6 +1367,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                 u64 case2_cycles = case2_end_cycles - case2_start_cycles;
                 add_sample_case2(&pgfault_stats.case2_migrate, case2_cycles);
 #endif
+                reset_cxl_fault_retry(fault_addr);
                 return 0;
             }
         }
@@ -1427,6 +1440,10 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
 
 out_unlock_vmspace:
     read_unlock(&vmspace->vmspace_lock);
+#if defined(DSM_ENABLED) && defined(MULTI_PAGETABLE_ENABLED)
+    if (ret == 0)
+        reset_cxl_fault_retry(fault_addr);
+#endif
     return ret;
 }
 

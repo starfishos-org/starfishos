@@ -4,14 +4,16 @@
  * The main thread first faults a private anonymous range on machine 0 and
  * fills every word with a deterministic pattern. A worker then migrates to a
  * CPU on machine 1, verifies the original contents, and overwrites the range.
- * The worker migrates enough data to reach the configured hard residency cap
- * and force older CXL-resident pages back into their origin DRAM pages via the
- * asynchronous polling-service worker. Finally, the main thread verifies the
- * worker's pattern from machine 0. The test also checks the kernel's
- * reclaimed-page counter, so data verification alone cannot produce a false
- * PASS without exercising CXL-to-DRAM migration.
+ * The worker migrates enough data to cross the configured soft residency
+ * threshold and trigger the asynchronous polling-service worker to move a
+ * small, rate-limited sample of CXL-resident pages back into origin DRAM.
+ * The threshold is deliberately soft, so this test does not require reclaim
+ * to catch up with the full amount of overcommit. Finally, the main
+ * thread verifies the worker's pattern from machine 0. The test also checks
+ * the kernel's reclaimed-page counter, so data verification alone cannot
+ * produce a false PASS without exercising CXL-to-DRAM migration.
  *
- * Usage: test_cxl_reclaim.bin [MiB] [remote_global_cpu]
+ * Usage: test_cxl_reclaim.bin [MiB] [remote_global_cpu] [soft_limit_MiB]
  */
 
 #define _GNU_SOURCE
@@ -21,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 #include <chcore/syscall.h>
 
@@ -29,7 +32,11 @@
 #endif
 #define DEFAULT_MIB 2200UL
 #define DEFAULT_REMOTE_CPU 12UL
+#define DEFAULT_SOFT_LIMIT_MIB 1024UL
 #define WRITE_XOR 0xd1b54a32d192ed03ULL
+#define RECLAIM_WAIT_MS 30000UL
+#define RECLAIM_POLL_NS 10000000L
+#define MIN_OBSERVABLE_RECLAIM 4UL
 
 struct test_state {
     uint64_t *base;
@@ -38,6 +45,7 @@ struct test_state {
     unsigned long read_errors;
     uint64_t reclaimed_before;
     uint64_t reclaimed_after;
+    uint64_t expected_reclaim;
     int affinity_error;
 };
 
@@ -77,14 +85,34 @@ static void *remote_worker(void *opaque)
             page_base[word] = expected ^ WRITE_XOR;
         }
     }
-    state->reclaimed_after = usys_get_cxl_reclaimed_pages();
     return NULL;
+}
+
+static void wait_for_async_reclaim(struct test_state *state)
+{
+    const struct timespec poll = {
+        .tv_sec = 0,
+        .tv_nsec = RECLAIM_POLL_NS,
+    };
+    unsigned long waited_ms = 0;
+
+    printf("[cxl-reclaim-test] waiting for %lu asynchronous reclaims\n",
+           (unsigned long)state->expected_reclaim);
+    do {
+        state->reclaimed_after = usys_get_cxl_reclaimed_pages();
+        if (state->reclaimed_after - state->reclaimed_before
+            >= state->expected_reclaim)
+            return;
+        nanosleep(&poll, NULL);
+        waited_ms += RECLAIM_POLL_NS / 1000000L;
+    } while (waited_ms < RECLAIM_WAIT_MS);
 }
 
 int main(int argc, char **argv)
 {
     const size_t words_per_page = PAGE_SIZE / sizeof(uint64_t);
     unsigned long mib = DEFAULT_MIB;
+    unsigned long soft_limit_mib = DEFAULT_SOFT_LIMIT_MIB;
     struct test_state state = {0};
     unsigned long final_errors = 0;
     size_t bytes;
@@ -97,11 +125,18 @@ int main(int argc, char **argv)
         mib = strtoul(argv[1], NULL, 0);
     state.remote_cpu = argc > 2 ? strtoul(argv[2], NULL, 0)
                                 : DEFAULT_REMOTE_CPU;
+    if (argc > 3)
+        soft_limit_mib = strtoul(argv[3], NULL, 0);
     if (mib == 0)
         mib = DEFAULT_MIB;
+    if (soft_limit_mib == 0)
+        soft_limit_mib = DEFAULT_SOFT_LIMIT_MIB;
 
     bytes = (size_t)mib * 1024 * 1024;
     state.pages = bytes / PAGE_SIZE;
+    state.expected_reclaim = mib > soft_limit_mib
+                                     ? MIN_OBSERVABLE_RECLAIM
+                                     : 1;
     state.base = mmap(NULL,
                       state.pages * PAGE_SIZE,
                       PROT_READ | PROT_WRITE,
@@ -133,6 +168,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    wait_for_async_reclaim(&state);
+
     CPU_ZERO(&local_set);
     CPU_SET(0, &local_set);
     if (sched_setaffinity(-2, sizeof(local_set), &local_set) != 0) {
@@ -163,8 +200,9 @@ int main(int argc, char **argv)
         printf("[cxl-reclaim-test] RESULT: FAIL data mismatch\n");
         return 1;
     }
-    if (state.reclaimed_after <= state.reclaimed_before) {
-        printf("[cxl-reclaim-test] RESULT: FAIL no CXL page was reclaimed\n");
+    if (state.reclaimed_after - state.reclaimed_before
+        < state.expected_reclaim) {
+        printf("[cxl-reclaim-test] RESULT: FAIL reclaim did not catch up\n");
         return 1;
     }
     printf("[cxl-reclaim-test] RESULT: PASS\n");
