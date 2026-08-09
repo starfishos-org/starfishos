@@ -68,19 +68,24 @@ static u64 rpf_alloc_ticks;
 #define RPF_POLL_INTERVAL (64)
 
 /*
- * Stack head encoding: (generation << 48) | byte offset from dsm_meta.
+ * Stack head encoding: (generation << 40) | byte offset from dsm_meta.
  *
  * A plain pointer would be ABA-prone: the owner frees drained nodes back into
  * the CXL slab that every producer allocates from, so the same address can
  * leave the stack and come back while a producer still holds an old snapshot.
  * Bumping the generation on every successful store makes that producer's CAS
- * fail.  dsm_meta sits at the start of CXL SHM and the nodes are allocated
- * from it, so the offset is positive and far below 2^48; offset 0 is dsm_meta
- * itself and therefore usable as the empty marker.
+ * fail.  dsm_meta sits at the start of the 64-GiB CXL SHM and the nodes are
+ * allocated from it, so 40 offset bits still leave an order of magnitude of
+ * address-space headroom.  Keeping 48 offset bits left only a 16-bit
+ * generation: a migration-heavy run plus the concurrent process teardown can
+ * exceed 65,536 push/pop updates for one owner and make the tag itself ABA.
+ * The 24-bit generation below raises that bound to over 16 million updates.
+ * Offset 0 is dsm_meta itself and therefore remains the empty marker.
  */
-#define RPF_OFF_BITS (48)
+#define RPF_OFF_BITS (40)
 #define RPF_OFF_MASK ((1UL << RPF_OFF_BITS) - 1)
-#define RPF_GEN_MASK (0xFFFFUL) /* wraps; only inequality matters */
+#define RPF_GEN_BITS (64 - RPF_OFF_BITS)
+#define RPF_GEN_MASK ((1UL << RPF_GEN_BITS) - 1)
 
 static u64 rpf_encode(u64 generation, struct dram_page_free_batch *batch)
 {
