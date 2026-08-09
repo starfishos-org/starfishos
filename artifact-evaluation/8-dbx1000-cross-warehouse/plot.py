@@ -168,8 +168,12 @@ def validate_point(
     if "PASS! SimTime" not in primary_text:
         raise DataError(f"missing PASS marker: {primary}")
     done = list(re.finditer(r"^done\r?$", primary_text, re.MULTILINE))
+    # Kernel diagnostics can race with the interactive shell and be appended
+    # to its prompt (for example, "$ [INFO] ...").  run.sh accepts that
+    # leading prompt after the exact "done" marker; validation must use the
+    # same criterion or it rejects a process that demonstrably returned.
     if not done or not re.search(
-        r"^[$][ \t]*\r?$", primary_text[done[-1].end() :], re.MULTILINE
+        r"^[$][ \t]", primary_text[done[-1].end() :], re.MULTILINE
     ):
         raise DataError(f"rundb did not return to the shell: {primary}")
 
