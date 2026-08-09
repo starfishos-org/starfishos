@@ -374,10 +374,11 @@ static void free_in_cxl_slab_local(void *addr)
 /*
  * Cross-machine frees: the per-CPU pools/locks above are machine-local,
  * so a machine must never touch another machine's slab lists. Instead it
- * pushes the object onto the owner machine's lock-free Treiber stack in
- * dsm_meta (the link is stored in the freed slot itself); the owner
- * drains the stack on its own alloc/free path, keeping every slab-list
- * mutation under the owner's local locks.
+ * pushes the object onto the owner machine's shared, locked stack in dsm_meta
+ * (the link is stored in the freed slot itself); the owner detaches and drains
+ * the stack on its own alloc/free path, keeping every slab-list mutation under
+ * the owner's local locks. The shared lock is required because freed CXL slots
+ * can be reused immediately, making a raw Treiber stack vulnerable to ABA.
  */
 static void cxl_slab_remote_push(u32 owner_machine, void *addr)
 {
