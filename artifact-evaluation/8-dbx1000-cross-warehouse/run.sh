@@ -291,7 +291,12 @@ wait_for_process_exit() {
         if [ "$(done_count)" -gt "$before" ] && awk -v skip="$before" '
             { line=$0; sub(/\r$/, "", line) }
             line=="done" { seen++; if (seen>skip) after=1; next }
-            after && line ~ /^[$][[:blank:]]*$/ { prompt=1 }
+            # Kernel diagnostics can race with the interactive shell and be
+            # appended to the prompt (for example, "$ [INFO] ...").  The
+            # leading prompt after the exact "done" marker is sufficient;
+            # requiring the remainder of that physical log line to be blank
+            # turns a completed run into a spurious EXIT_TIMEOUT wait.
+            after && line ~ /^[$][[:blank:]]/ { prompt=1 }
             END { exit(prompt ? 0 : 1) }
         ' "$log"; then
             sleep 3
