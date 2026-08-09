@@ -362,7 +362,9 @@ struct page *virt_to_page(void *ptr)
         goto find;
     }
 #endif
-    BUG("pool=NULL for va=%llx\n", addr);
+    BUG("pool=NULL for va=%llx caller=%p\n",
+        addr,
+        __builtin_return_address(0));
 
 find:
     page = pool->page_metadata

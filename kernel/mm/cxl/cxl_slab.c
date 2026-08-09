@@ -296,6 +296,7 @@ void init_cxl_slab(void)
      * cannot exist before it boots, and other machines' stacks may hold
      * live entries.
      */
+    lock_init(&dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].lock);
     dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head = NULL;
 #endif
     kdebug("mm: finish initing slab allocators\n");
@@ -381,25 +382,28 @@ static void free_in_cxl_slab_local(void *addr)
 static void cxl_slab_remote_push(u32 owner_machine, void *addr)
 {
     struct slab_slot_list *slot = (struct slab_slot_list *)addr;
-    void *volatile *headp = &dsm_meta->cxl_slab_remote_free[owner_machine].head;
-    void *old;
+    struct lock *stack_lock =
+            &dsm_meta->cxl_slab_remote_free[owner_machine].lock;
 
-    do {
-        old = *headp;
-        slot->next_free = old;
-    } while (compare_and_swap_64((s64 *)headp, (s64)old, (s64)slot)
-             != (s64)old);
+    lock(stack_lock);
+    slot->next_free = dsm_meta->cxl_slab_remote_free[owner_machine].head;
+    dsm_meta->cxl_slab_remote_free[owner_machine].head = slot;
+    unlock(stack_lock);
 }
 
 static void cxl_slab_drain_remote_free(void)
 {
     struct slab_slot_list *slot, *next;
+    struct lock *stack_lock =
+            &dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].lock;
 
     if (dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head == NULL)
         return;
 
-    slot = (struct slab_slot_list *)atomic_exchange_64(
-            (void *)&dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head, 0);
+    lock(stack_lock);
+    slot = dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head;
+    dsm_meta->cxl_slab_remote_free[CUR_MACHINE_ID].head = NULL;
+    unlock(stack_lock);
     while (slot != NULL) {
         next = (struct slab_slot_list *)slot->next_free;
         free_in_cxl_slab_local(slot);

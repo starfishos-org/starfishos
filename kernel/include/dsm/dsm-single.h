@@ -209,14 +209,19 @@ typedef struct {
      * The per-CPU CXL slab pools/locks are machine-local (DRAM), so a
      * machine must never mutate another machine's slab lists. A machine
      * freeing an object whose slab is owned by another machine pushes it
-     * onto the owner's stack here (lock-free Treiber stack; the link is
-     * stored in the freed slot itself). The owner drains its stack on
-     * its own alloc/free path. Each head sits on its own cache line.
+     * onto the owner's stack here (the link is stored in the freed slot
+     * itself). A shared per-owner lock protects detach versus push: a raw
+     * Treiber head is not sufficient because a detached slab slot may be
+     * returned and reused while another machine still holds the old head,
+     * creating an ABA self-cycle. The owner drains its stack on its own
+     * alloc/free path. Each stack sits on its own cache line.
      */
     struct {
+        struct lock lock;
         void *volatile head;
-        char pad[56];
-    } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM];
+        char pad[48];
+    } cxl_slab_remote_free[CLUSTER_MAX_MACHINE_NUM]
+        __attribute__((aligned(CACHELINE_SZ)));
 
     /* Global CLOCK queue and accounting for DRAM-backed pages resident in CXL. */
     struct {
