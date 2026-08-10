@@ -983,7 +983,7 @@ static int ivshmem_handle_cxl_demote_batch_msg(mid_t my_id, mid_t sender_id,
                                                u64 expected_rpc_id)
 {
     struct cxl_demote_batch_op ops[CXL_DEMOTE_MAX_BATCH];
-    u32 phase, count, i;
+    u32 kind, phase, count, i;
     u64 rpc_id;
     int ret;
 
@@ -994,6 +994,7 @@ static int ivshmem_handle_cxl_demote_batch_msg(mid_t my_id, mid_t sender_id,
         unlock(&dsm_meta->cxl_control[my_id].lock);
         return -EAGAIN;
     }
+    kind = dsm_meta->cxl_control[my_id].kind;
     phase = dsm_meta->cxl_control[my_id].phase;
     count = dsm_meta->cxl_control[my_id].count;
     rpc_id = dsm_meta->cxl_control[my_id].rpc_id;
@@ -1012,7 +1013,12 @@ static int ivshmem_handle_cxl_demote_batch_msg(mid_t my_id, mid_t sender_id,
     }
     unlock(&dsm_meta->cxl_control[my_id].lock);
 
-    ret = dsm_cxl_handle_batch(ops, count, phase);
+    if (kind == CXL_CONTROL_TXN_DEMOTE)
+        ret = dsm_cxl_handle_batch(ops, count, phase);
+    else if (kind == CXL_CONTROL_TXN_AGING)
+        ret = dsm_cxl_handle_aging_batch(ops, count);
+    else
+        ret = -EINVAL;
 
 reply:
     lock(&dsm_meta->cxl_control[my_id].lock);

@@ -19,6 +19,9 @@
 #ifdef MULTI_PAGETABLE_ENABLED
 #include <dsm/dsm-single.h>
 #endif
+#ifdef DSM_ENABLED
+#include <dsm/cxl_reclaim.h>
+#endif
 
 extern int radix_deep_copy_with_hybird_mem(struct radix *src,
                                            struct radix *dst);
@@ -1290,6 +1293,9 @@ int sys_handle_mprotect(u64 addr, size_t length, int prot)
     while (remaining > 0) {
         vmr = find_vmr_for_va(vmspace, va);
         vmr->perm = target_prot;
+#ifdef DSM_ENABLED
+        dsm_cxl_note_vmr_perm_change(vmr);
+#endif
 
         remaining -= vmr->size;
         va += vmr->size;

@@ -278,6 +278,18 @@ typedef struct {
         volatile u64 clock_scan_skips;
         volatile u64 clock_cooldown_skips;
         volatile u64 clock_stable_cold;
+        volatile u64 clock_armed_pages;
+        volatile u64 clock_rereferenced;
+        volatile u64 clock_one_epoch_cold;
+        volatile u64 aging_flush_batches;
+        volatile u64 aging_flush_pages;
+        volatile u64 aging_flush_machines;
+        volatile u64 aging_flush_latency_ns;
+        volatile u64 aging_flush_max_ns;
+        volatile u64 next_age_epoch;
+        volatile u64 eligible_by_pmo_type[PMO_TYPE_NR];
+        volatile u64 eligible_by_perm[
+                (VMR_EXEC | VMR_WRITE | VMR_READ) + 1];
         volatile u64 promotion_pages;
         volatile u64 refault_pages;
         volatile u64 demote_conflicts;
@@ -387,6 +399,7 @@ typedef struct {
         struct lock lock;
         volatile u32 pending;
         volatile u32 sender;
+        volatile u32 kind;
         volatile u32 phase;
         volatile u32 count;
         volatile s32 result;

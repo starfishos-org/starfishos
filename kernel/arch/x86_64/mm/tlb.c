@@ -700,6 +700,7 @@ struct pending_promotion {
     mid_t owner_mid;
     u32 count;
     u64 first_index;
+    u64 perm;
     struct dq_node *node;
     struct vmspace *vmspace;
     struct pmobject *pmo;
@@ -793,7 +794,7 @@ static void clear_pending_promotion(u32 slot)
 static void arm_pending_promotion(u32 slot, struct dq_node *node,
                                   struct vmspace *vmspace,
                                   struct pmobject *pmo, mid_t owner_mid,
-                                  u64 first_index,
+                                  u64 first_index, u64 perm,
                                   struct polling_tlb_batch_entry *entries,
                                   u32 count)
 {
@@ -808,6 +809,7 @@ static void arm_pending_promotion(u32 slot, struct dq_node *node,
     pending->pmo = pmo;
     pending->owner_mid = owner_mid;
     pending->first_index = first_index;
+    pending->perm = perm;
     pending->count = count;
     memcpy(pending->entries, entries, count * sizeof(entries[0]));
     unlock(&pending_promotion_lock);
@@ -875,6 +877,7 @@ int reap_pending_shm_migrations(void)
                     track_ops[i].pmo_index = pending->first_index + i;
                     track_ops[i].vmspace = pending->vmspace;
                     track_ops[i].va = pending->entries[i].fault_va;
+                    track_ops[i].perm = pending->perm;
                     track_ops[i].owner_mid = pending->owner_mid;
                     track_ops[i].speculative = i != 0;
                     track_ops[i].result = -EOPNOTSUPP;
@@ -919,7 +922,8 @@ int reap_pending_shm_migrations(void)
  */
 static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
         struct vmspace *vmspace, struct pmobject *pmo, u64 first_index,
-        mid_t target_mid, struct polling_tlb_batch_entry *entries, u64 count)
+        mid_t target_mid, struct polling_tlb_batch_entry *entries, u64 count,
+        u64 perm)
 {
     mid_t my_id = machine_id;
     struct polling_request req;
@@ -961,6 +965,7 @@ static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
                               pmo,
                               target_mid,
                               first_index,
+                              perm,
                               entries,
                               (u32)count);
         activate_pending_promotion((u32)pending_slot);
@@ -989,7 +994,7 @@ static int memcpy_and_flush_tlb_batch_on_remote_machine_polling(
 int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
                                struct pmobject *pmo, u64 first_index,
                                struct polling_tlb_batch_entry *entries,
-                               u64 count)
+                               u64 count, u64 perm)
 {
     extern enum ivshmem_msg_mode ivshmem_get_msg_mode(void);
     u64 i;
@@ -1011,7 +1016,7 @@ int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
     }
 
     return memcpy_and_flush_tlb_batch_on_remote_machine_polling(
-            vmspace, pmo, first_index, target_mid, entries, count);
+            vmspace, pmo, first_index, target_mid, entries, count, perm);
 }
 
 #endif

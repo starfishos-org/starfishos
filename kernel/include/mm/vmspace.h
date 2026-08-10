@@ -4,6 +4,7 @@
 #include <common/lock.h>
 #include <common/radix.h>
 #include <arch/mmu.h>
+#include <mm/pmo_types.h>
 #include <object/cap_group.h>
 
 #ifdef CHCORE
@@ -182,28 +183,6 @@ struct vmspace {
     u64 flags;
 };
 
-typedef u64 pmo_type_t;
-
-// TODO(FN): move to uapi.h
-#define PMO_ANONYM            0 /* lazy allocation */
-#define PMO_DATA              1 /* immediate allocation */
-#define PMO_FILE              2 /* file backed */
-#define PMO_SHM               3 /* shared memory */
-#define PMO_USER_PAGER        4 /* support user pager */
-#define PMO_DEVICE            5 /* memory mapped device registers */
-#define PMO_DATA_NOCACHE      6 /* non-cacheable immediate allocation */
-#define PMO_FORBID            7 /* Forbidden area: avoid overflow */
-
-// Following type are actually mapped to previous types
-#define PMO_RING_BUFFER       8 /* pages that need to sync with external, PMO_DATA */
-#define PMO_RING_BUFFER_RADIX 9 /* same as PMO_RING_BUFFER; for test, PMO_ANONYM */
-// More types for partioned process
-#define PMO_CODE              10 /* code, PMO_DATA */
-#define PMO_STACK             11 /* stack, PMO_ANONYM */
-#define PMO_HEAP              12 /* heap, PMO_ANONYM */
-#define PMO_CROSS_SHM         14 /* shared memory accross machine, PMO_SHM */
-#define PMO_TYPE_NR           15
-
 #if defined CHCORE_SLS || defined CHCORE_SSI_SLS
 struct page_patch {
     // unsigned char type;
@@ -244,6 +223,7 @@ struct pmobject {
     struct list_head cxl_mapping_list;
     struct lock cxl_mapping_lock;
     volatile u32 cxl_mapping_init_state;
+    volatile u64 cxl_mapping_generation;
 #endif
 };
 

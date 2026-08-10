@@ -1266,7 +1266,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                             read_ahead_reserved - read_ahead_used);
 
                 migrate_ret = migrate_pages_to_shm_batch(
-                        mid, vmspace, pmo, index, batch, batch_count);
+                        mid, vmspace, pmo, index, batch, batch_count, perm);
                 if (migrate_ret == -EINPROGRESS)
                     schedule_cxl_fault_retry(fault_addr);
                 if (migrate_ret != 0) {
@@ -1311,6 +1311,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr, int present,
                     track_ops[bi].pmo_index = index + bi;
                     track_ops[bi].vmspace = vmspace;
                     track_ops[bi].va = batch[bi].fault_va;
+                    track_ops[bi].perm = perm;
                     track_ops[bi].owner_mid = mid;
                     track_ops[bi].speculative = bi != 0;
                     track_ops[bi].result = -EOPNOTSUPP;

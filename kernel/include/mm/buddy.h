@@ -77,7 +77,12 @@ struct page {
     u8 cxl_scanning;
     u8 cxl_cold_epochs;
     u8 cxl_speculative;
-    u8 cxl_age_reserved;
+    u8 cxl_age_armed;
+    u8 cxl_policy_eligible;
+    u8 cxl_policy_perm;
+    u64 cxl_policy_generation;
+    u64 cxl_age_epoch;
+    u64 cxl_age_started_ns;
     u64 cxl_promoted_ns;
 #endif
 #ifdef CHCORE_SSI_SLS

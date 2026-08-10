@@ -108,6 +108,11 @@ enum cxl_demote_wire_phase {
     CXL_DEMOTE_WIRE_BITMAP_DRAM,
 };
 
+enum cxl_control_wire_transaction {
+    CXL_CONTROL_WIRE_DEMOTE = 0,
+    CXL_CONTROL_WIRE_AGING,
+};
+
 struct polling_cxl_demote_op {
     u64 src_pa;
     u64 dst_pa;

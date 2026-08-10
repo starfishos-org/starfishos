@@ -46,6 +46,11 @@ enum cxl_demote_batch_phase {
     CXL_DEMOTE_PHASE_BITMAP_DRAM,
 };
 
+enum cxl_control_transaction {
+    CXL_CONTROL_TXN_DEMOTE = 0,
+    CXL_CONTROL_TXN_AGING,
+};
+
 struct cxl_demote_batch_op {
     u64 src_pa;
     u64 dst_pa;
@@ -61,6 +66,7 @@ struct cxl_track_op {
     u64 pmo_index;
     struct vmspace *vmspace;
     vaddr_t va;
+    u64 perm;
     mid_t owner_mid;
     bool speculative;
     int result;
@@ -94,10 +100,13 @@ u64 dsm_cxl_reclaimed_pages(void);
 int dsm_cxl_track_page(paddr_t cxl_pa, paddr_t origin_pa,
                        struct pmobject *pmo, u64 pmo_index,
                        struct vmspace *vmspace, vaddr_t va,
-                       mid_t owner_mid);
+                       u64 perm, mid_t owner_mid);
 int dsm_cxl_track_pages(struct cxl_track_op *ops, u64 count);
 int dsm_cxl_handle_batch(struct cxl_demote_batch_op *ops, u64 ops_count,
                          u64 phase);
+int dsm_cxl_handle_aging_batch(struct cxl_demote_batch_op *ops,
+                               u64 ops_count);
 void dsm_cxl_vmr_init(struct vmregion *vmr);
 void dsm_cxl_link_vmr(struct vmregion *vmr);
 void dsm_cxl_unlink_vmr(struct vmregion *vmr);
+void dsm_cxl_note_vmr_perm_change(struct vmregion *vmr);

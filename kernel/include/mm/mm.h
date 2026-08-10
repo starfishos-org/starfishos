@@ -48,6 +48,6 @@ struct polling_tlb_batch_entry;
 int migrate_pages_to_shm_batch(mid_t target_mid, struct vmspace *vmspace,
                                struct pmobject *pmo, u64 first_index,
                                struct polling_tlb_batch_entry *entries,
-                               u64 count);
+                               u64 count, u64 perm);
 int reap_pending_shm_migrations(void);
 #endif
