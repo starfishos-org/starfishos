@@ -128,6 +128,14 @@ int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_t
                         return -ENOMEM;
                 }
                 new_entry->waiter_count = entry->waiter_count;
+                /*
+                 * new_futex_entry() created a fresh notification, but a copied
+                 * entry must point at the migrated object pair instead. Release
+                 * the placeholder, otherwise every migrated entry leaks both
+                 * the notification and its thread_dq node.
+                 */
+                deinit_notific(new_entry->notific);
+                kfree(new_entry->notific);
                 new_entry->notific = (struct notification *)obj2objpair(entry->notific);
         }
 

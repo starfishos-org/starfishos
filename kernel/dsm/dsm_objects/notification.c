@@ -26,7 +26,15 @@ int dsm_copy_notification(struct object *src_obj, struct object *dst_obj)
     /* Init lock */
     lock_init(&dst_notifc->notifc_lock);
 
-    /* Initialize waiting threads queue */
+    /*
+     * Initialize waiting threads queue. The pair object outlives a single
+     * migration -- dsm_alloc_pair_object() only allocates when pair_obj is
+     * NULL, while this copy runs on every demote/promote -- so give back the
+     * queue built by the previous copy first, or each migration leaks its
+     * sentinel node. On the first copy the destination is still all-zero and
+     * thread_dq_deinit() recognizes that as "no queue yet".
+     */
+    thread_dq_deinit(&dst_notifc->waiting_threads);
     r = thread_dq_init(&dst_notifc->waiting_threads);
     if (r != 0) {
         return r;

@@ -417,6 +417,7 @@ struct thread;
 /* Kernel-side thread durable queue operations (for sched & notification) */
 void thread_dq_pool_init(void);
 int thread_dq_init(struct thread_durable_queue *q);
+void thread_dq_deinit(struct thread_durable_queue *q);
 void thread_dq_enqueue(struct thread_durable_queue *q, struct thread *thread);
 struct thread *thread_dq_dequeue(struct thread_durable_queue *q);
 void thread_dq_cancel_node(qptr_t node_off);

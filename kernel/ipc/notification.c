@@ -26,7 +26,28 @@ void init_notific(struct notification *notifc)
 
 void deinit_notific(struct notification *notifc)
 {
-        /* No deinitialization is required for now. */
+    if (!notifc)
+        return;
+
+    /*
+     * Return the waiting list's nodes to the shared thread_dq pool. This is
+     * the counterpart of the thread_dq_init() done by init_notific(); leaving
+     * it out leaked one node per notification, which futex entry churn
+     * exhausted within seconds. Safe to call more than once per notification.
+     *
+     * Under notifc_lock, and INVALID is published before the drain, so that a
+     * concurrent notific_timer_cb() takes its INVALID early-return instead of
+     * stamping DQ_CANCELLED onto a node this drain has already handed to
+     * another queue.
+     */
+    lock(&notifc->notifc_lock);
+    notifc->state = NOTIFIC_INVALID;
+    if (notifc->waiting_threads_count != 0)
+        kwarn("%s: destroying notification %p with %d waiter(s) still"
+              " queued; they will never be woken\n",
+              __func__, notifc, notifc->waiting_threads_count);
+    thread_dq_deinit(&notifc->waiting_threads);
+    unlock(&notifc->notifc_lock);
 }
 
 void notification_deinit(void *ptr)

@@ -391,13 +391,59 @@ static struct thread_dq_node *thread_dq_alloc_node_try(void)
     }
 }
 
+/*
+ * Diagnostics: an exhausted pool makes thread_dq_alloc_node() spin forever,
+ * usually while holding futex_lock/notifc_lock, which freezes the whole
+ * cluster with no output at all. Report it once instead of dying silently.
+ *
+ * These are per-machine and updated without atomics, so they are approximate
+ * and are never subtracted from each other: the pool is cluster-wide, and a
+ * machine routinely frees nodes another machine allocated (the shared
+ * scheduler queue does exactly that), so any local "allocs - frees" is
+ * meaningless and would underflow.
+ */
+static volatile u64 dq_alloc_count;
+static volatile u64 dq_free_count;
+static volatile int dq_starved_reported;
+
+/*
+ * Is @off a plausible offset of a node in the shared pool? Queues embedded in
+ * kzalloc'ed objects start out all-zero rather than QPTR_NULL, so a tear-down
+ * path must be able to tell "never initialized" from "holds real nodes"
+ * before it starts pushing offsets onto the cluster-wide free stack.
+ */
+static bool thread_dq_node_off_valid(qptr_t off)
+{
+    struct thread_dq_pool *pool = &dsm_meta->thread_dq_pool;
+    qptr_t base, end;
+
+    if (off == QPTR_NULL)
+        return false;
+
+    base = thread_ptr_to_qptr(&pool->nodes[0]);
+    end = base + (qptr_t)(THREAD_DQ_POOL_SIZE * sizeof(pool->nodes[0]));
+
+    return off >= base && off < end
+           && ((off - base) % (qptr_t)sizeof(pool->nodes[0])) == 0;
+}
+
 static struct thread_dq_node *thread_dq_alloc_node(void)
 {
     extern void handle_ipi(void);
+    u64 spins = 0;
+
     while (1) {
         struct thread_dq_node *node = thread_dq_alloc_node_try();
-        if (node != NULL)
+        if (node != NULL) {
+            dq_alloc_count++;
             return node;
+        }
+        if (++spins == 1000000 && !dq_starved_reported) {
+            dq_starved_reported = 1;
+            kwarn("[THREAD_DQ] pool EXHAUSTED (size=%d): this machine did"
+                  " ~%lu allocs / ~%lu frees -- spinning forever\n",
+                  THREAD_DQ_POOL_SIZE, dq_alloc_count, dq_free_count);
+        }
         /* Handle IPI while waiting to avoid deadlock */
         handle_ipi();
     }
@@ -407,6 +453,8 @@ static void thread_dq_free_node(struct thread_dq_node *node)
 {
     struct thread_dq_pool *pool = &dsm_meta->thread_dq_pool;
     qptr_t node_off = thread_ptr_to_qptr(node);
+
+    dq_free_count++;
 
     /* Treiber stack push */
     while (1) {
@@ -436,6 +484,62 @@ int thread_dq_init(struct thread_durable_queue *q)
     lock_init(&q->queue_lock);
 
     return 0;
+}
+
+/*
+ * Tear a durable queue down and return every node it still owns -- the
+ * sentinel, plus anything left enqueued -- to the shared pool. Without this
+ * every notification lifecycle leaked its sentinel, and a futex-heavy run
+ * drained the whole pool in seconds (thread_dq_alloc_node then spins forever).
+ *
+ * Idempotent: a migrated notification is reachable both from a futex entry
+ * and from its object pair, so this can be called twice for the same queue.
+ * The head is claimed with a CAS, so exactly one caller ever walks the list --
+ * pushing a node onto the cluster-wide free stack twice would corrupt it for
+ * every machine.
+ */
+void thread_dq_deinit(struct thread_durable_queue *q)
+{
+    qptr_t cur;
+    int walked = 0;
+
+    if (!q)
+        return;
+
+    while (1) {
+        cur = q->head;
+        /*
+         * QPTR_NULL: already torn down. Anything outside the pool: this queue
+         * was never initialized (an object body is kzalloc'ed, so its head
+         * reads as offset 0), and there is nothing to give back.
+         */
+        if (!thread_dq_node_off_valid(cur))
+            return;
+        if (compare_and_swap_32((s32 *)&q->head, cur, QPTR_NULL) == cur)
+            break;
+    }
+    q->tail = QPTR_NULL;
+
+    /*
+     * Bounded walk: a corrupted or circular chain must not turn tear-down into
+     * an infinite loop that pushes the same node onto the free stack forever.
+     */
+    while (cur != QPTR_NULL) {
+        struct thread_dq_node *node;
+        qptr_t next;
+
+        if (!thread_dq_node_off_valid(cur) || ++walked > THREAD_DQ_POOL_SIZE) {
+            kwarn("[THREAD_DQ] corrupted queue %p at off %d (walked %d),"
+                  " abandoning the rest\n", q, cur, walked);
+            return;
+        }
+
+        node = (struct thread_dq_node *)thread_qptr_to_ptr(cur);
+        next = node->next;
+
+        thread_dq_free_node(node);
+        cur = next;
+    }
 }
 
 /*

@@ -48,6 +48,9 @@ void irq_deinit(void *irq_ptr)
     irq_handle_type[irq] = HANDLE_KERNEL;
     smp_mb();
     irq_notifcs[irq] = NULL;
+
+    /* Counterpart of the init_notific() in sys_irq_register(). */
+    deinit_notific(&irq_notifc->notifc);
 }
 
 int sys_irq_register(int irq)
