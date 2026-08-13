@@ -54,6 +54,21 @@ void dsm_add_machine()
         for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
             dsm_meta->machine_to_peer_id[i] = 0xFFFFFFFF; /* Uninitialized */
         }
+        /*
+         * Same hazard for the TSC calibration barrier: a stale ready/sync
+         * array from an earlier boot satisfies both of its wait loops
+         * immediately, so every machine would skip the rendezvous and stamp
+         * its slot at its own boot time.  That silently reintroduces the very
+         * skew the barrier exists to remove -- the cluster clock degrades back
+         * to per-machine boot-relative time with no visible symptom.  Clearing
+         * only happens to be redundant today because config_memdev.sh zeroes
+         * the backing file; correctness must not depend on that.
+         */
+        for (int i = 0; i < CLUSTER_MAX_MACHINE_NUM; i++) {
+            dsm_meta->tsc_sync_ready[i] = 0;
+            dsm_meta->tsc_sync[i] = 0;
+        }
+        __atomic_store_n(&dsm_meta->tsc_sync_done, 0, __ATOMIC_RELEASE);
     }
 
     if (CUR_MACHINE_ID > dsm_meta->cluster_machine_num) {
@@ -151,24 +166,65 @@ void dsm_add_machine()
 
     dsm_wait_for_cluster_cpu_topology();
 
-#ifdef PHOENIX_SCHED_TIMING
     /*
      * Cross-machine TSC calibration barrier.
      * All machines signal ready, spin until everyone is ready, then
      * write get_cycles() simultaneously.  After this barrier,
      * dsm_tsc_to_m0() can convert any machine's raw TSC to machine-0's
-     * time domain with < 1 µs error.
+     * time domain with < 1 µs error, and dsm_cluster_time_ns() yields a
+     * clock that is comparable across machines.
+     *
+     * This is unconditional rather than gated on PHOENIX_SCHED_TIMING:
+     * plat_get_mono_time() counts from each machine's own boot and the
+     * launcher starts machines sequentially, so every timestamp that
+     * crosses a machine boundary needs this anchor.  Without it a shared
+     * deadline in dsm_meta is compared against unrelated time origins and
+     * the earliest-booted machine wins every race forever.
      */
     {
+        /*
+         * Both waits are bounded.  Machine 0 clears the arrays at the top of
+         * this function, but a peer that found cluster_machine_num already
+         * satisfied -- stale shared memory, the case the clearing above is
+         * defending against -- can reach this barrier and signal into a slot
+         * before machine 0 wipes it.  Unbounded spins would then deadlock the
+         * whole cluster during boot.  Give up instead: dsm_cluster_time_ns()
+         * falls back to the local clock, which is exactly the behaviour this
+         * barrier replaced, so the cluster boots with the old skew rather than
+         * not booting at all.
+         */
+        const u64 spin_limit = 1ULL << 34;
         int _n = FW_MACHINE_NUM > 0 ? FW_MACHINE_NUM : 1;
+        u64 spins = 0;
+        bool ok = true;
+
         dsm_meta->tsc_sync_ready[CUR_MACHINE_ID] = 1;
         /* Wait for all machines to mark ready */
-        for (int _i = 0; _i < _n; _i++)
-            while (!dsm_meta->tsc_sync_ready[_i]) {}
+        for (int _i = 0; _i < _n && ok; _i++)
+            while (!dsm_meta->tsc_sync_ready[_i])
+                if (++spins > spin_limit) {
+                    ok = false;
+                    break;
+                }
         /* All machines write their TSC at roughly the same real time */
         dsm_meta->tsc_sync[CUR_MACHINE_ID] = get_cycles();
-        kinfo("[SCHED_TIMING] machine %d tsc_sync=%llu\n",
-              CUR_MACHINE_ID, dsm_meta->tsc_sync[CUR_MACHINE_ID]);
+        /*
+         * dsm_tsc_to_m0() reads machine 0's slot, so publish readiness only
+         * once every slot is populated, not just this machine's.
+         */
+        for (int _i = 0; _i < _n && ok; _i++)
+            while (!dsm_meta->tsc_sync[_i])
+                if (++spins > spin_limit) {
+                    ok = false;
+                    break;
+                }
+        if (ok)
+            __atomic_store_n(&dsm_meta->tsc_sync_done, 1, __ATOMIC_RELEASE);
+        else
+            kwarn("[TSC_SYNC] machine %d barrier timed out; cluster clock "
+                  "falls back to local boot-relative time\n",
+                  CUR_MACHINE_ID);
+        kinfo("[TSC_SYNC] machine %d tsc_sync=%llu ok=%d\n",
+              CUR_MACHINE_ID, dsm_meta->tsc_sync[CUR_MACHINE_ID], (int)ok);
     }
-#endif
 }

@@ -50,6 +50,21 @@ _Static_assert((int)CXL_CONTROL_TXN_DEMOTE
 #define CXL_DEMOTE_SELECT_SCAN_LIMIT (8 * CXL_DEMOTE_MAX_BATCH)
 
 /*
+ * Sampling window (see the sample_cursor comment in dsm-single.h).
+ *
+ * The window has to be small enough that one pass costs far less than the
+ * workload's reuse distance, and large enough that the cold pages it exposes
+ * can keep the demoter's rate limit fed.  At CXL_DEMOTE_MAX_BATCH pages per
+ * scan interval, 4096 pages is 64 scan intervals per pass.
+ *
+ * A page must be observed once to arm it and then stay cold for
+ * CXL_CLOCK_STABLE_COLD_EPOCHS further observations, so a window has to be
+ * re-walked that many times plus one for any page in it to become demotable.
+ */
+#define CXL_SAMPLE_SET_PAGES 4096
+#define CXL_SAMPLE_PASSES    (CXL_CLOCK_STABLE_COLD_EPOCHS + 1)
+
+/*
  * Aging only clears accessed bits, but it still touches shared page-table
  * state and therefore needs its own distributed TLB transaction.
  * Demotion is much more expensive because it performs distributed shootdowns.
@@ -257,6 +272,13 @@ static void report_clock_stats(u64 events, u64 added)
                    == previous / CXL_CLOCK_REPORT_INTERVAL)
         return;
 
+    kinfo("[CXL_SAMPLE] window_pages=%d passes=%d rotations=%lu "
+          "cur_pass=%lu cur_step=%lu\n",
+          CXL_SAMPLE_SET_PAGES,
+          CXL_SAMPLE_PASSES,
+          dsm_meta->cxl_reclaim.sample_rotations,
+          dsm_meta->cxl_reclaim.sample_passes,
+          dsm_meta->cxl_reclaim.sample_steps);
     kinfo("[CXL_CLOCK] scans=%lu second_chances=%lu armed=%lu hot=%lu "
           "one_epoch_cold=%lu "
           "stable_cold=%lu "
@@ -567,6 +589,11 @@ void dsm_cxl_reclaim_init(void)
     dsm_meta->cxl_reclaim.demote_phase_max_ns = 0;
     dsm_meta->cxl_reclaim.next_scan_ns = 0;
     dsm_meta->cxl_reclaim.next_demote_ns = 0;
+    dsm_meta->cxl_reclaim.sample_cursor = NULL;
+    dsm_meta->cxl_reclaim.sample_start = NULL;
+    dsm_meta->cxl_reclaim.sample_steps = 0;
+    dsm_meta->cxl_reclaim.sample_passes = 0;
+    dsm_meta->cxl_reclaim.sample_rotations = 0;
     dsm_meta->cxl_reclaim.next_pressure_ns = 0;
     memset(dsm_meta->cxl_reclaim.recent_demote_pa,
            0,
@@ -794,7 +821,12 @@ int dsm_cxl_track_pages(struct cxl_track_op *ops, u64 count)
             op->result = -EINVAL;
     }
 
-    now = plat_get_mono_time();
+    /*
+     * cxl_promoted_ns is written by whichever machine took the fault and read
+     * by whichever machine wins the reclaim token, so it must be on the
+     * cluster clock -- plat_get_mono_time() counts from the local boot.
+     */
+    now = dsm_cluster_time_ns();
 
     /* Publish the whole promotion batch with one FIFO/accounting lock pair. */
     lock(&dsm_meta->cxl_reclaim.fifo_guard.lock);
@@ -921,6 +953,75 @@ static bool try_pin_candidate_pmo(struct page *page, struct pmobject **pmo_out)
     return pinned;
 }
 
+/*
+ * Cursor helpers.  All of these run with fifo_guard held.
+ *
+ * The cursors are plain pointers into the FIFO, so anything that unlinks an
+ * entry has to move them off it first -- see cxl_sample_forget_node().
+ */
+static inline struct list_head *cxl_sample_step(struct list_head *node)
+{
+    struct list_head *head = &dsm_meta->cxl_reclaim.fifo;
+
+    node = node->next;
+    /* Skip the sentinel rather than handing it out as an entry. */
+    return node == head ? head->next : node;
+}
+
+static void cxl_sample_reset_window_locked(void)
+{
+    struct list_head *head = &dsm_meta->cxl_reclaim.fifo;
+
+    dsm_meta->cxl_reclaim.sample_start = list_empty(head) ? NULL : head->next;
+    dsm_meta->cxl_reclaim.sample_cursor = dsm_meta->cxl_reclaim.sample_start;
+    dsm_meta->cxl_reclaim.sample_steps = 0;
+    dsm_meta->cxl_reclaim.sample_passes = 0;
+}
+
+/*
+ * Keep the cursors off an entry that is about to leave the FIFO.  Moving to
+ * the successor preserves scan order; if the list empties, the window is
+ * rebuilt on the next selection.
+ */
+static void cxl_sample_forget_node(struct list_head *node)
+{
+    struct list_head *head = &dsm_meta->cxl_reclaim.fifo;
+    struct list_head *next = node->next == head ? NULL : node->next;
+
+    if (dsm_meta->cxl_reclaim.sample_cursor == node)
+        dsm_meta->cxl_reclaim.sample_cursor = next;
+    if (dsm_meta->cxl_reclaim.sample_start == node) {
+        /*
+         * The window lost its anchor, so the current pass can no longer be
+         * compared against it.  Start a fresh window from the successor.
+         */
+        dsm_meta->cxl_reclaim.sample_start = next;
+        dsm_meta->cxl_reclaim.sample_steps = 0;
+        dsm_meta->cxl_reclaim.sample_passes = 0;
+    }
+}
+
+/*
+ * Advance the window bookkeeping after one entry has been inspected.  A pass
+ * ends after CXL_SAMPLE_SET_PAGES steps: re-walk the same window until it has
+ * been seen CXL_SAMPLE_PASSES times, then adopt the following window, which
+ * the cursor is already sitting on.
+ */
+static void cxl_sample_note_step_locked(void)
+{
+    if (++dsm_meta->cxl_reclaim.sample_steps < CXL_SAMPLE_SET_PAGES)
+        return;
+    dsm_meta->cxl_reclaim.sample_steps = 0;
+    if (++dsm_meta->cxl_reclaim.sample_passes < CXL_SAMPLE_PASSES) {
+        dsm_meta->cxl_reclaim.sample_cursor =
+                dsm_meta->cxl_reclaim.sample_start;
+        return;
+    }
+    dsm_meta->cxl_reclaim.sample_passes = 0;
+    dsm_meta->cxl_reclaim.sample_start = dsm_meta->cxl_reclaim.sample_cursor;
+    dsm_meta->cxl_reclaim.sample_rotations++;
+}
+
 static u32 select_candidates(u32 limit)
 {
     struct list_head *head = &dsm_meta->cxl_reclaim.fifo;
@@ -935,33 +1036,40 @@ static u32 select_candidates(u32 limit)
         unlock(&dsm_meta->cxl_reclaim.fifo_guard.lock);
         return 0;
     }
-    node = head->next;
 #ifdef DSM_CXL_DEMOTE_CLOCK
-    last = head->prev;
+    /*
+     * The hand is a cursor over a bounded window of the FIFO rather than the
+     * queue head, and inspected entries are left where they are.  Advancing a
+     * cursor cannot be pinned by a contended page any more than rotating it
+     * could, and not writing to two neighbours per inspection keeps this loop
+     * off the shared cache lines of a multi-million-entry list.
+     */
+    if (!dsm_meta->cxl_reclaim.sample_cursor
+        || !dsm_meta->cxl_reclaim.sample_start)
+        cxl_sample_reset_window_locked();
+    node = dsm_meta->cxl_reclaim.sample_cursor;
+    last = NULL;
 #else
+    node = head->next;
     last = NULL;
 #endif
-    /*
-     * The queue head is the CLOCK hand.  Rotate every inspected entry to the
-     * tail before dropping the cluster-wide lock, including temporarily busy
-     * entries, so a contended page cannot pin the hand.  `last` snapshots the
-     * original tail and prevents a short queue from being visited twice in one
-     * pass.  The fixed scan limit also bounds shared-cache-line traffic when
-     * the 1 GiB cap tracks hundreds of thousands of pages.
-     */
-    while (node != head && count < limit
+    while (node && node != head && count < limit
            && scanned < CXL_DEMOTE_SELECT_SCAN_LIMIT) {
         struct page *page =
                 list_entry(node, struct page, cxl_reclaim_node);
         struct pmobject *pmo = NULL;
         bool final_entry = node == last;
 
-        node = node->next;
-        scanned++;
 #ifdef DSM_CXL_DEMOTE_CLOCK
-        list_del(&page->cxl_reclaim_node);
-        list_append(&page->cxl_reclaim_node, head);
+        node = cxl_sample_step(node);
+        dsm_meta->cxl_reclaim.sample_cursor = node;
+        cxl_sample_note_step_locked();
+        /* The window may have rewound, so re-read where to continue from. */
+        node = dsm_meta->cxl_reclaim.sample_cursor;
+#else
+        node = node->next;
 #endif
+        scanned++;
         if (page->cxl_reclaim_state != CXL_RECLAIM_RESIDENT
             || page->cxl_scanning
             || !try_pin_candidate_pmo(page, &pmo)) {
@@ -2214,6 +2322,7 @@ static void finalize_cxl_page_free(struct page *page)
         BUG_ON(dsm_meta->cxl_reclaim.free_pending_pages == 0);
         dsm_meta->cxl_reclaim.free_pending_pages--;
     }
+    cxl_sample_forget_node(&page->cxl_reclaim_node);
     list_del(&page->cxl_reclaim_node);
     set_cxl_reclaim_state(page, CXL_RECLAIM_NONE);
     page->cxl_reclaim_phase = CXL_RECLAIM_PHASE_IDLE;
@@ -2250,6 +2359,7 @@ static void defer_origin_release(struct page *page)
     if (page->cxl_reclaim_state == CXL_RECLAIM_FREEING) {
         set_cxl_reclaim_state(page, CXL_RECLAIM_FREE_PENDING);
         dsm_meta->cxl_reclaim.free_pending_pages++;
+        cxl_sample_forget_node(&page->cxl_reclaim_node);
         list_del(&page->cxl_reclaim_node);
         /*
          * Park pending frees at the head, not the tail: retry_pending_frees()
@@ -2346,6 +2456,7 @@ void dsm_cxl_free_page(struct page *page)
                                      (struct pmobject *)page->cxl_pmo);
         page->cxl_pmo = 0;
         dsm_meta->cxl_reclaim.free_pending_pages++;
+        cxl_sample_forget_node(&page->cxl_reclaim_node);
         list_del(&page->cxl_reclaim_node);
         list_add(&page->cxl_reclaim_node, &dsm_meta->cxl_reclaim.fifo);
         unlock(&dsm_meta->cxl_reclaim.fifo_guard.lock);
@@ -2613,6 +2724,7 @@ static void finish_candidate(struct cxl_demote_candidate *candidate)
         candidate->page->cxl_reclaim_phase = CXL_RECLAIM_PHASE_IDLE;
         candidate->page->cxl_pmo = 0;
     } else {
+        cxl_sample_forget_node(&candidate->page->cxl_reclaim_node);
         list_del(&candidate->page->cxl_reclaim_node);
         set_cxl_reclaim_state(candidate->page, CXL_RECLAIM_NONE);
         candidate->page->cxl_reclaim_phase = CXL_RECLAIM_PHASE_IDLE;
@@ -2674,6 +2786,7 @@ static void defer_candidate(struct cxl_demote_candidate *candidate)
     if (candidate->page->cxl_reclaim_state == CXL_RECLAIM_DEMOTING) {
         set_cxl_reclaim_state(candidate->page, CXL_RECLAIM_RESIDENT);
         candidate->page->cxl_reclaim_phase = CXL_RECLAIM_PHASE_IDLE;
+        cxl_sample_forget_node(&candidate->page->cxl_reclaim_node);
         list_del(&candidate->page->cxl_reclaim_node);
         list_append(&candidate->page->cxl_reclaim_node,
                     &dsm_meta->cxl_reclaim.fifo);
@@ -2716,6 +2829,7 @@ static int demote_one_batch(u32 limit, u64 now, bool allow_demote)
     u32 one_epoch_cold = 0;
     u64 aging_start;
     u64 completed_ns;
+    u64 completed_cluster_ns;
     u64 epoch;
 
     /* Select only pages whose previous per-page epoch has fully elapsed. */
@@ -2777,7 +2891,14 @@ static int demote_one_batch(u32 limit, u64 now, bool allow_demote)
                            __ATOMIC_RELAXED);
         return ret;
     }
+    /*
+     * Two clocks with different jobs: the local one measures this flush's
+     * latency (a delta that never leaves this machine), while the cluster one
+     * is stamped into cxl_age_started_ns and compared against cxl_promoted_ns,
+     * both of which other machines write and read.
+     */
     completed_ns = plat_get_mono_time();
+    completed_cluster_ns = dsm_cluster_time_ns();
     epoch = __atomic_add_fetch(&dsm_meta->cxl_reclaim.next_age_epoch,
                                1,
                                __ATOMIC_RELAXED);
@@ -2806,11 +2927,11 @@ static int demote_one_batch(u32 limit, u64 now, bool allow_demote)
         previous_epochs = candidates[i].page->cxl_cold_epochs;
         observation = cxl_policy_observe_locked(&candidates[i],
                                                 epoch,
-                                                completed_ns);
+                                                completed_cluster_ns);
         eligible = observation == CXL_OBSERVATION_STABLE_COLD;
         if (eligible
-            && (completed_ns < candidates[i].page->cxl_promoted_ns
-                || completed_ns - candidates[i].page->cxl_promoted_ns
+            && (completed_cluster_ns < candidates[i].page->cxl_promoted_ns
+                || completed_cluster_ns - candidates[i].page->cxl_promoted_ns
                            < CXL_PROMOTION_COOLDOWN_NS)) {
             eligible = false;
             cooldown_skips++;
@@ -2984,7 +3105,16 @@ static int cxl_reclaim_run(u32 max_pages)
     bool free_pending;
     bool scan_due = false;
     bool allow_demote = false;
-    u64 now = plat_get_mono_time();
+    /*
+     * next_scan_ns / next_demote_ns live in dsm_meta and are armed by
+     * whichever machine holds the token, so this comparison crosses machine
+     * boundaries and must use the cluster clock.  With plat_get_mono_time()
+     * the earliest-booted machine's clock is tens of seconds ahead, it wins
+     * every race, and re-arms the deadline into a future the other machines
+     * never reach -- an 8-machine run had all 473 reclaim reports on
+     * machine 0 and none anywhere else.
+     */
+    u64 now = dsm_cluster_time_ns();
     int reclaimed;
 
     /* Lock order is FIFO state first, then aggregate accounting. */

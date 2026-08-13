@@ -13,6 +13,9 @@
 #include <mm/shm.h>
 #include <machine.h>
 #include <uapi/types.h>
+/* get_cycles() / tick_per_us for dsm_cluster_time_ns(). */
+#include <arch/time.h>
+#include <irq/timer.h>
 
 // #define DSM_DEBUG
 
@@ -236,6 +239,30 @@ typedef struct {
             char pad[56];
         } fifo_guard __attribute__((aligned(CACHELINE_SZ)));
         struct list_head fifo;
+        /*
+         * Bounded sampling window over the FIFO.
+         *
+         * Exhaustive CLOCK cannot work at this scale: the hand advances by one
+         * async batch per scan interval, so a multi-million-page resident set
+         * is revisited only once every few minutes.  Over a window that long
+         * essentially every live page is touched at least once, the Accessed
+         * bit saturates, and the consecutive-cold counter is reset before it
+         * can ever reach the demotion threshold -- measured at 95-97% of
+         * observations coming back "referenced" and almost nothing evicted.
+         *
+         * Instead the hand walks a fixed-size window of the FIFO and re-walks
+         * that same window CXL_SAMPLE_PASSES times before moving on.  The
+         * per-page observation window shrinks from "one revolution of the
+         * whole set" to "one pass over CXL_SAMPLE_SET_PAGES", which is short
+         * enough for the Accessed bit to still discriminate.  Nothing is moved
+         * between lists: these are cursors into the single FIFO, so the
+         * free-pending walk and every existing list_del stay valid.
+         */
+        struct list_head *sample_cursor;
+        struct list_head *sample_start;
+        volatile u64 sample_steps;
+        volatile u64 sample_passes;
+        volatile u64 sample_rotations;
         /*
          * Number of FIFO entries currently in CXL_RECLAIM_FREE_PENDING.
          * retry_pending_frees() has to walk the FIFO under the cluster-wide
@@ -478,16 +505,21 @@ typedef struct {
      */
     dsm_ref_meta_t ref_meta;
 
-#ifdef PHOENIX_SCHED_TIMING
     /**
      * Cross-machine TSC calibration.
      * Each machine signals ready, all spin until every slot is ready,
      * then writes get_cycles() simultaneously.  After the barrier,
      * TSC_TO_M0(t) normalises any machine's raw TSC to machine-0's domain.
+     *
+     * Unconditional: plat_get_mono_time() counts from each machine's own
+     * boot, so any timestamp that crosses a machine boundary -- a deadline
+     * published in this struct, or a per-page timestamp written by whichever
+     * machine took the fault -- is meaningless without this anchor.  The
+     * launcher starts machines sequentially, so the skew is tens of seconds.
      */
     volatile u8  tsc_sync_ready[CLUSTER_MAX_MACHINE_NUM];
     volatile u64 tsc_sync[CLUSTER_MAX_MACHINE_NUM];
-#endif
+    volatile u8  tsc_sync_done;
 } __attribute__((aligned(SIZE_4K))) dsm_metadata_t;
 
 dsm_metadata_t *dsm_meta;
@@ -500,7 +532,6 @@ static inline void dsm_init_meta(vaddr_t shm_vaddr)
     dsm_meta = (dsm_metadata_t *)shm_vaddr;
 }
 
-#ifdef PHOENIX_SCHED_TIMING
 /* Convert a raw get_cycles() reading on the current machine to the
  * machine-0 TSC domain.  Valid only after dsm_tsc_sync_barrier(). */
 static inline u64 dsm_tsc_to_m0(u64 local_tsc)
@@ -509,7 +540,34 @@ static inline u64 dsm_tsc_to_m0(u64 local_tsc)
            - dsm_meta->tsc_sync[CUR_MACHINE_ID]
            + dsm_meta->tsc_sync[0];
 }
-#endif
+
+/*
+ * Nanoseconds since the cluster's TSC calibration barrier.
+ *
+ * Every machine anchors on the same real-time instant, so unlike
+ * plat_get_mono_time() this is comparable across machines: it is the only
+ * safe clock for a deadline stored in dsm_meta or a page timestamp that one
+ * machine writes and another reads.  All guests run on one host at the same
+ * TSC frequency, so tick_per_us is common.
+ *
+ * If calibration did not complete, fall back to the local boot-relative
+ * clock.  That reinstates the cross-machine skew this exists to remove, but
+ * it is what the code did before the barrier was made unconditional, so a
+ * failed rendezvous degrades to the previous behaviour instead of wedging
+ * the reclaim clock at zero (which would arm one deadline and then never
+ * satisfy `now >= deadline` again, silently disabling reclaim for good).
+ */
+static inline u64 dsm_cluster_time_ns(void)
+{
+    u64 base;
+
+    if (!__atomic_load_n(&dsm_meta->tsc_sync_done, __ATOMIC_ACQUIRE))
+        return plat_get_mono_time();
+    base = dsm_meta->tsc_sync[CUR_MACHINE_ID];
+    if (!base || !tick_per_us)
+        return plat_get_mono_time();
+    return (get_cycles() - base) * NS_IN_US / tick_per_us;
+}
 
 static inline u64 dsm_is_inited()
 {
