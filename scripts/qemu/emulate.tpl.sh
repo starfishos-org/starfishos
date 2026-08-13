@@ -167,6 +167,17 @@ else
 	cxl_size_bytes=$(( ${cxl_size%G} * 1024 * 1024 * 1024 ))
 fi
 
+# HostFS v2 forwards /host operations to this daemon. HOSTFS_ROOT defaults to
+# datasets/ and can be set to any directory the current host user can access.
+if [ "@qemu_emulate_ivshmem_plain@" = "1" ]; then
+	if ! python3 "$project_root/dsm-scripts/hostfs_server.py" ensure \
+		--device "$ivshmem_hostfs_dev" \
+		--root "${HOSTFS_ROOT:-$project_root/datasets}"; then
+		echo "[FATAL] Failed to start the live HostFS service" >&2
+		exit 1
+	fi
+fi
+
 if [ -f "$ivshmem_hostfs_dev" ]; then
 	hostfs_size_bytes=$(stat -c%s "$ivshmem_hostfs_dev")
 	if [ "${hostfs_size_bytes:-0}" -eq 0 ] && command -v truncate >/dev/null 2>&1; then
@@ -192,7 +203,7 @@ if [ ! -f "$cxlfs_dev" ]; then
 fi
 cxlfs_dev_file_size=$(stat -c%s "$cxlfs_dev")
 if [ "$cxlfs_dev_file_size" -ne "$cxlfs_dev_size_bytes" ]; then
-	echo "[FATAL] CXLFS ivshmem device 尺寸错误: $cxlfs_dev ($cxlfs_dev_file_size, expected $cxlfs_dev_size_bytes)" >&2
+	echo "[FATAL] Invalid CXLFS ivshmem device size: $cxlfs_dev ($cxlfs_dev_file_size, expected $cxlfs_dev_size_bytes)" >&2
 	exit 1
 fi
 

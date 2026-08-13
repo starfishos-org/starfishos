@@ -150,22 +150,19 @@ int chcore_chdir(const char *path)
 
 int chcore_fchdir(int fd)
 {
-	ipc_msg_t *ipc_msg = 0;
-	struct fs_request *fr_ptr;
-	struct fd_record_extension *fd_ext;
+	const char *fd_path;
 	int new_cwd_len, ret = 0;
 
 	if (fd_not_exists(fd))
 		return -EBADF;
 
-	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
-
-	if (!fd_ext->path)
+	fd_path = path_from_fd(fd);
+	if (!fd_path)
 		return -EBADF;
 
-	new_cwd_len = strlen(fd_ext->path);
+	new_cwd_len = strlen(fd_path);
 	/* if pathcpy failed, the cwd_path will remain the same */
-	if (pathcpy(cwd_path, MAX_CWD_BUF_LEN, fd_ext->path, new_cwd_len) != 0)
+	if (pathcpy(cwd_path, MAX_CWD_BUF_LEN, fd_path, new_cwd_len) != 0)
 		return -EBADF;
 
 	/* pathcpy succeed, change cwd_len */
@@ -191,6 +188,8 @@ int chcore_ftruncate(int fd, off_t length)
 
 	if (fd_not_exists(fd))
 		return -EBADF;
+	if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return chcore_hostfs_ftruncate(fd, length);
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
@@ -257,6 +256,11 @@ int chcore_mkdirat(int dirfd, const char *pathname, mode_t mode)
 	ret = generate_full_path(dirfd, pathname, &full_path);
 	if (ret)
 		return ret;
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_mkdir(full_path, mode);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
@@ -303,6 +307,11 @@ int chcore_unlinkat(int dirfd, const char *pathname, int flags)
 	ret = generate_full_path(dirfd, pathname, &full_path);
 	if (ret)
 		return ret;
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_unlink(full_path, flags);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
@@ -355,6 +364,11 @@ int chcore_symlinkat(const char *target, int newdirfd, const char *linkpath)
 	ret = generate_full_path(newdirfd, linkpath, &full_path);
 	if (ret)
 		return ret;
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_symlink(target, full_path);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
@@ -395,6 +409,8 @@ int chcore_getdents64(int fd, char *buf, int count)
 
 	if (fd_not_exists(fd))
 		return -EBADF;
+	if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return chcore_hostfs_getdents64(fd, buf, count);
 
 	BUG_ON(sizeof(struct fs_request) > IPC_SHM_AVAILABLE);
 
@@ -502,6 +518,11 @@ int chcore_readlinkat(int dirfd, const char *pathname, char *buf,
 	ret = generate_full_path(dirfd, pathname, &full_path);
 	if (ret)
 		return ret;
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_readlink(full_path, buf, bufsiz);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
@@ -559,6 +580,16 @@ int chcore_renameat(int olddirfd, const char *oldpath,
 		return ret;
 	}
 
+	if (IS_HOSTFS(old_full_path) || IS_HOSTFS(new_full_path)) {
+		if (!IS_HOSTFS(old_full_path) || !IS_HOSTFS(new_full_path))
+			ret = -EXDEV;
+		else
+			ret = chcore_hostfs_rename(old_full_path, new_full_path);
+		free(old_full_path);
+		free(new_full_path);
+		return ret;
+	}
+
 	/* Send IPC to FSM and parse old_full_path */
 	if (parse_full_path(old_full_path, &old_mount_id, old_server_path) != 0) {
 		free(old_full_path);
@@ -607,6 +638,11 @@ int chcore_faccessat(int dirfd, const char *pathname, int amode, int flags)
 	ret = generate_full_path(dirfd, pathname, &full_path);
 	if (ret)
 		return ret;
+	if (IS_HOSTFS(full_path)) {
+		ret = chcore_hostfs_access(full_path, amode, flags);
+		free(full_path);
+		return ret;
+	}
 
 	/* Send IPC to FSM and parse full_path */
 	if (parse_full_path(full_path, &mount_id, server_path) != 0) {
@@ -647,6 +683,8 @@ int chcore_fallocate(int fd, int mode, off_t offset, off_t len)
 		printf("%s: fd_not_exists\n", __func__);
 		return -EBADF;
 	}
+	if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return chcore_hostfs_fallocate(fd, mode, offset, len);
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
@@ -785,6 +823,8 @@ int chcore_fsync(int fd)
 
 	if (fd_not_exists(fd))
 		return -EBADF;
+	if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return chcore_hostfs_fsync(fd);
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
@@ -811,6 +851,8 @@ int chcore_fdatasync(int fd)
 
 	if (fd_not_exists(fd))
 		return -EBADF;
+	if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return chcore_hostfs_fsync(fd);
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 
@@ -889,7 +931,7 @@ int chcore_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 	}
 
 	if (IS_HOSTFS(full_path)) {
-		ret = chcore_hostfs_open(fd, full_path);
+		ret = chcore_hostfs_open(fd, full_path, flags, mode);
 		goto out_full_path_destroy;
 	}
 
@@ -1148,6 +1190,12 @@ int __xstatxx(int req, int fd, const char *path, int flags,
 		memset(statbuf, 0, bufsize);
 		return 0;
 	}
+	if (fd >= 0 && fd < MAX_FD && fd_dic[fd]
+	    && fd_dic[fd]->type == FD_TYPE_HOSTFS) {
+		if (req == FS_REQ_FSTATFS)
+			return chcore_hostfs_statfs(statbuf);
+		return chcore_hostfs_stat(fd, NULL, flags, statbuf, bufsize);
+	}
 
 	/* Prepare full_path for IPC arguments */
 	ret = generate_full_path(fd, path, &full_path);
@@ -1156,10 +1204,13 @@ int __xstatxx(int req, int fd, const char *path, int flags,
 
 	// printf("chcore_file_stat: %s\n", full_path);
 	if (IS_HOSTFS(full_path)) {
-		// printf("chcore_file_stat: hostfs\n");
-		ret = chcore_hostfs_stat(fd, path, flags, statbuf, bufsize);
+		if (req == FS_REQ_STATFS)
+			ret = chcore_hostfs_statfs(statbuf);
+		else
+			ret = chcore_hostfs_stat(-1, full_path, flags,
+					       statbuf, bufsize);
 		free(full_path);
-		return 0;
+		return ret;
 	}
 
 	/* Send IPC to FSM and parse full_path */

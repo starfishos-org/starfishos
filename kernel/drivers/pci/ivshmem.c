@@ -29,6 +29,7 @@
 #include <object/cap_group.h>
 #include <common/util.h>
 #include <mm/shm.h>
+#include <drivers/hostfs_protocol.h>
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE (4096)
@@ -503,16 +504,51 @@ static struct hostfs_dev_header *parse_pci_hostfs_req_info() {
     if (hostfs_dev == NULL) {
         pci_info("hostfs_dev is not initialized (no ivshmem device had magic \"hostfs\")\n");
         pci_info("  -> check: QEMU has -object mem-path=ivshmem-conn-$USER and -device ivshmem-plain,memdev=hostfsmem\n");
-        pci_info("  -> and run: make prepare-hostfs (or python3 dsm-scripts/prepare_hostfs.py)\n");
+        pci_info("  -> and run: make hostfs-start (or python3 dsm-scripts/hostfs_server.py ensure)\n");
         return NULL;
     }
     return (struct hostfs_dev_header *)hostfs_dev->iova;
+}
+
+static struct hostfs_live_header *parse_live_hostfs_header(void)
+{
+    struct hostfs_live_header *header;
+    u64 required_size;
+
+    if (!hostfs_dev)
+        return NULL;
+
+    header = (struct hostfs_live_header *)hostfs_dev->iova;
+    if (strncmp(header->magic, HOSTFS_LIVE_MAGIC, 7) != 0
+        || header->version != HOSTFS_LIVE_VERSION
+        || header->slot_count == 0
+        || header->slot_count > HOSTFS_LIVE_MAX_SLOTS
+        || header->data_size == 0
+        || header->data_size > HOSTFS_LIVE_MAX_DATA_SIZE
+        || header->slot_stride < HOSTFS_LIVE_SLOT_HEADER_SIZE
+                                     + header->data_size)
+        return NULL;
+
+    required_size = HOSTFS_LIVE_HEADER_SIZE
+                    + (u64)header->slot_count * header->slot_stride;
+    if (required_size > hostfs_dev->iosize)
+        return NULL;
+    return header;
 }
 
 void list_pci_hostfs_req_info() {
     struct hostfs_dev_header *header = parse_pci_hostfs_req_info();
     if (header == NULL) {
         pci_info("hostfs header is not initialized (see BAR2 magic lines above for each device)\n");
+        return;
+    }
+    struct hostfs_live_header *live_header = parse_live_hostfs_header();
+    if (live_header) {
+        pci_info("[HOSTFS] live protocol v%u: slots=%u data_size=%u epoch=%llu\n",
+                 live_header->version,
+                 live_header->slot_count,
+                 live_header->data_size,
+                 live_header->server_epoch);
         return;
     }
     pci_info("[HOSTFS] /host/: file_num=%llx\n", header->file_num);
@@ -565,6 +601,36 @@ static u64 file_offset_to_iopa(u64 file_offset) {
 }
 
 int pci_hostfs_mmap(void *args) {
+    return 0;
+}
+
+int pci_hostfs_connect(void *args)
+{
+    struct pci_control_req *req = (struct pci_control_req *)args;
+    struct hostfs_live_header *header;
+    struct pci_hostfs_connect_info info = { 0 };
+    struct pmobject *pmo;
+    u64 map_size;
+
+    if (req->arg_sz < sizeof(info))
+        return -EINVAL;
+
+    header = parse_live_hostfs_header();
+    if (!header)
+        return -EPROTO;
+
+    map_size = HOSTFS_LIVE_HEADER_SIZE
+               + (u64)header->slot_count * header->slot_stride;
+    info.pmo_cap = create_device_pmo(hostfs_dev->iopa, map_size, &pmo);
+    if ((s64)info.pmo_cap < 0)
+        return (int)(s64)info.pmo_cap;
+
+    info.map_size = map_size;
+    info.slot_count = header->slot_count;
+    info.slot_stride = header->slot_stride;
+    info.data_size = header->data_size;
+    info.version = header->version;
+    copy_to_user((char *)req->arg_ptr, (char *)&info, sizeof(info));
     return 0;
 }
 

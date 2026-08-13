@@ -11,6 +11,7 @@
 #include <pthread.h>
 
 #include "fs_client_defs.h"
+#include "hostfs.h"
 
 /* CWD */
 char cwd_path[MAX_CWD_BUF_LEN];
@@ -106,6 +107,8 @@ char *path_from_fd(int fd)
 		return cwd_path;
 	else if (fd == AT_FDROOT)
 		return "/";
+	else if (fd_dic[fd]->type == FD_TYPE_HOSTFS)
+		return (char *)chcore_hostfs_path(fd);
 
 	fd_ext = (struct fd_record_extension *)fd_dic[fd]->private_data;
 

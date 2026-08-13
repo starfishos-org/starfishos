@@ -18,6 +18,13 @@ The build composition is [user/system-servers/CMakeLists.txt](../user/system-ser
 
 Applications obtain service capabilities through the process manager and use ordinary IPC. Therefore a filesystem operation may reach an instance on another machine without changing the POSIX call site. Dispatch is centered in `fs_base/fs_wrapper.c` and `fs_base/fs_wrapper_ops.c`; [fs_page_fault.c](../user/system-servers/fs_base/fs_page_fault.c) supports client mappings.
 
+`/host` is a separate development and data-ingress filesystem. libc submits
+HostFS v2 operations through shared ivshmem slots, and
+[`hostfs_server.py`](../dsm-scripts/hostfs_server.py) executes them beneath a
+configured host root. Host files are the single source of truth, so ordinary
+I/O is immediately visible in both environments without periodically copying
+directory trees. See [Live HostFS](11-live-hostfs.md).
+
 [procmgr.c](../user/system-servers/procmgr/procmgr.c) boots default services/apps, while [srvmgr.c](../user/system-servers/procmgr/srvmgr.c) starts secondary instances.
 
 For tmpfs recovery:
@@ -27,4 +34,3 @@ For tmpfs recovery:
 - [tmpfs/tmpfs_ops.c](../user/system-servers/tmpfs/tmpfs_ops.c): namespace operations and log integration.
 
 The end-to-end recovery test kills machine 0, runs `tmpfs.srv --recover 0` on machine 1, then reopens LevelDB. Run `./artifact-evaluation/7-recover-fs/run.sh` after preparation. This repairs the service; LevelDB's durable recovery remains application-owned.
-

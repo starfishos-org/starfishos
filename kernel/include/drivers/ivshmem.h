@@ -16,6 +16,7 @@ int pci_hostfs_open(void *req);
 int pci_hostfs_mmap(void *args);
 int pci_hostfs_unmap(void *args);
 int pci_hostfs_list(void *args);
+int pci_hostfs_connect(void *args);
 
 /* MSI-X interrupt handler for ivshmem-doorbell */
 void ivshmem_msix_handler(void);

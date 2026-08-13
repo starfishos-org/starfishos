@@ -92,7 +92,7 @@ ensure_required_submodules() {
 download_datasets() {
     echo "=== Downloading benchmark datasets (if missing) ==="
     # Default: fetch twitter-2010.bin (~11 GiB) so auto-scale / Gemini one-click
-    # runs have /host/twitter-2010.bin after prepare_hostfs. Set
+    # runs have /host/twitter-2010.bin through Live HostFS. Set
     # SKIP_GRAPH_DATASET=1 to skip the large graph on hosts that do not need it.
     SKIP_GRAPH_DATASET="${SKIP_GRAPH_DATASET:-0}" \
         ./scripts/download_datasets.sh
@@ -185,9 +185,9 @@ ensure_backing_files() {
     fi
 
     if python3 ./dsm-scripts/prepare_hostfs.py --check; then
-        echo "hostfs metadata is current; skipping dataset copy."
+        echo "HostFS live protocol is current."
     else
-        echo "Initializing hostfs metadata and dataset contents."
+        echo "Initializing the HostFS live protocol."
         python3 ./dsm-scripts/prepare_hostfs.py
     fi
     ./dsm-scripts/prepare_cxlfs_dev.sh

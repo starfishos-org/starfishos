@@ -39,7 +39,7 @@ The placement controls live in [kernel/dsm_config.cmake](../kernel/dsm_config.cm
 The target model has private DRAM at every x86 machine and one coherent CXL memory pool. The artifact uses QEMU/KVM plus file-backed ivshmem to emulate it. [build/simulate.sh](../build/simulate.sh) manages:
 
 - `/dev/shm/ivshmem-$USER`: CXL shared memory;
-- `/dev/shm/ivshmem-hostfs-$USER`: hostfs backing memory;
+- `/dev/shm/ivshmem-hostfs-$USER`: live HostFS request slots and transfer buffers;
 - `/dev/shm/numa*-$USER`: optional device-backed local DRAM;
 - `/tmp/ivshmem-doorbell-$USER`: remote-interrupt socket.
 

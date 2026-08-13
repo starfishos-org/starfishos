@@ -161,13 +161,16 @@ new_cxl() {
 }
 
 new_hostfs() {
+  python3 "$project_root/dsm-scripts/hostfs_server.py" stop \
+    --device "$hostfsDevName" 2>/dev/null || true
   # remove old hostfs
-  rm -rf $hostfsDevName
+  rm -f -- "$hostfsDevName"
   echo "Old Hostfs Removed"
   
-  # create hostfs
-  dd if=/dev/zero of=$hostfsDevName bs=1G count=$hostfsSize
-  echo "New Hostfs Malloced"
+  # Create a sparse power-of-two BAR backing file and initialize HostFS v2.
+  python3 "$project_root/dsm-scripts/hostfs_server.py" init \
+    --device "$hostfsDevName" --size "${hostfsSize}G"
+  echo "New HostFS backing file initialized"
 }
 
 if [ "$mode" = "numa-new" ]; then
@@ -180,14 +183,12 @@ fi
 
 if [ "$mode" = "hostfs-new" ]; then
   new_hostfs;
-  python3 dsm-scripts/prepare_hostfs.py;
 fi
 
 if [ "$mode" = "new-all" ]; then
   new_numa;
   new_cxl;
   new_hostfs;
-  python3 dsm-scripts/prepare_hostfs.py;
 fi
 
 # CXLFS persists the boot ramdisk across runs.  Recreate the device when the

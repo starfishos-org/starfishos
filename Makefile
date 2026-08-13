@@ -8,7 +8,7 @@ T = 12
 # Use `make <target> WATCHDOG_RUN=` or `WATCHDOG=0 make <target>` to opt out.
 WATCHDOG_RUN = ./dsm-scripts/run_with_watchdog.sh --
 
-.PHONY: build build-all prepare-cxlfs
+.PHONY: build build-all prepare-cxlfs hostfs-start hostfs-stop hostfs-status
 
 help:
 	@echo "make b: build the system without cleaning"
@@ -18,6 +18,7 @@ help:
 	@echo "make test: run tests under the directory ./dsm-scripts/tests"
 	@echo "make run-mm-test / run-graph-test / run-dbx1000-test: run automated benchmarks"
 	@echo "make prepare: prepare the system (only need to run once after the first clone)"
+	@echo "make hostfs-start/hostfs-stop/hostfs-status: manage live /host forwarding"
 
 b: build
 build:
@@ -63,6 +64,15 @@ prepare:
 
 prepare-cxlfs:
 	./dsm-scripts/prepare_cxlfs_dev.sh
+
+hostfs-start:
+	python3 ./dsm-scripts/hostfs_server.py ensure
+
+hostfs-stop:
+	python3 ./dsm-scripts/hostfs_server.py stop
+
+hostfs-status:
+	python3 ./dsm-scripts/hostfs_server.py status
 
 c: clean
 clean:

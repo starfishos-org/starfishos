@@ -53,6 +53,8 @@ int hostfs_handle_ioctl(struct pci_control_req *req)
         return pci_hostfs_unmap(req);
     case PCI_CONTROL_IVSHMEM_LIST:
         return pci_hostfs_list(req);
+    case PCI_CONTROL_IVSHMEM_CONNECT:
+        return pci_hostfs_connect(req);
     default:
         printk("unknown ioctl type %lx\n", req->req_type);
         break;

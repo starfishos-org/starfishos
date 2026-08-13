@@ -67,6 +67,14 @@ if [ "$use_sudo_fuser" -eq 1 ]; then
 fi
 
 owner_uid="$(id -u)"
+
+# The live HostFS daemon intentionally keeps the hostfs backing file mapped.
+# Stop it for removal, but leave it untouched for a read-only safety check.
+if [ "$mode" != "--check" ]; then
+    python3 "$(dirname "$0")/hostfs_server.py" stop \
+        --device "/dev/shm/ivshmem-hostfs-$USER" 2>/dev/null || true
+fi
+
 for f in "${files[@]}"; do
     if [ -L "$f" ]; then
         echo "Refusing unexpected memdev path type: $f" >&2

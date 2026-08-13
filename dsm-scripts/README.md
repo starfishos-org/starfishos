@@ -1,14 +1,35 @@
 
 # Prepare
 
-## prepare hostfs
+## Live HostFS
 
 ```bash
-python prepare_hostfs.py
+make hostfs-start
 ```
-Will copy all files in `source_file_list` to shared memory.
 
-add files to `source_file_list`
+`/host` is forwarded to a real host directory through the HostFS ivshmem
+request protocol. The default root is `datasets/`; select another directory
+before launching QEMU with:
+
+```bash
+HOSTFS_ROOT=/absolute/host/directory make run
+```
+
+QEMU launch scripts start the per-user daemon automatically. `make
+hostfs-status` and `make hostfs-stop` inspect or stop it. Regular read, write,
+create, truncate, rename, unlink, directory, stat, and fsync operations are
+executed on the host, so changes made on either side are visible on the next
+operation. HostFS also reports real host capacity and supports mode-0
+`fallocate` for large outputs. `MAP_PRIVATE` mappings eagerly copy a snapshot
+into guest memory and do not remain coherent; `MAP_SHARED` is unsupported.
+
+Guest artifacts that must survive a reboot belong under `/host`, for example
+`/host/results/<workload>/`, `/host/log/<workload>/`, and `/host/models/`.
+Call `fsync` before publishing a completion marker that promises durable
+output. See [`docs/11-live-hostfs.md`](../docs/11-live-hostfs.md) for details.
+
+`python3 dsm-scripts/prepare_hostfs.py` only initializes the shared protocol;
+it no longer copies datasets into the backing file.
 
 ## prepare memory device (simulate CXL memory)
 
