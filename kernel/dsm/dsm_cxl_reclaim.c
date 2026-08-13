@@ -61,7 +61,7 @@ _Static_assert((int)CXL_CONTROL_TXN_DEMOTE
  * CXL_CLOCK_STABLE_COLD_EPOCHS further observations, so a window has to be
  * re-walked that many times plus one for any page in it to become demotable.
  */
-#define CXL_SAMPLE_SET_PAGES 4096
+#define CXL_SAMPLE_SET_PAGES 128
 #define CXL_SAMPLE_PASSES    (CXL_CLOCK_STABLE_COLD_EPOCHS + 1)
 
 /*
