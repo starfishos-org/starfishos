@@ -19,9 +19,22 @@
 #include <mm/uaccess.h>
 #include <object/object.h>
 
-#define BUCKET_SIZE 16
-#define UADDR_TO_KEY(uaddr)   ((u32)((long)uaddr % (1 << 12)))
+#define BUCKET_SIZE 64
 #define FUTEX_CMD_MASK ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME)
+
+/*
+ * htable_get_bucket() only does "key % size", so the key itself must be
+ * mixed. A futex word is at least 4-byte aligned, so its low bits carry
+ * no information: drop them and spread the rest with a 64-bit Fibonacci
+ * multiplier, then take the high half (the best mixed one).
+ */
+static inline u32 uaddr_to_key(int *uaddr)
+{
+        u64 key = (u64)(unsigned long)uaddr >> 2;
+
+        key *= 0x9e3779b97f4a7c15UL;
+        return (u32)(key >> 32);
+}
 
 static bool futex_has_waiter(struct futex_entry *entry)
 {
@@ -69,7 +82,7 @@ static struct futex_entry* find_entry(struct futex *futex, int *uaddr, struct hl
 {
         struct futex_entry *found_entry= NULL, *entry = NULL;
 
-        *buckets = htable_get_bucket(&futex->futex_entries, UADDR_TO_KEY(uaddr));
+        *buckets = htable_get_bucket(&futex->futex_entries, uaddr_to_key(uaddr));
         for_each_in_hlist (entry, hash_node, *buckets) {
                 if (futex_has_waiter(entry) && entry->uaddr == uaddr) {
                         found_entry = entry;
@@ -109,7 +122,7 @@ int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_t
 
         for_each_in_htable_safe (entry, temp, i, hash_node, &src_futex->futex_entries) {
                 // copy old entry to new entry
-                buckets = htable_get_bucket(&dst_futex->futex_entries, UADDR_TO_KEY(entry->uaddr));
+                buckets = htable_get_bucket(&dst_futex->futex_entries, uaddr_to_key(entry->uaddr));
                 new_entry = new_futex_entry(dst_futex, entry->uaddr, buckets, dst_futex->mem_type);
                 if (new_entry == NULL) {
                         return -ENOMEM;
