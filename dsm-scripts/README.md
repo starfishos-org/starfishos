@@ -10,6 +10,13 @@ Will copy all files in `source_file_list` to shared memory.
 
 add files to `source_file_list`
 
+Extra files can also be supplied without editing the script. Separate multiple
+paths with `:` on Linux; relative paths are resolved from the repository root:
+
+```bash
+CHCORE_HOSTFS_FILES=/path/to/model.gguf python dsm-scripts/prepare_hostfs.py
+```
+
 ## prepare memory device (simulate CXL memory)
 
 Allocate a new memory device by: 

@@ -16,6 +16,16 @@ source_file_list = [
     # '/disk/yjs/model/Llama-3.2-1B-Instruct-f16.gguf'
 ]
 
+# Add ad-hoc files without editing this script. Relative paths are resolved
+# from the repository root; os.pathsep allows multiple files in one value.
+for source_file_path in os.getenv('CHCORE_HOSTFS_FILES', '').split(os.pathsep):
+    if not source_file_path:
+        continue
+    source_file_path = os.path.expanduser(source_file_path)
+    if not os.path.isabs(source_file_path):
+        source_file_path = os.path.join(repo_root, source_file_path)
+    source_file_list.append(os.path.normpath(source_file_path))
+
 # Shared memory device file path
 # get current user name
 user_name = os.getenv('USER')

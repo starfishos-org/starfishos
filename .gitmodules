@@ -75,3 +75,6 @@
 [submodule "user/demos/sqlite"]
 	path = user/demos/sqlite
 	url = https://github.com/starfishos-org/sqlite.git
+[submodule "user/demos/llama.cpp"]
+	path = user/demos/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git

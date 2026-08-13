@@ -9,6 +9,7 @@ This guide follows the paper's order. Each chapter explains the mechanism first 
 | Collaborative system services | [03 — Services](03-collaborative-system-services.md) | `user/system-servers/` |
 | Cross-machine applications | [04 — Applications](04-cross-machine-applications.md) | `kernel/dsm/`, `user/demos/` |
 | Implementation cross-reference | [05 — Implementation map](05-implementation-map.md) | whole tree |
+| llama.cpp port | [06 — Running llama.cpp](06-running-llama-cpp.md) | `user/demos/llama.cpp`, `dsm-scripts/prepare_hostfs.py` |
 
 Read the [repository README](../README.md) for build, Docker, and artifact quick-start instructions. Older TreeSLS / CXL investigation notes were removed when this guide was introduced; use the chapters below as the current architecture reference.
 

@@ -188,14 +188,15 @@ if [ "${SIM_LOG_WATCHDOG:-1}" = "1" ] && ! [[ $N -eq 1 && -z "$CMD" ]]; then
     WATCHDOG_PID=$!
 fi
 
-# tmux windows do not inherit this shell's environment reliably, so forward the
-# host NUMA binding knobs (see scripts/qemu/qemu_wrapper.sh) explicitly.
+# tmux windows do not inherit this shell's environment reliably. Forward USER
+# so callers can use an isolated ivshmem namespace, along with the host NUMA
+# binding knobs (see scripts/qemu/qemu_wrapper.sh), explicitly.
 NUMA_ENV="CHCORE_QEMU_NUMA_BIND=${CHCORE_QEMU_NUMA_BIND:-0}"
 if [ -n "${CHCORE_QEMU_NUMA_NODES:-}" ]; then
     NUMA_ENV="$NUMA_ENV CHCORE_QEMU_NUMA_NODES=${CHCORE_QEMU_NUMA_NODES}"
 fi
 
-RUN_CMD="MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} $NUMA_ENV ./build/simulate.sh"
+RUN_CMD="USER=$USER MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} $NUMA_ENV ./build/simulate.sh"
 
 # ======== Single instance, interactive (no tmux) ========
 if [[ $N -eq 1 && -z "$CMD" ]]; then

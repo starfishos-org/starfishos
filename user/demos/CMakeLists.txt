@@ -15,11 +15,6 @@ set(_demos_materialize_git_tree
 # These legacy options can remain in an existing .config or CMake cache, but
 # their source checkouts and build integrations are not part of this tree.
 # Refuse an explicit ON instead of reporting a successful build with no output.
-if(CHCORE_DEMOS_LLAMACPP)
-  message(FATAL_ERROR
-    "CHCORE_DEMOS_LLAMACPP is ON, but the llama.cpp checkout/build support "
-    "is not included in this repository")
-endif()
 if(CHCORE_DEMOS_CPYTHON)
   message(FATAL_ERROR
     "CHCORE_DEMOS_CPYTHON is ON, but the CPython checkout/build support "
@@ -49,6 +44,7 @@ chcore_require_demo_checkout(CHCORE_DEMOS_DBX1000 dbx1000 CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_GEIMINIGRAPH GeminiGraph CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn CMakeLists.txt)
 chcore_require_demo_checkout(CHCORE_DEMOS_TINYCNN VeryTinyCnn/libjpeg configure)
+chcore_require_demo_checkout(CHCORE_DEMOS_LLAMACPP llama.cpp CMakeLists.txt)
 
 if(CHCORE_DEMOS_LIGRA)
   add_subdirectory(${src_demos_dir}/ligra)
@@ -405,6 +401,65 @@ if(CHCORE_DEMOS_GEMM)
     COMMAND rsync -a ${src_demos_dir}/GEMM/gemm ${build_ramdisk_dir}/gemm
   )
   add_dependencies(ramdisk gemm)
+endif()
+
+if(CHCORE_DEMOS_LLAMACPP)
+  # Keep the port intentionally small and deterministic: static CPU-only
+  # binaries, no host CPU probing, no OpenMP runtime, and no Linux-specific
+  # llamafile kernels. The upstream tree is excluded from ALL; the ramdisk
+  # dependency below builds only the small CLI.
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
+  set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+  set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+  set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+  set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+  set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
+  set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
+
+  # FindThreads cannot identify the custom ChCore CMake platform by probing,
+  # while pthreads are provided by the ported musl libc.
+  set(CMAKE_HAVE_LIBC_PTHREAD ON CACHE INTERNAL "")
+  set(THREADS_PREFER_PTHREAD_FLAG ON)
+
+  add_subdirectory(${src_demos_dir}/llama.cpp
+                   ${CMAKE_CURRENT_BINARY_DIR}/llama.cpp
+                   EXCLUDE_FROM_ALL)
+
+  # The cross compiler identifies itself as Linux, but ChCore intentionally
+  # does not implement Linux CPU-affinity and NUMA syscalls. Compile ggml's
+  # CPU backend through its portable paths and provide the C++ math spellings
+  # expected by GCC 9's musl headers without modifying the upstream checkout.
+  target_compile_options(ggml-cpu PRIVATE
+    -U__gnu_linux__
+    -U__linux__
+    "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_LIST_DIR}/llama-cpp-chcore.hpp>")
+
+  add_executable(llama-simple
+                 ${CMAKE_CURRENT_LIST_DIR}/llama-simple-chcore.cpp)
+  target_include_directories(llama-simple PRIVATE
+                             ${src_demos_dir}/llama.cpp/include
+                             ${src_demos_dir}/llama.cpp/ggml/include)
+  target_compile_features(llama-simple PRIVATE cxx_std_17)
+  target_link_libraries(llama-simple PRIVATE llama)
+
+  foreach(llama_app llama-simple)
+    target_link_options(${llama_app} PRIVATE -static)
+    target_link_libraries(${llama_app} PRIVATE
+                          rpmalloc-static libc-static libstdc++-static)
+  endforeach()
+
+  add_custom_target(
+    llama-copy-data
+    COMMAND rsync -a $<TARGET_FILE:llama-simple> ${build_ramdisk_dir}/
+    DEPENDS llama-simple
+    COMMENT "Copying llama.cpp binaries to the ramdisk"
+  )
+  add_dependencies(ramdisk llama-copy-data)
 endif()
 
 if(CHCORE_DEMOS_DBX1000)
