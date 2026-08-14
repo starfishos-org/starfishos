@@ -41,6 +41,12 @@ static bool futex_has_waiter(struct futex_entry *entry)
         return entry->waiter_count > 0;
 }
 
+/*
+ * An entry always owns its notification: new_futex_entry() is the only place
+ * one is created, and it is a bare kmalloc()'ed struct rather than the opaque
+ * body of a struct object. kfree() is therefore the matching deallocator on
+ * every path, including entries produced by futex_copy().
+ */
 static void free_futex_entry(struct futex_entry *entry)
 {
         htable_del(&entry->hash_node);
@@ -116,6 +122,17 @@ int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_t
         struct hlist_head *buckets;
         int i;
 
+        /*
+         * A cap group whose object is already shared has no separate migration
+         * pair: dsm_get_object_by_mem_type() hands dsm_stw_copy_cap_group() the
+         * very same object back, so src and dst are one futex. Re-initializing
+         * it here would install a fresh bucket array and orphan every live
+         * entry, losing the registration of every thread currently blocked in
+         * sys_futex_wait() -- they could never be woken again.
+         */
+        if (src_futex == dst_futex)
+                return 0;
+
         lock_init(&dst_futex->futex_lock);
         init_htable(&dst_futex->futex_entries, BUCKET_SIZE);
         dst_futex->mem_type = dst_mem_type;
@@ -129,14 +146,25 @@ int futex_copy(struct futex *src_futex, struct futex *dst_futex, mem_t dst_mem_t
                 }
                 new_entry->waiter_count = entry->waiter_count;
                 /*
-                 * new_futex_entry() created a fresh notification, but a copied
-                 * entry must point at the migrated object pair instead. Release
-                 * the placeholder, otherwise every migrated entry leaks both
-                 * the notification and its thread_dq node.
+                 * Keep the notification new_futex_entry() just built. It is
+                 * allocated with dst_mem_type, so on a demote it already lives
+                 * in shared memory where the destination machine can reach it.
+                 *
+                 * It must NOT be replaced by obj2objpair(entry->notific): a
+                 * futex notification is a plain kmalloc(sizeof(struct
+                 * notification)) buffer, never the opaque body of a struct
+                 * object, so obj2objpair() reads a "pair_obj" out of the 16
+                 * bytes preceding the allocation -- whatever unrelated slab
+                 * slot happens to sit there -- and offsets it by
+                 * sizeof(struct object). Every later use of the entry then
+                 * takes notifc_lock at that wild address, and
+                 * free_futex_entry() kfree()s it.
+                 *
+                 * The source notification's queued waiters cannot be handed
+                 * over in any case: dsm_migrate_process_ckpt() frees the source
+                 * thread objects they point at, and dsm_copy_notification()
+                 * likewise declines to copy a notification's waiting threads.
                  */
-                deinit_notific(new_entry->notific);
-                kfree(new_entry->notific);
-                new_entry->notific = (struct notification *)obj2objpair(entry->notific);
         }
 
         return 0;
