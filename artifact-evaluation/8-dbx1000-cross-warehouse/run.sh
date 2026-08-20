@@ -74,10 +74,19 @@ MEASURE_SEC="${DBX_MEASURE_SEC:-$DEFAULT_MEASURE_SEC}"
 # would reach the guests only when tmux happens to start a fresh server.
 NUMA_BIND="${CHCORE_QEMU_NUMA_BIND:-1}"
 BASELINE_MACHINES=1
-# Kernel/user memory placement. The defaults keep user pages in local DRAM so
-# only cross-machine sharing pulls them into CXL; override to compare against
-# the paper's auto-scale placement (MIXED_DEFAULT_CXL + DEFAULT_CXL).
-MALLOC_MODE="${DBX_MALLOC_MODE:-MIXED_DEFAULT_CXL}"
+# Kernel/user memory placement. The defaults keep both kernel objects and user
+# pages in local DRAM so that only cross-machine sharing pulls them into CXL.
+# This is the placement every published cross-warehouse number was measured
+# with (out/20260728_125606, and 17 runs from 2026-07-27 to 2026-08-05 that all
+# land at 0.59-0.68 Mtxn/s for the 8-machine arm at ratio 15%).
+#
+# Do not silently switch DSM_MALLOC_MODE to MIXED_DEFAULT_CXL here: putting the
+# kernel's own objects on CXL collapses the cluster arm by 10-20x and makes it
+# wildly unstable (0.0001-0.595 Mtxn/s at the same ratio across runs), which is
+# what an AE reviewer hit on 2026-08-20 while the one-machine baseline arm
+# reproduced normally.  Override per run with DBX_MALLOC_MODE if that variant
+# is the thing being studied.
+MALLOC_MODE="${DBX_MALLOC_MODE:-MIXED_DEFAULT_DRAM}"
 USER_MALLOC_MODE="${DBX_USER_MALLOC_MODE:-DEFAULT_DRAM}"
 # The one-machine baseline gets its own placement, and it is CXL-backed on
 # purpose. Cross-machine faults migrate cluster pages into CXL and never move

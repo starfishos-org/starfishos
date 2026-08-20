@@ -24,7 +24,7 @@ The default full scope uses:
 - cross-warehouse ratios of 0%, 5%, 10%, 15%, 50%, 80%, and 100%;
 - eight machines, 64 warehouses, and eight workers per machine;
 - a one-machine baseline with eight warehouses and eight workers;
-- cluster placement `MIXED_DEFAULT_CXL` + `DEFAULT_DRAM`;
+- cluster placement `MIXED_DEFAULT_DRAM` + `DEFAULT_DRAM`;
 - baseline placement `MIXED_DEFAULT_CXL` + `DEFAULT_CXL`;
 - `WARMUP=512000` for the eight-machine run (64000 for the matched one-machine
   baseline), `MAX_TXN_PER_PART=10000`, a five-second measurement
@@ -38,6 +38,25 @@ The CXL-backed one-machine baseline keeps both sides on the same steady-state
 memory tier. A DRAM-backed baseline answers a different question and is not
 directly comparable to the default scale-out result. Similarly, results
 collected with different host NUMA placement policies should not be combined.
+
+The two arms therefore use different placements on purpose: the cluster starts
+in local DRAM and reaches CXL only through cross-machine sharing, while the
+one-machine baseline is CXL-backed from the start so that it is compared on the
+cluster's steady-state tier rather than on a faster one.
+
+### Do not run the cluster arm with `MIXED_DEFAULT_CXL`
+
+`DSM_MALLOC_MODE=MIXED_DEFAULT_CXL` places the kernel's own objects on CXL. It
+collapses the eight-machine arm by one to two orders of magnitude and makes it
+unstable: repeated runs of the same 15% point have produced 0.0001, 0.0007,
+0.06, 0.215, 0.42, and 0.595 Mtxn/s, against 0.586-0.675 Mtxn/s for every run
+of the same point under `MIXED_DEFAULT_DRAM`. The one-machine baseline arm is
+unaffected, so the symptom is a scaleup far below 1 rather than an obvious
+failure. This was the default until 2026-08-20 and is the reason an artifact
+reviewer measured 0.031 Mtxn/s and a scaleup of 0.18 at 15%.
+
+The tables under "Recorded one-repetition result" below were collected under
+that placement and are kept only as a record of the collapse.
 
 ## Prepare and run
 
@@ -128,9 +147,41 @@ ratios and all repetitions, a positive total access volume for the cluster,
 and the configuration snapshots used to validate the comparison. A zero CXL
 access volume is valid for a ratio whose timed interval performs no CXL access.
 
-## Recorded one-repetition result
+## Expected result
 
-The following 2026-08-07 runs use `WARMUP=5120`, a five-second measurement
+`out/20260728_125606` is the reference run for the default configuration
+(cluster `MIXED_DEFAULT_DRAM` + `DEFAULT_DRAM`, baseline `MIXED_DEFAULT_CXL` +
+`DEFAULT_CXL`, `CHCORE_QEMU_NUMA_BIND=1`, three boots per ratio). It swept
+15%, 50% and 80% only; the other ratios in the default scope have no reference
+value here:
+
+| Ratio | Cluster (Mtxn/s) | Baseline (Mtxn/s) | Scaleup |
+| ---: | ---: | ---: | ---: |
+| 15% | 0.668 | 0.180 | 3.71 |
+| 50% | 0.639 | 0.177 | 3.61 |
+| 80% | 0.630 | 0.176 | 3.57 |
+
+Those three columns are recomputed from each worker's `txn_cnt` and
+`run_time`. DBx1000 prints its aggregate `thp=` with only two decimals, so the
+`cluster_thp_mtxn_s`, `baseline_thp_mtxn_s` and `scaleup` columns the runner
+writes into `cross_warehouse.csv` are quantised (0.67/0.64/0.63 over
+0.18, giving 3.72/3.56/3.50) and their reported standard deviation collapses to
+zero. Compare against the recomputed numbers above, not against that rounding.
+
+Absolute rates are hardware-dependent, but on the reference host the cluster
+arm has stayed inside 0.586-0.675 Mtxn/s at 15% across seventeen runs spanning
+2026-07-27 to 2026-08-05 and several kernel revisions. A cluster figure an
+order of magnitude below that, or a scaleup below 1, means the run did not use
+the default cluster placement -- check `config/placement.txt` in the output
+directory, whose 8-machine snapshots must read `DSM_MALLOC_MODE=MIXED_DEFAULT_DRAM`.
+
+Do not quote the reported standard deviation as the uncertainty of a single
+boot: which worker threads land in the fast mode is redrawn every boot.
+
+## Recorded one-repetition result (`MIXED_DEFAULT_CXL` cluster placement)
+
+These numbers are *not* the expected result for the default configuration; see
+the warning above. The following 2026-08-07 runs use `WARMUP=5120`, a five-second measurement
 window, a 1024 MiB CXL demotion limit, page-migration read-ahead of 32 pages,
 and one repetition per point. The access columns are the aggregate `cxlprof`
 byte counters converted to MiB; they are not derived from `VMSPACE MEMORY` and
