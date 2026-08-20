@@ -167,7 +167,13 @@ void init_buddy_for_one_mem_pool(struct phys_mem_pool *pool, page_type_t type,
  * conventional buddy pool, followers must not initialize it again: that
  * clears the shared page metadata/free lists while allocations are live.
  * Ordinary buddy has no per-machine handle, so attach is validation only.
+ *
+ * Only the lock-based buddy follows this path: with DSM_CXL_LF_BUDDY the
+ * follower calls attach_buddy_lf() instead, so compiling this in would be an
+ * unused static function and -Werror=unused-function fails the build (the
+ * configuration paper Figure 12 measures as "LLFree").
  */
+#if defined(USE_CXL_MEM) && !defined(DSM_CXL_LF_BUDDY)
 static void attach_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
                                           page_type_t type,
                                           paddr_t free_mem_start,
@@ -180,6 +186,7 @@ static void attach_buddy_for_one_mem_pool(struct phys_mem_pool *pool,
     BUG_ON(pool->page_metadata == NULL);
     BUG_ON(pool->pool_mem_size == 0);
 }
+#endif /* USE_CXL_MEM && !DSM_CXL_LF_BUDDY */
 
 void dram_mm_init()
 {
