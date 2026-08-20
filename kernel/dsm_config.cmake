@@ -39,7 +39,9 @@ set(DSM_CXL_LF_BUDDY "OFF")
 # publishes demand for the polling service's asynchronous singleton demoter.
 # The demoter uses a bounded CLOCK/second-chance scan and executes at most one
 # batch per kernel entry; foreground promotion never waits for this worker.
-set(DSM_CXL_DEMOTE "ON")
+# Keep demotion disabled globally; experiments that need a residency cap must
+# enable it explicitly.
+set(DSM_CXL_DEMOTE "OFF")
 set(DSM_CXL_DEMOTE_LIMIT_MB "1024")
 # "CLOCK" (default approximation of LRU) or "FIFO" (experiment baseline).
 set(DSM_CXL_DEMOTE_POLICY "CLOCK")
