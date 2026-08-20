@@ -648,6 +648,30 @@ int dsm_cxl_reserve_pages(u64 pages)
     return 0;
 }
 
+void dsm_cxl_account_snapshot(u64 *allocated, u64 *reserved, u64 *total)
+{
+    if (!dsm_meta
+        || !__atomic_load_n(&dsm_meta->cxl_reclaim.initialized,
+                            __ATOMIC_ACQUIRE)) {
+        if (allocated)
+            *allocated = 0;
+        if (reserved)
+            *reserved = 0;
+        if (total)
+            *total = 0;
+        return;
+    }
+
+    lock(&dsm_meta->cxl_reclaim.account_guard.lock);
+    if (allocated)
+        *allocated = dsm_meta->cxl_reclaim.allocated_pages;
+    if (reserved)
+        *reserved = dsm_meta->cxl_reclaim.reserved_pages;
+    if (total)
+        *total = dsm_meta->cxl_reclaim.total_pages;
+    unlock(&dsm_meta->cxl_reclaim.account_guard.lock);
+}
+
 void dsm_cxl_commit_reserved_pages(u64 pages)
 {
     if (!dsm_meta

@@ -53,7 +53,20 @@ void *get_cxl_pages(int order)
      * pre-reclaim behaviour of reporting OOM to the caller.
      */
     if (dsm_cxl_reserve_pages(requested_pages) < 0) {
-        kwarn("[OOM] Cannot reserve CXL pages!\n");
+        u64 allocated = 0, reserved = 0, total = 0;
+
+        /*
+         * Print the accounting that refused the request.  Without it the
+         * warning cannot distinguish a genuinely full pool from one
+         * oversized request or from leaked accounting, which is exactly the
+         * question an OOM here raises (8-machine all-CXL runs hit it).
+         */
+        dsm_cxl_account_snapshot(&allocated, &reserved, &total);
+        kwarn("[OOM] Cannot reserve CXL pages! want=%lu allocated=%lu reserved=%lu total=%lu (pages)\n",
+              requested_pages,
+              allocated,
+              reserved,
+              total);
         return NULL;
     }
 #endif

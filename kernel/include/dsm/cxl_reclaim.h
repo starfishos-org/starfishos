@@ -82,6 +82,12 @@ bool dsm_cxl_reclaim_enabled(void);
 bool dsm_cxl_mapping_in_transition(struct pmobject *pmo, u64 pmo_index,
                                    paddr_t pa);
 int dsm_cxl_reserve_pages(u64 pages);
+/*
+ * Read the cluster-wide CXL page accounting.  Diagnostics only: the three
+ * values are sampled under the accounting lock but are stale by the time the
+ * caller sees them.  Any pointer may be NULL.
+ */
+void dsm_cxl_account_snapshot(u64 *allocated, u64 *reserved, u64 *total);
 void dsm_cxl_commit_reserved_pages(u64 pages);
 void dsm_cxl_cancel_reserved_pages(u64 pages);
 /*
