@@ -15,6 +15,12 @@ RUN_OFFSET="${RUN_OFFSET:-0}"
 PAPER_USER_BENCH_THREADS="1 2 4 8 16 32 64 96"
 USER_BENCH_THREADS="${USER_BENCH_THREADS:-$PAPER_USER_BENCH_THREADS}"
 CPU_NUM="${CPU_NUM:-96}"
+# Build every configuration but run none of them.  The three configurations
+# differ only in two cmake variables, and two of them (DSM_CXL_LF_BUDDY=ON)
+# have broken the build before while the third kept working, so "do all three
+# still compile" is worth asking on its own -- it costs six builds instead of
+# an afternoon of boots.  No CSV or figure is produced.
+BUILD_ONLY="${BUILD_ONLY:-0}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
 PROJECT_INI="$REPO_ROOT/chcore.ini"
 LOCK_FILE="$AE_DIR/.run.lock"
@@ -37,7 +43,11 @@ cp "$PROJECT_CONFIG" "$PROJECT_CONFIG_BACKUP"
 cp "$PROJECT_INI" "$PROJECT_INI_BACKUP"
 
 ae_ensure_clean_tmux
-ae_check_global_prepare
+# BUILD_ONLY boots no guest, so it needs neither the /dev/shm backing
+# files nor the doorbell server.  Demanding them would make the
+# build-only check impossible on a host that has not been provisioned
+# for a full run, which is the one situation it is most useful in.
+[ "$BUILD_ONLY" = "1" ] || ae_check_global_prepare
 
 cd "$REPO_ROOT"
 
@@ -75,7 +85,6 @@ ae_export_guest_cpu_num "$CPU_NUM"
 
 echo "[AE] Saving kernel/dsm_config.cmake"
 save_config
-echo "config,memory,test,parallel,run,ops_per_sec" > "$CSV_OUT"
 
 run_configuration() {
     local label="$1" llfree="$2" crash_recovery="$3"
@@ -87,13 +96,13 @@ run_configuration() {
     sed -i 's/^CHCORE_KERNEL_TEST:BOOL=.*/CHCORE_KERNEL_TEST:BOOL=ON/' "$PROJECT_CONFIG"
     grep -q '^CHCORE_KERNEL_TEST:BOOL=ON$' "$PROJECT_CONFIG"
     build_current_config "${label}_kernel"
-    run_kernel_benchmarks "$label"
+    [ "$BUILD_ONLY" = "1" ] || run_kernel_benchmarks "$label"
 
     echo "=== Building $label with CHCORE_KERNEL_TEST=OFF for user malloc ==="
     sed -i 's/^CHCORE_KERNEL_TEST:BOOL=.*/CHCORE_KERNEL_TEST:BOOL=OFF/' "$PROJECT_CONFIG"
     grep -q '^CHCORE_KERNEL_TEST:BOOL=OFF$' "$PROJECT_CONFIG"
     build_current_config "${label}_user"
-    run_user_benchmarks "$label"
+    [ "$BUILD_ONLY" = "1" ] || run_user_benchmarks "$label"
 }
 
 run_configuration llfree_cr_on ON ON
@@ -103,6 +112,13 @@ run_configuration buddy_cr_off OFF OFF
 echo "[AE] Restoring kernel/dsm_config.cmake"
 restore_config
 
+if [ "$BUILD_ONLY" = "1" ]; then
+    echo "=== BUILD_ONLY=1: all three configurations built; skipping runs ==="
+    echo "Artifact output: $OUT_DIR"
+    exit 0
+fi
+
+echo "config,memory,test,parallel,run,ops_per_sec" > "$CSV_OUT"
 echo "=== Parsing allocator logs ==="
 for entry in "LLFree+CR:llfree_cr_on" "LLFree:llfree_cr_off" "Buddy:buddy_cr_off"; do
     config="${entry%%:*}"

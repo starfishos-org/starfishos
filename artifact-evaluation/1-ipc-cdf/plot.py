@@ -109,7 +109,11 @@ def parse_breakdown(log: Path) -> dict[str, list[tuple[int, int, int, int]]]:
     return out
 
 
-def parse_server_timing(log: Path) -> dict[str, dict[str, list[int]]]:
+def parse_server_timing(
+    log: Path, mode_order: list[str] | None = None
+) -> dict[str, dict[str, list[int]]]:
+    if mode_order is None:
+        mode_order = MODE_ORDER
     out: dict[str, dict[str, list[int]]] = {}
     block = -1
     active = False
@@ -124,8 +128,8 @@ def parse_server_timing(log: Path) -> dict[str, dict[str, list[int]]]:
             continue
         if "[SRV_TIMING_END]" in line:
             active = False
-            if block < len(MODE_ORDER):
-                out[MODE_ORDER[block]] = {"dequeue": deq, "handle": handle}
+            if block < len(mode_order):
+                out[mode_order[block]] = {"dequeue": deq, "handle": handle}
             continue
         if not active:
             continue
@@ -355,6 +359,13 @@ def main() -> None:
     )
     parser.add_argument("--allow-partial", action="store_true",
                         help="debug only: draw incomplete IPC logs")
+    parser.add_argument(
+        "--server-mode",
+        action="append",
+        choices=MODE_ORDER,
+        help=("mode for the next server timing block; repeat in log order "
+              "(partial logs infer the order from their CDF when omitted)"),
+    )
     args = parser.parse_args()
 
     machine0_log = args.log_dir / "machine0.log"
@@ -401,7 +412,14 @@ def main() -> None:
     )
 
     srv_factor = 1e6 / cpu_freq_hz(machine0_log)
-    srv = parse_server_timing(machine0_log)
+    server_mode_order = args.server_mode
+    if server_mode_order is None:
+        server_mode_order = (
+            [mode for mode in MODE_ORDER if cdf1.get(mode)]
+            if args.allow_partial
+            else MODE_ORDER
+        )
+    srv = parse_server_timing(machine0_log, server_mode_order)
     if not args.allow_partial:
         missing = [mode for mode in ("cross", "cross_4t")
                    if mode not in srv or not srv[mode]["dequeue"] or not srv[mode]["handle"]]

@@ -105,6 +105,26 @@ bash artifact-evaluation/install-host-deps.sh
 
 **Note:** Do not run `./artifact-evaluation/run-all.sh` inside tmux; each experiment launches its own tmux session for QEMU, and nesting leads to session conflicts.
 
+### Re-checking the two experiments fixed on 2026-08-20
+
+`3-memory-allocator` failed to build its first configuration and `1-ipc-cdf`
+deadlocked its own two-machine boot. To re-run just those two and check the
+symptom is gone:
+
+```bash
+./artifact-evaluation/verify-reviewer-fixes.sh          # quick: 6 builds + 1 boot
+./artifact-evaluation/verify-reviewer-fixes.sh --full   # both experiments in paper scope
+./artifact-evaluation/verify-reviewer-fixes.sh --only 1
+```
+
+Quick mode builds all three allocator configurations without running them and
+measures a single IPC mode; it answers "does the reported failure still
+happen", not "does the figure reproduce". Either mode prints a PASS/FAIL line
+per experiment, keeps its output under `log/verify-reviewer-fixes/<timestamp>/`,
+and kills the tmux sessions the runners deliberately leave behind. The full
+experiments are still the authority on the figures, through
+`run-all.sh --run-subset-of-tests 1,3`.
+
 ### Restricted Tigon administration without general sudo
 
 On a shared host, do not grant the evaluation account passwordless access to

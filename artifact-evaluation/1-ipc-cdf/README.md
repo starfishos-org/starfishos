@@ -50,5 +50,14 @@ python3 artifact-evaluation/1-ipc-cdf/plot.py \
 
 ## Env knobs
 
-`SKIP_BUILD`, `KEEP_QEMU`, `TIMEOUT`, `INPUT_TIMEOUT`, `OUT_DIR`, `LOG_DIR`,
-`CSV_DIR`, `FIG_DIR`, `TS`.
+`IPC_MODES`, `SKIP_BUILD`, `KEEP_QEMU`, `TIMEOUT`, `INPUT_TIMEOUT`, `OUT_DIR`,
+`LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`.
+
+`IPC_MODES` selects which of the six measurement points to run (default: all of
+`direct_empty direct cross_empty cross cross_empty_4t cross_4t`), one boot
+each. A thinned selection plots with `--allow-partial` and does not produce a
+paper figure; use it to re-check the boot path or one mode, for example
+
+```bash
+IPC_MODES="cross" ./artifact-evaluation/1-ipc-cdf/run.sh
+```

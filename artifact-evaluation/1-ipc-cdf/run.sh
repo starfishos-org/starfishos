@@ -22,7 +22,25 @@ TIMEOUT="${TIMEOUT:-600}"
 INPUT_TIMEOUT="${INPUT_TIMEOUT:-30}"
 KEEP_QEMU="${KEEP_QEMU:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
+# The paper figure's measurement points, one boot each.  plot.py refuses a
+# dataset that misses any of them, so a thinned selection has to tell it that
+# the gap is deliberate (see --allow-partial below).  Thin this only to
+# re-check the boot path or a single mode; a figure needs all six.
+PAPER_IPC_MODES="direct_empty direct cross_empty cross cross_empty_4t cross_4t"
+IPC_MODES="${IPC_MODES:-$PAPER_IPC_MODES}"
 PROJECT_CONFIG="$REPO_ROOT/.config"
+
+# Validate the scope before creating output, editing instrumentation flags, or
+# starting a potentially expensive build.
+for requested in $IPC_MODES; do
+    case " $PAPER_IPC_MODES " in
+    *" $requested "*) ;;
+    *)
+        echo "Unknown IPC mode '$requested'; known modes: $PAPER_IPC_MODES" >&2
+        exit 1
+        ;;
+    esac
+done
 
 CLIENT_SRC="$REPO_ROOT/user/system-servers/polling/polling_client_test.c"
 SERVER_SRC="$REPO_ROOT/user/system-servers/polling/polling_server.c"
@@ -119,6 +137,22 @@ wait_for_log_text() {
     echo "Timed out waiting for $label" >&2
     tail -120 "$logfile" >&2 || true
     return 1
+}
+
+# Report whether a banner is present without gating on it: guest serial output
+# from two cores can interleave mid-token, so absence proves nothing.
+note_log_text() {
+    local machine="$1"
+    local pattern="$2"
+    local label="$3"
+    local start_line="${4:-1}"
+    local logfile="$LOG_DIR/machine${machine}.log"
+
+    if tail -n "+$start_line" "$logfile" 2>/dev/null | grep -q "$pattern"; then
+        echo "$label: seen"
+    else
+        echo "$label: not in the log (serial interleaving); continuing"
+    fi
 }
 
 cluster_alive() {
@@ -288,12 +322,26 @@ start_cluster() {
     tmux new-window -t "$SESSION" -n 1 "$(simulate_cmd 1 "$machine1_log")"
     wait_for_log_text 1 "DSM] machine 1 " "DSM machine 1 joined" "$machine1_start" || return 1
 
-    # Kernel malloc tests (when CHCORE_KERNEL_TEST=ON) run before the shell.
-    # Wait for polling server registration as an intermediate milestone.
-    wait_for_log_text 0 "booting polling server" "Machine 0 polling server starting" "$machine0_start" || return 1
+    # Kernel malloc tests (when CHCORE_KERNEL_TEST=ON) run before the shell,
+    # so the shell banner is the readiness gate for both machines.
+    #
+    # "User Init: booting polling server" used to gate the wait as an
+    # intermediate milestone, and it cannot: the guest's own serial stream
+    # interleaves it with lwip's output from another core, byte by byte, so
+    # the log holds e.g.
+    #
+    #   User Init: booting polling serve[lwip] Host at 192.168.0.3 ...
+    #   r
+    #
+    # and no substring match can find it.  Machine 1 lost that race on
+    # 2026-08-20 and failed a run whose cluster had in fact come up.  User
+    # init launches the polling server before it starts the shell, so the
+    # shell banner already implies the milestone; note whether the banner
+    # survived, but never fail on it.
     wait_for_log_text 0 "Welcome to ChCore shell" "Machine 0 shell ready" "$machine0_start" || return 1
-    wait_for_log_text 1 "booting polling server" "Machine 1 polling server starting" "$machine1_start" || return 1
     wait_for_log_text 1 "Welcome to ChCore shell" "Machine 1 shell ready" "$machine1_start" || return 1
+    note_log_text 0 "booting polling server" "Machine 0 polling server banner" "$machine0_start"
+    note_log_text 1 "booting polling server" "Machine 1 polling server banner" "$machine1_start"
 }
 
 run_mode() {
@@ -363,17 +411,52 @@ else
 fi
 
 # Each mode is an independent measurement point on a freshly booted cluster.
+IPC_MODE_TABLE=(
+    "0|direct_empty|polling_client.bin -d -e -t 1 -m direct_empty"
+    "0|direct|polling_client.bin -d -t 1 -m direct"
+    "1|cross_empty|polling_client.bin -s 0 -e -t 1 -m cross_empty"
+    "1|cross|polling_client.bin -s 0 -t 1 -m cross"
+    "1|cross_empty_4t|polling_client.bin -s 0 -e -t 4 -m cross_empty_4t"
+    "1|cross_4t|polling_client.bin -s 0 -t 4 -m cross_4t"
+)
+
 failed=0
-run_point 0 direct_empty "polling_client.bin -d -e -t 1 -m direct_empty" || failed=1
-run_point 0 direct "polling_client.bin -d -t 1 -m direct" || failed=1
-run_point 1 cross_empty "polling_client.bin -s 0 -e -t 1 -m cross_empty" || failed=1
-run_point 1 cross "polling_client.bin -s 0 -t 1 -m cross" || failed=1
-run_point 1 cross_empty_4t "polling_client.bin -s 0 -e -t 4 -m cross_empty_4t" || failed=1
-run_point 1 cross_4t "polling_client.bin -s 0 -t 4 -m cross_4t" || failed=1
+ran_count=0
+selected_server_modes=()
+for entry in "${IPC_MODE_TABLE[@]}"; do
+    entry_machine="${entry%%|*}"
+    entry_rest="${entry#*|}"
+    entry_mode="${entry_rest%%|*}"
+    entry_cmd="${entry_rest#*|}"
+    case " $IPC_MODES " in
+    *" $entry_mode "*) ;;
+    *) continue ;;
+    esac
+    ran_count=$((ran_count + 1))
+    if [ "$entry_machine" = "1" ]; then
+        selected_server_modes+=("$entry_mode")
+    fi
+    run_point "$entry_machine" "$entry_mode" "$entry_cmd" || failed=1
+done
 stop_cluster
 
+if [ "$ran_count" -eq 0 ]; then
+    echo "IPC_MODES selected no mode: '$IPC_MODES'" >&2
+    exit 1
+fi
+
 echo "=== Parsing logs and generating figures ==="
-python3 "$AE_DIR/plot.py" --log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR"
+plot_args=(--log-dir "$LOG_DIR" --csv-dir "$CSV_DIR" --fig-dir "$FIG_DIR")
+for server_mode in "${selected_server_modes[@]}"; do
+    # Server timing blocks do not contain their mode name, so preserve the
+    # exact order of the remote modes that produced them.
+    plot_args+=(--server-mode "$server_mode")
+done
+if [ "$ran_count" -ne "${#IPC_MODE_TABLE[@]}" ]; then
+    echo "[AE] thinned IPC_MODES; plotting only the measured modes."
+    plot_args+=(--allow-partial)
+fi
+python3 "$AE_DIR/plot.py" "${plot_args[@]}"
 
 echo "Artifact output: $OUT_DIR"
 if [ "$failed" -ne 0 ]; then

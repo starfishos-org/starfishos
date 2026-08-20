@@ -49,5 +49,13 @@ python3 artifact-evaluation/3-memory-allocator/plot.py \
 
 ## Env knobs
 
-`NRUNS`, `RUN_OFFSET`, `USER_BENCH_THREADS`, `CPU_NUM`, `OUT_DIR`, `LOG_DIR`,
-`CSV_DIR`, `FIG_DIR`, `TS`.
+`NRUNS`, `RUN_OFFSET`, `USER_BENCH_THREADS`, `CPU_NUM`, `BUILD_ONLY`,
+`OUT_DIR`, `LOG_DIR`, `CSV_DIR`, `FIG_DIR`, `TS`.
+
+`BUILD_ONLY=1` builds all three configurations and runs none of them, which
+answers "do Buddy, LLFree and LLFree+CR all still compile" in six builds
+instead of an afternoon of boots. It writes no CSV and no figure.
+
+```bash
+BUILD_ONLY=1 ./artifact-evaluation/3-memory-allocator/run.sh
+```
