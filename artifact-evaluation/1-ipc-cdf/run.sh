@@ -275,14 +275,23 @@ start_cluster() {
     machine0_start=$(($(wc -l < "$machine0_log") + 1))
     tmux new-session -d -s "$SESSION" -n 0 "$(simulate_cmd 0 "$machine0_log")"
     wait_for_log_text 0 "DSM] machine 0 " "DSM machine 0 joined" "$machine0_start" || return 1
+
+    # Machine 1 must be launched as soon as machine 0 has joined the cluster,
+    # not after machine 0 reaches its shell: the kernel join barrier
+    # (dsm_wait_for_cluster_cpu_topology) holds every machine at the banner
+    # until the whole cluster has joined, so waiting for machine 0's shell
+    # first deadlocks the boot -- machine 0 waits for machine 1, which has not
+    # been started yet.  Gate on the per-machine join line here and only wait
+    # for the shells once both machines are in (same order as
+    # 2-sched-notify-latency/run.sh and dsm-scripts/simulate_ncluster.sh).
+    machine1_start=$(($(wc -l < "$machine1_log") + 1))
+    tmux new-window -t "$SESSION" -n 1 "$(simulate_cmd 1 "$machine1_log")"
+    wait_for_log_text 1 "DSM] machine 1 " "DSM machine 1 joined" "$machine1_start" || return 1
+
     # Kernel malloc tests (when CHCORE_KERNEL_TEST=ON) run before the shell.
     # Wait for polling server registration as an intermediate milestone.
     wait_for_log_text 0 "booting polling server" "Machine 0 polling server starting" "$machine0_start" || return 1
     wait_for_log_text 0 "Welcome to ChCore shell" "Machine 0 shell ready" "$machine0_start" || return 1
-
-    machine1_start=$(($(wc -l < "$machine1_log") + 1))
-    tmux new-window -t "$SESSION" -n 1 "$(simulate_cmd 1 "$machine1_log")"
-    wait_for_log_text 1 "DSM] machine 1 " "DSM machine 1 joined" "$machine1_start" || return 1
     wait_for_log_text 1 "booting polling server" "Machine 1 polling server starting" "$machine1_start" || return 1
     wait_for_log_text 1 "Welcome to ChCore shell" "Machine 1 shell ready" "$machine1_start" || return 1
 }
