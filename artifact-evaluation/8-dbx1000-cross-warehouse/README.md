@@ -26,13 +26,22 @@ The default full scope uses:
 - a one-machine baseline with eight warehouses and eight workers;
 - cluster placement `MIXED_DEFAULT_DRAM` + `DEFAULT_DRAM`;
 - baseline placement `MIXED_DEFAULT_CXL` + `DEFAULT_CXL`;
-- `WARMUP=512000` for the eight-machine run (64000 for the matched one-machine
+- `WARMUP=7040000` for the eight-machine run (880000 for the matched one-machine
   baseline), `MAX_TXN_PER_PART=10000`, a five-second measurement
   window, and three independent boots per ratio;
 - a 1024 MiB CXL residency cap, selected with `DBX_CXL_DEMOTE_LIMIT_MB=1024`;
 - CLOCK/second-chance CXL demotion enabled by default (`DBX_CXL_DEMOTE=ON`);
 - host NUMA binding enabled (`CHCORE_QEMU_NUMA_BIND=1`); and
 - DSM page-migration read-ahead of four pages.
+
+`WARMUP` is not a tuning knob to shorten a run with. It has to be long enough
+for the cluster's working set to reach its steady-state tier before the timed
+interval opens; below that the eight-machine arm measures page migration in
+progress and reads *slower* than one machine. At ratio 15% a healthy run gives
+roughly 0.63 Mops/s for the cluster arm against 0.17 Mops/s for the baseline
+(scaleup ~3.6). A cluster arm at or below the baseline means the run measured
+the transient -- check `WARMUP` and the cluster placement before reading
+anything into the number.
 
 The CXL-backed one-machine baseline keeps both sides on the same steady-state
 memory tier. A DRAM-backed baseline answers a different question and is not
@@ -201,12 +210,14 @@ The source outputs are
 `out/20260807_warmup5120_cap1g_demote_off/` and
 `out/20260807_warmup5120_cap1g_demote_on/`.
 
-### Targeted 100% result with extended warmup
+### Targeted 100% result at a reduced warmup
 
 The following 2026-08-08 one-repetition run uses a 100% cross-warehouse ratio,
 page-migration read-ahead of four pages, demotion disabled, and a 1024 MiB CXL
 limit. The eight-machine warmup is 512000 transactions (64000 for the matched
-one-machine baseline), followed by the same five-second timed interval.
+one-machine baseline) -- an eighth of the formal `WARMUP`, so the cluster arm
+below is measured mid-migration and is not comparable to a formal run --
+followed by the same five-second timed interval.
 
 | Machines | Throughput (Mops/s) | Committed txns | Aborts | CXL access (MiB) | DRAM access (MiB) | Total access (GB) |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

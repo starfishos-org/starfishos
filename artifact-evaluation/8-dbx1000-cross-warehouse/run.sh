@@ -33,8 +33,19 @@ elif [ "$DBX_SMOKE" = 0 ]; then
     DEFAULT_WAREHOUSES=64
     DEFAULT_THREADS=8
     # The 8-machine total. run_configuration scales the one-machine baseline
-    # to the same 64000 transactions per machine (8000 per worker).
-    DEFAULT_WARMUP=512000
+    # to the same 880000 transactions per machine (110000 per worker).
+    #
+    # This must stay long enough for the cluster's working set to finish
+    # migrating into CXL before the measurement window opens, or the run
+    # measures the migration transient instead of steady state. Measured at
+    # ratio 15 with everything else held fixed: at 7040000 the cluster arm
+    # starts the window with 9.30 GiB CXL-resident and gains 0.16 GiB during
+    # it (scaleup 3.66); at the old 512000 default it starts at 3.87 GiB and
+    # is still climbing, +1.20 GiB during the window, and the cluster arm
+    # collapses 7.3x to below the one-machine baseline (scaleup 0.50).  The
+    # baseline arm is insensitive to this (0.1735 vs 0.1729), so the symptom
+    # is an 8-machine run that looks slower than one machine.
+    DEFAULT_WARMUP=7040000
     DEFAULT_MAX_TXN=10000
     DEFAULT_REPETITIONS=3
     DEFAULT_DRAM_SIZE=16G
