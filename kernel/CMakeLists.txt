@@ -14,6 +14,7 @@ install(TARGETS ${kernel_target} DESTINATION ${CMAKE_INSTALL_PREFIX})
 # Set warning level
 list(APPEND _compile_options -Wall)
 list(APPEND _compile_options -Werror)
+list(APPEND _compile_options -Wno-error=unused-function)
 
 # Generic compile settings
 list(APPEND _compile_definitions)
