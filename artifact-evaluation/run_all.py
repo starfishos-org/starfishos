@@ -208,6 +208,22 @@ FAST_ENV: Dict[str, Dict[str, str]] = {
     "queue-saturation": {"THREADS": "1 2 4 8 10"},
 }
 
+# Plotters whose paper-completeness contract is intentionally relaxed when a
+# supported sweep axis is thinned.  run.sh applies --allow-partial to its own
+# plot invocation; run-all must mirror that policy for the independent replot
+# it performs immediately afterwards (and for --plot-only).
+PAPER_PLOT_SCOPES: Dict[str, Dict[str, str]] = {
+    "memory-allocator": {
+        "USER_BENCH_THREADS": "1 2 4 8 16 32 64 96",
+    },
+    "auto-scale": {
+        "MACHINES": "1 2 4 6 8",
+    },
+    "queue-saturation": {
+        "THREADS": "1 2 4 6 8 10 12",
+    },
+}
+
 
 def log(msg: str = "") -> None:
     print(msg, flush=True)
@@ -419,6 +435,22 @@ def fast_env_for(name: str) -> Dict[str, str]:
         for var, value in FAST_ENV.get(name, {}).items()
         if var not in os.environ
     }
+
+
+def plot_scope_is_partial(name: str, *, fast: bool) -> bool:
+    """Whether the effective run scope deliberately omits paper plot points."""
+    fast_overrides = FAST_ENV.get(name, {}) if fast else {}
+    for var, paper_value in PAPER_PLOT_SCOPES.get(name, {}).items():
+        effective_value = os.environ.get(var, fast_overrides.get(var, paper_value))
+        requested = effective_value.split()
+        paper = paper_value.split()
+        if len(requested) != len(paper) or set(requested) != set(paper):
+            return True
+
+    # The allocator's supported user-only scope omits both kernel panels.
+    if name == "memory-allocator" and not env_flag("RUN_KERNEL_BENCH", True):
+        return True
+    return False
 
 
 def kill_ae_sessions() -> None:
@@ -700,10 +732,13 @@ def run_experiment(
     return f"FAILED(rc={rc})"
 
 
-def run_plot(name: str, *, dry_run: bool) -> str:
+def run_plot(name: str, *, dry_run: bool, allow_partial: bool = False) -> str:
     exp = EXPERIMENTS[name]
     ae_dir = exp_dir(name)
     cmd = plot_cmd(name)
+
+    if cmd is not None and allow_partial:
+        cmd.append("--allow-partial")
 
     log("")
     log(f"--- [{time.strftime('%H:%M:%S')}] plot {name} ---")
@@ -899,13 +934,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 st = status[name]
                 if st not in ("OK", "DRY_RUN", "TODO(stub)") and not st.startswith("TODO"):
                     overall = 1
-                plot_status[name] = run_plot(name, dry_run=args.dry_run)
+                plot_status[name] = run_plot(
+                    name,
+                    dry_run=args.dry_run,
+                    allow_partial=plot_scope_is_partial(name, fast=args.fast),
+                )
                 pst = plot_status[name]
                 if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
                     overall = 1
         else:
             for name in names:
-                plot_status[name] = run_plot(name, dry_run=args.dry_run)
+                plot_status[name] = run_plot(
+                    name,
+                    dry_run=args.dry_run,
+                    allow_partial=plot_scope_is_partial(name, fast=args.fast),
+                )
                 pst = plot_status[name]
                 if pst not in ("OK", "DRY_RUN", "TODO(stub)", "NO_INPUT"):
                     overall = 1

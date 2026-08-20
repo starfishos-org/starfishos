@@ -73,6 +73,15 @@ echo "[AE] Output directory: $OUT_DIR"
 echo "[AE] Guest CPUs: $CPU_NUM"
 echo "[AE] Kernel parallel levels: 1 4 8 16 32 48 64 96"
 echo "[AE] User threads: $USER_BENCH_THREADS"
+# RUN_KERNEL_BENCH is normalized by bench_malloc_e2e.sh above.  Turning it off
+# drops one full build per configuration (the CHCORE_KERNEL_TEST=ON one) plus
+# the long boot each kernel session needs, which is the difference between a
+# user-malloc-only rerun and an afternoon.
+if [ "$RUN_KERNEL_BENCH" = "1" ]; then
+    echo "[AE] Kernel tests: ON"
+else
+    echo "[AE] Kernel tests: OFF (RUN_KERNEL_BENCH=0; figure keeps only panel (c))"
+fi
 
 echo "[AE] Enabling user allocator benchmark in .config"
 sed -i 's/^CHCORE_BUILD_USER_MALLOC_TESTS:BOOL=.*/CHCORE_BUILD_USER_MALLOC_TESTS:BOOL=ON/' \
@@ -92,11 +101,15 @@ run_configuration() {
     set_cmake_var DSM_CXL_LF_BUDDY "$llfree"
     set_cmake_var SLAB_CRASH_RECOVERY "$crash_recovery"
 
-    echo "=== Building $label with CHCORE_KERNEL_TEST=ON ==="
-    sed -i 's/^CHCORE_KERNEL_TEST:BOOL=.*/CHCORE_KERNEL_TEST:BOOL=ON/' "$PROJECT_CONFIG"
-    grep -q '^CHCORE_KERNEL_TEST:BOOL=ON$' "$PROJECT_CONFIG"
-    build_current_config "${label}_kernel"
-    [ "$BUILD_ONLY" = "1" ] || run_kernel_benchmarks "$label"
+    if [ "$RUN_KERNEL_BENCH" = "1" ]; then
+        echo "=== Building $label with CHCORE_KERNEL_TEST=ON ==="
+        sed -i 's/^CHCORE_KERNEL_TEST:BOOL=.*/CHCORE_KERNEL_TEST:BOOL=ON/' "$PROJECT_CONFIG"
+        grep -q '^CHCORE_KERNEL_TEST:BOOL=ON$' "$PROJECT_CONFIG"
+        build_current_config "${label}_kernel"
+        [ "$BUILD_ONLY" = "1" ] || run_kernel_benchmarks "$label"
+    else
+        echo "=== Skipping $label kernel build+tests (RUN_KERNEL_BENCH=0) ==="
+    fi
 
     echo "=== Building $label with CHCORE_KERNEL_TEST=OFF for user malloc ==="
     sed -i 's/^CHCORE_KERNEL_TEST:BOOL=.*/CHCORE_KERNEL_TEST:BOOL=OFF/' "$PROJECT_CONFIG"
@@ -125,8 +138,10 @@ for entry in "LLFree+CR:llfree_cr_on" "LLFree:llfree_cr_off" "Buddy:buddy_cr_off
     label="${entry##*:}"
     for run in $(seq 1 "$NRUNS"); do
         absolute_run=$((run + RUN_OFFSET))
-        parse_kernel_log "$LOG_DIR/${label}_run${absolute_run}_kernel.log" \
-            "$config" "$absolute_run" >> "$CSV_OUT"
+        if [ "$RUN_KERNEL_BENCH" = "1" ]; then
+            parse_kernel_log "$LOG_DIR/${label}_run${absolute_run}_kernel.log" \
+                "$config" "$absolute_run" >> "$CSV_OUT"
+        fi
         for threads in $USER_BENCH_THREADS; do
             parse_user_log "$LOG_DIR/${label}_run${absolute_run}_user_t${threads}.log" \
                 "$config" "$absolute_run" >> "$CSV_OUT"
@@ -142,6 +157,11 @@ plot_args=(--csv "$CSV_FILE" --fig-dir "$FIG_DIR")
 # still propagate.
 if [ "$(echo $USER_BENCH_THREADS)" != "$PAPER_USER_BENCH_THREADS" ]; then
     echo "[AE] thinned USER_BENCH_THREADS; plotting only the available points."
+    plot_args+=(--allow-partial)
+elif [ "$RUN_KERNEL_BENCH" != "1" ]; then
+    # No kernel rows at all, so the paper-completeness check would reject the
+    # dataset.  Panels (a) and (b) come out empty; panel (c) is still real.
+    echo "[AE] RUN_KERNEL_BENCH=0; kernel panels are empty in this figure."
     plot_args+=(--allow-partial)
 fi
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-$USER}" \

@@ -938,6 +938,41 @@ ae_wait_for_shell() {
         "$AE_BOOT_TIMEOUT" "machine $machine shell ready"
 }
 
+# ae_assert_guest_cpu_config <boot_cpu_num>
+# The kernel gives machine M the global CPU id range [M * PLAT_CPU_NUM,
+# M * PLAT_CPU_NUM + PLAT_CPU_NUM - 1] (CPU_RANGE_LOW, kernel/dsm/dsm_metadata.c).
+# Compile it for more CPUs than QEMU actually starts and every thread placed on
+# an id above the live range lands on a runqueue no CPU drains: procmgr blocks
+# in do_launch_process("/cxlfs.srv"), no machine ever prints its shell banner,
+# and the boot dies 120s later in a shell-ready timeout that says nothing about
+# the cause.  Experiments rewrite .config/chcore.ini and restore them from an
+# EXIT trap, so one that was killed hands the mismatch to whoever runs next --
+# check for it instead of paying the timeout.
+ae_assert_guest_cpu_config() {
+    local boot_cpus="$1" ini plat
+
+    # No explicit count: simulate.sh falls back to chcore.ini, which is the
+    # value the kernel was built with, so they agree by construction.
+    [ -n "$boot_cpus" ] || return 0
+
+    ini="$(ae_get_ini_cpu_num)"
+    plat="$(ae_get_dotconfig CHCORE_PLAT_CPU_NUM)"
+    [ "$ini" = "$boot_cpus" ] && [ "$plat" = "$boot_cpus" ] && return 0
+
+    ae_record_error "guest CPU count mismatch: booting ${boot_cpus} vCPU(s) against a kernel built for chcore.ini cpu_num=${ini} / CHCORE_PLAT_CPU_NUM=${plat}"
+    {
+        echo "[AE][ERROR] guest CPU count mismatch: booting ${boot_cpus} vCPU(s), but the kernel"
+        echo "[AE][ERROR]   was built with chcore.ini cpu_num=${ini} and CHCORE_PLAT_CPU_NUM=${plat}."
+        echo "[AE][ERROR]   Booting this pair hangs every machine before its shell banner."
+        echo "[AE][ERROR]   Most likely a previous experiment was killed before its EXIT trap"
+        echo "[AE][ERROR]   restored the build config.  Repair the checkout with:"
+        echo "[AE][ERROR]     sed -i 's/^cpu_num *=.*/cpu_num = ${boot_cpus}/' ${AE_CHCORE_INI}"
+        echo "[AE][ERROR]     sed -i 's/^CHCORE_PLAT_CPU_NUM:STRING=.*/CHCORE_PLAT_CPU_NUM:STRING=${boot_cpus}/' ${AE_DOTCONFIG}"
+        echo "[AE][ERROR]   then rebuild (the run script rebuilds on its own)."
+    } >&2
+    return 1
+}
+
 # ae_boot_cluster <num_machines> [cpu_num]
 # Boots machines 0..N-1 in tmux windows, waits for DSM join + shell on all.
 # Extra simulate.sh env (e.g. DRAM_SIZE=24G) can be passed via AE_EXTRA_ENV.
@@ -995,6 +1030,10 @@ ae_boot_cluster() {
     local n="$1" cpu_num="${2:-}"
     local max_attempts="${AE_BOOT_RETRIES:-2}"
     local attempt before_to before_err
+
+    # A stale compile-time CPU count is not an intermittent boot stall: retrying
+    # it just burns AE_BOOT_RETRIES x AE_BOOT_TIMEOUT.  Refuse before booting.
+    ae_assert_guest_cpu_config "${cpu_num:-${CPU_NUM:-}}" || return 1
 
     # Record what this cluster is about to run with, before anything can fail
     # or restore the build configuration behind our back.

@@ -28,6 +28,11 @@ CMD=""
 EXPECTED=""
 BUILD=false
 TIMEOUT=120
+# Seconds to wait for a machine's shell before giving up. A guest that runs
+# work during boot -- CHCORE_KERNEL_TEST=ON runs the whole kernel allocator
+# suite before user init starts the shell -- legitimately needs more than the
+# default, and the caller is the one that knows how long its workload takes.
+SHELL_TIMEOUT="${SIM_SHELL_TIMEOUT:-120}"
 
 positional=()
 for arg in "$@"; do
@@ -234,7 +239,7 @@ if [[ -n "$CMD" ]]; then
 
     # Wait for shell ready (only reachable once the whole cluster has joined)
     for ((i=0; i<N; i++)); do
-        wait_for_pattern "exec_log${i}.log" "Welcome to ChCore shell!" 120 "machine $i shell" || {
+        wait_for_pattern "exec_log${i}.log" "Welcome to ChCore shell!" "$SHELL_TIMEOUT" "machine $i shell" || {
             echo "FAILED: shell not ready on machine $i"
             exit 1
         }

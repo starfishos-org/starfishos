@@ -340,6 +340,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Pin the compile-time CPU count to the one this sweep boots with (every
+# ae_boot_cluster call below passes AE_MICROBENCH_GUEST_CPU_NUM).  Without this
+# the sweep inherits whatever .config/chcore.ini were left at -- experiments
+# that build for the full 96-CPU namespace restore them only from an EXIT trap,
+# so a killed run leaves 96 behind, and a 96-CPU kernel booted on 12 vCPUs parks
+# procmgr's cxlfs launch on a CPU that does not exist.  Restored by cleanup().
+ae_set_paper_guest_cpu_config "$AE_MICROBENCH_GUEST_CPU_NUM"
+
 # Auto-scale consumes Phoenix's userspace timing but not the optional kernel
 # set_affinity-to-dequeue probe, so leave that instrumentation out of the
 # sweep builds.
