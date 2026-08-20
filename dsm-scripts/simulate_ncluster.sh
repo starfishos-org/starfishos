@@ -200,11 +200,12 @@ if [ -n "${CHCORE_QEMU_NUMA_NODES:-}" ]; then
     NUMA_ENV="$NUMA_ENV CHCORE_QEMU_NUMA_NODES=${CHCORE_QEMU_NUMA_NODES}"
 fi
 
-RUN_CMD="MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} $NUMA_ENV ./build/simulate.sh"
+RUN_CMD="HOSTFS_ROOT=$AE_HOSTFS_ROOT_SHELL MACHINE_NUM=$N CPU_NUM=\${CPU_NUM:-12} $NUMA_ENV ./build/simulate.sh"
 
 # ======== Single instance, interactive (no tmux) ========
 if [[ $N -eq 1 && -z "$CMD" ]]; then
-    MACHINE_NUM=1 CPU_NUM=${CPU_NUM:-12} ./build/simulate.sh 0 | tee exec_log.log
+    HOSTFS_ROOT="$AE_HOSTFS_ROOT" MACHINE_NUM=1 CPU_NUM=${CPU_NUM:-12} \
+        ./build/simulate.sh 0 | tee exec_log.log
     "$SCRIPT_DIR/kill_ivshmem_server.sh"
     exit 0
 fi

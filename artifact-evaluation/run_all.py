@@ -712,11 +712,11 @@ def run_experiment(
             log(f"[run-all] failed to restore config before {name}: {exc}")
             return "CONFIG_RESTORE_FAILED"
 
+    kill_ae_sessions()
     if not ensure_runtime_resources():
         log(f"[run-all] global AE resources unavailable before {name}")
         return "PREPARE_FAILED"
 
-    kill_ae_sessions()
     env = os.environ.copy()
     env["CPU_NUM"] = str(guest_cpu_num(name))
     env.update(overrides)

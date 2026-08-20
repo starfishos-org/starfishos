@@ -103,6 +103,14 @@ bash artifact-evaluation/install-host-deps.sh
 ./artifact-evaluation/run-all.sh
 ```
 
+The AE runners always expose this checkout's `datasets/` directory as guest
+`/host`.  Unless explicitly disabled with `SKIP_GRAPH_DATASET=1`, the
+preparation stage downloads `twitter-2010.bin` there whenever the selected set
+includes experiment 5.  If a per-user HostFS daemon survived a prior manual
+run with another root, the one-click runner safely retargets it after stopping
+stale AE QEMU sessions; callers do not need to set `HOSTFS_ROOT` or place it in
+`AE_EXTRA_ENV`.
+
 **Note:** Do not run `./artifact-evaluation/run-all.sh` inside tmux; each experiment launches its own tmux session for QEMU, and nesting leads to session conflicts.
 
 ### Re-checking the two experiments fixed on 2026-08-20

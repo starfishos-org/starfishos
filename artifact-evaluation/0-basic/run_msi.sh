@@ -67,7 +67,7 @@ wait_for_log() {
 launch_machine() {
     local machine="$1" run_log_dir="$2"
     local logfile="$run_log_dir/machine${machine}.log"
-    local command="CPU_NUM=$GUEST_CPU_NUM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
+    local command="HOSTFS_ROOT=$AE_HOSTFS_ROOT_SHELL CPU_NUM=$GUEST_CPU_NUM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
 
     if [ "$machine" -eq 0 ]; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"

@@ -215,7 +215,7 @@ wait_for_log_count() {
 launch_machine() {
     local machine="$1" logfile
     logfile="$LOG_DIR/machine${machine}.log"
-    local command="cd '$REPO_ROOT' && CPU_NUM=$AE_MICROBENCH_GUEST_CPU_NUM USE_DEV_AS_DRAM=$USE_DEV_AS_DRAM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
+    local command="cd '$REPO_ROOT' && HOSTFS_ROOT=$AE_HOSTFS_ROOT_SHELL CPU_NUM=$AE_MICROBENCH_GUEST_CPU_NUM USE_DEV_AS_DRAM=$USE_DEV_AS_DRAM MACHINE_NUM=$NUM_MACHINES ./build/simulate.sh $machine 2>&1 | tee '$logfile'"
     if [ "$machine" -eq 0 ]; then
         tmux new-session -d -s "$SESSION" -n 0 "$command"
     else

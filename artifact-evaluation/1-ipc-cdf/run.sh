@@ -287,8 +287,8 @@ stop_cluster() {
 simulate_cmd() {
     local machine="$1"
     local logfile="$2"
-    printf "cd '%s' && CPU_NUM=%s MACHINE_NUM=%s ./build/simulate.sh %s 2>&1 | tee -a '%s'" \
-        "$REPO_ROOT" "$IPC_CPU_NUM" "$NUM_MACHINES" "$machine" "$logfile"
+    printf "cd '%s' && HOSTFS_ROOT=%s CPU_NUM=%s MACHINE_NUM=%s ./build/simulate.sh %s 2>&1 | tee -a '%s'" \
+        "$REPO_ROOT" "$AE_HOSTFS_ROOT_SHELL" "$IPC_CPU_NUM" "$NUM_MACHINES" "$machine" "$logfile"
 }
 
 start_cluster() {

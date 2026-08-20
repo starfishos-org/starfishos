@@ -45,6 +45,15 @@ AE_BOOT_TIMEOUT="${AE_BOOT_TIMEOUT:-600}"
 AE_MACHINE_LOG_DIR="${AE_MACHINE_LOG_DIR:-$AE_REPO_ROOT/logs}"
 AE_RUN_LOCK_FD=""
 
+# Artifact evaluation data is repository-local.  Do not let a HOSTFS_ROOT
+# inherited from an earlier manual run make one experiment request a different
+# live HostFS root from another experiment.  Regular, non-AE `make run` still
+# supports HOSTFS_ROOT through scripts/qemu/emulate.tpl.sh.
+AE_HOSTFS_ROOT="$AE_REPO_ROOT/datasets"
+HOSTFS_ROOT="$AE_HOSTFS_ROOT"
+printf -v AE_HOSTFS_ROOT_SHELL '%q' "$AE_HOSTFS_ROOT"
+export AE_HOSTFS_ROOT AE_HOSTFS_ROOT_SHELL HOSTFS_ROOT
+
 # Hold one per-user lock for the caller's entire shell lifetime.  The default
 # path is outside the checkout so runners from different clones still
 # serialize access to QEMU, tmux, ivshmem, and host-level baseline tuning.
@@ -174,7 +183,42 @@ ae_check_global_prepare() {
             return 1
         fi
     done
+    ae_ensure_repo_hostfs || return 1
     ae_ensure_doorbell
+}
+
+# Point the per-user live HostFS daemon at this checkout's datasets directory.
+# A daemon survives its QEMU client, so an earlier manual run may have left it
+# serving another directory.  The one-click runner stops stale AE QEMU before
+# this check; direct callers that do not are refused by the live-QEMU guard.
+ae_ensure_repo_hostfs() {
+    local device="/dev/shm/ivshmem-hostfs-$USER"
+    local desired status current=""
+
+    [ -e "$device" ] || return 0
+    desired="$(python3 -c \
+        'import os, sys; print(os.path.realpath(sys.argv[1]))' \
+        "$AE_HOSTFS_ROOT")" || return 1
+
+    if status="$(python3 "$AE_REPO_ROOT/dsm-scripts/hostfs_server.py" \
+            status --device "$device" 2>/dev/null)"; then
+        current="$(printf '%s' "$status" | python3 -c \
+            'import json, sys; print(json.load(sys.stdin).get("root", ""))')" \
+            || return 1
+        if [ "$current" != "$desired" ]; then
+            if ae_has_chcore_qemu; then
+                echo "[AE] Refusing to retarget HostFS while ChCore QEMU is running." >&2
+                echo "[AE] Stop the stale guest, then retry: $current -> $desired" >&2
+                return 1
+            fi
+            echo "[AE] Restarting HostFS: $current -> $desired"
+            python3 "$AE_REPO_ROOT/dsm-scripts/hostfs_server.py" \
+                stop --device "$device" || return 1
+        fi
+    fi
+
+    python3 "$AE_REPO_ROOT/dsm-scripts/hostfs_server.py" ensure \
+        --device "$device" --root "$desired"
 }
 
 ae_drop_host_caches() {
@@ -442,6 +486,7 @@ _ae_placement_body() {
     printf 'CPU_NUM=%s\n' "${CPU_NUM:-<unset>}"
     printf 'CHCORE_PLAT_CPU_NUM=%s\n' "$(ae_get_dotconfig CHCORE_PLAT_CPU_NUM)"
     printf 'chcore_ini_cpu_num=%s\n' "$(ae_get_ini_cpu_num)"
+    printf 'HOSTFS_ROOT=%s\n' "$AE_HOSTFS_ROOT"
     printf 'AE_EXTRA_ENV=%s\n' "${AE_EXTRA_ENV:-}"
 }
 
@@ -514,7 +559,8 @@ _ae_write_run_config_json() {
         printf '    "cpu_num": "%s",\n' "$(_ae_json_escape "${CPU_NUM:-<unset>}")"
         printf '    "plat_cpu_num": "%s",\n' "$(_ae_json_escape "$(ae_get_dotconfig CHCORE_PLAT_CPU_NUM)")"
         printf '    "ini_cpu_num": "%s",\n' "$(_ae_json_escape "$(ae_get_ini_cpu_num)")"
-        printf '    "extra_env": "%s"\n' "$(_ae_json_escape "${AE_EXTRA_ENV:-}")"
+        printf '    "extra_env": "%s",\n' "$(_ae_json_escape "${AE_EXTRA_ENV:-}")"
+        printf '    "hostfs_root": "%s"\n' "$(_ae_json_escape "$AE_HOSTFS_ROOT")"
         printf '  },\n'
         # Placement as of this write; placement.txt holds every variant used.
         printf '  "placement_note": "%s",\n' \
@@ -982,6 +1028,9 @@ _ae_boot_cluster_once() {
     local i env_prefix="${AE_EXTRA_ENV:+$AE_EXTRA_ENV }"
 
     [ -n "$cpu_num" ] && env_prefix="${env_prefix}CPU_NUM=$cpu_num "
+    # Put this assignment after AE_EXTRA_ENV so legacy commands that embedded
+    # HOSTFS_ROOT there cannot redirect an AE guest away from repo datasets.
+    env_prefix="${env_prefix}HOSTFS_ROOT=$AE_HOSTFS_ROOT_SHELL "
 
     # The kernel blocks every machine right after its DSM join banner until
     # all MACHINE_NUM peers have joined (dsm_wait_for_cluster_cpu_topology in

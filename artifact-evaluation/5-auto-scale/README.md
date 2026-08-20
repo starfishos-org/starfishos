@@ -15,6 +15,8 @@ Three throughput/runtime vs machine-count curves (1–8 machines):
 
 `run.sh` sweeps StarfishOS Mixed/CXL placements, collects Linux/MPI/Tigon
 baselines via `run_baselines.py`, then plots.
+Gemini reads `/host/twitter-2010.bin`, backed by this checkout's
+`datasets/twitter-2010.bin`; do not set `HOSTFS_ROOT` in `AE_EXTRA_ENV`.
 
 ## Outputs
 
