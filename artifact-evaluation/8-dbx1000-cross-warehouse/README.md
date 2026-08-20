@@ -21,7 +21,7 @@ DBx1000 experiments retain their configured workload semantics.
 
 The default full scope uses:
 
-- cross-warehouse ratios of 0%, 5%, 10%, 15%, 50%, 80%, and 100%;
+- cross-warehouse ratios of 0%, 15%, 50%, 80%, and 100%;
 - eight machines, 64 warehouses, and eight workers per machine;
 - a one-machine baseline with eight warehouses and eight workers;
 - cluster placement `MIXED_DEFAULT_DRAM` + `DEFAULT_DRAM`;
@@ -49,11 +49,11 @@ cluster's steady-state tier rather than on a faster one.
 `DSM_MALLOC_MODE=MIXED_DEFAULT_CXL` places the kernel's own objects on CXL. It
 collapses the eight-machine arm by one to two orders of magnitude and makes it
 unstable: repeated runs of the same 15% point have produced 0.0001, 0.0007,
-0.06, 0.215, 0.42, and 0.595 Mtxn/s, against 0.586-0.675 Mtxn/s for every run
+0.06, 0.215, 0.42, and 0.595 Mops/s, against 0.586-0.675 Mops/s for every run
 of the same point under `MIXED_DEFAULT_DRAM`. The one-machine baseline arm is
 unaffected, so the symptom is a scaleup far below 1 rather than an obvious
 failure. This was the default until 2026-08-20 and is the reason an artifact
-reviewer measured 0.031 Mtxn/s and a scaleup of 0.18 at 15%.
+reviewer measured 0.031 Mops/s and a scaleup of 0.18 at 15%.
 
 The tables under "Recorded one-repetition result" below were collected under
 that placement and are kept only as a record of the collapse.
@@ -125,24 +125,24 @@ Each run writes under `out/<timestamp>/`:
 | `logs/` | Per-machine logs keyed by machine count, ratio, and repetition |
 | `csv/cross_warehouse.csv` | Means, sample standard deviations, scaleup, access volume, and resident footprint for both machine counts |
 | `csv/cross_warehouse_samples.csv` | Individual repetitions, including all 8-machine and 1-machine measurements |
-| `figures/dbx1000-cross-warehouse.png` | Throughput, access-volume, and post-exec resident-footprint panels |
+| `figures/dbx1000-cross-warehouse.png` | Throughput and stacked access-volume panels |
 | `config/` | Effective run and build configuration snapshots |
 
-The throughput panel plots the one-machine and cluster means with sample
-standard deviation. Scaleup is the cluster mean divided by the baseline mean.
-The access-volume panel plots the shared-CXL and machine-local DRAM bytes
-reported by the aggregate `cxlprof exec: all machines bytes` record on a log
-scale. These are bytes accessed by the workers during the timed interval, not
-resident bytes or the final `VMSPACE MEMORY` footprint. The CSV columns use the
-explicit names `cxl_access_mib` and `dram_access_mib`.
+The throughput panel plots the one-machine and cluster means. Scaleup is the
+cluster mean divided by the baseline mean. The access-volume panel stacks the
+machine-local DRAM and shared-CXL bytes reported by the aggregate `cxlprof
+exec: all machines bytes` record on a linear GiB scale. These are bytes
+accessed by the workers during the timed interval, not resident bytes or the
+final `VMSPACE MEMORY` footprint. The CSV columns use the explicit names
+`cxl_access_mib` and `dram_access_mib` and retain the sample standard
+deviations even though the paper-style figure omits error bars.
 
-The resident-footprint panel is a separate stacked view derived from the
-post-execution `VMSPACE MEMORY` snapshot. The CSV also records the post-warmup
-snapshot. Resident page counts are converted using 4096 bytes per page and use
+The CSV additionally records post-warmup and post-execution resident-footprint
+snapshots. Resident page counts are converted using 4096 bytes per page and use
 the explicit `post_warmup_*_resident_mib` and `post_exec_*_resident_mib`
 columns; they are never substituted for the access counters.
 
-Exact rates are hardware-dependent. A formal result must contain all seven
+Exact rates are hardware-dependent. A formal result must contain all five
 ratios and all repetitions, a positive total access volume for the cluster,
 and the configuration snapshots used to validate the comparison. A zero CXL
 access volume is valid for a ratio whose timed interval performs no CXL access.
@@ -155,7 +155,7 @@ access volume is valid for a ratio whose timed interval performs no CXL access.
 15%, 50% and 80% only; the other ratios in the default scope have no reference
 value here:
 
-| Ratio | Cluster (Mtxn/s) | Baseline (Mtxn/s) | Scaleup |
+| Ratio | Cluster (Mops/s) | Baseline (Mops/s) | Scaleup |
 | ---: | ---: | ---: | ---: |
 | 15% | 0.668 | 0.180 | 3.71 |
 | 50% | 0.639 | 0.177 | 3.61 |
@@ -163,13 +163,13 @@ value here:
 
 Those three columns are recomputed from each worker's `txn_cnt` and
 `run_time`. DBx1000 prints its aggregate `thp=` with only two decimals, so the
-`cluster_thp_mtxn_s`, `baseline_thp_mtxn_s` and `scaleup` columns the runner
+`cluster_thp_mops_s`, `baseline_thp_mops_s` and `scaleup` columns the runner
 writes into `cross_warehouse.csv` are quantised (0.67/0.64/0.63 over
 0.18, giving 3.72/3.56/3.50) and their reported standard deviation collapses to
 zero. Compare against the recomputed numbers above, not against that rounding.
 
 Absolute rates are hardware-dependent, but on the reference host the cluster
-arm has stayed inside 0.586-0.675 Mtxn/s at 15% across seventeen runs spanning
+arm has stayed inside 0.586-0.675 Mops/s at 15% across seventeen runs spanning
 2026-07-27 to 2026-08-05 and several kernel revisions. A cluster figure an
 order of magnitude below that, or a scaleup below 1, means the run did not use
 the default cluster placement -- check `config/placement.txt` in the output
@@ -187,7 +187,7 @@ and one repetition per point. The access columns are the aggregate `cxlprof`
 byte counters converted to MiB; they are not derived from `VMSPACE MEMORY` and
 are not normalized by committed transaction count.
 
-| Ratio | Demote OFF throughput (Mtxn/s) | OFF CXL access (MiB) | OFF DRAM access (MiB) | Demote ON throughput (Mtxn/s) | ON CXL access (MiB) | ON DRAM access (MiB) |
+| Ratio | Demote OFF throughput (Mops/s) | OFF CXL access (MiB) | OFF DRAM access (MiB) | Demote ON throughput (Mops/s) | ON CXL access (MiB) | ON DRAM access (MiB) |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 0% | 0.953854 | 0.000 | 21350.398 | 0.986342 | 0.000 | 22132.641 |
 | 5% | 0.002141 | 0.794 | 49.140 | 0.002074 | 0.947 | 49.015 |
@@ -208,7 +208,7 @@ page-migration read-ahead of four pages, demotion disabled, and a 1024 MiB CXL
 limit. The eight-machine warmup is 512000 transactions (64000 for the matched
 one-machine baseline), followed by the same five-second timed interval.
 
-| Machines | Throughput (Mtxn/s) | Committed txns | Aborts | CXL access (MiB) | DRAM access (MiB) | Total access (GB) |
+| Machines | Throughput (Mops/s) | Committed txns | Aborts | CXL access (MiB) | DRAM access (MiB) | Total access (GB) |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 8 | 0.019512 | 97676 | 105 | 186.975 | 262.566 | 0.471377 |
 | 1 | 0.172682 | 862381 | 322 | 3695.625 | 0.000 | 3.875144 |
@@ -233,18 +233,23 @@ Re-plot the latest formal output with:
 ./artifact-evaluation/run-all.sh --plot-only --run-subset-of-tests 8
 ```
 
-For an overridden or smoke output, invoke `plot.py` with matching scope
-arguments:
+The plotter reads the effective machine count, workload size, measurement
+window, repetitions, and ratios from the selected output's
+`config/run_config.json`.
+
+To re-plot a specific output directly, pass its standard output directories;
+the manifest is discovered from the log directory automatically:
 
 ```bash
 python3 artifact-evaluation/8-dbx1000-cross-warehouse/plot.py \
   --log-dir artifact-evaluation/8-dbx1000-cross-warehouse/out/<timestamp>/logs \
   --csv-dir artifact-evaluation/8-dbx1000-cross-warehouse/out/<timestamp>/csv \
-  --fig-dir artifact-evaluation/8-dbx1000-cross-warehouse/out/<timestamp>/figures \
-  --num-machines 8 --num-warehouses 64 --threads-per-machine 8 \
-  --warmup 512000 --max-txn 10000 --measure-sec 5 \
-  --repetitions 3 --ratios 0 5 10 15 50 80 100
+  --fig-dir artifact-evaluation/8-dbx1000-cross-warehouse/out/<timestamp>/figures
 ```
+
+Use `--run-config` when the logs have been moved away from their output
+directory. Explicit scope arguments remain available and override the recorded
+values for deliberate what-if validation.
 
 ## Environment overrides
 

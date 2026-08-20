@@ -233,7 +233,7 @@ of magnitude on the reference host:
 | --- | --- | ---: |
 | 4-state-partition | 8-machine panel, 24 points | **0.85 h** |
 | 5-auto-scale | including Tigon and footprint | **7.9 h** |
-| 8-dbx1000-cross-warehouse | 3 ratios × 3 repetitions | **1.3 h** |
+| 8-dbx1000-cross-warehouse | 5 ratios × 3 repetitions | **2.2 h** |
 | 9-queue-saturation | 6 thread points × 2 queues | **0.15 h** ¹ |
 
 ¹ Measured before 9-queue-saturation moved to one boot per repeat (see *One

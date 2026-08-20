@@ -28,7 +28,7 @@ if [ "$DBX_SMOKE" = 1 ]; then
     DEFAULT_LOG_STALL=0
     DEFAULT_MEASURE_SEC=2
 elif [ "$DBX_SMOKE" = 0 ]; then
-    DEFAULT_RATIOS="0 5 10 15 50 80 100"
+    DEFAULT_RATIOS="0 15 50 80 100"
     DEFAULT_MACHINES=8
     DEFAULT_WAREHOUSES=64
     DEFAULT_THREADS=8
@@ -78,11 +78,11 @@ BASELINE_MACHINES=1
 # pages in local DRAM so that only cross-machine sharing pulls them into CXL.
 # This is the placement every published cross-warehouse number was measured
 # with (out/20260728_125606, and 17 runs from 2026-07-27 to 2026-08-05 that all
-# land at 0.59-0.68 Mtxn/s for the 8-machine arm at ratio 15%).
+# land at 0.59-0.68 Mops/s for the 8-machine arm at ratio 15%).
 #
 # Do not silently switch DSM_MALLOC_MODE to MIXED_DEFAULT_CXL here: putting the
 # kernel's own objects on CXL collapses the cluster arm by 10-20x and makes it
-# wildly unstable (0.0001-0.595 Mtxn/s at the same ratio across runs), which is
+# wildly unstable (0.0001-0.595 Mops/s at the same ratio across runs), which is
 # what an AE reviewer hit on 2026-08-20 while the one-machine baseline arm
 # reproduced normally.  Override per run with DBX_MALLOC_MODE if that variant
 # is the thing being studied.

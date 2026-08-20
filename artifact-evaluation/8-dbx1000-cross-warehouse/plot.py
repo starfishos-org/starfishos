@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import re
 import statistics
@@ -16,8 +17,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 BYTES_PER_MIB = 1024 * 1024
-BYTES_PER_GB = 1000 * 1000 * 1000
 PAGE_BYTES = 4096
+RUN_CONFIG_SCHEMA = "starfishos-ae-run-config/1"
+RUN_CONFIG_EXPERIMENT = "8-dbx1000-cross-warehouse"
+SCOPE_DEFAULTS = {
+    "num_machines": 8,
+    "baseline_machines": 1,
+    "num_warehouses": 64,
+    "threads_per_machine": 8,
+    "guest_cpus": 12,
+    "warmup": 512000,
+    "max_txn": 10000,
+    "measure_sec": 0,
+    "repetitions": 3,
+    "ratios": [0, 15, 50, 80, 100],
+}
+MANIFEST_SCOPE_KEYS = {
+    "num_machines": "NUM_MACHINES",
+    "baseline_machines": "BASELINE_MACHINES",
+    "num_warehouses": "NUM_WAREHOUSES",
+    "threads_per_machine": "THREADS_PER_MACHINE",
+    "guest_cpus": "GUEST_CPUS",
+    "warmup": "WARMUP",
+    "max_txn": "MAX_TXN",
+    "measure_sec": "MEASURE_SEC",
+    "repetitions": "REPETITIONS",
+    "ratios": "RATIOS",
+}
 PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
 # DBx1000 prints the aggregate as "%.2f", which quantizes the one-machine
 # baseline (~0.18) to two significant digits and reports a zero standard
@@ -228,6 +254,8 @@ def collect(args):
     samples = []
     warehouses_per_machine = args.num_warehouses // args.num_machines
     warmup_per_machine = args.warmup // args.num_machines
+    baseline_warehouses = warehouses_per_machine * args.baseline_machines
+    baseline_warmup = warmup_per_machine * args.baseline_machines
     for ratio in args.ratios:
         cluster_thp, baseline_thp, cxl, dram, totals = [], [], [], [], []
         baseline_cxl, baseline_dram, baseline_totals = [], [], []
@@ -242,9 +270,9 @@ def collect(args):
                 args.max_txn, args.measure_sec,
             )
             baseline = validate_point(
-                args.log_dir, 1, ratio, rep, warehouses_per_machine,
-                args.threads_per_machine, args.guest_cpus, warmup_per_machine, args.max_txn,
-                args.measure_sec,
+                args.log_dir, args.baseline_machines, ratio, rep,
+                baseline_warehouses, args.threads_per_machine, args.guest_cpus,
+                baseline_warmup, args.max_txn, args.measure_sec,
             )
             cluster_thp.append(cluster[0])
             baseline_thp.append(baseline[0])
@@ -335,8 +363,8 @@ def collect(args):
 def write_csvs(rows, samples, csv_dir: Path):
     csv_dir.mkdir(parents=True, exist_ok=True)
     fields = [
-        "ratio_pct", "cluster_thp_mtxn_s", "cluster_thp_std",
-        "baseline_thp_mtxn_s", "baseline_thp_std", "scaleup",
+        "ratio_pct", "cluster_thp_mops_s", "cluster_thp_std",
+        "baseline_thp_mops_s", "baseline_thp_std", "scaleup",
         "cxl_access_mib", "cxl_access_std", "dram_access_mib",
         "dram_access_std", "total_access_std",
         "baseline_cxl_access_mib", "baseline_cxl_access_std",
@@ -389,8 +417,8 @@ def write_csvs(rows, samples, csv_dir: Path):
             ])))
 
     sample_fields = [
-        "ratio_pct", "repetition", "cluster_thp_mtxn_s",
-        "baseline_thp_mtxn_s", "cxl_access_mib", "dram_access_mib",
+        "ratio_pct", "repetition", "cluster_thp_mops_s",
+        "baseline_thp_mops_s", "cxl_access_mib", "dram_access_mib",
         "baseline_cxl_access_mib", "baseline_dram_access_mib",
         "post_warmup_cxl_resident_mib", "post_warmup_dram_resident_mib",
         "post_exec_cxl_resident_mib", "post_exec_dram_resident_mib",
@@ -406,62 +434,99 @@ def write_csvs(rows, samples, csv_dir: Path):
             writer.writerow(dict(zip(sample_fields, row.values())))
 
 
-def plot(rows, fig_dir: Path, machines: int):
+def plot(rows, fig_dir: Path, machines: int, baseline_machines: int):
     fig_dir.mkdir(parents=True, exist_ok=True)
     x = np.arange(len(rows))
-    labels = [f'{row["ratio"]}%' for row in rows]
-    fig, (ax1, ax2, ax3) = plt.subplots(
-        1, 3, figsize=(15, 3.8), constrained_layout=True
+    labels = [str(row["ratio"]) for row in rows]
+    baseline_label = (
+        f"{baseline_machines} machine"
+        if baseline_machines == 1
+        else f"{baseline_machines} machines"
     )
+    cluster_label = f"{machines} machine" if machines == 1 else f"{machines} machines"
+    blue = "#1f77b4"
+    red = "#d62728"
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.8, 3.4))
     width = 0.36
-    ax1.bar(x - width / 2, [r["baseline_thp"] for r in rows], width,
-            yerr=[r["baseline_std"] for r in rows], capsize=3, label="1 machine")
-    bars = ax1.bar(x + width / 2, [r["cluster_thp"] for r in rows], width,
-                   yerr=[r["cluster_std"] for r in rows], capsize=3, label=f"{machines} machines")
+    baseline_throughput = [r["baseline_thp"] for r in rows]
+    cluster_throughput = [r["cluster_thp"] for r in rows]
+    throughput_max = max(max(baseline_throughput), max(cluster_throughput))
+    baseline_bars = ax1.bar(
+        x - width / 2,
+        baseline_throughput,
+        width,
+        color=blue,
+        edgecolor="black",
+        linewidth=0.6,
+        label=baseline_label,
+    )
+    bars = ax1.bar(
+        x + width / 2,
+        cluster_throughput,
+        width,
+        color=red,
+        edgecolor="black",
+        linewidth=0.6,
+        label=cluster_label,
+    )
     for bar, row in zip(bars, rows):
-        ax1.annotate(f'{row["scaleup"]:.1f}x',
-                     (bar.get_x() + bar.get_width() / 2, bar.get_height()),
-                     xytext=(0, 4), textcoords="offset points", ha="center")
-    ax1.set(xticks=x, xticklabels=labels, xlabel="Cross-warehouse transaction probability", ylabel="Throughput (Mtxn/s)")
-    ax1.legend(frameon=False)
-    ax1.grid(axis="y", linestyle=":")
+        label_height = max(bar.get_height(), throughput_max * 0.025)
+        ax1.annotate(
+            f'{row["scaleup"]:.1f}x',
+            (bar.get_x() + bar.get_width() / 2, label_height),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            fontsize=12,
+        )
+    ax1.set(xticks=x, xticklabels=labels, ylabel="Throughput (Mops/s)")
+    ax1.set_ylim(0, throughput_max * 1.2)
 
-    mib_to_gb = BYTES_PER_MIB / BYTES_PER_GB
-    dram = [r["dram_access_mib"] * mib_to_gb for r in rows]
-    cxl = [r["cxl_access_mib"] * mib_to_gb for r in rows]
-    ax2.bar(x - width / 2, dram, width,
-            yerr=[r["dram_access_std"] * mib_to_gb for r in rows], capsize=3,
-            label="Local DRAM accesses")
-    ax2.bar(x + width / 2, cxl, width,
-            yerr=[r["cxl_access_std"] * mib_to_gb for r in rows], capsize=3,
-            label="Shared CXL accesses")
-    ax2.set_yscale("log")
-    ax2.set(xticks=x, xticklabels=labels,
-            xlabel="Cross-warehouse transaction probability",
-            ylabel="Access volume (GB, log scale)")
-    ax2.legend(frameon=False)
-    ax2.grid(axis="y", linestyle=":")
+    mib_to_gib = 1 / 1024
+    dram = [r["dram_access_mib"] * mib_to_gib for r in rows]
+    cxl = [r["cxl_access_mib"] * mib_to_gib for r in rows]
+    dram_bars = ax2.bar(
+        x, dram, width * 1.5, color=blue, edgecolor="black", linewidth=0.6,
+        label="Local DRAM",
+    )
+    cxl_bars = ax2.bar(
+        x, cxl, width * 1.5, bottom=dram, color=red, edgecolor="black",
+        linewidth=0.6, label="Shared CXL",
+    )
+    ax2.set(xticks=x, xticklabels=labels, ylabel="Access (GiB)")
+    max_access = max(
+        dram_value + cxl_value
+        for dram_value, cxl_value in zip(dram, cxl)
+    )
+    ax2.set_ylim(0, max_access * 1.05)
 
-    resident_dram = [r["post_exec_dram_resident_mib"] * mib_to_gb for r in rows]
-    resident_cxl = [r["post_exec_cxl_resident_mib"] * mib_to_gb for r in rows]
-    ax3.bar(
-        x, resident_dram, width * 1.5,
-        yerr=[r["post_exec_dram_resident_std"] * mib_to_gb for r in rows],
-        capsize=3, label="Local DRAM resident",
+    for axis in (ax1, ax2):
+        axis.set_axisbelow(True)
+        axis.grid(axis="y", linestyle=":", color="0.7")
+        axis.tick_params(labelsize=11)
+        axis.yaxis.label.set_size(13)
+
+    fig.legend(
+        [baseline_bars, bars, dram_bars, cxl_bars],
+        [
+            baseline_label,
+            cluster_label,
+            "Local DRAM",
+            "Shared CXL",
+        ],
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=4,
+        frameon=False,
+        fontsize=12,
+        handlelength=1.8,
+        handletextpad=0.45,
+        columnspacing=0.8,
     )
-    ax3.bar(
-        x, resident_cxl, width * 1.5, bottom=resident_dram,
-        yerr=[r["post_exec_cxl_resident_std"] * mib_to_gb for r in rows],
-        capsize=3, label="Shared CXL resident",
+    fig.supxlabel("Cross-warehouse txn ratio (%)", fontsize=13, y=0.04)
+    fig.subplots_adjust(
+        left=0.09, right=0.985, bottom=0.22, top=0.76, wspace=0.28
     )
-    ax3.set(
-        xticks=x, xticklabels=labels,
-        xlabel="Cross-warehouse transaction probability",
-        ylabel="Post-exec resident footprint (GB)",
-    )
-    ax3.set_ylim(0, max(dram + cxl for dram, cxl in zip(resident_dram, resident_cxl)) * 1.18)
-    ax3.legend(frameon=False)
-    ax3.grid(axis="y", linestyle=":")
 
     output = fig_dir / "dbx1000-cross-warehouse.png"
     fig.savefig(output, dpi=200)
@@ -469,31 +534,116 @@ def plot(rows, fig_dir: Path, machines: int):
     print(f"Wrote {output}")
 
 
+def load_manifest_params(path: Path):
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise DataError(f"cannot read run configuration {path}: {error}") from error
+    if not isinstance(manifest, dict) or manifest.get("schema") != RUN_CONFIG_SCHEMA:
+        raise DataError(f"unsupported run configuration schema in {path}")
+    if manifest.get("experiment") != RUN_CONFIG_EXPERIMENT:
+        raise DataError(
+            f"wrong experiment in {path}: {manifest.get('experiment')!r}"
+        )
+    params = manifest.get("params")
+    if not isinstance(params, dict):
+        raise DataError(f"missing params object in {path}")
+    return params
+
+
+def manifest_int(params, key: str, path: Path):
+    try:
+        return int(params[key])
+    except KeyError as error:
+        raise DataError(f"missing params.{key} in {path}") from error
+    except (TypeError, ValueError) as error:
+        raise DataError(f"invalid integer params.{key} in {path}") from error
+
+
+def manifest_ratios(params, path: Path):
+    try:
+        raw = params[MANIFEST_SCOPE_KEYS["ratios"]]
+    except KeyError as error:
+        raise DataError(f"missing params.RATIOS in {path}") from error
+    values = raw.split() if isinstance(raw, str) else raw
+    if not isinstance(values, list) or not values:
+        raise DataError(f"invalid params.RATIOS in {path}")
+    try:
+        return [int(value) for value in values]
+    except (TypeError, ValueError) as error:
+        raise DataError(f"invalid params.RATIOS in {path}") from error
+
+
+def resolve_scope(args):
+    inferred_path = args.log_dir.parent / "config" / "run_config.json"
+    manifest_path = args.run_config or inferred_path
+    if args.run_config is not None and not manifest_path.is_file():
+        raise DataError(f"missing run configuration: {manifest_path}")
+    params = load_manifest_params(manifest_path) if manifest_path.is_file() else None
+
+    for name, manifest_key in MANIFEST_SCOPE_KEYS.items():
+        if getattr(args, name) is not None:
+            continue
+        if params is None:
+            value = SCOPE_DEFAULTS[name]
+        elif name == "ratios":
+            value = manifest_ratios(params, manifest_path)
+        else:
+            value = manifest_int(params, manifest_key, manifest_path)
+        setattr(args, name, value)
+
+    positive_names = (
+        "num_machines",
+        "baseline_machines",
+        "num_warehouses",
+        "threads_per_machine",
+        "guest_cpus",
+        "warmup",
+        "max_txn",
+        "repetitions",
+    )
+    for name in positive_names:
+        if getattr(args, name) <= 0:
+            raise DataError(f"{name.replace('_', '-')} must be positive")
+    if args.measure_sec < 0:
+        raise DataError("measure-sec must be non-negative")
+    if any(ratio < 0 or ratio > 100 for ratio in args.ratios):
+        raise DataError("ratios must be in [0, 100]")
+    if len(set(args.ratios)) != len(args.ratios):
+        raise DataError("ratios must not contain duplicates")
+    if params is not None:
+        print(f"Loaded run configuration from {manifest_path}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--log-dir", required=True, type=Path)
     parser.add_argument("--csv-dir", required=True, type=Path)
     parser.add_argument("--fig-dir", required=True, type=Path)
-    parser.add_argument("--num-machines", type=int, default=8)
-    parser.add_argument("--num-warehouses", type=int, default=64)
-    parser.add_argument("--threads-per-machine", type=int, default=8)
-    parser.add_argument("--guest-cpus", type=int, default=12)
-    parser.add_argument("--warmup", type=int, default=512000)
-    parser.add_argument("--max-txn", type=int, default=10000)
-    parser.add_argument("--measure-sec", type=int, default=0)
-    parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument(
-        "--ratios", nargs="+", type=int, default=[0, 5, 10, 15, 50, 80, 100]
+        "--run-config", type=Path,
+        help="run_config.json path; defaults to <log-dir>/../config/run_config.json",
     )
+    parser.add_argument("--num-machines", type=int)
+    parser.add_argument("--baseline-machines", type=int)
+    parser.add_argument("--num-warehouses", type=int)
+    parser.add_argument("--threads-per-machine", type=int)
+    parser.add_argument("--guest-cpus", type=int)
+    parser.add_argument("--warmup", type=int)
+    parser.add_argument("--max-txn", type=int)
+    parser.add_argument("--measure-sec", type=int)
+    parser.add_argument("--repetitions", type=int)
+    parser.add_argument("--ratios", nargs="+", type=int)
     args = parser.parse_args()
-    if args.num_warehouses % args.num_machines or args.warmup % args.num_machines:
-        parser.error("warehouses and warmup must be divisible by machine count")
     try:
+        resolve_scope(args)
+        if args.num_warehouses % args.num_machines or args.warmup % args.num_machines:
+            raise DataError("warehouses and warmup must be divisible by machine count")
         rows, samples = collect(args)
     except (DataError, OSError, ValueError) as error:
         parser.error(str(error))
     write_csvs(rows, samples, args.csv_dir)
-    plot(rows, args.fig_dir, args.num_machines)
+    plot(rows, args.fig_dir, args.num_machines, args.baseline_machines)
 
 
 if __name__ == "__main__":
