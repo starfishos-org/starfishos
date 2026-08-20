@@ -37,6 +37,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 BENCHES = [
     "matrix", "leveldb", "linear-regression", "dbx1000", "pca", "redis",
     "word-count", "memcached", "gemini", "string-match", "kmeans", "cnn",

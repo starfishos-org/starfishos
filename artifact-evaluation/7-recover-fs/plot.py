@@ -196,7 +196,7 @@ def main():
     axis.legend(
         frameon=False,
         loc="upper left",
-        ncols=2,
+        ncol=2,
         handlelength=1.8,
         fontsize=16,
     )
