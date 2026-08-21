@@ -3,7 +3,7 @@
 This experiment varies the probability that a TPC-C transaction crosses a
 warehouse boundary. It compares an eight-machine StarfishOS cluster with a
 matched one-machine baseline and reports the cluster's shared-CXL and summed
-local-DRAM access volume during the timed interval.
+local-DRAM access volume, normalized to the same committed-transaction count.
 
 ## Ratio semantics
 
@@ -29,19 +29,23 @@ The default full scope uses:
 - `WARMUP=7040000` for the eight-machine run (880000 for the matched one-machine
   baseline), `MAX_TXN_PER_PART=10000`, a five-second measurement
   window, and three independent boots per ratio;
-- a 1024 MiB CXL residency cap, selected with `DBX_CXL_DEMOTE_LIMIT_MB=1024`;
-- CLOCK/second-chance CXL demotion enabled by default (`DBX_CXL_DEMOTE=ON`);
+- access volume normalized to 4 million committed transactions while retaining
+  the raw five-second counters in the CSV;
+- a 1024 MiB CXL residency cap available to the demotion variant through
+  `DBX_CXL_DEMOTE_LIMIT_MB=1024`;
+- CXL demotion disabled by default (`DBX_CXL_DEMOTE=OFF`); enable it explicitly
+  for the residency-cap variant;
 - host NUMA binding enabled (`CHCORE_QEMU_NUMA_BIND=1`); and
-- DSM page-migration read-ahead of four pages.
+- DSM page-migration read-ahead of two pages.
 
 `WARMUP` is not a tuning knob to shorten a run with. It has to be long enough
 for the cluster's working set to reach its steady-state tier before the timed
 interval opens; below that the eight-machine arm measures page migration in
-progress and reads *slower* than one machine. At ratio 15% a healthy run gives
-roughly 0.63 Mops/s for the cluster arm against 0.17 Mops/s for the baseline
-(scaleup ~3.6). A cluster arm at or below the baseline means the run measured
-the transient -- check `WARMUP` and the cluster placement before reading
-anything into the number.
+progress and reads *slower* than one machine. At ratio 15% a healthy RA=2 run
+gives roughly 0.59 Mops/s for the cluster arm against 0.17 Mops/s for the
+baseline (scaleup ~3.4). A cluster arm at or below the baseline means the run
+measured the transient -- check `WARMUP` and the cluster placement before
+reading anything into the number.
 
 The CXL-backed one-machine baseline keeps both sides on the same steady-state
 memory tier. A DRAM-backed baseline answers a different question and is not
@@ -140,11 +144,14 @@ Each run writes under `out/<timestamp>/`:
 The throughput panel plots the one-machine and cluster means. Scaleup is the
 cluster mean divided by the baseline mean. The access-volume panel stacks the
 machine-local DRAM and shared-CXL bytes reported by the aggregate `cxlprof
-exec: all machines bytes` record on a linear GiB scale. These are bytes
-accessed by the workers during the timed interval, not resident bytes or the
-final `VMSPACE MEMORY` footprint. The CSV columns use the explicit names
-`cxl_access_mib` and `dram_access_mib` and retain the sample standard
-deviations even though the paper-style figure omits error bars.
+exec: all machines bytes` record, scaled to 4 million committed transactions.
+This removes the circular effect where a faster throughput point executes more
+transactions and therefore reports more raw bytes in the same five-second
+interval. These are worker access bytes, not resident bytes or the final
+`VMSPACE MEMORY` footprint. The CSV retains both the raw
+`cxl_access_mib`/`dram_access_mib` counters and the explicit
+`cxl_access_normalized_mib`/`dram_access_normalized_mib` values, together with
+the committed transaction counts and sample standard deviations.
 
 The CSV additionally records post-warmup and post-execution resident-footprint
 snapshots. Resident page counts are converted using 4096 bytes per page and use
@@ -155,34 +162,6 @@ Exact rates are hardware-dependent. A formal result must contain all five
 ratios and all repetitions, a positive total access volume for the cluster,
 and the configuration snapshots used to validate the comparison. A zero CXL
 access volume is valid for a ratio whose timed interval performs no CXL access.
-
-## Expected result
-
-`out/20260728_125606` is the reference run for the default configuration
-(cluster `MIXED_DEFAULT_DRAM` + `DEFAULT_DRAM`, baseline `MIXED_DEFAULT_CXL` +
-`DEFAULT_CXL`, `CHCORE_QEMU_NUMA_BIND=1`, three boots per ratio). It swept
-15%, 50% and 80% only; the other ratios in the default scope have no reference
-value here:
-
-| Ratio | Cluster (Mops/s) | Baseline (Mops/s) | Scaleup |
-| ---: | ---: | ---: | ---: |
-| 15% | 0.668 | 0.180 | 3.71 |
-| 50% | 0.639 | 0.177 | 3.61 |
-| 80% | 0.630 | 0.176 | 3.57 |
-
-Those three columns are recomputed from each worker's `txn_cnt` and
-`run_time`. DBx1000 prints its aggregate `thp=` with only two decimals, so the
-`cluster_thp_mops_s`, `baseline_thp_mops_s` and `scaleup` columns the runner
-writes into `cross_warehouse.csv` are quantised (0.67/0.64/0.63 over
-0.18, giving 3.72/3.56/3.50) and their reported standard deviation collapses to
-zero. Compare against the recomputed numbers above, not against that rounding.
-
-Absolute rates are hardware-dependent, but on the reference host the cluster
-arm has stayed inside 0.586-0.675 Mops/s at 15% across seventeen runs spanning
-2026-07-27 to 2026-08-05 and several kernel revisions. A cluster figure an
-order of magnitude below that, or a scaleup below 1, means the run did not use
-the default cluster placement -- check `config/placement.txt` in the output
-directory, whose 8-machine snapshots must read `DSM_MALLOC_MODE=MIXED_DEFAULT_DRAM`.
 
 Do not quote the reported standard deviation as the uncertainty of a single
 boot: which worker threads land in the fast mode is redrawn every boot.

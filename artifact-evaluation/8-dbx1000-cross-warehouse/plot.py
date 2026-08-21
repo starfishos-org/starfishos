@@ -26,9 +26,9 @@ SCOPE_DEFAULTS = {
     "num_warehouses": 64,
     "threads_per_machine": 8,
     "guest_cpus": 12,
-    "warmup": 512000,
+    "warmup": 7040000,
     "max_txn": 10000,
-    "measure_sec": 0,
+    "measure_sec": 5,
     "repetitions": 3,
     "ratios": [0, 15, 50, 80, 100],
 }
@@ -52,6 +52,7 @@ PAT_THP = re.compile(r"thp=([\d.eE+-]+)")
 PAT_THREAD = re.compile(
     r"\[tid=\d+\] txn_cnt=(\d+),abort_cnt=\d+ run_time=([\d.eE+-]+)"
 )
+PAT_SUMMARY = re.compile(r"\[summary\] txn_cnt=(\d+)")
 PAT_BIND = re.compile(r"bind (\d+) cpu:\s*([0-9 ]+)")
 PAT_INIT = re.compile(
     r"TPCC init: g_thread_cnt=(\d+), g_num_wh=(\d+), "
@@ -108,11 +109,21 @@ def parse_log(path: Path, expected_threads: int | None = None):
             if mean_window > 0
             else None
         )
+        committed_txns = sum(txn for txn, _ in threads)
     else:
         aggregate = PAT_THP.findall(text)
         throughput = float(aggregate[-1]) if aggregate else None
-    access_bytes = [tuple(map(int, match)) for match in PAT_CXLPROF_BYTES.findall(text)]
-    return text, throughput, (access_bytes[-1] if access_bytes else None)
+        summaries = PAT_SUMMARY.findall(text)
+        committed_txns = int(summaries[-1]) if summaries else None
+    access_bytes = [
+        tuple(map(int, match)) for match in PAT_CXLPROF_BYTES.findall(text)
+    ]
+    return (
+        text,
+        throughput,
+        committed_txns,
+        access_bytes[-1] if access_bytes else None,
+    )
 
 
 def parse_vmspace_after(text: str, anchor: str, expected_machines: int):
@@ -203,9 +214,15 @@ def validate_point(
     ):
         raise DataError(f"rundb did not return to the shell: {primary}")
 
-    _, throughput, access_bytes = parse_log(primary, machines * threads_per_machine)
+    _, throughput, committed_txns, access_bytes = parse_log(
+        primary, machines * threads_per_machine
+    )
     if throughput is None or not math.isfinite(throughput) or throughput <= 0:
         raise DataError(f"invalid throughput in {primary}: {throughput}")
+    if committed_txns is None or committed_txns <= 0:
+        raise DataError(
+            f"invalid committed transaction count in {primary}: {committed_txns}"
+        )
     if access_bytes is None:
         raise DataError(f"missing aggregate cxlprof byte counters: {primary}")
     cxl_bytes, dram_bytes, total_bytes = access_bytes
@@ -238,6 +255,7 @@ def validate_point(
         post_warmup[1] * pages_to_mib,
         post_exec[0] * pages_to_mib,
         post_exec[1] * pages_to_mib,
+        committed_txns,
     )
 
 
@@ -258,6 +276,8 @@ def collect(args):
     baseline_warmup = warmup_per_machine * args.baseline_machines
     for ratio in args.ratios:
         cluster_thp, baseline_thp, cxl, dram, totals = [], [], [], [], []
+        cluster_txns, baseline_txns = [], []
+        normalized_cxl, normalized_dram, normalized_totals = [], [], []
         baseline_cxl, baseline_dram, baseline_totals = [], [], []
         warmup_cxl_resident, warmup_dram_resident = [], []
         exec_cxl_resident, exec_dram_resident = [], []
@@ -276,9 +296,19 @@ def collect(args):
             )
             cluster_thp.append(cluster[0])
             baseline_thp.append(baseline[0])
+            cluster_txns.append(cluster[7])
+            baseline_txns.append(baseline[7])
             cxl.append(cluster[1])
             dram.append(cluster[2])
             totals.append(cluster[1] + cluster[2])
+            normalization = (
+                args.access_reference_txns / cluster[7]
+                if args.access_reference_txns > 0
+                else 1.0
+            )
+            normalized_cxl.append(cluster[1] * normalization)
+            normalized_dram.append(cluster[2] * normalization)
+            normalized_totals.append((cluster[1] + cluster[2]) * normalization)
             baseline_cxl.append(baseline[1])
             baseline_dram.append(baseline[2])
             baseline_totals.append(baseline[1] + baseline[2])
@@ -293,7 +323,12 @@ def collect(args):
             samples.append({
                 "ratio": ratio, "repetition": rep,
                 "cluster_thp": cluster[0], "baseline_thp": baseline[0],
+                "cluster_committed_txns": cluster[7],
+                "baseline_committed_txns": baseline[7],
                 "cxl_access_mib": cluster[1], "dram_access_mib": cluster[2],
+                "access_reference_txns": args.access_reference_txns,
+                "cxl_access_normalized_mib": cluster[1] * normalization,
+                "dram_access_normalized_mib": cluster[2] * normalization,
                 "baseline_cxl_access_mib": baseline[1],
                 "baseline_dram_access_mib": baseline[2],
                 "post_warmup_cxl_resident_mib": cluster[3],
@@ -314,11 +349,21 @@ def collect(args):
             "baseline_thp": baseline_mean,
             "baseline_std": std(baseline_thp),
             "scaleup": cluster_mean / baseline_mean,
+            "cluster_committed_txns": mean(cluster_txns),
+            "cluster_committed_txns_std": std(cluster_txns),
+            "baseline_committed_txns": mean(baseline_txns),
+            "baseline_committed_txns_std": std(baseline_txns),
             "cxl_access_mib": mean(cxl),
             "cxl_access_std": std(cxl),
             "dram_access_mib": mean(dram),
             "dram_access_std": std(dram),
             "total_access_std": std(totals),
+            "access_reference_txns": args.access_reference_txns,
+            "cxl_access_normalized_mib": mean(normalized_cxl),
+            "cxl_access_normalized_std": std(normalized_cxl),
+            "dram_access_normalized_mib": mean(normalized_dram),
+            "dram_access_normalized_std": std(normalized_dram),
+            "total_access_normalized_std": std(normalized_totals),
             "baseline_cxl_access_mib": mean(baseline_cxl),
             "baseline_cxl_access_std": std(baseline_cxl),
             "baseline_dram_access_mib": mean(baseline_dram),
@@ -365,8 +410,13 @@ def write_csvs(rows, samples, csv_dir: Path):
     fields = [
         "ratio_pct", "cluster_thp_mops_s", "cluster_thp_std",
         "baseline_thp_mops_s", "baseline_thp_std", "scaleup",
+        "cluster_committed_txns", "cluster_committed_txns_std",
+        "baseline_committed_txns", "baseline_committed_txns_std",
         "cxl_access_mib", "cxl_access_std", "dram_access_mib",
         "dram_access_std", "total_access_std",
+        "access_reference_txns", "cxl_access_normalized_mib",
+        "cxl_access_normalized_std", "dram_access_normalized_mib",
+        "dram_access_normalized_std", "total_access_normalized_std",
         "baseline_cxl_access_mib", "baseline_cxl_access_std",
         "baseline_dram_access_mib", "baseline_dram_access_std",
         "baseline_total_access_std",
@@ -390,9 +440,19 @@ def write_csvs(rows, samples, csv_dir: Path):
             writer.writerow(dict(zip(fields, [
                 row["ratio"], row["cluster_thp"], row["cluster_std"],
                 row["baseline_thp"], row["baseline_std"], row["scaleup"],
+                row["cluster_committed_txns"],
+                row["cluster_committed_txns_std"],
+                row["baseline_committed_txns"],
+                row["baseline_committed_txns_std"],
                 row["cxl_access_mib"], row["cxl_access_std"],
                 row["dram_access_mib"], row["dram_access_std"],
                 row["total_access_std"],
+                row["access_reference_txns"],
+                row["cxl_access_normalized_mib"],
+                row["cxl_access_normalized_std"],
+                row["dram_access_normalized_mib"],
+                row["dram_access_normalized_std"],
+                row["total_access_normalized_std"],
                 row["baseline_cxl_access_mib"],
                 row["baseline_cxl_access_std"],
                 row["baseline_dram_access_mib"],
@@ -418,7 +478,10 @@ def write_csvs(rows, samples, csv_dir: Path):
 
     sample_fields = [
         "ratio_pct", "repetition", "cluster_thp_mops_s",
-        "baseline_thp_mops_s", "cxl_access_mib", "dram_access_mib",
+        "baseline_thp_mops_s", "cluster_committed_txns",
+        "baseline_committed_txns", "cxl_access_mib", "dram_access_mib",
+        "access_reference_txns", "cxl_access_normalized_mib",
+        "dram_access_normalized_mib",
         "baseline_cxl_access_mib", "baseline_dram_access_mib",
         "post_warmup_cxl_resident_mib", "post_warmup_dram_resident_mib",
         "post_exec_cxl_resident_mib", "post_exec_dram_resident_mib",
@@ -434,7 +497,13 @@ def write_csvs(rows, samples, csv_dir: Path):
             writer.writerow(dict(zip(sample_fields, row.values())))
 
 
-def plot(rows, fig_dir: Path, machines: int, baseline_machines: int):
+def plot(
+    rows,
+    fig_dir: Path,
+    machines: int,
+    baseline_machines: int,
+    access_reference_txns: int,
+):
     fig_dir.mkdir(parents=True, exist_ok=True)
     x = np.arange(len(rows))
     labels = [str(row["ratio"]) for row in rows]
@@ -483,8 +552,13 @@ def plot(rows, fig_dir: Path, machines: int, baseline_machines: int):
     ax1.set_ylim(0, throughput_max * 1.2)
 
     mib_to_gib = 1 / 1024
-    dram = [r["dram_access_mib"] * mib_to_gib for r in rows]
-    cxl = [r["cxl_access_mib"] * mib_to_gib for r in rows]
+    dram_key = "dram_access_mib"
+    cxl_key = "cxl_access_mib"
+    if access_reference_txns > 0:
+        dram_key = "dram_access_normalized_mib"
+        cxl_key = "cxl_access_normalized_mib"
+    dram = [r[dram_key] * mib_to_gib for r in rows]
+    cxl = [r[cxl_key] * mib_to_gib for r in rows]
     dram_bars = ax2.bar(
         x, dram, width * 1.5, color=blue, edgecolor="black", linewidth=0.6,
         label="Local DRAM",
@@ -493,7 +567,7 @@ def plot(rows, fig_dir: Path, machines: int, baseline_machines: int):
         x, cxl, width * 1.5, bottom=dram, color=red, edgecolor="black",
         linewidth=0.6, label="Shared CXL",
     )
-    ax2.set(xticks=x, xticklabels=labels, ylabel="Access (GiB)")
+    ax2.set(xticks=x, xticklabels=labels, ylabel="Footprint (GiB)")
     max_access = max(
         dram_value + cxl_value
         for dram_value, cxl_value in zip(dram, cxl)
@@ -592,6 +666,14 @@ def resolve_scope(args):
             value = manifest_int(params, manifest_key, manifest_path)
         setattr(args, name, value)
 
+    if args.access_reference_txns is None:
+        if params is not None and "ACCESS_REFERENCE_TXNS" in params:
+            args.access_reference_txns = manifest_int(
+                params, "ACCESS_REFERENCE_TXNS", manifest_path
+            )
+        else:
+            args.access_reference_txns = 0
+
     positive_names = (
         "num_machines",
         "baseline_machines",
@@ -607,6 +689,8 @@ def resolve_scope(args):
             raise DataError(f"{name.replace('_', '-')} must be positive")
     if args.measure_sec < 0:
         raise DataError("measure-sec must be non-negative")
+    if args.access_reference_txns < 0:
+        raise DataError("access-reference-txns must be non-negative")
     if any(ratio < 0 or ratio > 100 for ratio in args.ratios):
         raise DataError("ratios must be in [0, 100]")
     if len(set(args.ratios)) != len(args.ratios):
@@ -632,6 +716,14 @@ def main():
     parser.add_argument("--warmup", type=int)
     parser.add_argument("--max-txn", type=int)
     parser.add_argument("--measure-sec", type=int)
+    parser.add_argument(
+        "--access-reference-txns",
+        type=int,
+        help=(
+            "normalize measured access bytes to this committed-transaction "
+            "count; 0 keeps raw bytes"
+        ),
+    )
     parser.add_argument("--repetitions", type=int)
     parser.add_argument("--ratios", nargs="+", type=int)
     args = parser.parse_args()
@@ -643,7 +735,13 @@ def main():
     except (DataError, OSError, ValueError) as error:
         parser.error(str(error))
     write_csvs(rows, samples, args.csv_dir)
-    plot(rows, args.fig_dir, args.num_machines, args.baseline_machines)
+    plot(
+        rows,
+        args.fig_dir,
+        args.num_machines,
+        args.baseline_machines,
+        args.access_reference_txns,
+    )
 
 
 if __name__ == "__main__":

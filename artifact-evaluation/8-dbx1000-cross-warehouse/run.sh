@@ -27,6 +27,7 @@ if [ "$DBX_SMOKE" = 1 ]; then
     DEFAULT_TIMEOUT=600
     DEFAULT_LOG_STALL=0
     DEFAULT_MEASURE_SEC=2
+    DEFAULT_ACCESS_REFERENCE_TXNS=0
 elif [ "$DBX_SMOKE" = 0 ]; then
     DEFAULT_RATIOS="0 15 50 80 100"
     DEFAULT_MACHINES=8
@@ -55,6 +56,9 @@ elif [ "$DBX_SMOKE" = 0 ]; then
     DEFAULT_TIMEOUT=1050
     DEFAULT_LOG_STALL=0
     DEFAULT_MEASURE_SEC=5
+    # Compare memory tiers for the same amount of DB work. Raw bytes remain in
+    # the CSV; the figure normalizes them to this committed-transaction count.
+    DEFAULT_ACCESS_REFERENCE_TXNS=4000000
 else
     echo "DBX_SMOKE must be 0 or 1" >&2
     exit 1
@@ -79,6 +83,7 @@ EXIT_TIMEOUT="${DBX_EXIT_TIMEOUT:-120}"
 # commits MAX_TXN_PER_PART transactions and the window length therefore depends
 # on which worker got there first.
 MEASURE_SEC="${DBX_MEASURE_SEC:-$DEFAULT_MEASURE_SEC}"
+ACCESS_REFERENCE_TXNS="${DBX_ACCESS_REFERENCE_TXNS:-$DEFAULT_ACCESS_REFERENCE_TXNS}"
 # Host NUMA pinning for the guests (qemu_wrapper.sh). It has to be forwarded
 # explicitly: ae_boot_cluster launches simulate.sh inside a tmux pane and only
 # AE_EXTRA_ENV crosses that boundary, so exporting the variable in this shell
@@ -100,19 +105,18 @@ BASELINE_MACHINES=1
 MALLOC_MODE="${DBX_MALLOC_MODE:-MIXED_DEFAULT_DRAM}"
 USER_MALLOC_MODE="${DBX_USER_MALLOC_MODE:-DEFAULT_DRAM}"
 # The one-machine baseline gets its own placement, and it is CXL-backed on
-# purpose. Cross-machine faults migrate cluster pages into CXL and never move
-# them back, so by steady state the cluster serves ~99% of its accesses from
-# there; a DRAM-backed baseline would therefore compare two memory tiers rather
-# than two machine counts, and would flatter the cluster's scaleup.
+# purpose. Cross-machine faults migrate part of the cluster working set into
+# CXL; a DRAM-backed baseline would therefore compare different memory-tier
+# policies rather than isolate the machine-count effect.
 BASELINE_MALLOC_MODE="${DBX_BASELINE_MALLOC_MODE:-MIXED_DEFAULT_CXL}"
 BASELINE_USER_MALLOC_MODE="${DBX_BASELINE_USER_MALLOC_MODE:-DEFAULT_CXL}"
 # Case 2.3 DSM read-ahead depth in pages (1 disables read-ahead).  Bounded by
 # POLLING_TLB_BATCH_MAX, which this must never change: it sizes entries[] in
 # the kernel/polling shared-memory ABI struct.
-READAHEAD="${DBX_READAHEAD:-4}"
-# CXL residency cap experiment. Override with OFF for the no-cap baseline.
-# Keep the fixed cap and policy scoped to this target.
-CXL_DEMOTE="${DBX_CXL_DEMOTE:-ON}"
+READAHEAD="${DBX_READAHEAD:-2}"
+# CXL residency-cap variant. The tuned figure leaves demotion off; override
+# with ON to evaluate the fixed cap and policy scoped to this target.
+CXL_DEMOTE="${DBX_CXL_DEMOTE:-OFF}"
 CXL_DEMOTE_LIMIT_MB="${DBX_CXL_DEMOTE_LIMIT_MB:-1024}"
 CXL_DEMOTE_POLICY="${DBX_CXL_DEMOTE_POLICY:-CLOCK}"
 
@@ -154,6 +158,9 @@ is_positive_int "$CXL_DEMOTE_LIMIT_MB" || {
 }
 [[ "$MEASURE_SEC" =~ ^[0-9]+$ ]] || {
     echo "DBX_MEASURE_SEC must be a non-negative integer" >&2; exit 1;
+}
+[[ "$ACCESS_REFERENCE_TXNS" =~ ^[0-9]+$ ]] || {
+    echo "DBX_ACCESS_REFERENCE_TXNS must be a non-negative integer" >&2; exit 1;
 }
 [ "$NUM_MACHINES" -ge 2 ] && [ "$NUM_MACHINES" -le 8 ] || {
     echo "NUM_MACHINES must be in [2, 8]" >&2; exit 1;
@@ -396,7 +403,8 @@ set_placement "$MALLOC_MODE" "$USER_MALLOC_MODE"
 ae_manifest_set_vars \
     DBX_SMOKE NUM_MACHINES BASELINE_MACHINES NUM_WAREHOUSES \
     WAREHOUSES_PER_MACHINE THREADS_PER_MACHINE WARMUP WARMUP_PER_MACHINE \
-    MAX_TXN MEASURE_SEC RATIOS REPETITIONS DRAM_SIZE GUEST_CPUS NUMA_BIND \
+    MAX_TXN MEASURE_SEC ACCESS_REFERENCE_TXNS RATIOS REPETITIONS DRAM_SIZE \
+    GUEST_CPUS NUMA_BIND \
     MALLOC_MODE USER_MALLOC_MODE READAHEAD CXL_DEMOTE CXL_DEMOTE_LIMIT_MB \
     CXL_DEMOTE_POLICY \
     BASELINE_MALLOC_MODE BASELINE_USER_MALLOC_MODE TIMEOUT
@@ -418,6 +426,7 @@ python3 "$AE_DIR/plot.py" --log-dir "$AE_LOG_DIR" --csv-dir "$CSV_DIR" \
     --guest-cpus "$GUEST_CPUS" \
     --max-txn "$MAX_TXN" --warmup "$WARMUP" --repetitions "$REPETITIONS" \
     --measure-sec "$MEASURE_SEC" \
+    --access-reference-txns "$ACCESS_REFERENCE_TXNS" \
     --ratios "${RATIO_LIST[@]}"
 
 echo "Artifact output: $OUT_DIR"
